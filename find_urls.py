@@ -2,9 +2,13 @@ import requests
 from bs4 import BeautifulSoup
 import os
 
-# Configuration for the target website
-TARGET_URL = "https://en.wikipedia.org/wiki/Main_Page" # Main page of Wikipedia
-URL_PREFIX = "/wiki/" # The prefix for all valid Wikipedia article URLs
+# Configuration for multiple target websites
+TARGET_SITES = {
+    "https://en.wikipedia.org/wiki/Main_Page": "https://en.wikipedia.org/wiki/",
+    "https://example.com/blog/": "https://example.com/blog/"
+    # Add more sites here in the format: "URL": "URL_PREFIX"
+}
+
 URLS_FILE = "urls.txt"
 
 def find_new_urls(target_url, url_prefix):
@@ -19,9 +23,10 @@ def find_new_urls(target_url, url_prefix):
         found_urls = set()
         for link in soup.find_all('a', href=True):
             href = link.get('href')
-            # Check for the correct prefix and ignore special/system links
-            if href and href.startswith(url_prefix) and ":" not in href and "Main_Page" not in href:
-                full_url = "https://en.wikipedia.org" + href
+            # Check for correct prefix and ignore special/system links
+            if href and href.startswith(url_prefix):
+                # Clean up relative URLs and add them to the set
+                full_url = href if href.startswith('http') else url_prefix.rstrip('/') + href
                 found_urls.add(full_url)
         return found_urls
     except requests.exceptions.RequestException as e:
@@ -35,7 +40,6 @@ def update_urls_file(new_urls):
         with open(URLS_FILE, "r") as f:
             existing_urls = {line.strip() for line in f.readlines()}
 
-    # Find the URLs that are new
     new_and_unique = new_urls - existing_urls
 
     if new_and_unique:
@@ -50,11 +54,15 @@ def update_urls_file(new_urls):
 
 def main():
     """Main function to discover and update URLs."""
-    discovered_urls = find_new_urls(TARGET_URL, URL_PREFIX)
-    if discovered_urls:
-        if update_urls_file(discovered_urls):
-            return 0 # Success, changes made
-    return 1 # No changes, nothing to commit
+    total_discovered_urls = set()
+    for target_url, url_prefix in TARGET_SITES.items():
+        discovered_urls = find_new_urls(target_url, url_prefix)
+        total_discovered_urls.update(discovered_urls)
+
+    if total_discovered_urls:
+        if update_urls_file(total_discovered_urls):
+            return 0  # Success, changes made
+    return 1  # No changes, nothing to commit
 
 if __name__ == "__main__":
     import sys
