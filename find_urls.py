@@ -3,23 +3,26 @@ from bs4 import BeautifulSoup
 import os
 
 # Configuration for the target website
-TARGET_URL = "https://example.com/blog" # Replace with your target URL
-URL_PREFIX = "https://example.com/articles/" # Replace with the prefix of the URLs you want to find
+TARGET_URL = "https://en.wikipedia.org/wiki/Main_Page" # Main page of Wikipedia
+URL_PREFIX = "/wiki/" # The prefix for all valid Wikipedia article URLs
 URLS_FILE = "urls.txt"
 
 def find_new_urls(target_url, url_prefix):
     """Crawls a target page and finds new URLs matching a prefix."""
     try:
         print(f"Crawling {target_url} for new links...")
-        response = requests.get(target_url, timeout=10)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+        response = requests.get(target_url, headers=headers, timeout=10)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
         found_urls = set()
         for link in soup.find_all('a', href=True):
             href = link.get('href')
-            if href and href.startswith(url_prefix):
-                found_urls.add(href)
+            # Check for the correct prefix and ignore special/system links
+            if href and href.startswith(url_prefix) and ":" not in href and "Main_Page" not in href:
+                full_url = "https://en.wikipedia.org" + href
+                found_urls.add(full_url)
         return found_urls
     except requests.exceptions.RequestException as e:
         print(f"Error finding URLs from {target_url}: {e}")
@@ -50,8 +53,8 @@ def main():
     discovered_urls = find_new_urls(TARGET_URL, URL_PREFIX)
     if discovered_urls:
         if update_urls_file(discovered_urls):
-            return 0  # Success, changes made
-    return 1  # No changes, nothing to commit
+            return 0 # Success, changes made
+    return 1 # No changes, nothing to commit
 
 if __name__ == "__main__":
     import sys
