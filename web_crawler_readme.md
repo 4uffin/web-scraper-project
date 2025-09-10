@@ -1,0 +1,155 @@
+# Web Crawler Project
+
+An automated web crawling system that discovers URLs from target websites and extracts their plain text content using GitHub Actions.
+
+## Overview
+
+This project consists of two main components:
+- **URL Discovery**: Automatically finds new URLs from configured target websites
+- **Web Crawling**: Extracts plain text content from discovered URLs and saves them locally
+
+Both processes run automatically on a schedule using GitHub Actions, with the ability to trigger them manually.
+
+## Features
+
+- 🔄 **Automated URL Discovery**: Scans target websites for new links matching specified prefixes
+- 📄 **Plain Text Extraction**: Converts HTML content to clean, readable plain text
+- 🚀 **GitHub Actions Integration**: Runs automatically every hour with manual trigger support
+- 📁 **Change Detection**: Only saves content when changes are detected to minimize commits
+- 🛡️ **Error Handling**: Continues operation even if individual URLs fail
+- 🔧 **Configurable Targets**: Easy to add new websites to crawl
+
+## Project Structure
+
+```
+├── .github/workflows/
+│   ├── find-urls.yml      # GitHub Action for URL discovery
+│   └── crawl.yml          # GitHub Action for web crawling
+├── crawled_output/        # Directory containing extracted text files
+├── find_urls.py          # URL discovery script
+├── crawl.py              # Web crawling script
+├── urls.txt              # List of URLs to crawl
+├── requirements.txt      # Python dependencies
+└── README.md            # This file
+```
+
+## How It Works
+
+### URL Discovery Process
+1. Scans configured target websites (currently Wikipedia and kernel.org)
+2. Extracts links that match specified URL prefixes
+3. Adds new, unique URLs to `urls.txt`
+4. Commits changes if new URLs are found
+
+### Web Crawling Process
+1. Reads URLs from `urls.txt`
+2. Fetches each URL and extracts plain text content
+3. Saves content to individual `.txt` files in `crawled_output/`
+4. Only saves files when content has changed
+5. Commits changes if any files were updated
+
+## Configuration
+
+### Adding New Target Websites
+
+Edit the `TARGET_SITES` dictionary in `find_urls.py`:
+
+```python
+TARGET_SITES = {
+    "https://en.wikipedia.org/wiki/Main_Page": "https://en.wikipedia.org/wiki/",
+    "https://kernel.org/": "https://www.kernel.org/category/",
+    "https://example.com/": "https://example.com/section/"  # Add new sites here
+}
+```
+
+### Schedule Configuration
+
+Both workflows run hourly by default. To change the schedule, modify the cron expression in the workflow files:
+
+```yaml
+schedule:
+  - cron: '0 * * * *'  # Every hour
+```
+
+## Setup Instructions
+
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd <repo-name>
+   ```
+
+2. **Install dependencies locally (optional)**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Configure target websites** (optional)
+   - Edit `TARGET_SITES` in `find_urls.py` to add new websites
+
+4. **Enable GitHub Actions**
+   - Ensure Actions are enabled in your repository settings
+   - The workflows will start running automatically
+
+## Manual Execution
+
+### Run URL Discovery
+```bash
+python find_urls.py
+```
+
+### Run Web Crawling
+```bash
+python crawl.py
+```
+
+### Trigger GitHub Actions Manually
+1. Go to the "Actions" tab in your GitHub repository
+2. Select either "Find New URLs" or "Web Crawler"
+3. Click "Run workflow"
+
+## Dependencies
+
+- `requests`: HTTP library for fetching web pages
+- `beautifulsoup4`: HTML parsing library for extracting content and links
+
+## GitHub Actions Permissions
+
+Both workflows require the following permissions:
+- `contents: write` - To commit and push changes to the repository
+
+## Output
+
+- **URLs**: New discovered URLs are appended to `urls.txt`
+- **Content**: Plain text content is saved as `.txt` files in `crawled_output/`
+- **Commits**: Automated commits are made when changes are detected
+
+## Error Handling
+
+- Individual URL failures don't stop the entire process
+- Network timeouts are handled gracefully
+- Invalid URLs are skipped with error messages
+- Workflows use `continue-on-error: true` to maintain robustness
+
+## Current Target Sites
+
+- **Wikipedia**: Discovers article pages from the main page
+- **Kernel.org**: Finds category pages and documentation
+
+## Notes
+
+- The crawler respects basic web etiquette with User-Agent headers
+- Content is cleaned to remove scripts, styles, and excessive whitespace
+- Only commits changes when new content is found to keep the repository clean
+- All URLs and content are stored as plain text for easy version control
+
+## Contributing
+
+1. Fork the repository
+2. Add your target websites to `TARGET_SITES`
+3. Test the changes locally
+4. Submit a pull request
+
+## License
+
+This project is open source. Please ensure you comply with the terms of service of any websites you crawl.
