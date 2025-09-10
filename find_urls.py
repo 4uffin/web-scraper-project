@@ -5,7 +5,7 @@ import os
 # Configuration for multiple target websites
 TARGET_SITES = {
     "https://en.wikipedia.org/wiki/Main_Page": "https://en.wikipedia.org/wiki/",
-    "https://example.com/blog/": "https://example.com/blog/"
+    "https://kernel.org/": "https://www.kernel.org/category/"
     # Add more sites here in the format: "URL": "URL_PREFIX"
 }
 
