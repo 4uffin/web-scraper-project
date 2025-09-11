@@ -5,8 +5,32 @@ import os
 # Configuration for multiple target websites
 TARGET_SITES = {
     "https://en.wikipedia.org/wiki/Main_Page": "https://en.wikipedia.org/wiki/",
-    "https://kernel.org/": "https://www.kernel.org/category/"
-    # Add more sites here in the format: "URL": "URL_PREFIX"
+    "https://kernel.org/": "https://www.kernel.org/",
+    # Technology and Programming Sites
+    "https://github.com/trending": "https://github.com/",
+    "https://stackoverflow.com/": "https://stackoverflow.com/",
+    "https://news.ycombinator.com/": "https://news.ycombinator.com/",
+    "https://www.reddit.com/r/programming/": "https://www.reddit.com/",
+    # News and Media
+    "https://www.bbc.com/news": "https://www.bbc.com/",
+    "https://www.reuters.com/": "https://www.reuters.com/",
+    "https://techcrunch.com/": "https://techcrunch.com/",
+    # Educational and Reference
+    "https://developer.mozilla.org/en-US/": "https://developer.mozilla.org/",
+    "https://www.w3schools.com/": "https://www.w3schools.com/",
+    "https://docs.python.org/3/": "https://docs.python.org/",
+    # E-commerce and Popular Sites
+    "https://www.amazon.com/": "https://www.amazon.com/",
+    "https://www.ebay.com/": "https://www.ebay.com/",
+    # Academic and Research
+    "https://arxiv.org/": "https://arxiv.org/",
+    "https://scholar.google.com/": "https://scholar.google.com/",
+    # Entertainment
+    "https://www.imdb.com/": "https://www.imdb.com/",
+    "https://www.youtube.com/": "https://www.youtube.com/",
+    # Blogs and Forums
+    "https://medium.com/": "https://medium.com/",
+    "https://dev.to/": "https://dev.to/"
 }
 
 URLS_FILE = "urls.txt"
