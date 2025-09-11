@@ -70,7 +70,7 @@ TARGET_SITES = {
 
 ### Schedule Configuration
 
-Both workflows run hourly by default. To change the schedule, modify the cron expression in the workflow files:
+Both workflows run hourly by default. To change the schedule, modify the ```cron``` expression in the workflow files:
 
 ```yaml
 schedule:
