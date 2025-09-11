@@ -2,6 +2,8 @@
 >
 > THE REST OF THIS PROJECT WAS CREATED USING GOOGLE GEMINI 2.5 FLASH. EXPECT BUGS AND USE WITH CAUTION!
 
+![GitHub repo size](https://img.shields.io/github/repo-size/4uffin/web-crawler-project)
+
 **To view what's been crawled click [here](crawled_output)**
 
 # Web Crawler Project
