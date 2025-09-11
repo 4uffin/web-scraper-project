@@ -1,0 +1,314 @@
+c++ - Why does std::set::contains() call the spaceship operator twice on a target element? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Why does std::set::contains() call the spaceship operator twice on a target element?
+Ask Question
+Asked
+2 days ago
+Modified
+today
+Viewed
+2k times
+16
+Consider:
+#include <print>
+#include <set>
+struct Num {
+auto operator <=> (const Num& other) const{
+std::println ("{} <=> {}", val, other.val);
+return val <=> other.val;
+};
+int val;
+};
+int main() {
+std::set<Num> s{{1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}};
+std::println("------------");
+return !s.contains({8});
+}
+For the part that calls contains this prints out (among other things):
+...
+8 <=> 8
+7 <=> 8
+8 <=> 8
+I would expect that after calling the spaceship operator with arguments (8,8), the set would know it found the element and can return true immediately.
+Is this just because std::set in implementations I checked (libc++ and libstdc++) was never updated to move from using logic written for operator <, or is there a more fundamental reason for this? Is this still faster than all the time checking if compared elements are equal (since that happens at most once during lookup and moves the logic from handling two outcomes to handling three outcomes)?
+c++c++20spaceship-operator
+Share
+Improve this question
+Follow
+edited 23 hours ago
+Peter Mortensen
+31.6k2222 gold badges110110 silver badges134134 bronze badges
+asked 2 days ago
+NoSenseEtAlNoSenseEtAlNoSenseEtAl
+30.7k3434 gold badges153153 silver badges331331 bronze badges
+5
+2
+Without reading the current standard, I'd say you're on to something. Previous standards said it used operator< (or was it std::less) to do the comparison and I guess that's still there.
+Ted Lyngmo
+–
+Ted Lyngmo
+2025-09-09 17:37:46 +00:00
+Commented
+2 days ago
+7
+It would call std::less twice, which in turn calls <=>. Set doesn't use == for equality, just comp( a, b ) and comp( b, a )
+ChrisMM
+–
+ChrisMM
+2025-09-09 17:42:22 +00:00
+Commented
+2 days ago
+And on top of that it is traversing a tree, so you see the lookup being O(log n) when calling contains.
+Which will do two more comps on each node
+Pepijn Kramer
+–
+Pepijn Kramer
+2025-09-09 17:47:18 +00:00
+Commented
+2 days ago
+Are you sure @Pepijn?
+I think only the last node reached is tested the other way, not the intermediate nodes.
+Toby Speight
+–
+Toby Speight
+2025-09-10 10:51:23 +00:00
+Commented
+yesterday
+@TobySpeight I am about the binary search, indeed not about the two compares along the way.
+Pepijn Kramer
+–
+Pepijn Kramer
+2025-09-10 11:41:09 +00:00
+Commented
+yesterday
+Add a comment
+|
+2 Answers
+2
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+21
+std::set bases its ordering of the contents on a template parameter. And the ordering functor doesn't test equality; it only says if one item is "less than" another. As such, set considers two objects to be equivalent if the ordering functor returns false for comp(A, B) and comp(B, A) (neither is "less than" the other).
+So even if operator<=> is being called, set doesn't know that. All it sees is the ordering; it has to manufacture equivalence.
+Share
+Improve this answer
+Follow
+answered 2 days ago
+Nicol BolasNicol BolasNicol Bolas
+480k6666 gold badges856856 silver badges1.1k1.1k bronze badges
+4 Comments
+Add a comment
+NoSenseEtAl NoSenseEtAl 2 days ago
+not sure this prevents asif optimization for case when comparator is std::less or std::greater, I know set can not unpack arbitrary comparators and see what they do, but very common case is that std::less or std::greater is used 2025-09-09T18:18:27.64Z+00:00
+0
+Reply
+Copy link
+463035818_is_not_an_ai 463035818_is_not_an_ai 2 days ago
+The comparator is std::less (the default). The thing is that equivalence is more general than equality. Eg you can have a set that considers all even numbers equivalent (by defining a<b as a%2 < b%2), still 2 and 4 are not equal. 2025-09-09T18:24:51.447Z+00:00
+3
+Reply
+Copy link
+NoSenseEtAl NoSenseEtAl 2 days ago
+tbh not that sure...
+maybe you can prove that equivalence is same as equality by considering return type of spaceship
+stackoverflow.com/questions/65363684/… 2025-09-09T18:28:28.943Z+00:00
+2
+Copy link
+Brian Bi Brian Bi yesterday
+Optimizations under the as-if rule are allowed only if they don't change the observable behaviour of the program. Changing from two calls to std::println to one would be a change in observable behaviour. 2025-09-10T00:13:42.21Z+00:00
+4
+Reply
+Copy link
+8
+std::set compares items using a comparator comp that can only say whether or not one value is less than another. In order to check whether two values are equivalent according to comp, at least two calls are needed, because x and y can be determined to be equivalent only if comp(x, y) and comp(y, x) are both false.
+By default, comp is an object of type std::less<Num>, which in turn performs the comparison using the < operator. When two objects of type Num are compared using the less-than operator, the compiler rewrites x < y into the form (x <=> y) < 0 because there is no operator< that can perform the comparison directly. So you get two calls to operator<=>.
+Share
+Improve this answer
+Follow
+answered yesterday
+Brian BiBrian BiBrian Bi
+122k1212 gold badges194194 silver badges351351 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++c++20spaceship-operator
+See similar questions with these tags.
+The Overflow Blog
+We built stackoverflow.ai with the community and for the community
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+6
+Why is there an `equivalent` value for std::strong_ordering?
+Related
+344
+What is the <=> ("spaceship", three-way comparison) operator in C++?
+315
+What is the Ruby <=> (spaceship) operator?
+290
+What is <=> (the 'Spaceship' Operator) in PHP 7?
+957
+Why does C++ code for testing the Collatz conjecture run faster than hand-written assembly?
+483
+How to check that an element is in a std::set?
+595
+What are the main purposes of std::forward and which problems does it solve?
+9
+Why does std::tuple call operator <=> twice?
+23
+Is there a std::less/std::greater for the spaceship operator?
+3
+Loki functor - memory issue
+Hot Network Questions
+How much am I likely to get when my preferred stock reaches maturity?
+How to make a gap between vertical plates?
+Placement, agreement and functional role of "y compris"
+Restore rhythmbox library
+Mysterious prompt for sudo password while opening new shell
+Poland invokes Article 4 of NATO Charter in response to Russian incursion, when and why has this Article been invoked before?
+How to fix a slightly deformed snap hook?
+"senior" as honorific?
+Who are some lesser-known women in science whose work was foundational but overlooked?
+False-looking Factor
+Is a massive solar farm around the runway a big risk for takeoff and landing?
+A Reflection on Plato’s Allegory of the Cave: Is the Sun Just a Larger Fire?
+Why does the output voltage waveform look like this in the case of impedance mismatch?
+Can the local Lipschitz constant be greater than the gradient norm a.e.?
+Github actions workflow for release and publishing to PyPI using uv
+How should I support an aluminum door threshold on a sloped surface?
+Why does the bridge officer turn the Poseidon to meet a rogue wave with its side, rather than its bow?
+Short Story. Scientist tries to protect the world. Sucessfully alters the laws of physics to prevent nuclear weapons from working
+Boltzmann correction factor for free particles but not for harmonic oscillators?
+Flying to Antarctica from Southern Chile
+How can calibration plots for my model's predictions look good while the standard metrics (ROC AUC, F-score, etc.) look poor?
+Can you make caramel candy on a flat top stove with aluminum pans
+According to Chalcedonian Trinitarians, if Jesus retained omniscience then why does scripture state he increased in wisdom and learning?
+(Recent?) Novel about million-year mission in a starship, crew rebels against AI?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.11.33873
