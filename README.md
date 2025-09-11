@@ -2,6 +2,8 @@
 >
 > THE REST OF THIS PROJECT WAS CREATED USING GOOGLE GEMINI 2.5 FLASH. EXPECT BUGS AND USE WITH CAUTION!
 
+**To view what's been crawled click [here](crawled_output)**
+
 # Web Crawler Project
 
 An automated web crawling system that discovers URLs from target websites and extracts their plain text content using GitHub Actions.
@@ -156,4 +158,4 @@ Both workflows require the following permissions:
 
 ## License
 
-This project is open source. Please ensure you comply with the terms of service of any websites you crawl.
+This project is under the MIT License. Visit [LICENSE](LICENSE) for more information.
