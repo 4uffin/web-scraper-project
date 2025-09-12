@@ -1,0 +1,439 @@
+Using Device Sensors in ArkTS for HarmonyOS — a Step-by-Step Guide - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+HarmonyOS
+Posted on Sep 12
+Using Device Sensors in ArkTS for HarmonyOS — a Step-by-Step Guide
+#iot
+#mobile
+#tutorial
+#typescript
+Read the original article：Using Device Sensors in ArkTS for HarmonyOS — a Step-by-Step Guide
+Introduction
+Want to make your HarmonyOS app move, tilt, count steps, or even read heart rate? In this hands-on guide, you’ll learn how to access and visualize multiple device sensors in an ArkTS app using the @kit.SensorServiceKit. We’ll walk through permissions, subscriptions, UI binding, power-saving unsubscriptions, and a simple dashboard that streams live sensor data.
+What you'll build
+A tiny Sensor Dashboard page that:
+· Requests the right permissions
+· Subscribes to a bunch of common sensors (accelerometer, gyroscope, light, pressure, humidity, temperature, gravity, orientation, heart rate, pedometer)
+· Streams live readings onto the screen
+· Cleans up listeners to save battery
+TL;DR (for the impatient)
+Import the kits you need (SensorServiceKit, AbilityKit, etc.).
+Ask for permissions (e.g., ACCELEROMETER, READ_HEALTH_DATA).
+Subscribe to sensors with sensor.on(...) (or sensor.once(...)).
+Render the data with ArkTS @State variables.
+Unsubscribe in aboutToDisappear() with sensor.off(...).
+Ship — but remember: not every device has every sensor.
+Background: How HarmonyOS sensors work
+HarmonyOS exposes sensors via the @kit.SensorServiceKit module. Each physical sensor is identified by a sensor.SensorId constant and delivers data through a typed response (e.g., AccelerometerResponse, OrientationResponse).
+Typical use cases:
+· Fitness & Health: Steps, heart rate, movement, sleep
+· Environment: Ambient light, humidity, pressure, temperature
+· UX & Games: Gestures, tilt, orientation
+· Automation: Flip, shake, or motion-triggered actions
+Data arrives asynchronously via listeners, and you can set sampling intervals to balance responsiveness and battery life.
+Prerequisites
+· HarmonyOS dev environment set up
+· Basic ArkTS + declarative UI understanding
+· A device (or emulator — don’t forget you cant use every sensor value with emulator) that actually has the sensors you want to read
+Step 1 — Create a tiny permission helper
+Create utils/PermissionsUtil.ets to centralize permission checks and prompts:
+import { abilityAccessCtrl, bundleManager, common, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+const domain = 0x0000;
+class PermissionsUtil {
+async checkPermissions(permissions: Array<Permissions>): Promise<void> {
+let applyResult: boolean = false;
+for (let permission of permissions) {
+let grantStatus: abilityAccessCtrl.GrantStatus = await this.checkAccessToken(permission);
+if (grantStatus === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED) {
+hilog.info(domain, 'testTag', '%{public}s', 'CheckPermission is granted');
+applyResult = true;
+} else {
+hilog.info(domain, 'testTag', '%{public}s', 'CheckPermission is not granted');
+applyResult = false;
+}
+}
+if (!applyResult) {
+this.requestPermissions(permissions);
+}
+}
+async checkAccessToken(permission: Permissions): Promise<abilityAccessCtrl.GrantStatus> {
+let atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
+let grantStatus: abilityAccessCtrl.GrantStatus = abilityAccessCtrl.GrantStatus.PERMISSION_DENIED;
+let tokenId: number = 0;
+try {
+let bundleInfo: bundleManager.BundleInfo =
+await bundleManager.getBundleInfoForSelf(bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION);
+let appInfo: bundleManager.ApplicationInfo = bundleInfo.appInfo;
+tokenId = appInfo.accessTokenId;
+} catch (error) {
+let err: BusinessError = error as BusinessError;
+hilog.error(0x0000,'',`Failed to get bundle info for self. Code is ${err.code}, message is ${err.message}`);
+}
+try {
+grantStatus = await atManager.checkAccessToken(tokenId, permission);
+} catch (error) {
+let err: BusinessError = error as BusinessError;
+hilog.error(0x0000,'',`Failed to check access token. Code is ${err.code}, message is ${err.message}`);
+}
+return grantStatus;
+}
+requestPermissions(permissions: Array<Permissions>): void {
+let atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
+atManager.requestPermissionsFromUser(getContext() as common.UIAbilityContext, permissions)
+.then((data: PermissionRequestResult) => {
+hilog.info(0x0000,'','request Permissions success')
+})
+.catch((err: BusinessError) => {
+hilog.error(0x0000,'',`Failed to request permissions from user. Code is ${err.code}, message is ${err.message}`);
+})
+}
+async requestPermission(permissions: Permissions[],
+context: common.UIAbilityContext): Promise<boolean> {
+let atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
+const result = await atManager.requestPermissionsFromUser(context, permissions);
+return !!result.authResults.length && result.authResults.every(authResults => authResults === 0);
+}
+}
+export default new PermissionsUtil();
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2 — Declare the permissions in module.json5
+Add only what you need;
+...
+"requestPermissions": [
+{
+"name": "ohos.permission.ACCELEROMETER",
+"reason": "$string:EntryAbility_desc",
+"usedScene": {
+"abilities": [ "EntryAbility" ],
+"when": "always"
+}
+},
+{
+"name": "ohos.permission.ACTIVITY_MOTION",
+"reason": "$string:EntryAbility_desc",
+"usedScene": {
+"abilities": [ "EntryAbility" ],
+"when": "always"
+}
+},
+{
+"name": "ohos.permission.GYROSCOPE",
+"reason": "$string:EntryAbility_desc",
+"usedScene": {
+"abilities": [ "EntryAbility" ],
+"when": "always"
+}
+},
+{
+"name": "ohos.permission.READ_HEALTH_DATA",
+"reason": "$string:EntryAbility_desc",
+"usedScene": {
+"abilities": [ "EntryAbility" ],
+"when": "always"
+}
+}
+]
+Enter fullscreen mode
+Exit fullscreen mode
+Tip: READ_HEALTH_DATA is required for things like heart rate and pedometer.
+Step 3 — Build the Sensor Dashboard page
+Create your Index component and wire everything together.
+Key ideas
+· Use @State to bind sensor values directly to the UI.
+· Use sensor.on(...) with an interval (specified in nanoseconds).
+· Always call sensor.off(...) to unsubscribe when the page disappears.
+import { sensor } from '@kit.SensorServiceKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import PermissionsUtil from '../utils/PermissionsUtil';
+@Entry
+@Component
+struct Index {
+@State accelerometer: string = '';
+@State gyroscope: string = '';
+@State light: string = '';
+@State pressure: string = '';
+@State humidity: string = '';
+@State temperature: string = '';
+@State orientation: string = '';
+@State gravity: string = '';
+@State heartData: number = 111;
+@State pedometer: number = 111;
+aboutToAppear(): void {
+const INTERVAL = 100_000_000; // 100 ms in nanoseconds
+PermissionsUtil.requestPermissions([
+'ohos.permission.ACCELEROMETER',
+'ohos.permission.ACTIVITY_MOTION',
+'ohos.permission.GYROSCOPE',
+'ohos.permission.READ_HEALTH_DATA'
+]);
+try {
+sensor.on(sensor.SensorId.ACCELEROMETER, (data) => {
+this.accelerometer = `x:${data.x.toFixed(2)}, y:${data.y.toFixed(2)}, z:${data.z.toFixed(2)}`;
+}, { interval: INTERVAL });
+} catch (error) {
+let e: BusinessError = error as BusinessError;
+console.error(`Accelerometer error: ${e.message}`);
+}
+try {
+sensor.on(sensor.SensorId.PEDOMETER, (data: sensor.PedometerResponse) => {
+this.pedometer = data.steps;
+console.info('Succeeded in invoking once. Step count: ' + data.steps);
+});
+} catch (error) {
+let e: BusinessError = error as BusinessError;
+console.error(`Failed to invoke once. Code: ${e.code}, message: ${e.message}`);
+}
+try {
+sensor.on(sensor.SensorId.GYROSCOPE, (data) => {
+this.gyroscope = `x:${data.x.toFixed(2)}, y:${data.y.toFixed(2)}, z:${data.z.toFixed(2)}`;
+}, { interval: INTERVAL });
+} catch (error) {
+console.error("Gyroscope failed.");
+}
+try {
+sensor.on(sensor.SensorId.GRAVITY, (data: sensor.GravityResponse) => {
+this.gravity = `x:${data.x.toFixed(2)}, y:${data.y.toFixed(2)}, z:${data.z.toFixed(2)}`;
+console.info('Gravity: x=' + data.x + ', y=' + data.y + ', z=' + data.z);
+}, { interval: INTERVAL });
+setTimeout(() => {
+sensor.off(sensor.SensorId.GRAVITY);
+}, 500);
+} catch (error) {
+let e: BusinessError = error as BusinessError;
+console.error(`Failed to invoke on. Code: ${e.code}, message: ${e.message}`);
+}
+try {
+sensor.on(sensor.SensorId.HEART_RATE, (data: sensor.HeartRateResponse) => {
+this.heartData = data.heartRate;
+}, { interval: INTERVAL });
+setTimeout(() => {
+sensor.off(sensor.SensorId.HEART_RATE);
+}, 500);
+} catch (error) {
+let e: BusinessError = error as BusinessError;
+console.error(`Failed to invoke on. Code: ${e.code}, message: ${e.message}`);
+}
+try {
+sensor.on(sensor.SensorId.AMBIENT_LIGHT, (data) => {
+this.light = `Light: ${data.intensity.toFixed(2)} lx`;
+}, { interval: INTERVAL });
+} catch (error) {
+console.error("Light sensor failed.");
+}
+try {
+sensor.on(sensor.SensorId.BAROMETER, (data) => {
+this.pressure = `Pressure: ${data.pressure.toFixed(2)} hPa`;
+}, { interval: INTERVAL });
+} catch (error) {
+console.error("Barometer failed.");
+}
+try {
+sensor.on(sensor.SensorId.HUMIDITY, (data) => {
+this.humidity = `Humidity: ${data.humidity.toFixed(2)}%`;
+}, { interval: INTERVAL });
+} catch (error) {
+console.error("Humidity sensor failed.");
+}
+try {
+sensor.on(sensor.SensorId.AMBIENT_TEMPERATURE, (data) => {
+this.temperature = `Temp: ${data.temperature.toFixed(2)} °C`;
+}, { interval: INTERVAL });
+} catch (error) {
+console.error("Temperature sensor failed.");
+}
+try {
+sensor.on(sensor.SensorId.ORIENTATION, (data) => {
+this.orientation = `Pitch: ${data.alpha.toFixed(2)}, Roll: ${data.beta.toFixed(2)}, Yaw: ${data.gamma.toFixed(2)}`;
+}, { interval: INTERVAL });
+} catch (error) {
+console.error("Orientation sensor failed.");
+}
+}
+aboutToDisappear(): void {
+sensor.off(sensor.SensorId.ACCELEROMETER);
+sensor.off(sensor.SensorId.GRAVITY);
+sensor.off(sensor.SensorId.GYROSCOPE);
+sensor.off(sensor.SensorId.AMBIENT_LIGHT);
+sensor.off(sensor.SensorId.BAROMETER);
+sensor.off(sensor.SensorId.HUMIDITY);
+sensor.off(sensor.SensorId.AMBIENT_TEMPERATURE);
+sensor.off(sensor.SensorId.ORIENTATION);
+sensor.off(sensor.SensorId.HEART_RATE);
+}
+build() {
+Scroll() {
+Column({ space: 15 }) {
+Text('Sensor Dashboard').fontSize(24).fontWeight(FontWeight.Bold)
+Text('accelerometer ' + this.accelerometer)
+Text('gyroscope ' + this.gyroscope)
+Text('light ' + this.light)
+Text('pressure ' + this.pressure)
+Text('humidity ' + this.humidity)
+Text('temperature ' + this.temperature)
+Text('orientation ' + this.orientation)
+Text('gravity ' + this.gravity)
+Text('heartData ' + this.heartData)
+Text('pedometer ' + this.pedometer)
+}.padding(20)
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4 — Test it
+Run on a real HarmonyOS phone (recommended) that actually exposes the sensors.
+My results
+Step 5 — Clean up & optimize
+· Unsubscribe aggressively: call sensor.off() as soon as you don’t need a stream.
+· Batch updates/UI: If you’re subscribing to many sensors, consider throttling UI updates.
+· Filter noise: Use smoothing/filters (e.g., simple moving average) for nicer graphs and less jumpy values.
+· Guard for missing sensors: Not all hardware is equal. Wrap every subscription in try/catch (as shown) and/or use capability checks if available.
+Common pitfalls (and how to avoid them)
+Forgetting permissions
+You’ll get crashes or silent failures. Always request (and justify) what you need.
+High-frequency sampling = Drain battery
+Don’t use tiny intervals unless you truly need them. Unsubscribe on aboutToDisappear().
+Assuming a sensor exists
+Many devices don’t have barometers, heart rate monitors, or ambient temperature sensors. Code defensively.
+UI jank from rapid updates
+Use coarser intervals or debounce updates to keep the UI smooth.
+Conclusion
+With just a few dozen lines of ArkTS, HarmonyOS gives you powerful access to real-time sensor data. The key is permissions, defensive coding, and power management. Start small, verify sensor availability, and build rich, sensor-driven experiences on top.
+Written by Fatih Turan Gundogdu
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+HarmonyOS
+Follow
+Delivering HarmonyOS development technologies, focusing on APIs and components, DevEco Studio, testing, atomic services and applications listing and distribution.
+Joined
+Jul 2, 2025
+Trending on DEV Community
+Hot
+GitHub Coding Agent the Magical Autonomous AI: The Prequel
+#githubcopilot
+#ai
+#tutorial
+#productivity
+Bring AI Into Any App With One Keystroke
+#ai
+#programming
+#javascript
+#productivity
+Meme Monday
+#discuss
+#watercooler
+#jokes
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
