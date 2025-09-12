@@ -1,0 +1,194 @@
+Lessons & Practices for Building and Optimizing Multi-Agent RAG Systems with DSPy and GEPA - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+sky yv
+Posted on Sep 12
+Lessons & Practices for Building and Optimizing Multi-Agent RAG Systems with DSPy and GEPA
+#rag
+#llm
+#python
+#ai
+Introduction
+When I first read “Building and Optimizing Multi-Agent RAG Systems with DSPy and GEPA” by Isaac Kargar, I was struck by how practical and grounded the tutorial is. It walks the reader through using DSPy to build multiple agents (subagents) specializing in different domains (e.g. diabetes, COPD), optimizing them with GEPA (a reflective prompt evolution optimizer), and then assembling a lead agent. In my recent work trying to build reliable RAG (Retrieval-Augmented Generation) pipelines, following many of the lessons in that article strongly improved both accuracy and robustness.
+In this write-up I’ll share my experience replicating and extending parts of that work, some pitfalls, plus what’s new in the research landscape as of late 2025. If you’re planning to build multi-agent RAG systems, I think you’ll find some of these takeaways helpful.
+Recap: DSPy + GEPA Setup
+First, a quick refresher to set the scene:
+DSPy is a declarative framework for composing LM modules, tools, agents, etc. It lets you write more structured “modules” (subagents, tool wrappers, ReAct modules, etc.) rather than ad-hoc prompt engineering. (DSPy)
+GEPA (Genetic-Pareto Prompt Optimizer) is a key optimizer in DSPy. It uses evolutionary ideas + reflective feedback (via a stronger “reflection LM”) to evolve prompt components. It outperforms or competes with older prompt optimizers and RL-based methods in many settings. (DSPy)
+In Kargar’s tutorial, two subagents are built: one specialized in diabetes, one in COPD; each has its own vector search tool over disease-specific documents. The ReAct pattern is used. Then each agent is optimized (via GEPA) using a dataset of QA pairs, and finally a lead agent orchestrates among subagents. The tutorial shows substantial gains in evaluation metrics after GEPA. (Medium)
+What I Tried: Extending / Adapting
+In my recent experiments I followed a similar architecture, but in a new domain (legal documents + regulatory guidance). Here are things I tried / lessons I learned.
+Domain-Specific Retrieval Tool Setup
+Building strong vector search tools matters. In the original case, disease documents are well-structured, fairly clean. In my domain, legal texts are noisy, have cross-references, ambiguous terms. I found that:
+Better embedding models (fine-tuned or domain-adapted) led to improvements in how the subagent fetched relevant docs.
+Using metadata filtering (e.g. date, jurisdiction) before or during retrieval helped reduce noise.
+Prompt & Instruction Design for ReAct Subagents
+The instructions given to agents (what they are and what tools they have) and their “thoughts / tool choices” structure have a huge effect on behavior. In Kargar’s work, the ReAct agent’s template includes next_thought, next_tool_name, next_tool_args, finish markers, etc. (Medium)
+In my trials, I discovered:
+Being explicit about what constitutes a “good” tool call helps. Example: ask agent to “explain why you chose this tool” (or include a reasoning step) sometimes helps avoid useless or redundant searches.
+Providing a few examples (even if synthetic) during prompt optimization helps GEPA more quickly understand the domain-specific ways queries should map to retrieval or finish. However, too many examples can “overload” the prompt and slow inference or lower generalization.
+GEPA Tuning
+GEPA has several knobs. From what the documentation shows:
+You can choose auto modes (light / medium / heavy), set max_full_evals, reflection_lm, candidate selection strategy, etc. (DSPy)
+The choice of reflection LM was important: a more capable model gives more useful feedback, but is more costly.
+In my domain, using a smaller reflection LM (for cost) sometimes produced feedback that was too generic; using a bigger model occasionally fixed that. But there's diminishing return at some point.
+Joint vs Pipeline Optimization
+One thing Kargar’s tutorial does is optimize subagents separately, then the lead agent. In my work, I noticed that optimizing the pipeline holistically (lead agent + subagents together, with mixed questions that force coordination) sometimes leaves hidden failure modes. For example, subagents may be individually good, but the lead agent fails to decide which to use properly in abstract or ambiguous queries.
+So I recommend including “mixed / joint” datasets during optimization, not only “pure” domain queries, for lead agent evaluation. Kargar does something similar when combining subdatasets. (Medium)
+What’s New / Recent Related Research (mid-2025)
+To know where this field is going, here are a few recent works and trends that relate closely. Some validate parts of the DSPy+GEPA approach; others suggest extensions or things to watch out for.
+MAO-ARAG: Multi-Agent Orchestration for Adaptive RAG (Aug 2025). This introduces a planner agent that selects among executor agents (like query reformulation, document selection, generation) depending on the query, balancing quality vs cost. Similar in spirit to having a lead agent; shows that adaptivity (deciding pipeline dynamically per query) yields good tradeoffs. (arXiv)
+Maestro: Joint Graph & Config Optimization for Reliable AI Agents (Sep 2025). Maestro goes beyond prompt-only optimization: it searches both over how modules are wired (graph structure) and how each is configured. On standard benchmarks, it improves on GEPA or GEPA+Merge. This suggests that in addition to optimizing prompts, reconsidering the structure of your multi-agent graph (which agents exist, how they communicate) can unlock further gains. (arXiv)
+ReSo: Reward-driven Self-organizing LLM-based Multi-Agent Systems. This focuses on flexibility and scalability: letting agents self-organize (choose responsibilities), and generating fine-grained reward signals. It points to a growing trend: moving from manually designed multi-agent systems + prompt tuning to systems that adapt more autonomously. (arXiv)
+These and others mean that while GEPA + DSPy are excellent tools now, the frontier is shifting toward joint structure + dynamic workflows + efficient feedback signals.
+Pitfalls & What to Be Careful About
+From my hands-on work (and reading) I want to share what tripped me (so you don’t repeat):
+Overfitting to your prompt dataset: If your evaluation or dev set is too similar or narrow, GEPA optimizes prompts that work well there but fail in real, out-of-distribution usage.
+Cost & latency: Using large reflection LMs, many full evaluations, or heavy budget modes of GEPA can make the pipeline pricey. Also, large prompt sizes (from many examples or big tool descriptions) slow down inference.
+Trace & feedback quality: GEPA depends on rich traces (what the agent did step-by-step), and meaningful feedback metrics. If these are weak (e.g. only scalar accuracy), the optimizer may make "safe" but minimal improvements rather than addressing real failure modes.
+Graph structure limitations: If your system’s architecture (which agents, tools, what's allowed) is too constrained, prompt optimization alone may not fix issues. For example, suppose the lead agent can only call subagent A or B but sometimes what is needed is a new kind of subagent; no amount of prompt tweaking will help.
+Recommendations / Best Practices
+Putting all that together, here are my recommendations if you’re building multi-agent RAG systems and using DSPy+GEPA (or planning to):
+Start with modularity: design subagents around domain or function early, with clear tool interfaces.
+Prepare diverse training / dev data: include both “pure domain” queries, cross-domain or ambiguous ones, and mixed ones that test coordination.
+Choose a capable reflection LM for GEPA, balanced vs cost. Maybe begin with light mode, then a heavier mode once you have a baseline.
+Iterate structure with configuration: don’t assume your initial agent graph is “correct” forever; explore different workflows or module graphs, perhaps inspired by newer tools like Maestro.
+Use interpretable/feedback metrics that go beyond accuracy: e.g. evaluate whether the agent selected the right tool, whether retrievals are relevant, whether reasoning steps are logical. These help GEPA's reflection step.
+Monitor generalization: test on out-of-domain or real user queries so that improvements aren’t just overfitted to your dataset.
+Conclusion
+My journey working with the ideas in Building and Optimizing Multi-Agent RAG Systems with DSPy and GEPA has reinforced that structured prompt design + optimizer feedback loops are powerful. GEPA, in particular, seems to hit a sweet spot: far more sample-efficient and often more robust than naive prompt engineering or even some RL methods, while DSPy gives you the scaffolding to build agents in a modular, maintainable way.
+As the field moves forward — with works like MAO-ARAG and Maestro — I expect systems will become better at dynamically adapting workflow, optimizing both structure and prompts, and doing so with less human intervention.
+If you’re looking to explore or experiment more deeply, I’ve also documented part of my pipeline (legal-domain experiments) in more detail over at https://iacommunidad.com/ — feel free to check it out.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+sky yv
+Follow
+Joined
+Aug 19, 2025
+Trending on DEV Community
+Hot
+The Backwards Way to $10K MRR: Build SEO First, Product Second
+#webdev
+#programming
+#javascript
+#ai
+RavenDB Launches the First Database-Native AI Agent Creator: The Missing Piece for Secure, Integrated AI
+#database
+#ai
+#programming
+#productivity
+⚡HabitForge AI – Where Resolutions Become Realities You Can See 👀
+#devchallenge
+#googleaichallenge
+#ai
+#gemini
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
