@@ -1,0 +1,260 @@
+Deploying Tideman Election App on AWS EC2 with Docker - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Vivek Vohra
+Posted on Sep 13
+Deploying Tideman Election App on AWS EC2 with Docker
+#aws
+#cloud
+#docker
+#linux
+I recently took my Tideman app from my laptop to the cloud, and getting it live on AWS EC2 with Docker turned out to be simpler than I expected.
+Setting Up my EC2 Instance
+First, I launched an AWS EC2 instance with Ubuntu as the operating system. I chose a small instance (free tier eligible) since my app isn’t too heavy.
+After launching, I configured the instance’s Security Group to allow the right ports:
+Port 22 (SSH) so I could connect to the server’s terminal.
+Port 80 (HTTP) so the web app would be accessible in a browser.
+Afterwards, I installed Docker and cloned my code to the EC2 instance.
+# On the EC2 instance
+sudo apt-get update
+sudo apt-get install -y docker.io git
+# (Optional) clone your repo and move into it
+git clone <your-repo-url>
+cd <your-repo-folder>
+Enter fullscreen mode
+Exit fullscreen mode
+Writing a Multi-Stage Dockerfile
+Now for the main part: containerizing the app with Docker.
+I created a file named Dockerfile in the project directory. Because my app has two components (C++ and Python), I used a multi-stage Docker build to keep the final image lean. Here’s how I set it up:
+Stage 1: Build the C++ Program
+In the first stage, I used a Docker image with a C++ compiler to compile the algorithm:
+# Stage 1: Compile C++ code
+FROM gcc:latest AS builder
+# Use GCC compiler image
+WORKDIR /app
+# Copy in the C++ source code and compile it
+COPY my_algorithm.cpp /app/my_algorithm.cpp
+RUN g++ my_algorithm.cpp -o my_algorithm
+Enter fullscreen mode
+Exit fullscreen mode
+This stage grabs the official GCC image, copies my C++ source file into it, and runs g++ to compile the code into an executable (my_algorithm).
+Stage 2: Set Up Python + Flask
+For the second stage, I wanted a lightweight Python environment to run Flask and the compiled binary. I chose a slim Python image:
+# Stage 2: Run Flask app with Gunicorn
+FROM python:3.10-slim AS final
+# Use a small Python image
+WORKDIR /app
+# Copy the compiled C++ binary from the builder stage
+COPY --from=builder /app/my_algorithm /app/my_algorithm
+# Copy the Flask app code and any other files
+COPY app.py /app/app.py
+COPY index.html /app/index.html
+COPY requirements.txt /app/requirements.txt
+# Install Flask (and Gunicorn) via requirements
+RUN pip install -r requirements.txt
+# Expose port 5000 and start the app using Gunicorn
+EXPOSE 5000
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]
+Enter fullscreen mode
+Exit fullscreen mode
+What’s happening in Stage 2:
+We switch to a Python 3 slim image (much smaller than a full Ubuntu or GCC image).
+Copy the compiled C++ binary from stage 1 into this new image. This way, the Python container can use the C++ program without needing a compiler.
+Copy over the Flask app (app.py), the index.html, and a requirements.txt listing Python dependencies.
+Install dependencies: I included Flask (and Gunicorn for the server) in requirements.txt, so pip install -r requirements.txt pulls those into the container.
+Finally, set the container to listen on port 5000 and define the startup command: here I use Gunicorn to run the Flask app.
+The multi-stage approach means our final image (stage 2) does not include all the bulky build tools from stage 1.
+We only carry over the compiled binary and needed files. This makes the final Docker image smaller and cleaner, which is great for efficiency and security.
+Building and Running the Docker Container
+With the Dockerfile written, I proceeded to build the image on the EC2 instance:
+sudo docker build -t myflaskcpp .
+Enter fullscreen mode
+Exit fullscreen mode
+Next, I ran the container. This is where the port configuration is important. My Flask app (via Gunicorn) is set to run on port 5000 inside the container. But I want people to access it through the standard HTTP port 80 on the EC2 instance. So I used a port mapping:
+sudo docker run -d -p 80:5000 myflaskcpp
+Enter fullscreen mode
+Exit fullscreen mode
+Here, -p 80:5000 maps port 80 on the host (the EC2 instance) to port 5000 inside the container. Now, any request hitting the EC2’s public IP on port 80 will be forwarded to the Flask app in the container. I ran the container in detached mode (-d) so it runs in the background.
+Note: Make sure you opened port 80 in the EC2 security group. Otherwise, you won’t be able to reach the app from your browser.
+Why Use Gunicorn instead of Flask’s Dev Server?
+You might wonder why I’m using Gunicorn in the Dockerfile, rather than just running the development server:
+python app.py
+Enter fullscreen mode
+Exit fullscreen mode
+The reason is that Flask’s built-in server (the one you get with app.run()) is meant for development only. It’s single-threaded by default and not optimized for multiple users or production stability.
+Gunicorn, on the other hand, is a production-ready WSGI server. It can handle multiple requests at the same time by running several worker processes. This means if one user is making a slow request, other users can still be served in parallel. Gunicorn is also well-tested for deployment, making your app more robust under real-world traffic. In short, using Gunicorn ensures our Flask app will be able to handle more than one person at a time and won’t crash at the first sign of stress.
+Wrapping Up
+Now grab the EC2 instance’s public IP and check if it works.
+And that’s it! We have managed to get a C++ algorithm and a Flask web interface deployed on AWS using Docker. As someone new to combining these technologies, it felt great to see it running live.
+Key Takeaways
+Use EC2 security groups to open the ports you need (SSH and HTTP in this case).
+Docker multi-stage builds can mix languages (compile in one stage, run in another) to keep things efficient.
+Map your container’s internal ports to the server’s ports so the world can reach your app.
+Gunicorn is your friend for serving Flask in production.
+Happy deploying! 🚀
+vivekvohra
+/
+tideman
+Tideman Electoral System
+Tideman’s Ranked Pairs method (developed by Nicolaus Tideman) is a ranked-choice voting algorithm that selects a single winner by constructing a directed graph of pairwise victories and locking in the strongest preferences while avoiding cycles.
+This repository contains an object-oriented, benchmarked, file-driven C++17 implementation, wrapped with a Flask API and a minimal HTML front end for interactive demos.
+Features
+CSV input with support for thousands to millions of ballots
+High-resolution benchmarking using <chrono> for performance profiling
+Object-oriented design (TidemanElection, VoteParser, Benchmark)
+Robust error handling (bad input, duplicates, file issues)
+Efficient in practice: runs on millions of ballots with ≤9 candidates in milliseconds
+Web service wrapper: C++ executable exposed via Flask API + HTML page
+Sample Input (CSV Ballots)
+Example with 3 candidates (Alice, Bob, Charlie):
+VoterID,Alice,Bob,Charlie
+1,1,2,3
+2,2,1,3
+3,1,3,2
+... up to N rows
+Each…
+View on GitHub
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Vivek Vohra
+Follow
+Hi! I am Vivek Vohra. I am Interested in Competitive Programming and Data Structure.
+- Programming languages : c/c++,python,sqlite3,Matlab,Verilog.
+- Technical Skills: HTML, CSS, FLASK, JavaScript
+Location
+India
+Education
+TIET
+Pronouns
+He/Him
+Joined
+Apr 13, 2024
+Trending on DEV Community
+Hot
+Bring AI Into Any App With One Keystroke
+#ai
+#programming
+#javascript
+#productivity
+Building Scalable Multi-Modal AI Agents with Strands Agents and Amazon S3 Vectors
+#aws
+#python
+#beginners
+#ai
+AI-Powered Cloud Cost Management: Architect’s Guide to AWS Billing MCP Server
+#aws
+#ai
+#agentaichallenge
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
