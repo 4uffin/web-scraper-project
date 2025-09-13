@@ -1,0 +1,247 @@
+From Prototype to Production: How Promptfoo and Vitest Made podcast-it Reliable - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+logarithmicspirals
+Posted on Sep 13
+• Originally published at logarithmicspirals.com
+From Prototype to Production: How Promptfoo and Vitest Made podcast-it Reliable
+#ai
+#llmevals
+#testing
+#typescript
+Introduction
+In my previous article, From Idea to Audio: Building the podcast-it Cloudflare Worker, I detailed how I had created a simple Cloudflare Worker which could create podcast scripts and audio from a source blog post.
+While I was not sure if I would continue working on the project, I made some breakthroughs in my understanding of how to build a serverless app powered by an LLM. One of the key pieces I was missing was LLM evaluations (evals). With evals, I was able to massively improve my development speed and feel much more confident in the progress of the project. Being confident in the quality of the podcasts gave me the energy I needed to keep going with the project.
+Why LLM Evals Matter
+When you’re building traditional software, testing usually means making sure your code behaves correctly: does this function return the right value, does this API respond in time, does this component render as expected? But with generative AI apps, there’s a new dimension — the quality of the model’s output itself. Even if your API endpoints all work perfectly, the app can still “fail” if the generated script sounds robotic, skips key information, or produces inconsistent episode structures.
+That’s where LLM evals come in. Instead of only testing the code around the model, evals test the behavior of the model inside your app. They let you measure whether the text produced is useful, accurate, and consistent across many runs — which is critical if you want to move from a fun prototype to something people can actually trust.
+One way I brought the power of evals into this project is through promptfoo. With promptfoo, I was able to quickly get started creating eval tests in my TypeScript environment. A test might check, for example:
+Does every generated script include an introduction and conclusion?
+Does the host’s name appear in the dialogue?
+Is the transcript free of obvious hallucinations (like citing a source that isn’t in the blog post)?
+To get started with promptfoo, I installed it like so:
+npm install --save-dev promptfoo
+Enter fullscreen mode
+Exit fullscreen mode
+After setting up and configuring promptfoo, I was able to create a script called "evals" in my package.json and run it as follows:
+npm run evals
+Enter fullscreen mode
+Exit fullscreen mode
+The evals script looks like this:
+npm run export-schemas && npx dotenvx run -f .dev.vars -- sh -c 'cd evals && PROMPTFOO_DISABLE_TELEMETRY=1 promptfoo eval'
+Enter fullscreen mode
+Exit fullscreen mode
+Here's what it does:
+A custom script is used to convert TypeScript types from my source code into JSON schema files within the evals/ directory.
+The dotenvx package is used to read the environment variables of .dev.vars into memory so that promptfoo has access to them. Promptfoo expects a .env file, but the Worker expects a .dev.vars file locally. This step bridges that gap.
+The script switches to the evals/ directory and then runs promptfoo using the config file in that directory.
+Currently, I have evals which confirm the following:
+The expected hosts are used, and no other hallucinated participants are present.
+The show title is mentioned in the script.
+The correct JSON schema is used.
+LLM graders are giving passing scores to the scripts.
+The content of the script is relevant to the post.
+The script passes OpenAI's moderation criteria.
+The Role of Integration Tests in Gen AI Apps
+While the LLM evals tell me if the content is good, integration tests tell me if the system is behaving correctly. Most of the issues I ran into weren’t “the model produced a weird sentence.” They were the boring but important things: a request that didn’t persist correctly, an episode that never left processing, or an endpoint that returned the wrong status code.
+To catch these, I wrote integration tests with Vitest. Instead of just mocking everything, the tests spin up a temporary database and exercise the actual REST endpoints. That means I can simulate creating an episode, check that it moves through the lifecycle, and verify that the audio and metadata end up where they belong.
+To install Vitest in my project, I ran the following command:
+npm install --save-dev vitest
+Enter fullscreen mode
+Exit fullscreen mode
+Since I was working with the Cloudflare Workers framework, I was able to configure my tests to have a temporary D1 database and R2 bucket. The same migration scripts used to run the app are applied before the tests are run. For context, Cloudflare Workers have a feature where developers can version their database changes using migration scripts. Having the test database configuration match the real database configuration is very easy with this feature. Here's what my vitest.config.ts file looks like:
+import path from "node:path";
+import {
+defineWorkersProject,
+readD1Migrations,
+} from "@cloudflare/vitest-pool-workers/config";
+export default defineWorkersProject(async () => {
+const migrationsPath = path.join(__dirname, "migrations");
+const migrations = await readD1Migrations(migrationsPath);
+return {
+test: {
+setupFiles: ["./tests/apply-migrations.ts"],
+poolOptions: {
+workers: {
+miniflare: {
+compatibilityDate: "2025-08-03",
+d1Databases: { DB: ":memory:" },
+d1Persist: false,
+bindings: { TEST_MIGRATIONS: migrations },
+r2Buckets: ["podcasts"]
+},
+},
+},
+},
+};
+});
+Enter fullscreen mode
+Exit fullscreen mode
+With these integration tests, I am able to confirm things like:
+Episode creation and deletion work as expected.
+The right status code is returned when a request to make the same episode twice is made.
+Audio files are uploaded to the right location.
+Integration tests are also useful for making sure changes made to the codebase don't break anything. As such, I also added Husky to the project so that I could run the tests every time I tried to push code from my laptop to GitHub.
+My Husky script, .husky/pre-push, is pretty simple:
+#!/bin/sh
+npm run prepush
+Enter fullscreen mode
+Exit fullscreen mode
+The actual meat of this prepush hook is the "prepush" script in package.json which looks like npm run typecheck && npm test && npm run evals. In English, this script does the following:
+Runs type checks on the project to look for developer errors.
+Runs all available tests with Vitest.
+Runs the evals script to confirm the models still behave as expected.
+Iterating Faster with Promptfoo + Vitest
+The biggest unlock came when I started running evals and integration tests together in my development loop. Promptfoo gave me immediate feedback on content quality — whether scripts still had an intro and conclusion, whether the host’s name appeared consistently, and whether hallucinations crept in. At the same time, Vitest confirmed that the APIs, database migrations, and storage flows all worked as expected.
+That combination gave me confidence to move faster. I could tweak prompts, refactor code, or adjust infrastructure without constantly worrying about breaking something. If an eval failed, I knew it was a content issue. If a test failed, I knew it was a system issue. Together, they formed a feedback loop that made iteration smoother, reduced surprises, and made shipping updates feel much less risky.
+Lessons Learned
+Schemas eliminate drift. Converting TypeScript types to JSON schemas kept evals aligned with the source code and cut down on manual setup.
+Evals catch subtle regressions. Automated checks surfaced issues—like the host’s name quietly disappearing—that slipped past manual review.
+Tests and evals reinforce each other. Tests safeguard the system (routes, state, storage) while evals safeguard the output (tone, structure, relevance). Together, they build confidence.
+What’s Next
+Here's what is coming up for podcast-it:
+Integration into my blog. I will be generating podcast episodes for all my existing blog posts.
+Enriching scripts with relevant content from the web.
+Adding script editing through a micro frontend.
+Investigating model fine tuning to see if longer scripts can be generated without losing quality.
+Conclusion
+Moving podcast-it from “it works” to “it’s reliable” wasn’t about shipping new features—it was about building confidence. Promptfoo gave me a way to measure output quality, integration tests kept the system stable, and unit tests still catch the small stuff early. Together, they create a safety net that makes iterating on a generative AI app sustainable. If you’re building with LLMs, set up that loop early—you’ll avoid a lot of pain later.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+logarithmicspirals
+Follow
+Backend software engineer writing web apps for the cloud in Java.
+Location
+California
+Work
+Senior Software Engineer
+Joined
+Feb 24, 2023
+More from logarithmicspirals
+From Idea to Audio: Building the Podcast-It Cloudflare Worker
+#cloudflareworkers
+#texttospeech
+#openai
+#ai
+Cache OpenAI Embeddings with SQLite for Low-Cost Astro Builds
+#ai
+#astro
+#database
+#performance
+Refining “Similar Posts” for Relevance and Simplicity
+#blogging
+#ai
+#webdev
+#contentstrategy
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
