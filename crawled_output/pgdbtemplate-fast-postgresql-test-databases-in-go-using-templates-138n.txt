@@ -1,0 +1,314 @@
+pgdbtemplate – fast PostgreSQL test databases in Go using templates - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Andrei Polukhin
+Posted on Sep 13
+pgdbtemplate – fast PostgreSQL test databases in Go using templates
+#testing
+#go
+#postgres
+#performance
+Tired of waiting for your test suite to slowly create and migrate PostgreSQL databases over and over again? If you're writing data-intensive applications in Go, you know this pain well. Your tests spend more time setting up the database than actually testing your logic.
+What if I told you there's a way to make this process 1.5x faster, use 17% less memory, and scale effortlessly to hundreds of test databases?
+Meet pgdbtemplate – a high-performance Go library that leverages PostgreSQL's native template databases to revolutionise your testing workflow.
+The Problem: Traditional Database Setup is Slow
+The classic approach for integration tests looks like this:
+func TestUserService(t *testing.T) {
+// 1. Create new database
+// 2. Run all migrations (CREATE TABLE, INDEX, FK...)
+// 3. Run your test
+// 4. Drop the database
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Steps 1 and 2 repeat for every single test, consuming precious time and resources. The more complex your schema, the slower it gets.
+The Solution: PostgreSQL Template Databases
+PostgreSQL has a brilliant built-in feature: template databases. You can create a "golden" database with all your migrations applied once, and then use it as a template to create new, identical databases in milliseconds.
+pgdbtemplate automates this process, providing a simple API that fits seamlessly into your existing test setup.
+Get Started in Minutes
+First, install the library:
+go get github.com/andrei-polukhin/pgdbtemplate
+Enter fullscreen mode
+Exit fullscreen mode
+Here's how you use it in your test suite:
+package main
+import (
+"context"
+"testing"
+"github.com/andrei-polukhin/pgdbtemplate"
+)
+var templateManager *pgdbtemplate.TemplateManager
+func TestMain(m *testing.M) {
+ctx := context.Background()
+// Set up the template manager once
+connStringFunc := func(dbName string) string {
+return "postgres://user:pass@localhost/" + dbName
+}
+provider := pgdbtemplate.NewPgxConnectionProvider(connStringFunc)
+migrationRunner := pgdbtemplate.NewFileMigrationRunner(
+[]string{"./migrations"},
+pgdbtemplate.AlphabeticalMigrationFilesSorting,
+)
+tm, _ := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+ConnectionProvider: provider,
+MigrationRunner:
+migrationRunner,
+})
+// Initialize template with migrations (one-time operation)
+tm.Initialize(ctx)
+templateManager = tm
+code := m.Run()
+// Cleanup everything
+tm.Cleanup(ctx)
+os.Exit(code)
+}
+func TestUserRepository(t *testing.T) {
+ctx := context.Background()
+// Each test gets its own isolated database instantly!
+testDB, testDBName, err := templateManager.CreateTestDatabase(ctx)
+if err != nil {
+t.Fatal(err)
+}
+defer testDB.Close()
+defer templateManager.DropTestDatabase(ctx, testDBName)
+// Run your test logic on a fresh database
+repo := NewUserRepository(testDB)
+user, err := repo.CreateUser("test@example.com")
+// ... your assertions
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Real Performance Gains: The Numbers Don't Lie
+We ran extensive benchmarks comparing traditional database creation versus the template approach. The results speak for themselves:
+🚀 Speed Comparison (Lower is Better)
+Schema Complexity
+Traditional Approach
+Template Approach
+Improvement
+1 Table
+28.9ms
+28.2ms
+1.03x
+3 Tables
+39.5ms
+27.6ms
+1.43x
+5 Tables
+43.1ms
+28.8ms
+1.50x
+📈 Scaling to Hundreds of Databases
+Database Count
+Traditional
+Template
+Time Saved
+20 DBs
+906.8ms
+613.8ms
+32%
+50 DBs
+2.29s
+1.53s
+33%
+200 DBs
+9.21s
+5.84s
+37%
+500 DBs
+22.31s
+14.82s
+34%
+The template approach maintains consistent performance regardless of schema complexity, while the traditional approach gets progressively slower as you add more tables, indexes, and constraints.
+Key Features
+⚡ Blazing Fast: Create test databases in milliseconds instead of seconds
+🔒 Thread-Safe: Perfect for parallel test execution (t.Parallel())
+🔄 Dual Driver Support: Works with both database/sql + pq and pgx
+🧹 Automatic Cleanup: Comprehensive cleanup of test databases
+🐳 Testcontainers Ready: Easy integration with containerized PostgreSQL
+📊 Migration Flexibility: Support for file-based and custom migration runners
+How It Works Under the Hood
+Initialization: Creates a template database and runs all migrations once
+Testing: For each test, creates a new database using CREATE DATABASE... TEMPLATE
+Cleanup: Drops test databases and finally cleans up the template
+The magic happens in step 2 – PostgreSQL handles template database copying at the filesystem level, which is dramatically faster than running SQL migrations repeatedly.
+Advanced Usage
+Using with testcontainers-go
+func setupTemplateManagerWithContainer(ctx context.Context) error {
+pgContainer, _ := postgres.RunContainer(ctx,
+testcontainers.WithImage("postgres:15"),
+postgres.WithDatabase("testdb"),
+// ... other config
+)
+connStr, _ := pgContainer.ConnectionString(ctx, "sslmode=disable")
+provider := pgdbtemplate.NewStandardConnectionProvider(
+func(dbName string) string {
+return pgdbtemplate.ReplaceDatabaseInConnectionString(connStr, dbName)
+})
+// Create and use template manager as before
+// ...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Connection Pooling Options
+Configure your connections for optimal performance:
+// For database/sql + pq
+provider := pgdbtemplate.NewStandardConnectionProvider(
+connStringFunc,
+pgdbtemplate.WithMaxOpenConns(25),
+pgdbtemplate.WithMaxIdleConns(10),
+)
+// For pgx
+provider := pgdbtemplate.NewPgxConnectionProvider(
+connStringFunc,
+pgdbtemplate.WithPgxMaxConns(10),
+pgdbtemplate.WithPgxMinConns(2),
+)
+Enter fullscreen mode
+Exit fullscreen mode
+When Should You Use pgdbtemplate?
+You have >10 database tests in your suite
+Your schema has >3 tables with indexes and relationships
+You run tests frequently during development
+Your CI/CD pipeline includes database integration tests
+You value fast feedback over coffee breaks
+Give It a Try!
+Ready to speed up your test suite? Getting started is easy:
+go get github.com/andrei-polukhin/pgdbtemplate
+Enter fullscreen mode
+Exit fullscreen mode
+Check out the GitHub repository for complete documentation, advanced examples, and contribution guidelines.
+What's your experience with PostgreSQL testing in Go? Have you tried other approaches to speed up your test suite? Share your thoughts in the comments below!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Andrei Polukhin
+Follow
+Joined
+Jul 25, 2022
+Trending on DEV Community
+Hot
+Notifuse: modern & free alternative to Mailchimp/Resend
+#showdev
+#opensource
+#sass
+#go
+Meme Monday
+#discuss
+#watercooler
+#jokes
+In Defense of C++
+#cpp
+#programming
+#c
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
