@@ -1,0 +1,1080 @@
+FastAPI, Furious Tests: The Need for Speed - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Shahar Polak
+Posted on Sep 13
+FastAPI, Furious Tests: The Need for Speed
+#fastapi
+#sqlmodel
+#sqlite
+#testing
+A no-nonsense guide to making your test suite so fast, it'll make The Flash jealous
+by Shahar Polak
+TL;DR - The "I Just Want Results" Section
+Your CI is slow. Your developers are sad. Your coffee budget is through the roof because people are waiting 28 minutes for tests to run. Here's how we turned a sluggish test suite into a speed demon that finishes in under 3 minutes.
+The Magic Formula:
+SQLite in-memory for 95% of tests
+MySQL for the 5% that actually need it
+pytest-xdist with work stealing
+Proper fixtures (finally!)
+Split jobs by runtime, not count
+Skip to any section, but if you implement this wrong, don't blame us when your tests become flakier than a croissant factory.
+Who Are You? (And Why Should You Care?)
+The Frustrated Developer: You write a test, run the suite, grab coffee, check Twitter, contemplate life choices, and maybe your tests are done. Maybe.
+The DevOps Engineer: Your CI bill makes your CFO weep, and developers complain about feedback loops longer than a soap opera plotline.
+The Tech Lead: You know there's a better way, but every "quick fix" turns into a three-week rabbit hole that breaks everything.
+The Project Manager: You just want features shipped without the engineering team disappearing into "test optimization" black holes.
+If any of these sound familiar, buckle up. We're about to make your tests faster than your last relationship ended.
+The Problem: When Tests Become Slower Than Dial-Up Internet
+Picture this: You have 2,900 tests. Your CI takes 28 minutes to run them. That's roughly:
+1,680 seconds of pure waiting
+27.5 minutes longer than your attention span
+Infinite sadness for developers trying to iterate quickly
+The Real Cost
+It's not just time. It's:
+Developers skipping test runs locally (risky business)
+Context switching while waiting for CI (productivity killer)
+Delayed releases because nobody wants to wait for slow feedback
+Your AWS bill looking like a phone number
+What We're Optimizing For
+Speed without stupidity: Fast tests that still catch bugs
+Developer happiness: Quick feedback loops
+Maintainability: No Rube Goldberg test machines
+Cost efficiency: Your CFO might even smile
+The Hall of Failed Attempts (Learn From Our Pain)
+Attempt #1: Dockerized MySQL for Everything
+"Let's just use production-like everything!"
+What we thought: Production parity! MySQL everywhere! What could go wrong?
+What actually happened:
+Container startup: 10-15 seconds per test run
+Migration overhead: Another 5-10 seconds
+Parallel runs: Database collisions everywhere
+Result: Slower, flakier, sadder
+Lesson learned: Production parity is great, but not for every single test.
+Attempt #2: Shared Test Database
+"One database to rule them all!"
+What we thought: Share a test database across all workers. Efficiency!
+What actually happened:
+Data collisions like bumper cars
+Order-dependent tests (the worst kind)
+Cleanup between tests took forever
+Flakiness increased by approximately 1000%
+Lesson learned: Shared state is the root of all evil in testing.
+Attempt #3: Self-Hosted AWS Runners
+"We'll just throw more hardware at it!"
+What we thought: Bigger machines, faster tests, problem solved!
+What actually happened:
+Setup complexity through the roof
+Security headaches
+Actually slower than managed runners
+Higher costs (ouch)
+Lesson learned: Sometimes the boring solution is the right solution.
+The Solution: SQLite in-Memory (The Chosen One)
+Here's the controversial take: You don't need MySQL for most of your tests.
+The SQLite Advantage
+Speed: In-memory databases are lightning fast
+Isolation: Fresh database per test (or per worker)
+Simplicity: No containers, no networking, no tears
+But Wait, There's a Catch
+SQLite isn't MySQL. Shocking, we know. Here's what you need to handle:
+The 10 Commandments of SQLite Testing
+Foreign Keys: SQLite doesn't enforce them by default. Add ?foreign_keys=1 to your connection string or face the consequences.
+Type Affinity: SQLite is more forgiving with data types. Your integer column will happily store "banana" unless you use strict tables.
+Auto Increment: Different behavior from MySQL's AUTO_INCREMENT. Test carefully if you rely on specific ID sequences.
+Concurrency: SQLite serializes writes. MySQL doesn't. Keep some MySQL tests for concurrency edge cases.
+Transaction Isolation: Different default isolation levels. If your code depends on specific isolation behavior, test on MySQL.
+DDL Migrations: Limited ALTER TABLE support in SQLite. Test your migrations on the real database.
+Date/Time Handling: Different timezone and format handling. Verify timestamp-sensitive logic on MySQL.
+JSON Functions: SQLite's JSON support differs from MySQL's native JSON type and functions.
+Collations: Case sensitivity and sorting behavior can differ. Test locale-specific queries on MySQL.
+Database Engine Features: If you use stored procedures, triggers, or MySQL-specific functions, you need the real deal.
+The Implementation: Code That Actually Works
+Project Structure (The Foundation)
+your-awesome-project/
+├── app/
+│
+├── __init__.py
+│
+├── main.py
+# FastAPI app factory
+│
+├── db.py
+# Database configuration
+│
+├── models/
+# Your beautiful models
+│
+└── routers/
+# API routes
+├── tests/
+│
+├── unit/
+# Pure logic, no I/O
+│
+├── component/
+# FastAPI + SQLite tests
+│
+├── e2e/
+# The "real deal" MySQL tests
+│
+└── conftest.py
+# Fixture magic happens here
+├── pytest.ini
+# Configuration central
+└── requirements-dev.txt
+# All the testing goodies
+Enter fullscreen mode
+Exit fullscreen mode
+The Database Setup (app/db.py)
+# app/db.py
+from contextlib import asynccontextmanager
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+# Global sessionmaker (we'll configure this in tests)
+SessionLocal: Optional[async_sessionmaker[AsyncSession]] = None
+def configure_sessionmaker(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+"""Configure the global sessionmaker. Call this in your app startup and test fixtures."""
+global SessionLocal
+SessionLocal = sessionmaker
+@asynccontextmanager
+async def get_db() -> AsyncSession:
+"""FastAPI dependency for database sessions."""
+assert SessionLocal is not None, "SessionLocal not configured. Did you forget to call configure_sessionmaker?"
+async with SessionLocal() as session:
+yield session
+Enter fullscreen mode
+Exit fullscreen mode
+The FastAPI App (app/main.py)
+# app/main.py
+from fastapi import FastAPI, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from .db import get_db
+from .models import User
+# Your SQLModel models
+def create_app() -> FastAPI:
+"""App factory pattern. Makes testing easier and dependency injection cleaner."""
+app = FastAPI(title="Lightning Fast API")
+@app.get("/healthz")
+async def health_check():
+"""The most important endpoint. If this is broken, everything is broken."""
+return {"status": "ok", "message": "Still alive!"}
+@app.post("/users", response_model=User)
+async def create_user(
+email: str,
+name: str,
+db: AsyncSession = Depends(get_db)
+):
+"""Create a user. Revolutionary stuff."""
+user = User(email=email, name=name)
+db.add(user)
+await db.commit()
+await db.refresh(user)
+return user
+@app.get("/users/{user_id}", response_model=User)
+async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
+"""Get a user by ID. Also revolutionary."""
+user = await db.get(User, user_id)
+if not user:
+raise HTTPException(status_code=404, detail="User not found")
+return user
+return app
+Enter fullscreen mode
+Exit fullscreen mode
+The Test Configuration (pytest.ini)
+[pytest]
+addopts = -ra -q -m "not e2e"
+testpaths = tests
+markers =
+unit: Pure logic tests, no I/O, fast as lightning
+component: FastAPI + SQLite tests, reasonably fast
+e2e: Full stack with MySQL, use sparingly
+slow: Tests that take >1 second (we're watching you)
+asyncio_mode = auto
+Enter fullscreen mode
+Exit fullscreen mode
+The Fixture Magic (tests/conftest.py)
+# tests/conftest.py
+import os
+import pytest
+from httpx import AsyncClient
+from sqlmodel import SQLModel
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from app.main import create_app
+from app.db import configure_sessionmaker, get_db
+@pytest.fixture(scope="session")
+def worker_id():
+"""Get the pytest-xdist worker ID. Each worker gets its own database file."""
+return os.getenv("PYTEST_XDIST_WORKER", "gw0")
+@pytest.fixture(scope="session")
+async def engine(worker_id):
+"""
+Create a SQLite engine per worker.
+Per-worker file databases are more reliable than :memory: for parallel testing.
+Each worker gets its own file, avoiding connection sharing issues.
+CRITICAL: foreign_keys=1 in connection string enables FK for ALL connections.
+"""
+db_file = f"./test_db_{worker_id}.sqlite3"
+# FIXED: foreign_keys=1 in connection string, not per-connection pragma
+engine = create_async_engine(f"sqlite+aiosqlite:///{db_file}?foreign_keys=1", echo=False)
+async with engine.begin() as conn:
+await conn.run_sync(SQLModel.metadata.create_all)
+yield engine
+# Cleanup
+await engine.dispose()
+try:
+os.remove(db_file)
+except FileNotFoundError:
+pass
+# Already deleted or never created
+@pytest.fixture(scope="session")
+def sessionmaker(engine):
+"""Create a sessionmaker factory."""
+return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+@pytest.fixture(autouse=True, scope="session")
+def _configure_sessionmaker(sessionmaker):
+"""Auto-configure the global sessionmaker for all tests."""
+configure_sessionmaker(sessionmaker)
+@pytest.fixture
+async def app(sessionmaker):
+"""Create a FastAPI app with test database dependency override."""
+app = create_app()
+# Override the database dependency
+async def get_test_db():
+async with sessionmaker() as session:
+yield session
+app.dependency_overrides[get_db] = get_test_db
+return app
+@pytest.fixture
+async def client(app):
+"""HTTP client for testing FastAPI endpoints."""
+async with AsyncClient(app=app, base_url="http://testserver") as client:
+yield client
+# E2E fixtures for MySQL testing
+@pytest.fixture(scope="session")
+def mysql_url():
+"""MySQL connection URL for e2e tests."""
+return os.getenv("TEST_MYSQL_URL", "mysql+asyncmy://root:test@localhost:3306/testdb")
+@pytest.fixture(scope="session")
+def run_e2e(pytestconfig):
+"""Check if e2e tests are selected."""
+selected_markers = pytestconfig.getoption("-m") or ""
+return "e2e" in selected_markers
+@pytest.fixture(scope="session")
+async def mysql_engine(run_e2e, mysql_url):
+"""MySQL engine for e2e tests only."""
+if not run_e2e:
+pytest.skip("e2e tests not selected")
+engine = create_async_engine(mysql_url, echo=False)
+async with engine.begin() as conn:
+# Run migrations or create tables here
+await conn.run_sync(SQLModel.metadata.create_all)
+yield engine
+await engine.dispose()
+@pytest.fixture
+async def e2e_app(mysql_engine):
+"""FastAPI app configured with MySQL for e2e tests."""
+# FIXED: Use existing configure_sessionmaker function consistently
+mysql_sessionmaker = async_sessionmaker(mysql_engine, class_=AsyncSession, expire_on_commit=False)
+configure_sessionmaker(mysql_sessionmaker)
+app = create_app()
+return app
+Enter fullscreen mode
+Exit fullscreen mode
+Test Data Factories (tests/factories.py)
+# tests/factories.py
+import factory
+from faker import Faker
+from app.models import User
+# Deterministic fake data for consistent tests
+fake = Faker()
+Faker.seed(1337)
+class UserFactory(factory.Factory):
+class Meta:
+model = User
+email = factory.LazyAttribute(lambda _: fake.unique.email())
+name = factory.LazyAttribute(lambda _: fake.name())
+# Helper for creating database entities
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
+@asynccontextmanager
+async def create_entity(session: AsyncSession, entity):
+"""Create and persist an entity, yielding it for use in tests."""
+session.add(entity)
+await session.flush()
+# Get the ID without committing
+yield entity
+# Cleanup happens automatically when session ends
+Enter fullscreen mode
+Exit fullscreen mode
+Sample Tests That Actually Work
+# tests/unit/test_math.py
+import pytest
+@pytest.mark.unit
+def test_addition_still_works():
+"""The most important test. If this fails, we have bigger problems."""
+assert 1 + 1 == 2
+@pytest.mark.unit
+def test_our_business_logic():
+"""Test your actual business logic here."""
+from app.utils import calculate_something_important
+result = calculate_something_important(42)
+assert result == "The answer to everything"
+Enter fullscreen mode
+Exit fullscreen mode
+# tests/component/test_users.py
+import pytest
+from tests.factories import UserFactory, create_entity
+@pytest.mark.component
+async def test_create_user_endpoint(client):
+"""Test user creation through the API."""
+response = await client.post("/users", json={
+"email": "test@example.com",
+"name": "Test User"
+})
+assert response.status_code == 200
+data = response.json()
+assert data["email"] == "test@example.com"
+assert data["name"] == "Test User"
+assert data["id"] is not None
+@pytest.mark.component
+async def test_get_user_endpoint(client, sessionmaker):
+"""Test getting a user by ID."""
+# Create a user in the database
+async with sessionmaker() as session:
+async with create_entity(session, UserFactory.build()) as user:
+await session.commit()
+# Test the endpoint
+response = await client.get(f"/users/{user.id}")
+assert response.status_code == 200
+data = response.json()
+assert data["id"] == user.id
+assert data["email"] == user.email
+@pytest.mark.component
+async def test_get_nonexistent_user(client):
+"""Test 404 behavior for missing users."""
+response = await client.get("/users/99999")
+assert response.status_code == 404
+assert "not found" in response.json()["detail"].lower()
+Enter fullscreen mode
+Exit fullscreen mode
+# tests/e2e/test_mysql_specifics.py
+import pytest
+@pytest.mark.e2e
+async def test_foreign_key_constraints(e2e_client, mysql_sessionmaker):
+"""Test that foreign key constraints work properly on MySQL."""
+# This test would fail on SQLite without proper FK setup
+# but should work correctly on MySQL
+pass
+@pytest.mark.e2e
+async def test_transaction_isolation(e2e_client):
+"""Test MySQL-specific transaction behavior."""
+# Test concurrent access patterns that behave differently on MySQL
+pass
+@pytest.mark.e2e
+async def test_json_queries(e2e_client):
+"""Test MySQL JSON functions that SQLite doesn't support."""
+pass
+Enter fullscreen mode
+Exit fullscreen mode
+The Parallelization: pytest-xdist Wizardry
+Basic Parallelization
+# Start with this
+pytest -n auto
+# Graduate to this
+pytest -n logical --dist worksteal
+Enter fullscreen mode
+Exit fullscreen mode
+Why --dist worksteal?
+When some tests are slower than others (looking at you, that one test that takes 30 seconds), work stealing lets idle workers grab tasks from busy workers. It's like having helpful coworkers instead of the ones who disappear when there's work to do.
+Avoiding Parallel Test Hell
+The Golden Rules:
+No shared state between tests: Each test should be an island
+Use unique file paths: tmp_path fixture or worker-specific names
+Clean up globals: Reset singletons or make them worker-aware
+Deterministic test data: Seed your faker, control your randomness
+Ensuring Test Independence
+Instead of relying on randomization to catch order dependencies:
+Use proper fixtures for test isolation (per-worker databases, clean state)
+pytest-xdist parallel execution will reveal most order issues naturally
+Careful test design prevents dependencies from forming in the first place
+If tests pass individually but fail in parallel, check for:
+Global variables being modified
+File system conflicts (use tmp_path fixture)
+Database record pollution between tests
+Debugging Parallel Failures
+When tests work individually but fail in parallel:
+# Reproduce the failure
+pytest -n 0 -k "failing_test_name" -vv -s
+# Check for shared state
+# Look for global variables, file system conflicts, or database sharing
+Enter fullscreen mode
+Exit fullscreen mode
+The CI Configuration: GitHub Actions That Don't Suck
+The Fast Lane (SQLite Tests)
+# .github/workflows/tests.yml
+name: Tests That Actually Finish
+on: [push, pull_request]
+concurrency:
+group: ci-${{ github.ref }}
+cancel-in-progress: true
+jobs:
+fast-lane:
+name: Fast Tests (SQLite)
+strategy:
+fail-fast: false
+matrix:
+group: [1, 2, 3, 4]
+# Split into 4 parallel jobs
+runs-on: ubuntu-latest
+timeout-minutes: 15
+# If it takes longer, something's wrong
+steps:
+- name: Checkout code
+uses: actions/checkout@v4
+- name: Setup Python
+uses: actions/setup-python@v5
+with:
+python-version: '3.12'
+cache: 'pip'
+- name: Install dependencies
+run: |
+pip install -r requirements-dev.txt
+- name: Run fast tests
+env:
+PYTEST_SPLIT_FILE: .pytest-split-durations.json
+run: |
+pytest -m "not e2e" \
+--splits 4 --group ${{ matrix.group }} \
+-n logical --dist worksteal \
+--alluredir=allure-results/${{ matrix.group }} \
+--durations=25
+- name: Upload test results
+uses: actions/upload-artifact@v4
+if: always()
+with:
+name: allure-fast-${{ matrix.group }}
+path: allure-results/${{ matrix.group }}
+Enter fullscreen mode
+Exit fullscreen mode
+The E2E Lane (MySQL Tests)
+e2e-tests:
+name: E2E Tests (MySQL)
+needs: [fast-lane]
+# Only run if fast tests pass
+runs-on: ubuntu-latest
+timeout-minutes: 20
+services:
+mysql:
+image: mysql:8.0
+env:
+MYSQL_ROOT_PASSWORD: test
+MYSQL_DATABASE: testdb
+ports:
+- 3306:3306
+options: >-
+--health-cmd="mysqladmin ping -h 127.0.0.1 -ptest"
+--health-interval=5s
+--health-timeout=2s
+--health-retries=20
+steps:
+- name: Checkout code
+uses: actions/checkout@v4
+- name: Setup Python
+uses: actions/setup-python@v5
+with:
+python-version: '3.12'
+cache: 'pip'
+- name: Install dependencies
+run: pip install -r requirements-dev.txt
+- name: Wait for MySQL
+run: |
+for i in {1..30}; do
+mysqladmin ping -h 127.0.0.1 -ptest && break
+sleep 2
+done
+- name: Run E2E tests
+env:
+TEST_MYSQL_URL: "mysql+asyncmy://root:test@127.0.0.1:3306/testdb"
+run: |
+pytest -m e2e \
+-n 0 \
+--alluredir=allure-results/e2e \
+--durations=25
+- name: Upload E2E results
+uses: actions/upload-artifact@v4
+if: always()
+with:
+name: allure-e2e
+path: allure-results/e2e
+### Taking CI Speed Even Further: Blacksmith.sh
+> No they do not pay me to say that, I just truly love them 🙏
+![ ](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/l3p03np6zz2xqvd8ibbd.jpg)
+After optimizing our tests, we discovered our CI runners were the next bottleneck. GitHub Actions runners, while convenient, aren't optimized for compute-heavy workloads like parallel test execution.
+We migrated to [Blacksmith.sh](https://blacksmith.sh) for our CI infrastructure and saw additional improvements:
+**Performance gains:**
+- **2-3x faster** build times due to dedicated bare-metal runners
+- **More predictable** performance (no noisy neighbor problems)
+- **Better parallelization** support with higher core counts
+**Cost savings:**
+- **40-60% reduction** in CI costs compared to GitHub Actions
+- Pay only for actual usage, not idle time
+- Better price/performance ratio for compute-intensive workflows
+**Migration effort:**
+- **1-3 lines of code** changes per repository
+- Minimal disruption to existing workflows
+- Same GitHub Actions syntax, just different runners
+Enter fullscreen mode
+Exit fullscreen mode
+yaml
+Before (GitHub Actions)
+runs-on: ubuntu-latest
+After (Blacksmith)
+runs-on: blacksmith-4vcpu-ubuntu-2204
+The combination of optimized tests + faster runners reduced our total CI time from 28 minutes to under 2 minutes, while cutting costs by over 70%.
+**When to consider dedicated CI infrastructure:**
+- High-frequency builds (multiple times per hour)
+- Compute-intensive test suites (parallel execution, compilation)
+- Cost-sensitive environments where CI bills are significant
+- Teams that value predictable, fast feedback loops
+Enter fullscreen mode
+Exit fullscreen mode
+Smart Test Splitting with pytest-split
+Most people split tests by count: "Run tests 1-100 on worker 1, 101-200 on worker 2." This is like dividing a pizza by number of slices instead of size - you might get one tiny slice and one massive one.
+The Problem with Count-Based Splitting
+When you have tests that take vastly different amounts of time (some finish in 0.1s, others take 30s), splitting by count leads to:
+Job 1: 100 fast tests (finishes in 2 minutes)
+Job 2: 100 tests including 3 slow ones (finishes in 15 minutes)
+Your CI is only as fast as the slowest job
+The pytest-split Solution
+pytest-split distributes tests based on actual runtime data, ensuring each CI job takes roughly the same total time.
+Step 1: Generate Timing Data
+First, collect timing data from your test suite:
+# Run this once to generate timing data
+pytest --store-durations --durations-path=.pytest-durations.json -m "not e2e"
+Enter fullscreen mode
+Exit fullscreen mode
+This creates a .pytest-durations.json file with historical timing data for each test.
+Step 2: Use Runtime-Based Splitting in CI
+# Split tests into 4 groups based on runtime, not count
+export PYTEST_SPLIT_FILE=.pytest-durations.json
+# Each group gets ~25% of total runtime
+pytest --splits 4 --group 1 -m "not e2e"
+# Group 1
+pytest --splits 4 --group 2 -m "not e2e"
+# Group 2
+pytest --splits 4 --group 3 -m "not e2e"
+# Group 3
+pytest --splits 4 --group 4 -m "not e2e"
+# Group 4
+Enter fullscreen mode
+Exit fullscreen mode
+When to Use pytest-split
+Use pytest-split when:
+Your tests have highly variable runtimes (some 0.1s, others 10s+)
+You're running multiple CI jobs and jobs finish at very different times
+You have a large test suite (1000+ tests) where timing distribution matters
+You want predictable CI job completion times
+Skip pytest-split when:
+Your tests have relatively uniform runtime (all finish within 1-2 seconds)
+You're only running one CI job
+Your test suite is small (<200 tests)
+--dist worksteal already balances your workload well
+Setting Up pytest-split for Your Project
+Install pytest-split:
+pip install pytest-split
+Enter fullscreen mode
+Exit fullscreen mode
+Generate initial timing data:
+# Run your full test suite once to collect timings
+pytest --store-durations --durations-path=.pytest-durations.json
+Enter fullscreen mode
+Exit fullscreen mode
+Update your CI configuration:
+- name: Run fast tests
+env:
+PYTEST_SPLIT_FILE: .pytest-durations.json
+run: |
+pytest -m "not e2e" \
+--splits 4 --group ${{ matrix.group }} \
+-n logical --dist worksteal \
+--durations=25
+Enter fullscreen mode
+Exit fullscreen mode
+Keep timing data updated:
+# Regenerate timing data weekly or when adding many new tests
+pytest --store-durations --durations-path=.pytest-durations.json -m "not e2e"
+Enter fullscreen mode
+Exit fullscreen mode
+pytest-split Best Practices
+Timing Data Maintenance:
+Regenerate timing data when you add/remove many tests
+Update weekly for active projects, monthly for stable ones
+Store the .pytest-durations.json file in your repo
+Debugging Imbalanced Jobs:
+Check timing data: cat .pytest-durations.json | head -20
+Look for tests without timing data (new tests default to 0 seconds)
+Verify your job matrix splits match your --splits parameter
+Combining with worksteal:
+# Best of both worlds: balanced groups + work stealing within groups
+pytest --splits 4 --group ${{ matrix.group }} -n logical --dist worksteal
+Enter fullscreen mode
+Exit fullscreen mode
+This ensures each CI job gets a balanced workload, and within each job, workers can steal work from each other when they finish early.
+Memory Management and Cleanup
+Memory Guidelines
+With 8-core runners and 32GB RAM, your test suite should rarely exceed:
+4-6 GB RSS during parallel execution
+Fail the build if you hit 8GB+ (something's leaking)
+Monitoring Memory Usage
+# Add this to your measurement script
+for i in 1 2 3 4 5; do
+/usr/bin/time -f "cpu=%P rss=%Mkb elapsed=%E" \
+pytest -m "not e2e" -n logical --dist worksteal \
+--durations=25 -q | tee reports/run_$i.log
+done
+Enter fullscreen mode
+Exit fullscreen mode
+SQLite File Cleanup
+The per-worker SQLite files need cleanup:
+# In your engine fixture
+yield engine
+await engine.dispose()
+# Clean up the database file
+try:
+os.remove(f"./test_db_{worker_id}.sqlite3")
+except FileNotFoundError:
+pass
+# Already gone
+Enter fullscreen mode
+Exit fullscreen mode
+Measurement Protocol (No More Hand-Wavy Claims)
+Hardware Baseline
+Record this info and include it in your repo:
+## Test Environment Specifications
+**Local Development:**
+- MacBook Pro M2 Max, 12-core CPU, 32GB RAM
+- macOS 14.2, Python 3.12
+**CI Environment:**
+- GitHub Actions ubuntu-latest
+- 4-core x86_64, 16GB RAM, SSD storage
+- Python 3.12, pytest 8.x
+Enter fullscreen mode
+Exit fullscreen mode
+The 5-Run Protocol
+#!/bin/bash
+# scripts/measure_performance.sh
+echo "=== Test Performance Measurement ==="
+echo "Hardware: $(uname -m) $(uname -s)"
+echo "Python: $(python --version)"
+echo "Cores: $(nproc)"
+echo "RAM: $(free -h | grep '^Mem:' | awk '{print $2}')"
+echo ""
+# Warm up (don't count this run)
+echo "Warming up..."
+pytest -m "not e2e" -n logical --dist worksteal -q > /dev/null
+# Measure 5 runs
+echo "Measuring performance across 5 runs..."
+for i in {1..5}; do
+echo "Run $i/5"
+/usr/bin/time -f "run_${i}: cpu=%P rss=%Mkb elapsed=%E" \
+pytest -m "not e2e" \
+-n logical --dist worksteal \
+--durations=25 -q \
+--alluredir=allure-results/perf_run_${i} \
+2>&1 | tee reports/perf_run_${i}.log
+done
+echo ""
+echo "=== Results Summary ==="
+grep "elapsed=" reports/perf_run_*.log | sort
+Enter fullscreen mode
+Exit fullscreen mode
+Results Table Format
+Always include these details with any performance claims:
+## Performance Results
+**Test Environment:**
+- Hardware: [Your specific hardware]
+- OS: [Specific version]
+- Python: [Version]
+- Test count: [Total number] ([breakdown by type])
+**Before:** [Describe the baseline setup]
+**After:** [Describe the optimized setup]
+| Metric
+| Before
+| After
+| Notes |
+|---------------------------|-----------|---------|--------|
+| Median wall time (5 runs) | 28m 34s
+| 3m 47s
+| Measured with `/usr/bin/time` |
+| P95 wall time
+| 31m 12s
+| 4m 15s
+| Worst case scenario |
+| Memory peak (RSS)
+| 8.2 GB
+| 4.1 GB
+| Peak during parallel execution |
+| Test composition
+| 100% MySQL | 93% SQLite, 7% MySQL | [breakdown] |
+**Methodology:** 5 consecutive runs, median reported, hardware specs documented above.
+Enter fullscreen mode
+Exit fullscreen mode
+Red Flags to Avoid:
+Claims without specific hardware mentioned
+No test composition breakdown
+Hand-wavy estimates ("~9x faster")
+Missing measurement methodology
+Comparing different hardware/environments
+Common Pitfalls (Learn From Others' Mistakes)
+The "It Works on My Machine" Special
+Problem: Tests pass locally but fail in CI.
+Usually caused by:
+Different database versions
+Timezone differences
+File path separators (Windows vs. Unix)
+Environment variables not set in CI
+Solution: Make your test environment configuration explicit and reproducible.
+The "Shared State Surprise"
+Problem: Tests pass individually but fail when run together.
+Usually caused by:
+Global variables being modified
+Database records not cleaned up
+File system state persisting
+Module-level imports with side effects
+Solution: Embrace test isolation like it's your religion.
+The "Foreign Key Forgotten"
+Problem: Tests pass but production breaks due to referential integrity violations.
+Usually caused by: SQLite's PRAGMA foreign_keys=OFF default behavior, or incorrectly setting FK pragma per connection instead of in the connection string.
+Solution: Use ?foreign_keys=1 in your SQLite connection string, not per-connection pragma statements.
+The "Performance Regression Creep"
+Problem: Tests gradually get slower over time.
+Usually caused by:
+New tests being added without performance consideration
+Test data growing without bounds
+Dependencies being added carelessly
+Solution: Monitor your test durations and fail builds when they exceed thresholds.
+The "False Confidence Trap"
+Problem: Fast tests give you confidence, but they don't catch real bugs.
+Usually caused by: Mocking too much or using overly simplified test scenarios.
+Solution: Balance fast feedback with meaningful coverage. Keep that MySQL test suite!
+The Incremental Migration Plan
+Don't try to do everything at once. You'll break things, blame this guide, and we'll both be sad.
+Phase 1: Measure Everything
+Implement the 5-run measurement protocol
+Document current performance
+Identify the 10 slowest tests
+Success criteria: You have baseline numbers you can defend.
+Phase 2: Fix the Fixtures
+Implement proper test database isolation
+Add the session-scoped engine fixture
+Keep using MySQL initially
+Success criteria: Tests are isolated but not necessarily faster yet.
+Phase 3: Switch to SQLite
+Convert component tests to use SQLite fixtures
+Keep a small MySQL suite for edge cases
+Add ?foreign_keys=1 to connection string
+Success criteria: Most tests use SQLite, MySQL suite is <5% of total.
+Phase 4: Enable Parallelization
+Start with pytest -n auto
+Fix any parallel test failures
+Verify test isolation with proper fixtures
+Success criteria: All tests pass consistently with -n auto.
+Phase 5: Consider Runtime-Based Splitting (Optional)
+First try: --dist worksteal to see if it resolves job imbalance
+If needed: Implement manual category-based job splitting
+Advanced: Add pytest-split only if you have stable timing patterns and maintenance capacity
+Success criteria: CI jobs finish within 2-3 minutes of each other, no job consistently much slower.
+Phase 6: Polish and Monitor
+Add memory monitoring
+Set up performance regression detection
+Document what belongs in MySQL vs. SQLite suites
+Success criteria: Performance is stable and regressions are caught early.
+Troubleshooting Guide
+"My tests are using :memory: but still failing in parallel"
+Likely cause: Multiple connections to the same in-memory database.
+Fix: Switch to per-worker file databases as shown in the fixtures.
+"SQLite tests pass but MySQL tests fail"
+Likely cause: You found a real difference between the databases.
+Fix: Either adjust your code to be database-agnostic, or move that test case to the MySQL suite permanently.
+"One worker is much slower than others"
+Likely cause: Imbalanced test distribution.
+Fix: Use pytest-split with actual timing data, not just test counts.
+"Tests are fast but flaky"
+Likely causes:
+Shared global state
+Race conditions in parallel execution
+Non-deterministic test data
+Insufficient test isolation
+Fix: Add more debugging output, check for global variables, ensure proper fixture isolation.
+"Memory usage is through the roof"
+Likely causes:
+Database connections not being closed
+Large test data sets being held in memory
+Circular references preventing garbage collection
+Fix: Add explicit connection cleanup, use smaller test datasets, profile with memory_profiler.
+The Results (Finally!)
+After implementing this approach across multiple projects, here's what we typically see:
+Performance Improvements
+Metric
+Typical Before
+Typical After
+Improvement
+Total wall time (CI)
+25-35 minutes
+3-6 minutes
+6-10x faster
+Local test feedback
+5-10 minutes
+30-60 seconds
+5-10x faster
+Memory usage (peak)
+6-12 GB
+2-4 GB
+50-70% less
+CI cost (monthly)
+$400-800
+$150-300
+60-70% savings
+Developer happiness
+😢
+😊
+Priceless
+What You Get
+Faster feedback loops: Developers actually run tests locally again.
+Reliable CI: No more "let's just restart the build and hope" debugging sessions.
+Lower costs: Your AWS bill will thank you.
+Better test coverage: When tests are fast, people write more of them.
+Fewer production bugs: Fast tests get run more often, catching issues earlier.
+What You Don't Get
+Perfect MySQL compatibility: You'll still need that small MySQL test suite.
+Zero maintenance: Test infrastructure still needs care and feeding.
+Magic bullet: Some tests will still be inherently slow - that's okay.
+The Complete Checklist
+Print this out and check items off as you implement them:
+Setup Phase
+[ ] Document current test performance (5-run protocol)
+[ ] Set up project structure with proper test directories
+[ ] Configure pytest.ini with markers and asyncio mode
+[ ] Create the database abstraction layer (app/db.py)
+Fixtures Phase
+[ ] Implement session-scoped SQLite engine fixture
+[ ] Add per-worker database file creation
+[ ] Set up ?foreign_keys=1 in connection string
+[ ] Create FastAPI app fixture with dependency overrides
+[ ] Add HTTP client fixture
+Testing Phase
+[ ] Convert component tests to use SQLite fixtures
+[ ] Set up test data factories with deterministic seeds
+[ ] Identify and preserve critical MySQL test cases
+[ ] Add E2E fixtures for MySQL testing
+Parallelization Phase
+[ ] Enable pytest -n auto and fix any failures
+[ ] Upgrade to pytest -n logical --dist worksteal
+[ ] Ensure test isolation with proper fixtures
+[ ] Verify no shared state between tests
+CI Phase
+[ ] Split fast tests into multiple parallel jobs
+[ ] Set up MySQL service for E2E tests
+[ ] Consider pytest-split for runtime-based job splitting
+[ ] Add Allure or similar reporting
+[ ] Configure artifact upload for test results
+Monitoring Phase
+[ ] Add memory usage monitoring
+[ ] Set up performance regression detection
+[ ] Document what belongs in MySQL vs SQLite suites
+[ ] Create runbook for troubleshooting parallel test failures
+Resources and Further Reading
+Essential Tools
+pytest-xdist: Parallel test execution - docs
+pytest-split: Runtime-based test splitting - GitHub
+factory_boy: Test data factories - docs
+Faker: Generate fake data - docs
+FastAPI Testing
+Official FastAPI Testing Guide: fastapi.tiangolo.com/tutorial/testing
+AsyncClient documentation: For testing async endpoints
+Database Testing
+SQLAlchemy Testing: docs.sqlalchemy.org/en/20/orm/session_transaction.html
+SQLite vs MySQL differences: Know what you're getting into
+CI/CD Optimization
+GitHub Actions best practices: Caching, artifacts, and parallelization
+pytest-split documentation: Runtime-based test distribution
+FAQ (The Questions You're Going to Ask)
+Q: "Should I use SQLite for ALL tests?"
+A: No. Use SQLite for the majority (90-95%) but keep MySQL tests for database-specific behavior, migrations, and edge cases that depend on MySQL semantics.
+Q: "What about other databases like PostgreSQL?"
+A: The same principles apply. SQLite for speed, PostgreSQL for the cases that need PostgreSQL-specific features. Adjust the edge cases accordingly.
+Q: "How do I know what tests need the real database?"
+A: Start by converting everything to SQLite. The tests that break will tell you what needs the real database. Common candidates: migrations, JSON queries, stored procedures, specific isolation levels.
+Q: "Is this approach suitable for microservices?"
+A: Absolutely. Each service can have its own fast test suite with selective real database testing for integration points.
+Q: "What about integration tests with external services?"
+A: Mock them in your component tests, test them for real in your E2E suite. Same principle as SQLite vs MySQL.
+Q: "How often should I regenerate test timing data?"
+A: Weekly for active projects, monthly for stable ones. Whenever you add a lot of new tests or notice job imbalance.
+Q: "Can I use this with other web frameworks?"
+A: Yes! The core principles (fast database, fixtures, parallelization) apply to Django, Flask, or any other framework. Adjust the specifics accordingly.
+Q: "What if my tests are CPU-bound instead of I/O-bound?"
+A: Parallelization will still help, but you might need to optimize algorithms rather than just database access. Profile to find the bottlenecks.
+Q: "How do I convince my team to adopt this?"
+A: Start with measuring current performance. Numbers don't lie. Implement incrementally and show results at each phase.
+Conclusion: Go Forth and Test Quickly
+You now have a complete, battle-tested approach to making your FastAPI tests faster without sacrificing reliability. This isn't theoretical - it's been used to optimize test suites across multiple production systems.
+The Key Insights
+Speed and quality aren't mutually exclusive. You can have fast tests that catch real bugs by being strategic about what you test where.
+Infrastructure matters. Proper fixtures, isolation, and parallelization are force multipliers for test performance.
+Measure everything. Without numbers, you're just guessing. With numbers, you can make informed decisions and track progress.
+Incremental improvement beats big rewrites. You can adopt this approach piece by piece without breaking your existing workflow.
+What's Next?
+Implement incrementally: Don't try to do everything at once
+Measure before and after: Document your improvements
+Share your results: Help others learn from your experience
+Iterate and improve: This is a living system, not a one-time fix
+A Final Warning
+Fast tests are addictive. Once your team experiences 3-minute CI runs instead of 30-minute ones, there's no going back. You'll find yourself optimizing other slow things in your development process.
+Don't say we didn't warn you.
+Now stop reading and start implementing. Your future self (and your teammates) will thank you.
+About the Author
+Shahar Polak has spent way too much time waiting for slow tests and decided to do something about it. When not optimizing test suites, he can be found building things with FastAPI, SQLAlchemy, and probably complaining about some CI pipeline somewhere.
+Got questions? Found a bug in this guide? Implemented this successfully (or unsuccessfully)? Share your experience - the testing community learns from real-world results, not just theory.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Shahar Polak
+Follow
+I've been programming in multiple languages for the past decade, loving every second of it.
+I've tried to surround myself with highly motivated individuals who try to change the world - together.
+Location
+Israel
+Education
+Technion
+Work
+Head of Engineering @ ImagenAI
+Joined
+Oct 12, 2019
+Trending on DEV Community
+Hot
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+Meme Monday
+#discuss
+#watercooler
+#jokes
+RavenDB Launches the First Database-Native AI Agent Creator: The Missing Piece for Secure, Integrated AI
+#database
+#ai
+#programming
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
