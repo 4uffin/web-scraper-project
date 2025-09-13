@@ -1,0 +1,726 @@
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 3 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Dimension AI Technologies
+Posted on Sep 13
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 3
+#architecture
+#mvc
+#mvvm
+#ui
+MVC vs MVVM Flow Patterns: Comparative Analysis and Performance Implications
+Introduction
+In our exploration of architectural patterns, we've progressed from understanding the fundamental differences between MVC and MVVM through examining MVC's sequential flow patterns and MVVM's reactive mesh architecture.
+Now it's time to put these patterns side by side and analyze their real-world implications. This comparative analysis will help you make informed architectural decisions based on performance characteristics, testing complexity, and specific application requirements.
+Part 3: Comparative Analysis
+3.1 Flow Composition
+The fundamental difference between MVC and MVVM isn't just in their components but in how data flows compose and interact.
+MVC: Sequential Orchestration
+MVC flows chain together in predictable sequences, with clear transaction boundaries and explicit error propagation:
+// MVC: Clear sequential flow with explicit orchestration
+public class OrderController : Controller
+{
+public async Task<IActionResult> ProcessOrder(OrderDto order)
+{
+// Step 1: Validate
+if (!ModelState.IsValid)
+return BadRequest(ModelState);
+// Step 2: Check inventory
+var inventoryResult = await _inventoryService.CheckAsync(order.Items);
+if (!inventoryResult.Available)
+return View("OutOfStock", inventoryResult);
+// Step 3: Process payment
+var paymentResult = await _paymentService.ProcessAsync(order.Payment);
+if (!paymentResult.Success)
+return View("PaymentFailed", paymentResult);
+// Step 4: Create order
+var confirmedOrder = await _orderService.CreateAsync(order, paymentResult);
+// Step 5: Return result
+return View("OrderConfirmation", confirmedOrder);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Flow characteristics:
+Each step completes before the next begins
+Failure at any point stops the sequence
+Transaction boundaries are explicit
+Easy to trace execution path
+Natural fit for request/response patterns
+MVVM: Simultaneous Reactive Flows
+MVVM allows multiple flows to execute and interact simultaneously through the binding infrastructure:
+// MVVM: Multiple simultaneous reactive flows
+public class OrderViewModel : ViewModelBase
+{
+public OrderViewModel()
+{
+// Flow 1: User input triggers validation
+PropertyChanged += (s, e) =>
+{
+if (IsOrderProperty(e.PropertyName))
+ValidateOrderAsync().FireAndForget();
+};
+// Flow 2: Validation triggers UI updates
+ValidationErrors.CollectionChanged += (s, e) =>
+{
+OnPropertyChanged(nameof(CanSubmit));
+OnPropertyChanged(nameof(ValidationSummary));
+};
+// Flow 3: External events update state
+_inventoryService.StockChanged += async (s, e) =>
+{
+await Application.Current.Dispatcher.InvokeAsync(() =>
+{
+UpdateAvailability(e.Items);
+RecalculateTotals();
+});
+};
+// Flow 4: Commands trigger complex operations
+SubmitCommand = new RelayCommand(
+async () => await ProcessOrderAsync(),
+() => CanSubmit
+);
+}
+// Multiple flows can trigger this simultaneously
+private async Task RecalculateTotals()
+{
+Subtotal = Items.Sum(i => i.Price * i.Quantity);
+Tax = await _taxService.CalculateAsync(Subtotal, ShippingAddress);
+Shipping = await _shippingService.CalculateAsync(Items, ShippingAddress);
+Total = Subtotal + Tax + Shipping;
+// Each property change triggers more flows
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Flow characteristics:
+Multiple flows execute simultaneously
+Changes propagate automatically through bindings
+No explicit transaction boundaries
+Complex interdependencies possible
+Natural fit for event-driven, reactive UIs
+3.2 Performance Implications
+Performance characteristics differ significantly between the two patterns.
+MVC Flow Performance
+// MVC: Performance is largely about optimizing the pipeline
+public class PerformantController : Controller
+{
+private readonly IMemoryCache _cache;
+[HttpGet("products")]
+[ResponseCache(Duration = 300)]
+public async Task<IActionResult> GetProducts(
+int page = 1,
+int pageSize = 20,
+string category = null)
+{
+// Performance optimization points:
+// 1. Database query optimization
+var query = _context.Products
+.Include(p => p.Category)
+// Eager loading
+.AsNoTracking();
+// Read-only optimization
+if (!string.IsNullOrEmpty(category))
+query = query.Where(p => p.Category.Name == category);
+// 2. Pagination at database level
+var products = await query
+.Skip((page - 1) * pageSize)
+.Take(pageSize)
+.ToListAsync();
+// 3. Response caching
+Response.Headers.Add("X-Total-Count",
+await GetTotalCountAsync(category));
+// 4. Minimal serialization
+var dto = products.Select(p => new ProductDto
+{
+Id = p.Id,
+Name = p.Name,
+Price = p.Price
+// Only include requested fields
+});
+return Ok(dto);
+}
+private async Task<string> GetTotalCountAsync(string category)
+{
+// Cache frequently accessed counts
+var cacheKey = $"product-count-{category ?? "all"}";
+if (!_cache.TryGetValue(cacheKey, out int count))
+{
+count = await _context.Products
+.Where(p => category == null || p.Category.Name == category)
+.CountAsync();
+_cache.Set(cacheKey, count, TimeSpan.FromMinutes(5));
+}
+return count.ToString();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+MVC Performance Characteristics:
+Predictable latency: Request → Response time is measurable
+Server load: CPU/Memory usage concentrated on server
+Network overhead: Each interaction requires round trip
+Caching effectiveness: HTTP caching, CDNs work well
+Scalability: Horizontal scaling through load balancing
+MVVM Flow Performance
+// MVVM: Performance is about managing binding overhead and change propagation
+public class PerformantViewModel : ViewModelBase
+{
+private readonly DispatcherTimer _updateTimer;
+private readonly List<PriceUpdate> _pendingUpdates = new();
+private bool _isBatchUpdating;
+public PerformantViewModel()
+{
+// Batch updates to prevent UI flooding
+_updateTimer = new DispatcherTimer
+{
+Interval = TimeSpan.FromMilliseconds(100)
+};
+_updateTimer.Tick += ProcessBatchUpdates;
+}
+// Problem: Naive implementation causes performance issues
+public decimal TotalValue_Naive =>
+Items.Sum(i => i.Quantity * i.Price); // Recalculates on every access!
+// Solution: Cached calculation with explicit invalidation
+private decimal? _totalValueCache;
+public decimal TotalValue
+{
+get
+{
+if (!_totalValueCache.HasValue)
+{
+_totalValueCache = Items.Sum(i => i.Quantity * i.Price);
+}
+return _totalValueCache.Value;
+}
+}
+// Virtualization for large collections
+public VirtualizingObservableCollection<ItemViewModel> Items { get; }
+// Suspend notifications during bulk operations
+public async Task LoadItemsAsync()
+{
+using (Items.SuspendNotifications())
+{
+Items.Clear();
+var data = await _service.GetItemsAsync();
+foreach (var item in data)
+{
+Items.Add(new ItemViewModel(item));
+}
+} // Single CollectionChanged event fired here
+InvalidateTotalValue();
+}
+// Throttle high-frequency updates
+public void OnPriceUpdate(PriceUpdate update)
+{
+lock (_pendingUpdates)
+{
+_pendingUpdates.Add(update);
+if (!_updateTimer.IsEnabled)
+_updateTimer.Start();
+}
+}
+private void ProcessBatchUpdates(object sender, EventArgs e)
+{
+_updateTimer.Stop();
+List<PriceUpdate> updates;
+lock (_pendingUpdates)
+{
+updates = new List<PriceUpdate>(_pendingUpdates);
+_pendingUpdates.Clear();
+}
+// Process all updates in one UI update cycle
+using (DeferPropertyChanges())
+{
+foreach (var update in updates)
+{
+var item = Items.FirstOrDefault(i => i.Id == update.ItemId);
+if (item != null)
+{
+item.Price = update.NewPrice;
+}
+}
+InvalidateTotalValue();
+}
+}
+private void InvalidateTotalValue()
+{
+_totalValueCache = null;
+OnPropertyChanged(nameof(TotalValue));
+}
+}
+// Helper for managing binding performance
+public class VirtualizingObservableCollection<T> : ObservableCollection<T>
+{
+private bool _suppressNotification;
+public IDisposable SuspendNotifications()
+{
+_suppressNotification = true;
+return new NotificationSuspender(this);
+}
+protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
+{
+if (!_suppressNotification)
+base.OnCollectionChanged(e);
+}
+private class NotificationSuspender : IDisposable
+{
+private readonly VirtualizingObservableCollection<T> _collection;
+public NotificationSuspender(VirtualizingObservableCollection<T> collection)
+{
+_collection = collection;
+}
+public void Dispose()
+{
+_collection._suppressNotification = false;
+_collection.OnCollectionChanged(
+new NotifyCollectionChangedEventArgs(
+NotifyCollectionChangedAction.Reset));
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+MVVM Performance Characteristics:
+Binding overhead: Each property change has notification cost
+Memory usage: ViewModels and bindings consume client memory
+UI responsiveness: Can suffer from excessive updates
+No network latency: Data already on client
+Complex optimization: Requires understanding of binding system
+3.3 Testing Strategies
+Testing approaches differ significantly due to the architectural differences.
+Testing MVC Flows
+// MVC: Test controllers in isolation with mocked dependencies
+[TestClass]
+public class OrderControllerTests
+{
+private OrderController _controller;
+private Mock<IOrderService> _orderServiceMock;
+private Mock<IInventoryService> _inventoryServiceMock;
+[TestInitialize]
+public void Setup()
+{
+_orderServiceMock = new Mock<IOrderService>();
+_inventoryServiceMock = new Mock<IInventoryService>();
+_controller = new OrderController(
+_orderServiceMock.Object,
+_inventoryServiceMock.Object
+);
+}
+[TestMethod]
+public async Task ProcessOrder_WithValidOrder_ReturnsConfirmation()
+{
+// Arrange
+var order = new OrderDto { /* ... */ };
+_inventoryServiceMock
+.Setup(x => x.CheckAsync(It.IsAny<List<OrderItem>>()))
+.ReturnsAsync(new InventoryResult { Available = true });
+_orderServiceMock
+.Setup(x => x.CreateAsync(It.IsAny<OrderDto>(), It.IsAny<PaymentResult>()))
+.ReturnsAsync(new Order { Id = 123 });
+// Act
+var result = await _controller.ProcessOrder(order);
+// Assert
+Assert.IsInstanceOfType(result, typeof(ViewResult));
+var viewResult = (ViewResult)result;
+Assert.AreEqual("OrderConfirmation", viewResult.ViewName);
+Assert.IsNotNull(viewResult.Model);
+// Verify service calls occurred in correct order
+_inventoryServiceMock.Verify(x => x.CheckAsync(It.IsAny<List<OrderItem>>()), Times.Once);
+_orderServiceMock.Verify(x => x.CreateAsync(It.IsAny<OrderDto>(), It.IsAny<PaymentResult>()), Times.Once);
+}
+[TestMethod]
+public async Task ProcessOrder_Pipeline_Integration_Test()
+{
+// Integration test with actual middleware pipeline
+using var factory = new WebApplicationFactory<Startup>()
+.WithWebHostBuilder(builder =>
+{
+builder.ConfigureServices(services =>
+{
+// Replace real services with test doubles
+services.AddSingleton<IOrderService>(_orderServiceMock.Object);
+});
+});
+var client = factory.CreateClient();
+// Test complete request/response cycle
+var response = await client.PostAsJsonAsync("/orders", new OrderDto());
+Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+// Verify middleware executed
+Assert.IsTrue(response.Headers.Contains("X-Processing-Time"));
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Testing MVVM Flows
+// MVVM: Test ViewModels with focus on property changes and commands
+[TestClass]
+public class OrderViewModelTests
+{
+private OrderViewModel _viewModel;
+private Mock<IOrderService> _orderServiceMock;
+private List<string> _propertyChanges;
+[TestInitialize]
+public void Setup()
+{
+_orderServiceMock = new Mock<IOrderService>();
+_viewModel = new OrderViewModel(_orderServiceMock.Object);
+_propertyChanges = new List<string>();
+_viewModel.PropertyChanged += (s, e) =>
+_propertyChanges.Add(e.PropertyName);
+}
+[TestMethod]
+public async Task OrderTotal_UpdatesWhen_ItemsChange()
+{
+// Arrange
+_viewModel.Items.Add(new OrderItemViewModel { Price = 10, Quantity = 2 });
+_propertyChanges.Clear();
+// Act - Change quantity
+_viewModel.Items[0].Quantity = 3;
+// Assert - Verify cascade of property changes
+CollectionAssert.Contains(_propertyChanges, nameof(_viewModel.Subtotal));
+CollectionAssert.Contains(_propertyChanges, nameof(_viewModel.Total));
+Assert.AreEqual(30, _viewModel.Total);
+}
+[TestMethod]
+public void SubmitCommand_CanExecute_DependsOnValidation()
+{
+// Arrange
+var canExecuteChangedCount = 0;
+_viewModel.SubmitCommand.CanExecuteChanged += (s, e) =>
+canExecuteChangedCount++;
+// Act - Trigger validation state change
+_viewModel.CustomerEmail = "invalid";
+// Assert
+Assert.IsFalse(_viewModel.SubmitCommand.CanExecute(null));
+Assert.IsTrue(canExecuteChangedCount > 0);
+// Act - Fix validation
+_viewModel.CustomerEmail = "valid@email.com";
+// Assert
+Assert.IsTrue(_viewModel.SubmitCommand.CanExecute(null));
+}
+[TestMethod]
+public async Task SimultaneousFlows_HandleCorrectly()
+{
+// Test multiple flows interacting
+var priceUpdateTask = Task.Run(() =>
+{
+for (int i = 0; i < 100; i++)
+{
+_viewModel.UpdatePrice(i, Random.Shared.Next(1, 100));
+}
+});
+var validationTask = Task.Run(() =>
+{
+for (int i = 0; i < 100; i++)
+{
+_viewModel.ValidateAsync().Wait();
+}
+});
+await Task.WhenAll(priceUpdateTask, validationTask);
+// Assert no race conditions or exceptions
+Assert.IsTrue(_viewModel.IsValid);
+Assert.AreEqual(100, _viewModel.Items.Count);
+}
+}
+// Testing binding behavior requires UI framework
+[TestClass]
+public class OrderViewIntegrationTests
+{
+[TestMethod]
+[STAThread]
+public void Binding_Updates_BothDirections()
+{
+// Requires UI thread context
+var viewModel = new OrderViewModel();
+var view = new OrderView { DataContext = viewModel };
+// Test View → ViewModel
+var textBox = view.FindControl<TextBox>("CustomerEmail");
+textBox.Text = "test@example.com";
+Assert.AreEqual("test@example.com", viewModel.CustomerEmail);
+// Test ViewModel → View
+viewModel.CustomerEmail = "updated@example.com";
+Assert.AreEqual("updated@example.com", textBox.Text);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3.4 Memory Management Comparison
+Memory management challenges differ significantly between the patterns.
+MVC Memory Patterns
+// MVC: Memory is typically managed per request
+public class MemoryEfficientController : Controller
+{
+private readonly IDbContextFactory<AppDbContext> _contextFactory;
+// Scoped lifetime - disposed after request
+public async Task<IActionResult> GetLargeDataset()
+{
+// Context disposed automatically via DI container
+using var context = _contextFactory.CreateDbContext();
+// Stream large results to avoid loading all in memory
+var query = context.LargeTable
+.Where(x => x.IsActive)
+.AsAsyncEnumerable();
+// Use streaming response
+Response.ContentType = "application/json";
+await Response.StartAsync();
+await using var writer = new Utf8JsonWriter(Response.BodyWriter);
+writer.WriteStartArray();
+await foreach (var item in query)
+{
+writer.WriteStartObject();
+writer.WriteString("id", item.Id);
+writer.WriteString("name", item.Name);
+writer.WriteEndObject();
+await writer.FlushAsync();
+}
+writer.WriteEndArray();
+await writer.FlushAsync();
+return new EmptyResult();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+MVVM Memory Patterns
+// MVVM: Long-lived ViewModels require careful memory management
+public class MemoryAwareViewModel : ViewModelBase, IDisposable
+{
+private readonly CompositeDisposable _disposables = new();
+private readonly WeakEventManager _eventManager = new();
+public MemoryAwareViewModel()
+{
+// Problem: Strong event handlers cause memory leaks
+// BAD: _service.DataChanged += OnDataChanged;
+// Solution 1: Weak events
+WeakEventManager<IDataService, DataChangedEventArgs>
+.AddHandler(_service, nameof(IDataService.DataChanged), OnDataChanged);
+// Solution 2: Reactive Extensions with disposal
+var subscription = Observable
+.FromEventPattern<DataChangedEventArgs>(_service, nameof(IDataService.DataChanged))
+.Throttle(TimeSpan.FromMilliseconds(100))
+.ObserveOnDispatcher()
+.Subscribe(e => OnDataChanged(e.Sender, e.EventArgs));
+_disposables.Add(subscription);
+// Solution 3: Weak references for child ViewModels
+InitializeChildViewModels();
+}
+private void InitializeChildViewModels()
+{
+// Use weak references to prevent circular references
+var children = new List<WeakReference>();
+foreach (var model in _models)
+{
+var childVm = new ChildViewModel(model);
+// Weak reference allows garbage collection
+children.Add(new WeakReference(childVm));
+// Child can be GC'd even if parent is alive
+ChildViewModels.Add(childVm);
+}
+}
+// Implement IDisposable properly
+private bool _disposed;
+public void Dispose()
+{
+Dispose(true);
+GC.SuppressFinalize(this);
+}
+protected virtual void Dispose(bool disposing)
+{
+if (_disposed) return;
+if (disposing)
+{
+// Dispose managed resources
+_disposables?.Dispose();
+// Unsubscribe from events
+WeakEventManager<IDataService, DataChangedEventArgs>
+.RemoveHandler(_service, nameof(IDataService.DataChanged), OnDataChanged);
+// Clear collections
+ChildViewModels?.Clear();
+}
+_disposed = true;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Decision Framework
+Based on our analysis, here's when to choose each pattern:
+Choose MVC When:
+Building web applications with server-side rendering
+Creating RESTful APIs with stateless operations
+Working with request/response patterns (HTTP, RPC)
+Needing horizontal scalability through load balancing
+Optimizing for SEO (server-side rendering)
+Building microservices with clear boundaries
+Team is comfortable with sequential, imperative code
+Choose MVVM When:
+Building desktop applications (WPF, UWP, Avalonia)
+Creating mobile apps with rich offline capabilities
+Developing complex UIs with interdependent state
+Need real-time updates across multiple views
+Building data-entry applications with extensive validation
+Creating dashboards with live data visualization
+Team is comfortable with reactive, declarative patterns
+Consider Hybrid Approaches When:
+Building SPAs that need both server and client capabilities
+Migrating legacy applications gradually
+Different parts of the app have different requirements
+Using modern frameworks (React, Angular, Vue) that blend patterns
+Performance Guidelines Summary
+MVC Performance Optimization:
+Optimize database queries (eager loading, pagination)
+Implement caching (HTTP, Redis, in-memory)
+Use async/await throughout the pipeline
+Minimize serialization overhead
+Scale horizontally with load balancing
+MVVM Performance Optimization:
+Batch property changes to reduce notifications
+Use virtualization for large collections
+Cache calculated properties with explicit invalidation
+Throttle high-frequency updates
+Dispose subscriptions to prevent memory leaks
+Conclusion
+The choice between MVC and MVVM isn't about which is "better"—it's about which flow patterns align with your application's requirements. MVC's sequential, request-driven flows excel at server-side processing and stateless operations. MVVM's reactive, bidirectional flows shine in rich client applications with complex state management.
+Understanding these flow patterns deeply—not just their theoretical differences but their practical implications for performance, testing, and maintenance—enables you to make informed architectural decisions and even blend both approaches when appropriate.
+Next Steps
+Review the foundational concepts if you need a refresher on ICMV vs IVVMM
+Explore MVC flow patterns for sequential architectures
+Study MVVM flow patterns for reactive architectures
+Watch for our upcoming article on hybrid patterns and modern frameworks
+Remember: The best architecture is the one that solves your specific problems while remaining maintainable by your team. Use these patterns as tools, not dogma.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Dimension AI Technologies
+Follow
+Adventures in AI startups.
+Location
+Cambridge, UK
+Joined
+Apr 18, 2025
+More from Dimension AI Technologies
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 5
+#architecture
+#mvc
+#mvvm
+#ui
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 4
+#architecture
+#mvc
+#mvvm
+#ui
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 2
+#architecture
+#mvc
+#mvvm
+#ui
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
