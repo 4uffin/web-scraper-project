@@ -1,0 +1,356 @@
+CI/CD for Infrastructure That Actually Works. - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Anthony Uketui
+Posted on Sep 13
+CI/CD for Infrastructure That Actually Works.
+#terraform
+#aws
+#githubactions
+Moving beyond demos: secure identity and cost visibility
+Why Infrastructure Pipelines Still Fail
+Too often, Terraform runs still happen on laptops with static AWS keys. The result?
+Credentials at risk — long-lived keys sitting in repos or local machines
+Undocumented changes — no audit trail, no shared visibility
+Environment drift — dev, staging, and prod no longer match
+Forgotten test resources — quietly inflating cloud bills
+Running IaC this way feels fast — until it breaks consistency, costs money, or exposes credentials.
+CI/CD fixes this, but to move beyond a “demo pipeline,” two practices make the difference in production:
+OIDC-based authentication → no long-lived credentials
+Cost visibility in PRs → prevent financial surprises
+The 8 Steps of CI/CD (Infrastructure Edition)
+Code pushed → pipeline triggers
+Build → package artifact / generate Terraform plan
+Validate → syntax check, terraform validate
+Scan → security/compliance checks
+Deploy to dev/staging → safe sandbox
+Integration tests → real environment validation
+Deploy to prod → gated promotion
+Monitor → logs, costs, drift
+This is the same framework as app pipelines — only the artifact changes.
+Production-Ready Differentiators
+1. OIDC: Secure, Short-Lived Credentials
+Instead of storing AWS keys in GitHub secrets, pipelines use OIDC to assume roles dynamically.
+Short-lived credentials, nothing to leak
+Environment-specific IAM roles (dev/staging/prod)
+Every assumption logged in CloudTrail
+Minimal AWS trust policy for GitHub OIDC (example):
+resource "aws_iam_role" "terraform_dev" {
+name = "uketui-terraform-cicd-dev"
+assume_role_policy = jsonencode({
+Version = "2012-10-17"
+Statement = [
+{
+Effect = "Allow"
+Principal = {
+Federated = aws_iam_openid_connect_provider.github.arn
+}
+Action = "sts:AssumeRoleWithWebIdentity"
+Condition = {
+StringEquals = {
+"token.actions.githubusercontent.com:sub" = "repo:Anthonyuketui/Terraform-Project-with-Multi-Environment-Support-on-AWS:environment:dev"
+"token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+}
+}
+}
+]
+})
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2. Cost Visibility: Infracost in PRs
+With a single step, you can post cost estimates into pull requests after terraform plan.
+Example PR comment:
+This puts financial awareness into the code review process. A financial mistake gets caught before merge, not on the next AWS bill.
+Example Dev Pipeline (GitHub Actions)
+This workflow runs in a dev environment for iteration. It’s intentionally lightweight, but notice how it already includes the production-grade practices (OIDC, cost checks, environment isolation) that make the same design safe to scale into staging and prod.
+name: Terraform Dev DevSecOps Pipeline
+on:
+pull_request:
+branches:
+- dev
+push:
+branches:
+- dev
+jobs:
+cost-analysis:
+runs-on: ubuntu-latest
+environment: dev
+steps:
+- name: Checkout code
+uses: actions/checkout@v4
+- name: Setup Terraform
+uses: hashicorp/setup-terraform@v3
+- name: Run Infracost
+uses: infracost/actions/setup@v2
+with:
+api-key: ${{ secrets.INFRACOST_API_KEY }}
+- name: Generate Infracost diff
+run: |
+cd environments/dev
+terraform init -backend=false
+infracost breakdown --path . \
+--format table \
+--out-file cost-estimate.txt
+- name: Output cost estimate
+run: cat environments/dev/cost-estimate.txt
+- name: Post cost estimate on PR
+if: github.event_name == 'pull_request'
+run: |
+body="#### Infracost Estimate
+\`\`\`
+$(cat environments/dev/cost-estimate.txt)
+\`\`\`"
+echo "comment=${body}" >> $GITHUB_OUTPUT
+id: cost_estimate
+- name: Add PR comment
+if: github.event_name == 'pull_request'
+uses: actions/github-script@v6
+with:
+script: |
+const body = `${{ steps.cost_estimate.outputs.comment }}`;
+github.rest.issues.createComment({
+issue_number: context.issue.number,
+owner: context.repo.owner,
+repo: context.repo.repo,
+body: body
+});
+terraform-dev:
+runs-on: ubuntu-latest
+environment: dev
+needs: cost-analysis
+permissions:
+id-token: write
+contents: read
+env:
+TF_IN_AUTOMATION: true
+steps:
+- name: Checkout code
+uses: actions/checkout@v4
+- name: Configure AWS credentials (OIDC)
+uses: aws-actions/configure-aws-credentials@v4
+with:
+role-to-assume: ${{ secrets.TERRAFORM_ROLE_ARN }}
+aws-region: ${{ vars.AWS_REGION }}
+- name: Setup Terraform
+uses: hashicorp/setup-terraform@v3
+- name: Terraform Format Check
+working-directory: environments/dev
+run: terraform fmt -recursive
+- name: Terraform Init
+working-directory: environments/dev
+run: terraform init -backend-config=backend.tfvars
+- name: Terraform Validate
+working-directory: environments/dev
+run: terraform validate
+- name: Terraform Plan
+working-directory: environments/dev
+run: terraform plan -var-file=terraform.tfvars -out=tfplan
+# -------------------------
+# Optional: Conftest (policy checks)
+# -------------------------
+# - name: Run Conftest
+#
+uses: instrumenta/conftest-action@master
+#
+with:
+#
+files: environments/dev/tfplan
+#
+policy: policy/
+# -------------------------
+# Optional: Security checks (uncomment for strict DevSecOps)
+# -------------------------
+# security-checks:
+#
+runs-on: ubuntu-latest
+#
+steps:
+#
+- name: Checkout code
+#
+uses: actions/checkout@v4
+#
+#
+- name: Run Checkov
+#
+uses: bridgecrewio/checkov-action@v12
+#
+with:
+#
+directory: environments/dev
+#
+framework: terraform
+#
+skip_check: CKV_AWS_79,CKV_AWS_126
+#
+#
+- name: Run tfsec
+#
+uses: aquasecurity/tfsec-action@v1.0.3
+#
+with:
+#
+working_directory: environments/dev
+#
+#
+- name: Run Terrascan
+#
+uses: tenable/terrascan-action@main
+#
+with:
+#
+iac_type: 'terraform'
+#
+iac_dir: 'environments/dev'
+- name: Terraform Apply (on push only)
+if: github.event_name == 'push'
+working-directory: environments/dev
+run: terraform apply -auto-approve tfplan
+Enter fullscreen mode
+Exit fullscreen mode
+For staging/prod, add approval gates and stricter IAM roles.
+Multi-Environment Setup
+Use separate directories and state backends:
+├── environments/
+│
+├── dev/
+│
+├── staging/
+│
+└── prod/
+├── modules/
+└── .github/workflows/
+Enter fullscreen mode
+Exit fullscreen mode
+Each environment:
+Own terraform.tfvars + backend.tfvars
+Own S3 bucket + DynamoDB lock table
+Role isolation via IAM
+Why This Matters
+For engineers: this structure eliminates environment drift and makes infra deployments reproducible.
+For managers: it reduces credential risk, prevents surprise costs, and creates a clear audit trail.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Anthony Uketui
+Follow
+DevOps/Cloud Engineer
+Joined
+Jan 29, 2025
+More from Anthony Uketui
+Building a Production-Ready Terraform Project with Multi-Environment Support on AWS
+#devops
+#terraform
+#cloud
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

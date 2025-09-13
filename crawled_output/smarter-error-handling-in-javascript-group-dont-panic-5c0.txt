@@ -1,0 +1,290 @@
+Smarter Error Handling in JavaScript: Group, Don’t Panic - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Gouranga Das Samrat
+Posted on Sep 13
+Smarter Error Handling in JavaScript: Group, Don’t Panic
+#javascript
+#programming
+#webdev
+My async code used to feel like a tangle of errors I couldn’t unravel quickly. Each failed promise would spit out its own error, leaving me to stitch together a solution.
+Then I discovered AggregateError, and it changed how I debug. It’s a JavaScript feature that bundles multiple errors into one object, perfect for complex async tasks.
+Imagine validating a form where multiple fields are checked asynchronously. Without AggregateError, you’re stuck catching each error separately, which bloats your code and confuses users. It’s a slog to debug and deliver clear feedback.
+The Old, Clunky Way
+Without AggregateError, you’d handle each validation error individually. It’s tedious and error-prone.
+const fetchFromApi1 = () => Promise.reject(new Error("API 1 failed"));
+const fetchFromApi2 = () => Promise.reject(new Error("API 2 failed"));
+const fetchFromApi3 = () => Promise.reject(new Error("API 3 failed"));
+async function fetchWithoutAggregateError(apis, retries = 3, delay = 1000) {
+try {
+const data = await Promise.any(apis);
+console.log("Data fetched:", data);
+return data;
+} catch (e) {
+console.log("All promises failed.");
+// Manually handle each promise rejection by checking which promises failed
+for (let i = 0; i < apis.length; i++) {
+try {
+await apis[i];
+} catch (error) {
+console.log(`Error from API ${i + 1}:`, error.message);
+}
+}
+if (retries > 0) {
+console.log(`Retrying... (${retries} attempts left)`);
+await new Promise((resolve) => setTimeout(resolve, delay));
+return fetchWithoutAggregateError(apis, retries - 1, delay);
+} else {
+console.log(
+"All data sources failed after multiple attempts. Please try again later."
+);
+throw new Error("All data sources failed after retries.");
+}
+}
+}
+// Start fetching data with retries
+fetchWithoutAggregateError([fetchFromApi1(), fetchFromApi2(), fetchFromApi3()]);
+Enter fullscreen mode
+Exit fullscreen mode
+This approach requires a try/catch for each check. It’s repetitive and hard to maintain.
+function validateUserWithoutAggregateError(user) {
+if (!user.name) {
+throw new Error("Name is required");
+}
+if (!user.email) {
+throw new Error("Email is required");
+}
+if (user.age < 18) {
+throw new Error("User must be at least 18 years old");
+}
+return true;
+}
+try {
+validateUserWithoutAggregateError({ name: "", email: "", age: 17 });
+} catch (e) {
+console.log(e.message); // Only the first error is caught and displayed
+// Output: "Name is required"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+🔴 Multiple try/catch blocks clutter your code.
+🔴 Users get fragmented error messages, hurting their experience.
+Here’s how to do it
+When Promise.any() looks for the first resolved promise and all promises reject, JavaScript raises an AggregateError. This error collects all rejection reasons into a single object.
+const fetchFromApi1 = () => Promise.reject(new Error("API 1 failed"));
+const fetchFromApi2 = () => Promise.reject(new Error("API 2 failed"));
+const fetchFromApi3 = () => Promise.reject(new Error("API 3 failed"));
+async function fetchWithRetry(apis, retries = 3, delay = 1000) {
+try {
+const data = await Promise.any(apis);
+console.log("Data fetched:", data);
+return data;
+} catch (e) {
+if (e instanceof AggregateError) {
+console.log(e.name); // "AggregateError"
+console.log(e.message); // "All promises were rejected"
+console.log("Errors:", e.errors); // [Error: API 1 failed, Error: API 2 failed, Error: API 3 failed]
+if (retries > 0) {
+console.log(`Retrying... (${retries} attempts left)`);
+await new Promise((resolve) => setTimeout(resolve, delay));
+return fetchWithRetry(apis, retries - 1, delay);
+} else {
+console.log(
+"All data sources failed after multiple attempts. Please try again later."
+);
+throw e; // Re-throw the error after exhausting retries
+}
+} else {
+// If the error is not an AggregateError, rethrow it
+throw e;
+}
+}
+}
+// Start fetching data with retries
+fetchWithRetry([fetchFromApi1(), fetchFromApi2(), fetchFromApi3()]);
+Enter fullscreen mode
+Exit fullscreen mode
+When using Promise.any() to fetch data from multiple APIs, it resolves with the first successful response. If all promises reject, it raises an AggregateError.
+Wrap the operation in a try/catch block: the try block processes successful data, while the catch block captures the AggregateError when all promises fail.
+If an AggregateError occurs, I log its details and retry the operation up to a set number of attempts, adding a delay between each try.
+Retry logic works by recursively calling the function, decrementing the retry count each time, until a success occurs or all retries are exhausted.
+If retries run out, I log a final error message and rethrow the AggregateError for further handling if needed.
+AggregateError streamlines managing multiple async failures, making complex error handling cleaner. It’s a tool you’ll appreciate when debugging chaotic async flows.
+function validateUser(user) {
+let errors = [];
+if (!user.name) {
+errors.push(new Error("Name is required"));
+}
+if (!user.email) {
+errors.push(new Error("Email is required"));
+}
+if (user.age < 18) {
+errors.push(new Error("User must be at least 18 years old"));
+}
+if (errors.length > 0) {
+throw new AggregateError(errors, "Validation failed");
+}
+return true;
+}
+try {
+validateUser({ name: "", email: "", age: 17 });
+} catch (e) {
+if (e instanceof AggregateError) {
+console.log(e.name); // "AggregateError"
+console.log(e.message); // "Validation failed"
+e.errors.forEach((err) => console.log(err.message));
+// Output:
+// "Name is required"
+// "Email is required"
+// "User must be at least 18 years old"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This code runs all checks and collects errors in one shot. You can show users a clear list of issues without extra logic.
+✅ Consolidates errors for cleaner code.
+✅ Makes form validation logic easier to manage.
+✅ Delivers clear feedback to users, fast.
+Final Takeaway
+AggregateError turns chaotic error handling into a smooth process. It’s a game-saver for form validation or any async task with multiple points of failure. Give it a spin in your next form-heavy app.
+Follow me for more error-handling tricks!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Gouranga Das Samrat
+Follow
+Front-end Web Developer | UI/UX Designer | JavaScript & React Expert | Open Source Enthusiast | Lifelong Learner
+Location
+Khulna, Bangaldldesh
+Education
+Khulna Government Model School & College
+Joined
+Oct 10, 2024
+Trending on DEV Community
+Hot
+Top 11 Document Parsing AI Tools for developers in 2025
+#ai
+#tooling
+#beginners
+#webdev
+Tested 15 Asana Alternatives: Only These 6 Actually Work for Dev Teams
+#productivity
+#devops
+#opensource
+#webdev
+The 2025 Guide to Postman's Most Powerful Alternatives! Top 30 Free API Tools
+#webdev
+#programming
+#beginners
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
