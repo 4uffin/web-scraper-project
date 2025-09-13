@@ -1,0 +1,495 @@
+Quick Fix: How to Cache Handlebars Templates the Right Way - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+sisproid
+Posted on Sep 13
+Quick Fix: How to Cache Handlebars Templates the Right Way
+#handlebars
+#express
+#webdev
+#programming
+The Problem: Your Handlebars templates are re-compiling on every request, slowing down your app. Here's how to set up proper caching in about 10 minutes.
+The Issue You're Probably Having
+So you've got Handlebars working in your Node.js app, but you're noticing it's a bit sluggish? Yeah, I've been there. Every time someone hits your page, Handlebars is reading the template files from disk and compiling them fresh. Not exactly efficient.
+What you'll learn here:
+Set up template caching that actually works
+Register partials and helpers properly
+Render templates with layouts without the performance hit
+A few gotchas I wish someone had told me about
+Time to implement: ~10 minutes
+Difficulty: Pretty straightforward if you know basic Handlebars
+What You Need
+Node.js project with Handlebars already installed
+Basic understanding of Handlebars templates
+About 10 minutes
+If you don't have Handlebars yet: npm install handlebars
+The Problem in Detail
+Here's what most of us do when starting with Handlebars:
+// This works, but it's slow
+const fs = require('fs');
+const Handlebars = require('handlebars');
+app.get('/users/:id', (req, res) => {
+// Reading and compiling on every request - ouch!
+const templateSource = fs.readFileSync('./views/user.hbs', 'utf8');
+const template = Handlebars.compile(templateSource);
+const html = template({ user: userData });
+res.send(html);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Why this hurts:
+File system reads on every request
+Template compilation every time
+Partials get reprocessed repeatedly
+Your server is doing way more work than it needs to
+The Solution: Build a Simple Cache System
+Let's fix this step by step. Here's a clean approach that I use:
+Step 1: Create the Template Cache
+// templateCache.js
+const fs = require('fs');
+const path = require('path');
+const Handlebars = require('handlebars');
+class TemplateCache {
+constructor(viewsPath) {
+this.viewsPath = viewsPath;
+this.templates = new Map();
+this.partials = new Map();
+this.isProduction = process.env.NODE_ENV === 'production';
+}
+// Load and compile a template
+getTemplate(templateName) {
+// In development, always reload (for easier debugging)
+if (!this.isProduction || !this.templates.has(templateName)) {
+const templatePath = path.join(this.viewsPath, `${templateName}.hbs`);
+const templateSource = fs.readFileSync(templatePath, 'utf8');
+const compiled = Handlebars.compile(templateSource);
+this.templates.set(templateName, compiled);
+}
+return this.templates.get(templateName);
+}
+// Register a partial
+registerPartial(partialName, partialPath = null) {
+const actualPath = partialPath || path.join(this.viewsPath, 'partials', `${partialName}.hbs`);
+if (!this.isProduction || !this.partials.has(partialName)) {
+const partialSource = fs.readFileSync(actualPath, 'utf8');
+Handlebars.registerPartial(partialName, partialSource);
+this.partials.set(partialName, true);
+}
+}
+// Register multiple partials at once
+registerPartialsFromDir(partialsDir) {
+const partialFiles = fs.readdirSync(partialsDir);
+partialFiles.forEach(file => {
+if (file.endsWith('.hbs')) {
+const partialName = path.basename(file, '.hbs');
+const partialPath = path.join(partialsDir, file);
+this.registerPartial(partialName, partialPath);
+}
+});
+}
+// Clear cache (useful for development)
+clearCache() {
+this.templates.clear();
+this.partials.clear();
+}
+}
+module.exports = TemplateCache;
+Enter fullscreen mode
+Exit fullscreen mode
+What's nice about this approach:
+Caches in production, always fresh in development
+Simple Map-based storage
+Handles both templates and partials
+Easy to clear cache when needed
+Step 2: Register Your Helpers
+// helpers.js
+const Handlebars = require('handlebars');
+function registerHelpers() {
+// Date formatting helper
+Handlebars.registerHelper('formatDate', function(date) {
+if (!date) return '';
+return new Date(date).toLocaleDateString();
+});
+// Simple conditional helper
+Handlebars.registerHelper('ifEquals', function(arg1, arg2, options) {
+return (arg1 == arg2) ? options.fn(this) : options.inverse(this);
+});
+// JSON helper for debugging
+Handlebars.registerHelper('json', function(context) {
+return JSON.stringify(context, null, 2);
+});
+// Truncate text helper
+Handlebars.registerHelper('truncate', function(str, length) {
+if (!str || str.length <= length) return str;
+return str.substring(0, length) + '...';
+});
+}
+module.exports = { registerHelpers };
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Set Up the Main Renderer
+// renderer.js
+const path = require('path');
+const TemplateCache = require('./templateCache');
+const { registerHelpers } = require('./helpers');
+class TemplateRenderer {
+constructor(viewsPath) {
+this.cache = new TemplateCache(viewsPath);
+this.layoutsPath = path.join(viewsPath, 'layouts');
+// Register helpers once
+registerHelpers();
+// Register common partials
+this.registerCommonPartials();
+}
+registerCommonPartials() {
+const partialsPath = path.join(this.cache.viewsPath, 'partials');
+if (require('fs').existsSync(partialsPath)) {
+this.cache.registerPartialsFromDir(partialsPath);
+}
+}
+// Render template without layout
+render(templateName, data = {}) {
+const template = this.cache.getTemplate(templateName);
+return template(data);
+}
+// Render template with layout
+renderWithLayout(templateName, layoutName, data = {}) {
+// First render the main template
+const content = this.render(templateName, data);
+// Then render the layout with the content
+const layoutTemplate = this.cache.getTemplate(`layouts/${layoutName}`);
+return layoutTemplate({ ...data, body: content });
+}
+// Helper method for Express integration
+expressRender(templateName, data, layoutName = null) {
+if (layoutName) {
+return this.renderWithLayout(templateName, layoutName, data);
+}
+return this.render(templateName, data);
+}
+}
+module.exports = TemplateRenderer;
+Enter fullscreen mode
+Exit fullscreen mode
+Put It All Together
+Here's how to use it in your Express app:
+// app.js
+const express = require('express');
+const path = require('path');
+const TemplateRenderer = require('./renderer');
+const app = express();
+// Initialize the renderer
+const renderer = new TemplateRenderer(path.join(__dirname, 'views'));
+// Use it in your routes
+app.get('/users/:id', async (req, res) => {
+try {
+const user = await getUserById(req.params.id); // Your data fetching
+const html = renderer.renderWithLayout('user', 'main', {
+user,
+title: `User: ${user.name}`
+});
+res.send(html);
+} catch (error) {
+console.error('Render error:', error);
+res.status(500).send('Something went wrong');
+}
+});
+// For API responses or simple templates
+app.get('/user-card/:id', async (req, res) => {
+const user = await getUserById(req.params.id);
+const html = renderer.render('user-card', { user });
+res.send(html);
+});
+app.listen(3000, () => {
+console.log('Server running with cached templates!');
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Your Template Files Structure
+Here's how I organize the template files:
+views/
+├── layouts/
+│
+├── main.hbs
+# Main layout
+│
+└── admin.hbs
+# Admin layout
+├── partials/
+│
+├── header.hbs
+# Header partial
+│
+├── footer.hbs
+# Footer partial
+│
+└── user-card.hbs
+# User card component
+├── user.hbs
+# User detail page
+├── users.hbs
+# Users list page
+└── home.hbs
+# Home page
+Enter fullscreen mode
+Exit fullscreen mode
+Example layout (views/layouts/main.hbs):
+<!DOCTYPE html>
+<html>
+<head>
+<title>{{title}}</title>
+<meta charset="utf-8">
+</head>
+<body>
+{{> header}}
+<main>
+{{{body}}}
+</main>
+{{> footer}}
+</body>
+</html>
+Enter fullscreen mode
+Exit fullscreen mode
+Example template (views/user.hbs):
+<div class="user-profile">
+<h1>{{user.name}}</h1>
+<p>Email: {{user.email}}</p>
+<p>Joined: {{formatDate user.createdAt}}</p>
+{{#ifEquals user.role "admin"}}
+<div class="admin-badge">Administrator</div>
+{{/ifEquals}}
+</div>
+Enter fullscreen mode
+Exit fullscreen mode
+Common Gotchas I've Run Into
+1. Partial Registration Timing
+// ❌ This might not work - partial not registered yet
+app.get('/page', (req, res) => {
+renderer.cache.registerPartial('new-partial');
+const html = renderer.render('page', data); // Might fail
+});
+// ✅ Register partials at startup
+const renderer = new TemplateRenderer('./views');
+// All partials registered during initialization
+Enter fullscreen mode
+Exit fullscreen mode
+2. Development vs Production Caching
+// In development, you want fresh templates
+// The TemplateCache class handles this automatically based on NODE_ENV
+// But if you need to manually refresh in development:
+if (process.env.NODE_ENV !== 'production') {
+app.get('/clear-cache', (req, res) => {
+renderer.cache.clearCache();
+res.send('Cache cleared');
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3. Helper Context Issues
+// ❌ This might not work as expected
+Handlebars.registerHelper('userLink', function(user) {
+return `<a href="/users/${user.id}">${user.name}</a>`;
+});
+// ✅ Better - handle missing data
+Handlebars.registerHelper('userLink', function(user) {
+if (!user || !user.id) return '';
+return new Handlebars.SafeString(`<a href="/users/${user.id}">${user.name || 'Unknown'}</a>`);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Quick Performance Check
+Want to see if your caching is working? Add some simple timing:
+// Add this to your renderer
+render(templateName, data = {}) {
+const start = Date.now();
+const template = this.cache.getTemplate(templateName);
+const html = template(data);
+const duration = Date.now() - start;
+if (process.env.NODE_ENV !== 'production') {
+console.log(`Rendered ${templateName} in ${duration}ms`);
+}
+return html;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What you should see:
+First request: Maybe 10-50ms (compilation + rendering)
+Subsequent requests: 1-5ms (just rendering)
+When This Approach Works Well
+Perfect for:
+Server-side rendered apps
+Email template generation
+PDF generation with HTML
+Static site generators
+Admin interfaces
+Maybe overkill for:
+Single-page apps (you're probably using a frontend framework)
+APIs that only return JSON
+Very simple sites with 2-3 templates
+Alternative Approaches
+Using Express-Handlebars
+If you want something more built-in:
+const exphbs = require('express-handlebars');
+app.engine('hbs', exphbs({
+defaultLayout: 'main',
+extname: '.hbs',
+// Caching is handled automatically in production
+cache: process.env.NODE_ENV === 'production'
+}));
+app.set('view engine', 'hbs');
+Enter fullscreen mode
+Exit fullscreen mode
+When I use this: When I want less custom code and don't mind the extra dependency.
+File Watcher for Development
+For automatic cache clearing during development:
+// Only in development
+if (process.env.NODE_ENV !== 'production') {
+const chokidar = require('chokidar');
+chokidar.watch('./views').on('change', () => {
+renderer.cache.clearCache();
+console.log('Template cache cleared');
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Wrapping Up
+This caching approach has worked well for me in several production apps. The key benefits:
+Much faster rendering after the initial load
+Flexible - you can cache what you want, when you want
+Development-friendly - fresh templates when you're coding
+Simple to understand - no magic, just maps and file reads
+The setup takes a few minutes, but the performance improvement is usually pretty noticeable, especially if you have complex templates with lots of partials.
+Quick checklist:
+✅ Templates cache in production, reload in development
+✅ Partials registered at startup
+✅ Helpers registered once
+✅ Layout rendering works properly
+✅ Error handling in place
+About This Approach
+I've used this pattern in a few different projects - from small internal tools to larger customer-facing apps. It's not the only way to do Handlebars caching, but it's worked reliably for me and is pretty easy to understand and modify.
+If you try this out, let me know how it goes! Always curious to hear about other people's experiences with template performance.
+Written while debugging slow template rendering - we've all been there!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+sisproid
+Follow
+Joined
+Feb 20, 2024
+More from sisproid
+I'm Going Full Minimalist with My Tech Stack (And I Think I'm Losing My Mind... In a Good Way!)
+#htmx
+#tailwindcss
+#alpinejs
+#express
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
