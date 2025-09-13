@@ -1,0 +1,757 @@
+🎭How to test Next.js SSR API (Playwright + MSW) Part 2 Parallel test🎭 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Web Developer Hyper
+Posted on Sep 13
+🎭How to test Next.js SSR API (Playwright + MSW) Part 2 Parallel test🎭
+#webdev
+#nextjs
+#testing
+#node
+Intro
+Last time, I made a Next.js Server Side Rendering (SSR) API test using Playwright and Mock Service Worker (MSW).↓
+https://dev.to/webdeveloperhyper/how-to-test-nextjs-ssr-api-playwright-msw-k65
+However, because MSW keeps its state globally, I couldn't run Playwright in parallel and had to run it sequentially instead.🚀 This time, I revised the code to make Playwright run in parallel and speed up.🚀🚀🚀🚀
+Please note that this is just my personal memo.
+Summary of revises
+1️⃣ I changed mock-server.ts to dynamically control how many mock servers run.🙆 The number of mock servers is defined by MOCK_SERVER_COUNT in .env.
+Before the revise, only one mock server would run.🙅
+2️⃣ I changed playwright.config.ts to handle parallel tests. I added test.info().workerIndex to the test code to read how many servers to run and apply it to parallel tests.
+3️⃣ I changed server.ts, handler.ts and page.tsx, to allow dynamic ports in the API path so multiple servers can run at ones.🙆
+Before the revise, the API port was fixed to 3001.🙅
+4️⃣ Because the number of mock servers is now dynamic, you can increase it as much as your PC can handle.🙆 All you have to do is to change the value of MOCK_SERVER_COUNT in .env.
+Before the revise, port number was fix to only one.🙅
+How to test in parallel
+I will show how to do it step by step.
+I added a beginner friendly comment to the code.
+↓ Install Next.js
+npx create-next-app@latest my-app --yes
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Move to my-app folder
+cd my-app
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Copy and paste the code
+↓ my-app/src/app/page.tsx
+/**
+* Pokemon Display Page - Simple Next.js Server Component
+*
+* This page fetches Pokemon data and displays it in a simple layout.
+* During tests, MSW (Mock Service Worker) intercepts the API call and returns
+* mock data based on what the test specifies (Charizard, Pikachu, Eevee, or 500 error).
+*
+* Key concepts for beginners:
+* - Server-Side Rendering: This runs on the server first, then sends HTML to browser
+* - Fetch API: Makes HTTP requests to get data
+* - Error handling: Shows error page when API fails
+* - MSW integration: Tests can switch between different Pokemon or trigger errors
+*/
+// Reusable title component to avoid duplication
+const DemoTitle = () => (
+<h2 className="text-4xl font-bold text-blue-600 mb-6">
+How to test Next.js SSR API
+<br />
+(Playwright + MSW)
+</h2>
+);
+export default async function Home({ searchParams }: { searchParams?: Promise<{ mockPort?: string }> }) {
+try {
+// Await searchParams for Next.js 15 compatibility
+const params = await searchParams;
+// Get the mock port from URL search params (set by tests) or default to 3001
+const mockPort = params?.mockPort || '3001';
+// Fetch Pokemon data from our mock API
+// MSW will intercept this request and return the appropriate mock data
+const response = await fetch(`http://localhost:${mockPort}/api/v2/pokemon/charizard`);
+// Check if request was successful (status 200-299)
+// If not, throw an error to trigger the catch block
+if (!response.ok) throw new Error(`HTTP ${response.status}`);
+// Parse the JSON response into a JavaScript object
+const pokemon = await response.json();
+// SUCCESS: Display the Pokemon data
+return (
+<div className="min-h-screen flex items-center justify-center p-4">
+<div className="text-center">
+{/* Page title explaining the demo purpose */}
+<DemoTitle />
+{/* Pokemon name with first letter capitalized */}
+<h1 className="text-3xl font-bold mb-4">
+{pokemon.name.charAt(0).toUpperCase() + pokemon.name.slice(1)}
+</h1>
+{/* Pokemon image */}
+<img
+src={pokemon.sprites.front_default}
+alt={pokemon.name}
+className="mx-auto mb-4 w-32 h-32"
+/>
+{/* Pokemon ID number */}
+<p className="text-lg">Pokemon #{pokemon.id}</p>
+</div>
+</div>
+);
+} catch (error) {
+// ERROR: Something went wrong with the API request
+// This could happen if the mock server isn't running or returns an error status
+return (
+<div className="min-h-screen flex items-center justify-center p-4">
+<div className="text-center">
+{/* Page title explaining the demo purpose */}
+<DemoTitle />
+<h1 className="text-2xl font-bold text-red-600 mb-4">Error</h1>
+</div>
+</div>
+);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Install Playwright
+npm init playwright@latest
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Install Mock Service Worker (MSW)
+npm i msw --save-dev
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Install tsx
+tsx will reduce your build from TypeScript to JavaScript and writing a complicated tsconfig.json for the mock.
+npm install -D tsx
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Install dotenv
+dotenv enables you to load environment variables from .env into your code.
+npm install --save-dev dotenv
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Copy and paste the code
+↓ tests/example.spec.ts
+import { test, expect } from "@playwright/test";
+/**
+* Helper function to set up mock Pokemon data for tests
+* This function communicates with our mock server to switch which Pokemon data is returned
+*
+* @param page - Playwright page object for making requests
+* @param mockType - Which Pokemon to mock ("pikachu", "eevee", or null for default "charizard")
+*/
+const setMockPokemon = async (
+page: any,
+mockType: "pikachu" | "eevee" | "blastoise" | "venusaur" | "jigglypuff" | "gengar" | "machamp" | "alakazam" | "dragonite" | "mewtwo" | "error500" | null
+) => {
+// If no specific Pokemon is requested, default to charizard
+const pokemon = mockType || "charizard";
+// Calculate port based on worker index for parallel testing
+const port = 3001 + test.info().workerIndex;
+// Send a request to our mock server to switch the Pokemon data
+// This uses MSW's server.use() internally to override the API response
+await page.request.post(`http://localhost:${port}/api/switch-pokemon`, {
+data: { pokemon },
+});
+// Navigate to the home page with the mock port parameter
+await page.goto(`/?mockPort=${port}`);
+// Wait for all network requests to complete before proceeding with test
+await page.waitForLoadState("networkidle");
+};
+test.describe("Pokemon Basic Tests", () => {
+/**
+* Test 1: Default Charizard Pokemon
+* This test verifies that the default Pokemon (Charizard) is displayed correctly
+* when no specific mock is set
+*/
+test("Charizard (Default Pokemon)", async ({ page }) => {
+// Set up the test to use default Charizard data
+await setMockPokemon(page, null);
+// Verify the Pokemon name appears in the main heading
+await expect(page.locator("h1")).toContainText("Charizard");
+// Verify the Pokemon ID number is displayed correctly
+await expect(page.locator("text=Pokemon #6")).toBeVisible();
+// Take a screenshot for visual verification
+await page.screenshot({ path: "./test-results/screenshots/charizard.png" });
+});
+/**
+* Test 2: Pikachu Mock
+* This test verifies that the mock server can switch to Pikachu data
+* and display it correctly on the page
+*/
+test("Pikachu Mock", async ({ page }) => {
+// Switch the mock server to return Pikachu data instead of default Charizard
+await setMockPokemon(page, "pikachu");
+// Verify Pikachu name appears in the main heading
+await expect(page.locator("h1")).toContainText("Pikachu");
+// Verify Pikachu's ID number is displayed correctly
+await expect(page.locator("text=Pokemon #25")).toBeVisible();
+// Take a screenshot for visual verification
+await page.screenshot({ path: "./test-results/screenshots/pikachu.png" });
+});
+/**
+* Test 3: Eevee Mock
+* This test verifies that the mock server can switch to Eevee data
+* and display it correctly on the page
+*/
+test("Eevee Mock", async ({ page }) => {
+// Switch the mock server to return Eevee data instead of default Charizard
+await setMockPokemon(page, "eevee");
+// Verify Eevee name appears in the main heading
+await expect(page.locator("h1")).toContainText("Eevee");
+// Verify Eevee's ID number is displayed correctly
+await expect(page.locator("text=Pokemon #133")).toBeVisible();
+// Take a screenshot for visual verification
+await page.screenshot({ path: "./test-results/screenshots/eevee.png" });
+});
+/**
+* Test 4: 500 Error Response
+* This test verifies that the error page is displayed correctly
+* when the API returns a 500 server error
+*/
+test("500 Error", async ({ page }) => {
+// Switch the mock server to return 500 error
+await setMockPokemon(page, "error500");
+// Verify error page is displayed
+await expect(page.locator("h1")).toContainText("Error");
+// Take a screenshot for visual verification
+await page.screenshot({ path: "./test-results/screenshots/error500.png" });
+});
+test("Blastoise Mock", async ({ page }) => {
+await setMockPokemon(page, "blastoise");
+await expect(page.locator("h1")).toContainText("Blastoise");
+await expect(page.locator("text=Pokemon #9")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/blastoise.png" });
+});
+test("Venusaur Mock", async ({ page }) => {
+await setMockPokemon(page, "venusaur");
+await expect(page.locator("h1")).toContainText("Venusaur");
+await expect(page.locator("text=Pokemon #3")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/venusaur.png" });
+});
+test("Jigglypuff Mock", async ({ page }) => {
+await setMockPokemon(page, "jigglypuff");
+await expect(page.locator("h1")).toContainText("Jigglypuff");
+await expect(page.locator("text=Pokemon #39")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/jigglypuff.png" });
+});
+test("Gengar Mock", async ({ page }) => {
+await setMockPokemon(page, "gengar");
+await expect(page.locator("h1")).toContainText("Gengar");
+await expect(page.locator("text=Pokemon #94")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/gengar.png" });
+});
+test("Machamp Mock", async ({ page }) => {
+await setMockPokemon(page, "machamp");
+await expect(page.locator("h1")).toContainText("Machamp");
+await expect(page.locator("text=Pokemon #68")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/machamp.png" });
+});
+test("Alakazam Mock", async ({ page }) => {
+await setMockPokemon(page, "alakazam");
+await expect(page.locator("h1")).toContainText("Alakazam");
+await expect(page.locator("text=Pokemon #65")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/alakazam.png" });
+});
+test("Dragonite Mock", async ({ page }) => {
+await setMockPokemon(page, "dragonite");
+await expect(page.locator("h1")).toContainText("Dragonite");
+await expect(page.locator("text=Pokemon #149")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/dragonite.png" });
+});
+test("Mewtwo Mock", async ({ page }) => {
+await setMockPokemon(page, "mewtwo");
+await expect(page.locator("h1")).toContainText("Mewtwo");
+await expect(page.locator("text=Pokemon #150")).toBeVisible();
+await page.screenshot({ path: "./test-results/screenshots/mewtwo.png" });
+});
+});
+Enter fullscreen mode
+Exit fullscreen mode
+↓ mocks/handlers.ts
+/**
+* MSW (Mock Service Worker) Handlers
+*
+* This file contains the mock data and default handlers for our Pokemon API.
+* MSW intercepts network requests and returns mock data instead of making real API calls.
+*
+* Learn more about MSW: https://mswjs.io/
+*/
+import { http, HttpResponse } from "msw";
+/**
+* Mock Pokemon data with HTTP status codes
+* This object contains fake Pokemon data and their HTTP response status
+* Each entry has: status (HTTP code) and data (Pokemon info or null for errors)
+*/
+export const mockData = {
+// Fire-type Pokemon, ID #6
+charizard: {
+status: 200,
+data: {
+name: "charizard",
+id: 6,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/6.png",
+},
+},
+},
+// Electric-type Pokemon, ID #25 (the most famous Pokemon!)
+pikachu: {
+status: 200,
+data: {
+name: "pikachu",
+id: 25,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png",
+},
+},
+},
+// Normal-type Pokemon, ID #133
+eevee: {
+status: 200,
+data: {
+name: "eevee",
+id: 133,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/133.png",
+},
+},
+},
+// Water-type Pokemon, ID #9
+blastoise: {
+status: 200,
+data: {
+name: "blastoise",
+id: 9,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/9.png",
+},
+},
+},
+// Grass-type Pokemon, ID #3
+venusaur: {
+status: 200,
+data: {
+name: "venusaur",
+id: 3,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/3.png",
+},
+},
+},
+// Normal-type Pokemon, ID #39
+jigglypuff: {
+status: 200,
+data: {
+name: "jigglypuff",
+id: 39,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/39.png",
+},
+},
+},
+// Ghost-type Pokemon, ID #94
+gengar: {
+status: 200,
+data: {
+name: "gengar",
+id: 94,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/94.png",
+},
+},
+},
+// Fighting-type Pokemon, ID #68
+machamp: {
+status: 200,
+data: {
+name: "machamp",
+id: 68,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/68.png",
+},
+},
+},
+// Psychic-type Pokemon, ID #65
+alakazam: {
+status: 200,
+data: {
+name: "alakazam",
+id: 65,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/65.png",
+},
+},
+},
+// Dragon-type Pokemon, ID #149
+dragonite: {
+status: 200,
+data: {
+name: "dragonite",
+id: 149,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/149.png",
+},
+},
+},
+// Psychic-type Pokemon, ID #150
+mewtwo: {
+status: 200,
+data: {
+name: "mewtwo",
+id: 150,
+sprites: {
+front_default:
+"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/150.png",
+},
+},
+},
+// Server error for testing error handling
+error500: {
+status: 500,
+data: null,
+},
+};
+/**
+* Single handler factory function
+* Creates handlers for any port - used by both single and multi-port setups
+*
+* By default, we return Charizard data when the Pokemon API is called
+* Tests can override this behavior using server.use() in server.ts
+*/
+export const createHandlers = (port: number) => [
+// Intercept GET requests to the Pokemon API endpoint
+http.get(`http://localhost:${port}/api/v2/pokemon/charizard`, () => {
+console.log(`MSW[${port}]: → returning charizard data (default handler)`);
+return HttpResponse.json(mockData.charizard.data);
+}),
+];
+Enter fullscreen mode
+Exit fullscreen mode
+↓ mock-server.ts
+/**
+* Mock Server - API Bridge between Tests and MSW
+*
+* This server acts as a bridge between our Playwright tests and the MSW (Mock Service Worker).
+* Since tests run in a separate process from the mock server, we need HTTP endpoints
+* to communicate between them.
+*
+* What this server does:
+* 1. Starts up MSW to intercept API calls
+* 2. Provides HTTP endpoints that tests can call to change mock behavior
+* 3. Forwards other requests to be processed by MSW
+* 4. Can spawn multiple server instances for parallel testing
+*/
+import http from "http";
+import type { IncomingMessage, ServerResponse } from "http";
+import { spawn } from 'child_process';
+import { config } from 'dotenv';
+import { createServer, createSetMockPokemon } from "./src/mocks/server.ts";
+// Load environment variables from .env file
+config();
+// Check MOCK_SERVER_COUNT to determine if we should spawn multiple servers
+const mockServerCount = parseInt(process.env.MOCK_SERVER_COUNT || '1');
+if (mockServerCount > 1) {
+// Multi-server mode - spawn multiple instances
+const basePort = 3001;
+console.log(`Starting ${mockServerCount} mock servers...`);
+const processes: any[] = [];
+for (let i = 0; i < mockServerCount; i++) {
+const port = basePort + i;
+const child = spawn('npx', ['tsx', 'mock-server.ts', port.toString()], {
+stdio: 'inherit',
+shell: true,
+env: { ...process.env, MOCK_SERVER_COUNT: '1' }
+});
+processes.push(child);
+console.log(`Started mock server on port ${port}`);
+}
+process.on('SIGINT', () => {
+console.log('\nShutting down all mock servers...');
+processes.forEach(proc => proc.kill());
+process.exit(0);
+});
+} else {
+// Single server mode
+// Get port from command line argument
+const port: number = parseInt(process.argv[2]) || 3001;
+console.log(`Starting MSW server on port ${port}`);
+// Create MSW server instance using single server factory
+const mswServer = createServer(port);
+// Function to switch mock Pokemon data using single factory
+const setMockPokemon = createSetMockPokemon(port, mswServer);
+// Start listening for requests with MSW
+// 'bypass' means unhandled requests will pass through normally
+mswServer.listen({
+onUnhandledRequest: "bypass",
+});
+console.log(
+`✅ MSW server on port ${port} is now intercepting requests in Node.js environment`
+);
+/**
+* HTTP Server - Bridge between tests and MSW
+* This server provides API endpoints that tests can call to control MSW behavior
+*/
+const server = http.createServer(
+async (req: IncomingMessage, res: ServerResponse) => {
+console.log(`📨 Port ${port}: Received request: ${req.method} ${req.url}`);
+/**
+* API Endpoint: POST /api/switch-pokemon
+*
+* This endpoint allows tests to switch which Pokemon data MSW returns.
+* Tests send a POST request with { pokemon: "pikachu" | "eevee" | "charizard" }
+* and we use server.use() to override the mock behavior.
+*/
+if (req.url === "/api/switch-pokemon" && req.method === "POST") {
+let body = "";
+// Collect the request body data
+req.on("data", (chunk) => (body += chunk.toString()));
+// Process the request when all data is received
+req.on("end", () => {
+const { pokemon } = JSON.parse(body);
+// Call our MSW server function to switch the Pokemon data
+// This uses server.use() internally to override the default handler
+setMockPokemon(pokemon);
+console.log(`🔄 Port ${port}: Switched mock data to: ${pokemon}`);
+// Send success response back to the test
+res.writeHead(200, { "Content-Type": "application/json" });
+res.end(JSON.stringify({ message: `Switched to ${pokemon}` }));
+});
+return;
+}
+/**
+* Handle other requests (not our special API endpoints)
+*
+* For requests that aren't our control APIs, we attempt to process them
+* through MSW. This allows MSW to intercept and mock the responses.
+*/
+try {
+// Forward the request to MSW for processing
+const url = `http://localhost:${port}${req.url}`;
+const response = await fetch(url, {
+method: req.method,
+// Forward all headers except 'host' to avoid conflicts
+headers: Object.fromEntries(
+Object.entries(req.headers).filter(([key]) => key !== "host")
+),
+});
+// Return the MSW response back to the client
+// Handle both JSON and non-JSON responses (like 500 errors with null content)
+let data;
+try {
+data = await response.json();
+} catch {
+data = null; // For responses like 500 errors that don't have JSON content
+}
+res.writeHead(response.status, { "Content-Type": "application/json" });
+res.end(data ? JSON.stringify(data) : null);
+} catch (error) {
+// Handle any errors that occur during request processing
+console.error(`❌ Port ${port}: Error processing request:`, error);
+res.writeHead(500, { "Content-Type": "application/json" });
+res.end(JSON.stringify({ error: "Internal server error" }));
+}
+}
+);
+/**
+* Start the bridge server
+* This server will accept requests from tests and forward them to MSW
+*/
+server.listen(port, () => {
+console.log(`🚀 Mock bridge server listening on port ${port}`);
+console.log(
+`📡 Port ${port}: Ready to receive test commands and forward API requests to MSW`
+);
+});
+/**
+* Clean shutdown handling
+* When the process is terminated (Ctrl+C), gracefully close both servers
+*/
+process.on("SIGINT", () => {
+console.log(`\n🔄 Port ${port}: Shutting down servers...`);
+// Close MSW server
+mswServer.close();
+// Close HTTP bridge server
+server.close();
+console.log(`✅ Port ${port}: Servers closed successfully`);
+process.exit(0);
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+↓ .env
+MOCK_SERVER_COUNT=6
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Set playwright.config.ts
+① Delete comment out (//) of
+baseURL: 'http://localhost:3000',
+② Delete comment out (//) of
+import dotenv from "dotenv";
+import path from "path";
+dotenv.config({ path: path.resolve(__dirname, ".env") });
+③ Change fullyParallel to
+fullyParallel: true, (default)
+④ Change workers to
+workers: parseInt(process.env.MOCK_SERVER_COUNT || "4"),
+⑤ Comment out projects of firefox and webkit
+↓ Run mock server (terminal 1)
+npx tsx mock-server.ts
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Run Next.js (terminal 2)
+npm run dev
+Enter fullscreen mode
+Exit fullscreen mode
+↓ Run Playwright test (terminal 3)
+npx playwright test
+Enter fullscreen mode
+Exit fullscreen mode
+Outro
+In my previous code, Playwright + MSW tests for Next.js SSR API could only run sequentially.🚀 But in the new code, tests can run in parallel according to your PC's specifications and speed up.🚀🚀🚀🚀 Although I still need to learn more about effective testing.
+I hope you learned something from this post.😊
+Thank you for reading.
+Happy AI coding!🤖
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Web Developer Hyper
+Follow
+"Having fun with IT technology" is my No.1 priority.🥳🎉
+Let's enjoy and grow at the same time.🤝
+#AI #MCP #ClaudeCode #Cursor #Cline #AWS #React #Nextjs #WebDev #FullStackDev
+Location
+Japan
+Joined
+Dec 27, 2024
+More from Web Developer Hyper
+🎭How to test Next.js SSR API (Playwright + MSW)🎭
+#webdev
+#nextjs
+#testing
+#node
+🧐How to AI code review for free (PR-Agent)🧠
+#ai
+#webdev
+#github
+#opensource
+🧠🥷How to make Remote MCP 2 (AWS Lambda + Next.js + Cline and Cursor)
+#ai
+#nextjs
+#aws
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
