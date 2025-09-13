@@ -37,6 +37,9 @@ Discussing the core forem open source software project — features, bugs, perfo
 Crypto Forem
 Follow
 A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
 Dropdown menu
 Dropdown menu
 Skip to content
@@ -69,77 +72,100 @@ Share to Mastodon
 Report Abuse
 Dimension AI Technologies
 Posted on Sep 12
+• Edited on Sep 13
 MVC vs MVVM: what's the difference? (C# example)
 #programming
 #mvc
 #mvvm
 #beginners
-MVC vs MVVM: Understanding Flow vs Roles
-Many developers find MVC intuitive but MVVM opaque, yet also hear that MVVM is superior to MVC.
-A key reason for this dissonance is that the acronyms MVC and MVVM list roles, not the runtime order (or pipeline) of input and updates.
-An Alternative Mental Model: ICMV and IVVMM
-MVC (roles vs flow)
-Roles (name): Model – View – Controller
-Actual flow: Input → Controller → Model → View
-Instead of MVC, think of this as ICMV for the order of flow
-MVVM (roles vs flow)
-Roles (name): Model – View – ViewModel
-Actual flow: Input → View ↔ ViewModel ↔ Model
-The ↔ flows are managed automatically with "data binding"
-Instead of MVVM, think of this as IVVMM
-To resolve the mismatch between the names MVC/MVVM and the order data flows, thinking of them instead as ICMV and IVVMM can help dramatically.
-Minimal MVC Example
-Controller updates the model, then pushes data to the view.
+When developing web or desktop applications, you'll encounter two fundamental architectural patterns: MVC (Model-View-Controller) and MVVM (Model-View-ViewModel).
+This article aims to help understand their differences, strengths and appropriate use cases in order to make informed architectural decisions.
+The Name-Flow Mismatch Problem
+Both MVC and MVVM acronyms describe components rather than data flow, which creates confusion.
+The actual runtime behavior differs significantly from what the names suggest.
+MVC: Multiple Valid Interpretations
+The term "MVC" has evolved since its Smalltalk origins, and modern implementations vary:
+Traditional Desktop MVC:
+User input → Controller
+Controller updates → Model
+Model notifies → View (via observer pattern)
+View can read Model directly
+Web Framework MVC (ASP.NET MVC, Spring MVC):
+HTTP Request → Controller
+Controller processes business logic, updates Model
+Controller selects View and passes Model
+Framework renders View with Model data
+Response sent to client
+Key insight: In web MVC, the framework handles view updates automatically through its rendering pipeline—controllers don't manually push data to views.
+MVVM: Bidirectional by Design
+MVVM establishes bidirectional data flow from the start:
+View ↔ ViewModel (via data binding)
+ViewModel ↔ Model (via property updates)
+User interactions originate in the View, flow to the ViewModel through bindings and changes propagate back automatically. The View is both input source and output destination.
+Practical MVC Example (Web Context)
+Here's a small but realistic MVC example showing automatic view rendering:
 // Model
-public class Person { public string Name { get; set; } }
-// View
-public class PersonView
+public class Person
 {
-public void Show(string name) => Console.WriteLine($"Name: {name}");
+public int Id { get; set; }
+public string Name { get; set; }
+public string Email { get; set; }
 }
-// Controller
-public class PersonController
+// Controller (ASP.NET MVC style)
+public class PersonController : Controller
 {
-private readonly Person _model;
-private readonly PersonView _view;
-public PersonController(Person model, PersonView view)
+private readonly IPersonRepository _repository;
+public PersonController(IPersonRepository repository)
 {
-_model = model;
-_view = view;
+_repository = repository;
 }
-public void SetName(string name) => _model.Name = name;
-public void UpdateView() => _view.Show(_model.Name);
-}
-// Usage
-class Program
+// GET: /Person/Edit/5
+public ActionResult Edit(int id)
 {
-static void Main()
-{
-var model = new Person();
-var view = new PersonView();
-var controller = new PersonController(model, view);
-controller.SetName("Alice");
-controller.UpdateView();
-// Output: Name: Alice
+var person = _repository.GetById(id);
+return View(person); // Framework handles view rendering
 }
+// POST: /Person/Edit/5
+[HttpPost]
+public ActionResult Edit(Person person)
+{
+if (ModelState.IsValid)
+{
+_repository.Update(person);
+return RedirectToAction("Index");
+}
+return View(person); // Re-render with validation errors
+}
+}
+// View (Razor syntax) - EditPerson.cshtml
+@model Person
+@using (Html.BeginForm())
+{
+@Html.EditorFor(m => m.Name)
+@Html.EditorFor(m => m.Email)
+<button type="submit">Save</button>
 }
 Enter fullscreen mode
 Exit fullscreen mode
-Notice: The controller orchestrates; the view is passive.
-Minimal MVVM Example (using Microsoft WPF)
-The View binds to properties on the ViewModel; changes propagate via INotifyPropertyChanged.
-ViewModel + Model (C#)
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
-public class Person { public string Name { get; set; } = ""; }
+Notice how the controller doesn't explicitly update the view—the framework manages this through its rendering pipeline.
+MVVM Example (WPF)
+// Model
+public class Person
+{
+public string Name { get; set; } = "";
+public string Email { get; set; } = "";
+}
+// ViewModel
 public class PersonViewModel : INotifyPropertyChanged
 {
 private readonly Person _model;
 private string _name;
+private string _email;
 public PersonViewModel(Person model)
 {
 _model = model;
 _name = model.Name;
+_email = model.Email;
 }
 public string Name
 {
@@ -149,68 +175,137 @@ set
 if (_name == value) return;
 _name = value;
 _model.Name = value;
-// keep model in sync
+OnPropertyChanged();
+OnPropertyChanged(nameof(DisplayText)); // Dependent property
+}
+}
+public string Email
+{
+get => _email;
+set
+{
+if (_email == value) return;
+_email = value;
+_model.Email = value;
 OnPropertyChanged();
 }
 }
+public string DisplayText => $"{Name} ({Email})";
 public event PropertyChangedEventHandler PropertyChanged;
 private void OnPropertyChanged([CallerMemberName] string p = null)
 => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(p));
 }
 Enter fullscreen mode
 Exit fullscreen mode
-View (XAML)
-<Window x:Class="Demo.MainWindow"
-xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-Title="MVVM Demo" Height="120" Width="280">
-<StackPanel Margin="12">
-<TextBlock Text="Name:" Margin="0,0,0,6"/>
-<TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
-<TextBlock Text="{Binding Name}" Margin="0,8,0,0"/>
+<!-- View (XAML) -->
+<StackPanel>
+<TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
+<TextBox Text="{Binding Email}"/>
+<TextBlock Text="{Binding DisplayText}"/>
 </StackPanel>
-</Window>
 Enter fullscreen mode
 Exit fullscreen mode
-Window Code-Behind (DataContext setup)
-public partial class MainWindow : Window
-{
-public MainWindow()
-{
-InitializeComponent();
-DataContext = new PersonViewModel(new Person { Name = "Alice" });
-}
-}
-Enter fullscreen mode
-Exit fullscreen mode
-Notice: The view binds to Name. Typing updates the ViewModel (and model). When the ViewModel raises PropertyChanged, the UI refreshes automatically. No explicit controller call.
-Key Takeaways
-MVC: Controller drives the sequence; View updates last
-MVVM: Binding keeps View and ViewModel in sync; changes flow both ways
-The acronyms describe parts, not order. Thinking of them as ICMV vs IVVMM clarifies the execution flow.
-Why MVVM?
-Key Benefits Over MVC
-1. Independent Testing of Logic
-In MVC, logic often ends up in the controller and tied to the view's lifecycle. In MVVM, the ViewModel consists of standard classes implementing properties and commands, enabling unit testing without UI framework dependencies.
-2. Cleaner Separation of Concerns
-MVC: Controller decides what to render, often with direct view calls, tangling UI and control flow
-MVVM: View handles visuals only; ViewModel exposes data and actions; Model contains pure data
-3. Declarative Data Binding
-Changes in the ViewModel automatically update the View, and vice versa. This reduces manual "push this value into the textbox" or "read this textbox back into the model" operations.
-4. Reusability of ViewModels (for multi-platform scenarios)
-You can bind the same ViewModel to different views (desktop app, mobile app, test harness). In MVC, controllers are harder to reuse due to tight coupling with their views. This advantage only applies when you're actually building for multiple platforms.
-5. Reduced Boilerplate for State Sync
-In MVC, you constantly write code to sync model ↔ view. In MVVM, binding handles this automatically, reducing glue code clutter.
-Trade-offs
-Disadvantages
-Steeper learning curve: The binding system can feel "invisible" compared to explicit controller code
-Debugging complexity: Bugs in bindings or PropertyChanged events are harder to trace
-For these reasons, MVVM can be excessive for small projects. For simple applications, MVC may be more straightforward.
+When to Use Each Pattern
+MVC Excels At:
+Server-Side Web Applications
+Natural fit for HTTP request/response cycle
+Built-in routing and middleware support
+Efficient server-side rendering
+Clear separation between API and presentation logic
+RESTful APIs
+Controllers map cleanly to resource endpoints
+Stateless request handling
+Simple CRUD operations with straightforward flow
+Scenarios with Simple State Management
+Form submissions
+Database-driven applications
+Content management systems
+Applications where most logic lives on the server
+MVVM Excels At:
+Rich Desktop Applications
+Complex UI with multiple interdependent controls
+Real-time updates across multiple views
+Applications requiring offline capability
+Data-Driven UIs
+Dashboards with live data
+Complex forms with validation
+Master-detail interfaces
+Applications with heavy client-side state
+Cross-Platform Development (with caveats)
+Shared ViewModels across different UI technologies
+Note: Requires compatible binding frameworks on all platforms
+Trade-offs and Considerations
+Testing
+MVC:
+Controllers are testable with dependency injection
+View testing often requires integration tests
+Clear boundaries make unit testing straightforward
+Request/response model simplifies test scenarios
+MVVM:
+ViewModels are highly testable in isolation
+Property change notifications can be verified
+However, binding behavior itself requires UI tests
+Complex ViewModels with interdependent properties can become difficult to test thoroughly
+Performance
+MVC:
+Minimal client-side overhead
+Server bears computational load
+Network latency affects responsiveness
+Excellent for high-traffic scenarios with caching
+MVVM:
+Data binding introduces memory overhead
+Complex binding expressions can impact performance
+Client-side processing reduces server load
+Better perceived performance for interactive UIs
+Complexity
+MVC:
+Simpler conceptual model
+Explicit control flow is easier to debug
+Less "magic" happening behind the scenes
+Manual view updates can become repetitive
+MVVM:
+Steeper learning curve
+Binding errors can be difficult to debug
+Automatic updates reduce boilerplate
+Can lead to over-engineering for simple scenarios
+Modern Variations and Hybrid Approaches
+The distinction between MVC and MVVM has blurred in modern frameworks:
+MVP (Model-View-Presenter)
+Middle ground between MVC and MVVM
+Presenter handles all UI logic and view updates
+View is completely passive
+Popular in Android development
+Component-Based Architectures
+React with Redux: Unidirectional data flow with centralized state
+Angular: Combines elements of MVC and MVVM with dependency injection
+Vue.js: Reactive data binding with component composition
+Flux/Redux Pattern
+Unidirectional data flow
+Centralized state management
+Actions → Dispatcher → Store → View
+Predictable state updates
+Practical Guidelines
+Choose MVC when:
+Building server-rendered web applications
+Creating RESTful APIs
+Working with simple CRUD operations
+Team is more familiar with request/response model
+Choose MVVM when:
+Building rich desktop applications
+Developing complex, stateful UIs
+Working with frameworks that provide robust data binding
+Need to share business logic across platforms
+Consider hybrid approaches when:
+Building modern SPAs
+Need both server and client capabilities
+Working with microservices architecture
+Requirements include real-time updates
 Summary
-MVC: Effective for server-side applications and scenarios requiring explicit control flow, but can create tight coupling and testing challenges
-MVVM: Valuable for data-driven desktop/mobile UIs with robust binding frameworks, but adds complexity and potential performance overhead
-Context matters: Choose based on your platform, team expertise, application complexity, and performance requirements rather than following blanket recommendations
-Note: Modern frameworks often implement hybrid approaches that combine elements of multiple patterns. The examples shown here represent traditional implementations primarily in .NET/C# contexts.
+MVC and MVVM are both valuable patterns, each with distinct advantages:
+MVC provides a straightforward, request-driven architecture ideal for server-side applications and APIs
+MVVM offers powerful data binding and state management for rich, interactive client applications
+Rather than viewing one as superior, understand that each pattern evolved to solve different problems. MVC originated from web development needs, while MVVM emerged from rich client application requirements. Choose based on your specific context: platform capabilities, team expertise, performance requirements, and application complexity.
+Modern frameworks increasingly blend these patterns, offering flexibility to use the right approach for each part of your application. Understanding the fundamental principles of both patterns enables you to make informed decisions and leverage hybrid approaches effectively.
 Top comments (0)
 Subscribe
 Personal
@@ -259,7 +354,6 @@ Algolia is the official search partner of DEV
 DEV Community — A space to discuss and keep up software development and manage your software career
 Home
 DEV++
-Reading List
 Podcasts
 Videos
 Tags
