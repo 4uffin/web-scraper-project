@@ -1,0 +1,265 @@
+How I Handle 15-Second AI Tasks Without Losing 87% of Users - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+horus he
+Posted on Sep 13
+How I Handle 15-Second AI Tasks Without Losing 87% of Users
+#webdev
+#ai
+#javascript
+#tutorial
+Last week, I watched our analytics dashboard in horror. 87% of users were abandoning our AI jersey designer during the generation process. The culprit? A spinning loader that lasted 15-20 seconds with zero feedback.
+Sound familiar? If you're building AI features, you've probably faced this exact problem. Here's how I transformed those painful wait times into a smooth, engaging experience that actually keeps users around.
+The $10,000 Problem
+Our AI jersey generator was bleeding users and money. Every abandoned generation meant:
+Wasted AI compute costs ($0.04 per failed attempt)
+Lost conversion opportunity ($12 average order value)
+Negative brand perception (users thought the app was broken)
+After losing nearly $10,000 in potential revenue in just one month, I knew we needed a radical rethink.
+The Magic: Async Processing + Smart Polling
+Instead of making users wait, I split the process into three phases:
+// 1. Instant submission - returns in 200ms
+async function submitDesign(request: Request) {
+const validation = validateInput(request.body);
+if (!validation.success) return { error: validation.error };
+// Create async task and return immediately
+const predictionId = await createPrediction({
+prompt: request.body.prompt,
+webhookUrl: `${API_URL}/webhooks/ai-complete`
+});
+// Store initial status
+await kvStore.put(`prediction:${predictionId}`, {
+status: 'starting',
+createdAt: Date.now()
+});
+return {
+predictionId,
+message: 'Your design is being created!'
+};
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Frontend Magic
+Here's where it gets interesting. Instead of a boring spinner, users see real progress:
+function JerseyGenerator() {
+const [status, setStatus] = useState('idle');
+const [progress, setProgress] = useState(0);
+async function pollStatus(predictionId: string) {
+const delays = [1000, 2000, 5000, 10000]; // Progressive delays
+let attempt = 0;
+while (attempt < 60) {
+const result = await fetch(`/api/status/${predictionId}`);
+const data = await result.json();
+if (data.status === 'processing') {
+setProgress(Math.min(attempt * 10, 90)); // Visual progress
+setStatus('AI is crafting your unique design...');
+} else if (data.status === 'succeeded') {
+setProgress(100);
+displayResult(data.imageUrl);
+return;
+}
+const delay = delays[Math.min(attempt, delays.length - 1)];
+await sleep(delay);
+attempt++;
+}
+}
+return (
+<div>
+{status !== 'idle' && (
+<ProgressBar value={progress} message={status} />
+)}
+</div>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Webhook Secret Sauce
+When the AI completes, a webhook instantly updates the status:
+async function handleWebhook(request: Request) {
+const event = await request.json();
+// Verify webhook signature (crucial for security!)
+if (!verifySignature(request)) {
+return new Response('Unauthorized', { status: 401 });
+}
+if (event.status === 'succeeded') {
+// Download and store the result
+const imageUrl = await storeImage(event.output[0]);
+// Update status for frontend polling
+await kvStore.put(`prediction:${event.id}`, {
+status: 'succeeded',
+imageUrl,
+completedAt: Date.now()
+});
+}
+return new Response('OK');
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Real Production Results
+After implementing this architecture at AI Jersey Design:
+📊 User Engagement:
+Abandonment rate: 87% → 12%
+Average session duration: +340%
+Conversion rate: 2.3% → 8.7%
+⚡ Performance:
+Initial response: 200ms (was 15+ seconds)
+P95 completion time: 8 seconds
+Successful generations: 99.2%
+💰 Business Impact:
+Revenue increase: +278%
+Support tickets: -65%
+AI cost per conversion: -40%
+The Gotchas Nobody Talks About
+Webhook Retries: AI services retry failed webhooks. Without idempotency, you'll process duplicates.
+Status Expiration: Set TTLs on your KV storage. I learned this after accumulating 100GB of orphaned predictions.
+Progressive Delays: Don't poll every second! Use exponential backoff to save bandwidth.
+Error Recovery: When webhooks fail, have a backup polling mechanism to check AI service directly.
+Quick Implementation Checklist
+If you're implementing this pattern, here's your checklist:
+[ ] Non-blocking API endpoint that returns immediately
+[ ] KV storage for status with automatic TTL
+[ ] Webhook endpoint with signature verification
+[ ] Frontend polling with progressive delays
+[ ] Progress indicators beyond just spinners
+[ ] Error handling for each failure mode
+[ ] Monitoring for webhook delivery rates
+The Architecture That Scales
+This pattern has handled:
+Peak load: 500+ concurrent generations
+Daily volume: 10,000+ images
+Global users: <50ms status checks worldwide
+Zero downtime: During 3 months of production
+Your Turn
+What's your approach to handling long-running tasks? Have you tried async patterns in your AI apps? I'd love to hear what worked (or didn't) for you.
+Drop a comment with your experience, or share your horror stories of users abandoning your AI features. Let's solve this together!
+Found this helpful? Follow me for more real-world AI architecture patterns. Next week: How I cut our AI costs by 73% without sacrificing quality.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+horus he
+Follow
+Make funny things
+Joined
+Jan 15, 2025
+More from horus he
+Why I Ditched Redis for Cloudflare Durable Objects in My Rate Limiter？
+#clouddflare
+#serverless
+#webdev
+#typescript
+Building a Robust Color Mixing Engine: From Theory to Implementation
+#typescript
+#webdev
+#design
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
