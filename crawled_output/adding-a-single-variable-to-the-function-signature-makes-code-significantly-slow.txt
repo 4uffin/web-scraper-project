@@ -1,0 +1,257 @@
+haskell - Adding a single variable to the function signature makes code significantly slower - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Adding a single variable to the function signature makes code significantly slower
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+20 times
+1
+This pertains to Emily's answer here: https://stackoverflow.com/a/13850560/2026752
+ansMap :: M.Map Integer Int
+ansMap = M.fromAscList [(i, collatz i) | i <- [1..1000000]]
+where collatz 1 = 0
+collatz x = if x' <= 1000000 then 1 + ansMap M.! x'
+else 1 + collatz x'
+where x' = if even x then x `div` 2 else x*3 + 1
+-- this code is really fast
+fst $ maximumBy (comparing snd) $ M.toList ansMap
+This seemed like a reasonable strategy, so I decided to take 1000000 and feed it as a variable to the function, so I could compute the Collatz sequence for even more numbers:
+ansMap :: Integer -> M.Map Integer Int
+ansMap n = M.fromAscList [(i, collatz i) | i <- [1..n]]
+where collatz 1 = 0
+collatz x = if x' <= n then 1 + ansMap n M.! x'
+else 1 + collatz x'
+where x' = if even x then x `div` 2 else x*3 + 1
+-- but then suddenly this is slow
+fst $ maximumBy (comparing snd) $ M.toList ansMap 1000000
+This confuses me, since all I did was take n out and pass it back in! I don't know much about the Haskell runtime. Please help me understand! Thank you in advance.
+haskell
+Share
+Improve this question
+Follow
+asked 2 hours ago
+daikonradishdaikonradish
+71166 silver badges1717 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1
+In Emily's answer, ansMap is a M.Map Integer Int which is recursively defined in terms of itself. In your modified code, ansMap is a function, and ansMap n returns a M.Map Integer Int that is recursively defined in terms of other calls to ansMap. But those recursive calls to ansMap themselves construct and return a (distinct) M.Map Integer Int, which ends up making tons of different M.Map Integer Ints until the recursion bottoms out.
+You can fix this simply by making it so that there is once again a M.Map Integer Int that is recursively defined in terms of itself, rather than having a recursively defined function.
+ansMap :: Integer -> M.Map Integer Int
+ansMap n = mapping
+where mapping = M.fromAscList [(i, collatz i) | i <- [1..n]]
+collatz 1 = 0
+collatz x = if x' <= n then 1 + mapping M.! x'
+else 1 + collatz x'
+where x' = if even x then x `div` 2 else x*3 + 1
+Note that collatz uses mapping, and does not make a recursive call to ansMap -- so ansMap is not recursively defined (though mapping is).
+That was an asymptotic speedup; there are also constant-factor speedups available. For example, switching Integer to Int, switching Map to Vector, and doing bit-twiddly operations in the definition of x' makes it about an order of magnitude faster. If switching to Int makes you nervous, staying with Integer is only about 50% slower.
+ansMap :: Int -> V.Vector Int
+ansMap n = mapping
+where mapping = V.generate (n+1) collatz
+collatz 0 = -1
+collatz 1 = 0
+collatz x = if x' <= n then 1 + mapping V.! x'
+else 1 + collatz x'
+where x' = if x .&. 1 == 0 then shiftR x 1 else x*3 + 1
+V.maxIndex $ ansMap 1000000
+Share
+Improve this answer
+Follow
+edited 1 hour ago
+answered 2 hours ago
+Daniel WagnerDaniel Wagner
+155k1010 gold badges231231 silver badges392392 bronze badges
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+haskell
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Linked
+2
+Optimizing longest Collatz chain in Haskell
+Related
+4
+Get n elements of list having the highest property
+5
+Haskell: List v. Array, difference in performance
+0
+(Haskell) Can't understand error : No instance for (Ord a) arising from a use of ‘’
+0
+help understand strange behavior in a lazy code
+0
+Show all numbers at prime indexes in a list - haskell - filter error
+1
+Haskell GADT typesafe Evaluator: Constant term for more than one type.
+71
+How does non-strict and lazy differ?
+1
+Random number generator in haskell using recursion
+0
+Why shifting is slower than powering on old haskell !? How to make it faster?
+2
+map example in Effective Haskell (B2.0), Page 58
+Hot Network Questions
+How can one deal with the case of someone misrepresenting his academic job title?
+Unladen VS Unloaded
+Jer28:9 "..prophet who prophesies of peace...." bible verse does Not seem like a great/grand revelatory epiphanic insightful statement/message
+Best bike for ultra steep climbs in the forest? (Mountain)
+Mickey Mouse Polygon - Regular Polygons forming Mysterious Angle
+How can one identify certain modules under an isomorphism of algebras?
+Complete the Bingo
+Looking for a dystopian sci-fi where a rich family take a trip into the wastelands and the son gets separated
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
+What would the Romans call a non-religious sacrifice?
+Which video game had the first "summon supporter" mechanic? (Summoning a "sub character" to fight)
+Cryptic Family Reunion: It's Easy to Overlook Us
+Please help assess the homebrew spell: Disrupt Causation
+Connect two voltages to one capacitor
+Implications of OP_RETURN changes in upcoming Bitcoin Core version 30.0
+What is the purpose of this opening in the airplane interior?
+Modems are not detected unless Windows is restarted
+TCBListing overlay: testing whether segmentation nodes have been defined
+Does the train between Sofia, Bucharest and Varna have Wi-Fi?
+Poland invokes Article 4 of NATO Charter in response to Russian incursion, when and why has this Article been invoked before?
+If OP_RETURN relay limits are ineffective, why remove the safeguard instead of keeping it as a default discouragement?
+Water around foundation inside the home
+Has any planetary lander used the paratrooper’s lowering line technique to manage impact?
+A million and one constants
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-hs
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

@@ -1,0 +1,339 @@
+asp.net core dependency inject (Generic) error - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+asp.net core dependency inject (Generic) error
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+30 times
+-1
+I want to create a Repository Base, every Service extend BaseService
+the code is follow
+public class BaseService<TEntity, TAddDto, TUpdateDto, TEntityDto> : IBaseService<TEntity, TAddDto, TUpdateDto, TEntityDto>
+where TEntity : Entity<long>
+where TAddDto : class
+where TUpdateDto : class
+where TEntityDto : class
+{
+private readonly IFreeSql<SqlServerFlag> _fsql;
+public BaseService(IFreeSql<SqlServerFlag> fsql)
+{
+_fsql = fsql;
+}
+public virtual async Task<IResultOutput> AddAsync(TAddDto input)
+{
+var addEntity = input.Adapt<TEntity>();
+await _fsql.Insert(addEntity).ExecuteAffrowsAsync();
+return ResultOutput.Ok();
+}
+public virtual async Task<IResultOutput> UpdateAsync(TUpdateDto input)
+{
+var property = typeof(TUpdateDto).GetProperty("Id");
+if (property == null)
+{
+throw new ArgumentException("Id is not exist");
+}
+var obj = property.GetValue(input);
+await _fsql.Update<TEntity>(input)
+.Where(LambdaHelper.GetPropertyNameExpression<TEntity>("Id", obj))
+.ExecuteAffrowsAsync();
+return ResultOutput.Ok();
+}
+public virtual async Task<IResultOutput> GetAsync(long id)
+{
+var dto = await _fsql.Select<TEntity>()
+.Where(a => a.Id == id)
+.FirstAsync<TEntityDto>();
+return ResultOutput.Ok();
+}
+public virtual async Task<IResultOutput> FakeDeleteAsync(long id)
+{
+int rows = await _fsql.Update<TEntity>()
+.Set(LambdaHelper.GetPropertyNameMemberExpression<TEntity>("IsDeleted", true), true)
+.Where(a => a.Id == id)
+.ExecuteAffrowsAsync();
+return rows > 0 ? ResultOutput.Ok() : ResultOutput.NotOk();
+}
+public virtual async Task<IResultOutput> DeleteAsync(long id)
+{
+int rows = await _fsql.Delete<TEntity>()
+.Where(a => a.Id == id)
+.ExecuteAffrowsAsync();
+return rows > 0 ? ResultOutput.Ok() : ResultOutput.NotOk();
+}
+}
+the IBaseService code is follow
+public interface IBaseService<TEntity, TAddDto, TUpdateDto, TEntityDto>
+where TEntity : Entity<long>
+where TAddDto : class
+where TUpdateDto : class
+where TEntityDto : class
+{
+Task<IResultOutput> AddAsync(TAddDto input);
+Task<IResultOutput> UpdateAsync(TUpdateDto input);
+Task<IResultOutput> GetAsync(long id);
+Task<IResultOutput> FakeDeleteAsync(long id);
+Task<IResultOutput> DeleteAsync(long id);
+}
+I create a InternationalService extend BaseService<,,,>
+public class InternationalService: BaseService<InternationalEntity, InternationalAddInput, InternationalUpdateInput, InternationalDto>, IInternationalService
+{
+public InternationalService(IFreeSql<SqlServerFlag> fsql):base(fsql)
+{
+}
+}
+the IInternationalService code is follow
+public interface IInternationalService: IBaseService<InternationalEntity, InternationalAddInput, InternationalUpdateInput, InternationalDto>
+{
+}
+Inject the Service in Program.cs
+// Inject Generic Service
+builder.Services.AddScoped(typeof(IBaseService<,,,>), typeof(BaseService<,,,>));
+// Inject the end name Service
+var types = Assembly.Load("Xin.Service")
+.GetExportedTypes()
+.Where(a => a.Name.EndsWith("Service"));
+foreach (var type in types)
+{
+var interfaces = type.GetInterfaces();
+foreach (var baseType in interfaces)
+{
+builder.Services.AddScoped(baseType, type);
+}
+}
+I want every Service extend BaseService, so I can ignore the basic add update delete...code, but I can't run the code. so please give me a help, thanks
+when I run the app, the app don't work, the error was
+Application terminated unexpectedly
+System.ArgumentException: Cannot instantiate implementation type 'Xin.Service.International.IInternationalService' for service type 'Xin.Service.Base.IBaseService`4[Xin.Model.System.InternationalEntity,Xin.Service.International.Dto.InternationalAddInput,Xin.Service.International.Dto.InternationalUpdateInput,Xin.Service.International.Dto.InternationalDto]'.
+at Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory.Populate()
+at Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory..ctor(ICollection`1 descriptors)
+at Microsoft.Extensions.DependencyInjection.ServiceProvider..ctor(ICollection`1 serviceDescriptors, ServiceProviderOptions options)
+at Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(IServiceCollection services, ServiceProviderOptions options)
+at Microsoft.Extensions.Hosting.HostApplicationBuilder.Build()
+at Microsoft.AspNetCore.Builder.WebApplicationBuilder.Build()
+at Xin.Admin.WebApi.Program.Main(String[] args) in E:\home\NetCore\code\Xin.Admin\Xin.Admin.WebApi\Program.cs:line 22
+asp.netasp.net-core
+Share
+Improve this question
+Follow
+edited 21 mins ago
+rossross
+asked 2 hours ago
+rossross
+133 bronze badges
+New contributor
+ross is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+2
+You should put as much effort in your question (research, formatting) as you want from our answers
+Sir Rufo
+–
+Sir Rufo
+2025-09-14 03:50:51 +00:00
+Commented
+1 hour ago
+Seems you try to register the interface IInternationalService as implementation type
+Sir Rufo
+–
+Sir Rufo
+2025-09-14 03:53:09 +00:00
+Commented
+1 hour ago
+Add a comment
+|
+Related questions
+681
+How do you create a custom AuthorizeAttribute in ASP.NET Core?
+623
+Resolving instances with ASP.NET Core DI from within ConfigureServices
+887
+ASP.NET Web Site or ASP.NET Web Application?
+Related questions
+681
+How do you create a custom AuthorizeAttribute in ASP.NET Core?
+623
+Resolving instances with ASP.NET Core DI from within ConfigureServices
+887
+ASP.NET Web Site or ASP.NET Web Application?
+617
+How to register multiple implementations of the same interface in Asp.Net Core?
+493
+How to unapply a migration in ASP.NET Core with EF Core
+430
+ASP.NET Core Web API exception handling
+3
+Asp.net Core how to use ReflectionIT.Mvc.Paging with ViewModel?
+306
+.NET Core vs ASP.NET Core
+398
+ASP.NET Core Get Json Array using IConfiguration
+435
+How to specify the port an ASP.NET Core application is hosted on?
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+asp.netasp.net-core
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Hot Network Questions
+Strategy for promoting a non-US FOSS project in the US?
+If OP_RETURN relay limits are ineffective, why remove the safeguard instead of keeping it as a default discouragement?
+The relation between 穀 and 谷
+PC used in movie "Ghosthouse" (1988)
+Is it common for caves to have less oxygen? What's there instead?
+At which point was Ars Magica turned to its own thing as opposed to being how magick worked in the past?
+Examples of representations of finite groups with conditions on the tensor square
+Is this efflorescence on my new build tile floor, and how can I clean it off?
+RadioCall at non-towered airport or practice area
+Complete the Bingo
+What information do p-values and confidence intervals provide?
+Is the core project of Early Buddhism just "death anxiety therapy engineering"?
+How do I replicate the shrink-wrap and lattice modifier for instances realized from a procedural geometry node script on to a curvy surface object?
+Water around foundation inside the home
+Unladen VS Unloaded
+Cryptic Family Reunion: It's Easy to Overlook Us
+Chopin Nocturne Op 27 No 2 Note F or A flat
+Disk Encryption for a Linux File Server Used by Multiple Devices
+For an electric pump rocket engine like the rutherford engine, is it possible to place the main valve upstream of the pump?
+Reusing BH-90 barb insert?
+What would the Romans call a non-religious sacrifice?
+Liaison after verbs in the third person plural
+Why don't military fighter jets have static wicks?
+Placement, agreement and functional role of "y compris"
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943
