@@ -1,0 +1,279 @@
+python - `__str__` of a subclass is not called in an f-string - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+`__str__` of a subclass is not called in an f-string
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+38 times
+1
+I wrote a subclass of Decimal to represent an amount of money. I wrote a custom __str__ to display the currency along with a sign format. My method works when calling str() but in a f-string somehow my custom __str__ is not used. What is happening here?
+More than workarounds, I'm interested in understanding what is happening here. Something is going on that defies my current understanding of
+__str__, __format__ and inheritance. I thought the default behavior of format with no format specified was to delegate to str, but here it sends it to str of the parent class instead.
+Here is the minimal code to reproduce:
+from decimal import Decimal
+class Money(Decimal):
+CURRENCY = "€"
+def __new__(cls, number):
+return super().__new__(cls, Decimal(number).quantize(Decimal("0.01")))
+def __str__(self):
+return f"{self:+}{self.CURRENCY}"
+m = Money(10)
+print("Test 1 - str():", str(m))
+print("Test 2 - print():", m)
+print(f"Test 3 - f-string: {m}")
+print("Test 4 - f-string str():", f"{str(m)}")
+This results in
+Test 1 - str(): +10.00€
+Test 2 - print(): +10.00€
+Test 3 - f-string: 10.00 # only here is my custom str not called
+Test 4 - f-string str(): +10.00€
+Python version is 3.13.7
+Edit:
+The solution I found that work is the following:
+def __str__(self):
+return super().__format__("+") + self.CURRENCY
+def __format__(self, _):
+return str(self)
+Yet I don't fully understand why this work and not my original solution.
+python
+Share
+Improve this question
+Follow
+edited 1 hour ago
+Antoine GallixAntoine Gallix
+asked 1 hour ago
+Antoine GallixAntoine Gallix
+84622 gold badges1212 silver badges3232 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+2
+f-strings in Python prioritize __format__ over __str__. Since Money inherits from Decimal, you need to add __format__ to your class for expected behavior.
+from decimal import Decimal
+class Money(Decimal):
+CURRENCY = "€"
+def __new__(cls, number):
+return super().__new__(cls, Decimal(number).quantize(Decimal("0.01")))
+def __format__(self, format_spec: str) -> str:
+if not format_spec:
+format_spec = "+.2f"
+formatted_number = super().__format__(format_spec)
+return f"{formatted_number}{self.CURRENCY}"
+def __str__(self) -> str:
+formatted_number = super().__format__("+.2f")
+return f"{formatted_number}{self.CURRENCY}"
+Share
+Improve this answer
+Follow
+edited 1 hour ago
+answered 1 hour ago
+pixel-processpixel-process
+12955 bronze badges
+New contributor
+pixel-process is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+2
+your solution makes my four test calls give the same result, but gives me a double currency sign. have you tried it yourself?
+Antoine Gallix
+–
+Antoine Gallix
+2025-09-14 00:11:35 +00:00
+Commented
+1 hour ago
+@AntoineGallix I did, but focused only on the output relevant to the issue. Missed the redundant symbol. Answer has been updated. Please let me know if results are not as expected.
+Also of note the issue was due to how str and format interact. self.CURRENCY was used 2x causing the issue.
+pixel-process
+–
+pixel-process
+2025-09-14 00:36:02 +00:00
+Commented
+1 hour ago
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+python
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Related
+3813
+What is the difference between __str__ and __repr__?
+3874
+Convert bytes to a string in Python 3
+3586
+Does Python have a string 'contains' substring method?
+3000
+Convert string "Jun 1 2005 1:33PM" into datetime
+2578
+How do I lowercase a string in Python?
+2773
+How do I parse a string to a float or int?
+2491
+Calling a function of a module by using its name (a string)
+2244
+How do I pad a string with zeros?
+2705
+How do I escape curly-brace ({}) characters characters in a string while using .format?
+2154
+Why is it string.join(list) instead of list.join(string)?
+Hot Network Questions
+Modems are not detected unless Windows is restarted
+Is the inductor of CE oscillator connected to VCC?
+2008 Toyota Tacoma
+New Boss insulting my appearance
+Which keyboard layout is this?
+Ridge vent for attached uninsulated garage or no?
+Upper Frequency Limit for Bouncing Off Ionosphere
+why centroid is located on 2:1 ratio of medians
+Correlation values falling outside the estimated range derived from the p-value
+How can referees verify computationally intensive results when HPC resources are required?
+Genesis 2:19, How נֶפֶשׁ חַיָּה is translated?
+Which video game had the first "summon supporter" mechanic? (Summoning a "sub character" to fight)
+How should one handle a flawed question in a textbook?
+Strategy for promoting a non-US FOSS project in the US?
+Rewording statements that contain "we"
+What's the cultural significance of the 500kg bomb in the Helldivers 2 community?
+Apache httpd keeps rewriting VirtualHost on separate port to use HTTPS instead of HTTP
+Instantaneous axis of motion
+How does the NSDT program end?
+Special LaTeX characters and TikZ Math Mode
+Chopin Nocturne Op 27 No 2 Note F or A flat
+If OP_RETURN relay limits are ineffective, why remove the safeguard instead of keeping it as a default discouragement?
+How do I replicate the shrink-wrap and lattice modifier for instances realized from a procedural geometry node script on to a curvy surface object?
+Is a massive solar farm around the runway a big risk for takeoff and landing?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-py
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

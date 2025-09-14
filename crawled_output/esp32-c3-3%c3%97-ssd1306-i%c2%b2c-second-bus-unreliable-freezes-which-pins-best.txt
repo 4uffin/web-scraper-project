@@ -1,0 +1,279 @@
+arduino c++ - ESP32-C3 + 3× SSD1306 (I²C): second bus unreliable / freezes — which pins & best practices? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+ESP32-C3 + 3× SSD1306 (I²C): second bus unreliable / freezes — which pins & best practices?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+18 times
+0
+I've been trying to make a methane detector at home using a ESP32-C3 and 3 oLED screens,
+Everything went well using one screen, when I added 2 more screens, then everything froze or just displayed nothing.
+Here is the code :
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
+#define SDA_A 5
+#define SCL_A 6
+#define SDA_B 7
+// also tried 9
+#define SCL_B 8
+// also tried 10
+TwoWire I2CA = TwoWire(0);
+TwoWire I2CB = TwoWire(1);
+Adafruit_SSD1306 dLive (128, 64, &I2CA); // 0x3C
+Adafruit_SSD1306 dStatic(128, 32, &I2CA); // 0x3D (SA0)
+Adafruit_SSD1306 dScore(128, 64, &I2CB); // 0x3C
+void setup() {
+Serial.begin(115200);
+I2CA.begin(SDA_A, SCL_A); I2CA.setClock(100000);
+I2CB.begin(SDA_B, SCL_B); I2CB.setClock(100000);
+auto ping = [](TwoWire& bus, uint8_t a){ bus.beginTransmission(a); return bus.endTransmission()==0; };
+Serial.printf("Ping A: 0x3C=%d 0x3D=%d | Ping B: 0x3C=%d\n",
+ping(I2CA,0x3C), ping(I2CA,0x3D), ping(I2CB,0x3C));
+bool okA0 = dLive.begin (SSD1306_SWITCHCAPVCC, 0x3C);
+bool okA1 = dStatic.begin(SSD1306_SWITCHCAPVCC, 0x3D);
+bool okB0 = dScore.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+Serial.printf("Begin: live=%d static=%d score=%d\n", okA0, okA1, okB0);
+if (okA0){ dLive.clearDisplay(); dLive.setTextColor(1);
+dLive.setTextSize(2); dLive.setCursor(0,0); dLive.print("HELLO A 0x3C"); dLive.display(); }
+if (okA1){ dStatic.setRotation(1); dStatic.clearDisplay(); dStatic.setTextColor(1);
+dStatic.setTextSize(2); dStatic.setCursor(0,0); dStatic.print("HELLO A 0x3D"); dStatic.display(); }
+if (okB0){ dScore.clearDisplay(); dScore.setTextColor(1);
+dScore.setTextSize(2); dScore.setCursor(0,0); dScore.print("HELLO B 0x3C"); dScore.display(); }
+}
+void loop(){}
+Nothings display on the screen strangely.
+Environment
+ESP32-C3 devkit (Arduino via PlatformIO)
+Adafruit_GFX + Adafruit_SSD1306
+Goal: show live CH₄ PPM from MQ-4 + bar/peak/avg on OLEDs
+Hardware
+MQ-4 module:
+heater @ 5 V,
+AO → divider 57 k (top) / 47 k (bottom) → GPIO0 (A0) (ratio ≈ 0.452)
+OLEDs (SSD1306, I²C, 3.3 V):
+128×64 “live”
+128×64 “scores”
+128×32 “static” (should be vertical)
+Intended wiring
+Bus A (I²C): SCL=GPIO6, SDA=GPIO5
+• 128×64 @ 0x3C (live)
+• 128×32 @ 0x3D (SA0 soldered)
+Bus B (I²C): tried GPIO9/10, then GPIO8/7 for the second 128×64 @ 0x3C
+All OLEDs on 3V3 (V3); grounds common. MQ-4 heater on 5 V.
+Symptoms
+Each display works alone (0x3C or 0x3D).
+With three connected, I²C often freezes (nothing renders / stale frame).
+The “second bus” display on 9/10 (and later 8/7) is unreliable or not detected.
+COM port quirks aside, root cause seems I²C stability/pins/addresses on ESP32-C3.
+esp32arduino-c++
+Share
+Improve this question
+Follow
+edited 11 mins ago
+hcheung
+4,28933 gold badges1616 silver badges2828 bronze badges
+asked 50 mins ago
+La PoubelleLa Poubelle
+1133 bronze badges
+1
+Probably nothing to do with the code. How long each of the I2C cable when you connect all three I2C displays?
+hcheung
+–
+hcheung
+2025-09-14 01:34:36 +00:00
+Commented
+10 mins ago
+Add a comment
+|
+Related questions
+0
+Which Pins to use for second I2C-Bus on Adafruit Featherwing
+2
+Set custom pins for i2c on esp32
+1
+Using micropython on ESP32, how to have 2 PWM pins with different frequencies?
+Related questions
+0
+Which Pins to use for second I2C-Bus on Adafruit Featherwing
+2
+Set custom pins for i2c on esp32
+1
+Using micropython on ESP32, how to have 2 PWM pins with different frequencies?
+0
+which esp32 board should I select for "ESP32-S" in platformio?
+1
+ESP32-Cam: SD and camera use up all the pins
+0
+Which is the best way to send wifi credentials from an APP (Android Studio) to ESP32?
+2
+Which board to select for ESP32-S3-WROOM in PlatformIO?
+0
+ESP32 arduino with PlatformIO Serial0.printf("%d %d \n",x,x) Loss the second data
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+esp32arduino-c++
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Hot Network Questions
+Looking for a dystopian sci-fi where a rich family take a trip into the wastelands and the son gets separated
+Why don't people add confidence intervals on the p-values they report? (E.g. from bootstrapping the sampling distribution)
+What would the Romans call a non-religious sacrifice?
+Matching style of mesh of 3D surface with style of 3D curves in ParametricPlot3D
+Can someone identify this accusative + infinitive idiom?
+Placement, agreement and functional role of "y compris"
+The murderer's motives in Agatha Christie's Sad Cypress
+New Boss insulting my appearance
+What's the cultural significance of the 500kg bomb in the Helldivers 2 community?
+Is a massive solar farm around the runway a big risk for takeoff and landing?
+How would a gas-light style city in a world with very little metals available differ from Earth-equivalents?
+. . . , we should have eaten up a Posey County family, fruit, furniture, and all, but that they happened to be fiddling down below,
+Is the core project of Early Buddhism just "death anxiety therapy engineering"?
+Truth value of a sentence giving permission?
+Special LaTeX characters and TikZ Math Mode
+Modems are not detected unless Windows is restarted
+Which keyboard layout is this?
+Poland invokes Article 4 of NATO Charter in response to Russian incursion, when and why has this Article been invoked before?
+How are book chapters viewed by hiring committees in engineering?
+Complete the Bingo
+Why does Isaiah 53 use a mix of Past Tense and Present Tense?
+Why do Aave transactions on Etherscan show misleading transfer amounts for aTokens?
+Does the train between Sofia, Bucharest and Varna have Wi-Fi?
+why centroid is located on 2:1 ratio of medians
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

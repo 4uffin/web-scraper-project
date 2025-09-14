@@ -1,0 +1,467 @@
+javascript - Is there a way to know when a Google (GPT) ad is being closed? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Is there a way to know when a Google (GPT) ad is being closed?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+15 times
+0
+So I have an ad stick to the bottom of the page. It has a closed icon, when i click on it, I need to understand if there is a way to know when an ad is closed?
+I created this which let me know when when the ad i need is rendered:
+'use client';
+import { memo, useEffect } from 'react';
+export interface StickyBannerState {
+height: number;
+present: boolean;
+slotID: string;
+}
+/**
+* dispatchUpdate
+*
+* @param detail - sticky banner state
+*/
+const dispatchUpdate = (detail: StickyBannerState): void => {
+window.dispatchEvent(
+new CustomEvent<StickyBannerState>('stickyBanner:update', { detail }),
+);
+};
+interface IAdStickyBridgeProps {
+slotID: string;
+enabled: boolean;
+}
+/**
+* AdStickyBridge
+*
+* Observes the ad slot element and emits sticky height changes.
+* Also listens for a "close" postMessage from the slot's iframe.
+*
+* Does not call GPT APIs. Safe alongside AdSlotClient.
+*
+* @param props - component props
+* @param props.slotID - ad slot element id
+* @param props.enabled - whether to enable observers
+*/
+function AdStickyBridge({
+enabled,
+slotID,
+}: IAdStickyBridgeProps): React.ReactElement | null {
+useEffect(() => {
+if (!enabled || !slotID) {
+return;
+}
+let resizeObs: ResizeObserver | null = null;
+let mutationObs: MutationObserver | null = null;
+let lastHeight = -1;
+let lastPresent = false;
+/**
+* measureAndDispatch
+*
+* Measures the slot element and dispatches sticky state
+* only when values actually change.
+*/
+const measureAndDispatch = (): void => {
+const el = document.getElementById(slotID);
+if (!el) {
+if (lastHeight !== 0 || lastPresent !== false) {
+lastHeight = 0;
+lastPresent = false;
+dispatchUpdate({ height: 0, present: false, slotID });
+}
+return;
+}
+const displayNone = Boolean(getComputedStyle(el)?.display === 'none');
+const h = displayNone ? 0 : Math.max(0, el.offsetHeight || 0);
+const present = h > 0;
+if (h !== lastHeight || present !== lastPresent) {
+lastHeight = h;
+lastPresent = present;
+dispatchUpdate({ height: present ? h : 0, present, slotID });
+}
+};
+/**
+* onMessage
+*
+* Handles postMessage coming from the slot iframe.
+* Expected payloads:
+* { type: 'ad-closed', slotId: '<slotID>' }
+* { event: 'ad-closed', slotId: '<slotID>' }
+*
+* @param ev - message event
+*/
+const onMessage = (ev: MessageEvent): void => {
+// 1) Soft check payload shape
+const data = ev?.data as
+| { type?: string; event?: string; slotId?: string }
+| undefined;
+if (!data) {
+return;
+}
+console.log('marcelo data', data);
+const isClose = data.type === 'ad-closed' || data.event === 'ad-closed';
+if (!isClose) {
+return;
+}
+// 2) Scope to the correct slot:
+//
+- If slotId is provided, require it to match.
+if (data.slotId && data.slotId !== slotID) {
+return;
+}
+// 3) Optional: verify the message comes from the slot's descendant iframe
+//
+(prevents unrelated messages from other frames).
+const el = document.getElementById(slotID);
+if (!el) {
+return;
+}
+const frames = el.getElementsByTagName('iframe');
+let fromOurFrame = false;
+for (let i = 0; i < frames.length; i += 1) {
+if (frames?.[i]?.contentWindow === ev.source) {
+fromOurFrame = true;
+break;
+}
+}
+if (!fromOurFrame) {
+return;
+}
+// 4) Close instruction accepted → drop sticky offset
+dispatchUpdate({ height: 0, present: false, slotID });
+};
+// Initial measure after layout settles
+requestAnimationFrame(measureAndDispatch);
+// Resize observation
+const el = document.getElementById(slotID);
+if (el && 'ResizeObserver' in window) {
+resizeObs = new ResizeObserver(() => {
+measureAndDispatch();
+});
+resizeObs.observe(el);
+}
+// Watch the slot's parent (or body) for DOM/class/style changes
+const parent = el?.parentNode || document.body;
+mutationObs = new MutationObserver(() => {
+measureAndDispatch();
+});
+mutationObs.observe(parent, {
+attributeFilter: ['style', 'class'],
+attributes: true,
+childList: true,
+subtree: true,
+});
+window.addEventListener('message', onMessage);
+return (): void => {
+if (resizeObs) {
+resizeObs.disconnect();
+}
+if (mutationObs) {
+mutationObs.disconnect();
+}
+window.removeEventListener('message', onMessage);
+// Ensure wrapper returns to bottom on unmount
+dispatchUpdate({ height: 0, present: false, slotID });
+};
+}, [slotID, enabled]);
+return null;
+}
+export default memo(AdStickyBridge);
+'use client';
+import { memo, useEffect, useRef } from 'react';
+import {
+defineSlot,
+getSlotById,
+} from '@tu/utilities/helpers/ads/gpt/gptManager';
+import type { IAdSettings } from '@tu/commons/ads/IAdSettings';
+import useStore from '@tu/commons/store/Store';
+import AdStickyBridge from './AdStickyBridge';
+interface IAdSlotProps {
+adSettings: IAdSettings | null;
+lazyLoaded?: boolean;
+}
+/**
+* AdSlotClient
+*
+* @param props - component props
+* @param props.adSettings - ad settings
+* @param props.lazyLoaded - lazy loaded
+*/
+function AdSlotClient({
+adSettings,
+lazyLoaded,
+}: IAdSlotProps): React.ReactElement | null {
+const hasLoad = useRef(false);
+const gptStarted = useStore((state) => !!state.scriptLoaded?.gptStarted);
+const hasOneTrust = useStore((state) => !!state.featureFlag?.hasOneTrust);
+useEffect(() => {
+let slot: googletag.Slot | undefined | null;
+if (!hasLoad.current && gptStarted && adSettings) {
+window.googletag = window.googletag || { cmd: [] };
+window.googletag.cmd.push(() => {
+if (!lazyLoaded) {
+const checkSlot = getSlotById(adSettings?.slotID);
+if (!checkSlot) {
+slot = defineSlot(adSettings, true, hasOneTrust);
+}
+}
+if (lazyLoaded) {
+slot = getSlotById(adSettings?.slotID);
+if (slot && document.getElementById(adSettings?.slotID)) {
+window.googletag.pubads().refresh([slot]);
+}
+}
+});
+hasLoad.current = true;
+}
+return (): void => {
+slot = null;
+};
+}, [adSettings, hasOneTrust, lazyLoaded, gptStarted]);
+if (!adSettings || lazyLoaded) {
+return null;
+}
+const isStickyCandidate =
+adSettings.position === 'ADH' ||
+adSettings.slotID.startsWith('div-gpt-ad-adh-');
+return (
+<>
+<div
+className="m-auto flex items-center text-center"
+id={adSettings.slotID}
+/>
+<AdStickyBridge enabled={isStickyCandidate} slotID={adSettings.slotID} />
+</>
+);
+}
+export default memo(AdSlotClient);
+But when I close it, nothing else comes back.
+On another component I have this:
+const [stickyBanner, setStickyBanner] = useState<StickyBannerState>({
+height: 0,
+present: false,
+slotID: '',
+});
+useEffect(() => {
+/**
+* onUpdate
+*
+* @param ev - event
+*/
+const onUpdate = (ev: Event): void => {
+const e = ev as CustomEvent<StickyBannerState>;
+console.log('marcelo e', e);
+if (!e.detail) {
+return;
+}
+setStickyBanner(e.detail);
+};
+window.addEventListener('stickyBanner:update', onUpdate as EventListener);
+return (): void =>
+window.removeEventListener(
+'stickyBanner:update',
+onUpdate as EventListener,
+);
+}, [nodeId]);
+when the component mounts, stickyBanner.present and stickyBanner.height are falsy, after some second they become truthy and when i close the ad, nothing else changes back to falsy.
+So is there a way to know when a Google (GPT) ad is being closed?
+javascriptreactjsadsgoogle-publisher-tag
+Share
+Improve this question
+Follow
+asked 47 mins ago
+ReactingReacting
+6,16788 gold badges4444 silver badges9595 bronze badges
+Add a comment
+|
+Related questions
+742
+Is there a way to detect if a browser window is not currently active?
+505
+How to delete a localStorage item when the browser window/tab is closed?
+487
+Is there a way to provide named parameters in a function call?
+Related questions
+742
+Is there a way to detect if a browser window is not currently active?
+505
+How to delete a localStorage item when the browser window/tab is closed?
+487
+Is there a way to provide named parameters in a function call?
+465
+Is there a way to get element by XPath using JavaScript in Selenium WebDriver?
+0
+Complex React Table Component with Row Selection Causing Scroll Jump – Looking for Optimization Suggestions
+2
+Is there a way to expand an advert outside of the window width within a GPT (Google Publisher Tag) Safeframe?
+6
+How to know if "disableInitialLoad" was called on GPT?
+287
+Is there any way to specify a suggested filename when using data: URI?
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+javascriptreactjsadsgoogle-publisher-tag
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Hot Network Questions
+How do I replicate the shrink-wrap and lattice modifier for instances realized from a procedural geometry node script on to a curvy surface object?
+If OP_RETURN relay limits are ineffective, why remove the safeguard instead of keeping it as a default discouragement?
+Apache httpd keeps rewriting VirtualHost on separate port to use HTTPS instead of HTTP
+Constant anagram in PI
+Where can I see the rules for Alchemy cards in Magic Arena?
+Unladen VS Unloaded
+The murderer's motives in Agatha Christie's Sad Cypress
+Is a massive solar farm around the runway a big risk for takeoff and landing?
+Why does truth seem to lack compelling power? Why can we rarely convince anyone to change their mind?
+Is the inductor of CE oscillator connected to VCC?
+Strategy for promoting a non-US FOSS project in the US?
+Connect two voltages to one capacitor
+Upper Frequency Limit for Bouncing Off Ionosphere
+RadioCall at non-towered airport or practice area
+Chopin Nocturne Op 27 No 2 Note F or A flat
+Implications of OP_RETURN changes in upcoming Bitcoin Core version 30.0
+Can chess engines solve the bishop and knight mate without the use of an endings tablebase?
+Is the core project of Early Buddhism just "death anxiety therapy engineering"?
+Does the train between Sofia, Bucharest and Varna have Wi-Fi?
+New Boss insulting my appearance
+Is this efflorescence on my new build tile floor, and how can I clean it off?
+PC used in movie "Ghosthouse" (1988)
+Are copies made by God-Eternal Kefnet cast from my hand for the purpose of Gale, Waterdeep Prodigy?
+How to choose between brute force and efficient solution that has overhead?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-js
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943
