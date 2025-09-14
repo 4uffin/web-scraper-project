@@ -1,0 +1,301 @@
+Optimizing Next.js Internationalization with URL-Based Locales - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Rajan Maharjan
+Posted on Sep 14
+Optimizing Next.js Internationalization with URL-Based Locales
+#nextjs
+#i18n
+#learning
+#webdev
+In this blog post, I want to talk about the process of optimizing locale handling in a Next.js application. Our initial implementation relied on a cookie-based approach for internationalization, which forced dynamic rendering and reduced both performance and SEO effectiveness.
+Migrating to a locale-based routing strategy, where the locale is embedded directly in the URL path (e.g., /en/about, /ja/about), enabled Next.js to pre-render locale-specific routes at build time. This restored the benefits of static site generation (SSG), resulting in faster load times and improved SEO.
+Leveraging Locale-Based Routing
+Embedding the locale directly into the URL path solves these challenges. Each locale-specific path becomes a static route that can be pre-rendered at build time. For instance, /en/about and /ja/about are treated as distinct static pages, each with its respective translations.
+This approach simplifies navigation logic and enhances SEO. URLs are shareable and bookmarkable with the correct language context, and search engines can index each locale individually, improving discoverability.
+We can achieve this cleanly by separating our next-intl configuration into dedicated files.
+1. Locale Configuration (config.ts)
+First, we create a central configuration file to define our locales and their names. This promotes code reusability and makes it easy to add or remove languages in the future.
+export type Locale = 'en' | 'ja';
+export const locales: Locale[] = ['en', 'ja'] as const;
+export const defaultLocale: Locale = 'en';
+export const localeNames: Record<Locale, string> = {
+en: "EN",
+ja: "日本"
+} as const;
+Enter fullscreen mode
+Exit fullscreen mode
+2. Routing Setup (routing.ts)
+Next, we define our routing strategy. By setting localePrefix: 'never', we explicitly tell next-intl that we are handling the locale prefixes ourselves through the Next.js [locale] dynamic segment. This prevents next-intl from adding an extra prefix to our URLs.
+import { defineRouting } from 'next-intl/routing';
+import { defaultLocale, locales } from './config';
+export const routing = defineRouting({
+locales: locales,
+defaultLocale: defaultLocale,
+localePrefix: 'never'
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Note: The localePrefix option controls whether the locale appears in the URL path:
+'never' → locale does not appear in the URL (/about for all languages).
+'always' → locale always appears (/en/about, /ja/about).
+'as-needed' → locale appears only if it’s not the default locale (/about for default, /ja/about for Japanese).
+Choosing the right option depends on whether URL-based SEO and shareable links for each locale are important.
+3. Navigation Handling (navigation.ts)
+We then use our defined routing configuration to create custom navigation helpers. This ensures that every time we use Link, useRouter, or other navigation functions, they automatically respect our locale-based routing setup.
+import { createNavigation } from 'next-intl/navigation';
+import { routing } from './routing';
+export const { Link, redirect, usePathname, useRouter, getPathname } =
+createNavigation(routing);
+Enter fullscreen mode
+Exit fullscreen mode
+4. Server-Side Locale Resolution (request.ts)
+The request.ts file handles the server-side logic for fetching locale-specific data. We use getRequestConfig to determine the correct locale from the request and load the corresponding message files. The hasLocale helper function is crucial here to ensure a valid locale is being requested, falling back to the defaultLocale if not.
+import { getRequestConfig } from 'next-intl/server';
+import { hasLocale } from 'next-intl';
+import { routing } from './routing';
+export default getRequestConfig(async ({ requestLocale }) => {
+const requested = await requestLocale;
+const locale = hasLocale(routing.locales, requested)
+? requested
+: routing.defaultLocale;
+const messages = (await import(\`@/i18n/locales/\${locale}/common.json\`)).default;
+return {
+locale,
+messages,
+};
+});
+Enter fullscreen mode
+Exit fullscreen mode
+5. Root Layout (layout.ts)
+Our root layout handles the foundational setup for every page. We use setRequestLocale(locale) to tell next-intl to use the locale from the URL. This allows Next.js to leverage static rendering because the locale is known at the time of the request. The hasLocale check also helps us catch invalid locales and serve a notFound() page.
+import "@/index.css";
+import { geistSans, geistMono } from "@/constants/fonts";
+import { metadata } from "@/constants/metadata";
+import { NextIntlClientProvider, hasLocale } from "next-intl";
+import { routing } from "@/i18n/routing";
+import { notFound } from "next/navigation";
+import { setRequestLocale } from "next-intl/server";
+export { metadata };
+export function generateStaticParams() {
+return routing.locales.map((locale) => ({ locale }));
+}
+export default async function RootLayout({
+children,
+params,
+}: Readonly<{
+children: React.ReactNode;
+params: Promise<{ locale: string }>;
+}>) {
+const { locale } = await params;
+if (!hasLocale(routing.locales, locale)) {
+notFound();
+}
+setRequestLocale(locale);
+return (
+<html lang={locale}>
+<body>
+<NextIntlClientProvider locale={locale}>
+{children}
+</NextIntlClientProvider>
+</body>
+</html>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+6. Client-Side Locale Switcher (locale-switcher.tsx)
+This component provides a user-friendly way to change the language. It uses the custom useRouter and usePathname from our navigation.ts file. When the user selects a new locale, the router.push call automatically updates the URL path to reflect the new language, e.g., from /en/about to /ja/about.
+"use client";
+import { useLocale } from "next-intl";
+import { locales, localeNames, type Locale } from "@/i18n/config";
+import { usePathname, useRouter } from "@/i18n/navigation";
+export default function LocaleSwitcher() {
+const locale = useLocale();
+const pathname = usePathname() || "/";
+const router = useRouter();
+const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+const newLocale = event.target.value as Locale;
+router.push(pathname, { locale: newLocale });
+};
+return (
+<div className="flex items-center space-x-2" aria-label="Locale switcher">
+<label htmlFor="locale-select" className="sr-only">
+Select language
+</label>
+<select
+id="locale-select"
+value={locale}
+onChange={handleChange}
+className="border border-gray-300 rounded p-1 text-blue-500 focus:outline-none focus:ring focus:ring-blue-300"
+>
+{locales.map((loc) => (
+<option key={loc} value={loc}>
+{localeNames[loc]}
+</option>
+))}
+</select>
+</div>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+7. Handling Invalid Routes
+A catch-all route ensures consistent handling of invalid URLs or unsupported locales:
+Implementation
+Create a Catch-All Route: Create a new folder and a page.tsx file at the root of your app directory. The folder should be named [...rest] to create a catch-all segment. This structure ensures that any request that doesn't match an existing file or folder in your application will be caught by this route.
+/app
+├── /[locale]
+│
+└── page.tsx
+├── /[...rest]
+│
+└── page.tsx
+└── ...
+Enter fullscreen mode
+Exit fullscreen mode
+Implement the Catch-All Page: Inside the app/[...rest]/page.tsx file, you can now render your custom not-found page. By using notFound() from next/navigation, you signal to Next.js to display your custom not-found.tsx component, which you should have already defined at the top level of your app directory.
+// app/[...rest]/page.tsx
+import { notFound } from 'next/navigation';
+export default function CatchAllPage() {
+notFound();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+By moving from a cookie-based locale system to URL-based routing, static site generation is fully restored while keeping internationalization seamless and SEO-friendly. The modular structure simplifies adding new locales, ensures consistent routing, and improves overall application performance.
+References
+https://next-intl.dev/docs/getting-started/app-router
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Rajan Maharjan
+Follow
+Joined
+Jan 24, 2025
+Trending on DEV Community
+Hot
+What was your win this week?
+#weeklyretro
+#discuss
+In Defense of C++
+#cpp
+#programming
+#c
+#discuss
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
