@@ -1,0 +1,340 @@
+Transaction Script: Patrón simple para lógica de negocio (Catalog of Patterns of EAA — Martin Fowler) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+AHMED HASAN AKHTAR OVIEDO
+Posted on Sep 14
+Transaction Script: Patrón simple para lógica de negocio (Catalog of Patterns of EAA — Martin Fowler)
+#architecture
+#patterns
+#enterprise
+#backend
+Transaction Script: A simple pattern to organize business logic
+When building enterprise applications, one of the biggest challenges is how to organize business logic. There are many ways to do this, and Martin Fowler, in his well-known book Patterns of Enterprise Application Architecture (2003), proposed a catalog of patterns to address these problems.
+In this article we explore the Transaction Script pattern, one of the simplest and most direct patterns in the catalog, accompanied by a practical example in Python.
+What is Transaction Script?
+The Transaction Script pattern organizes business logic into individual procedures where each procedure handles a single transaction or request.
+In other words:
+If a client wants to create a reservation → there is a script for that.
+If a client wants to cancel a reservation → there is another dedicated script.
+Each script contains:
+Input validations.
+Business rules.
+Database read/write operations.
+Transaction commit/rollback.
+When to use it?
+Transaction Script is ideal when:
+The application is relatively small.
+Business rules are simple and easy to describe step-by-step.
+You want speed in development.
+It is not yet justified to invest in more complex architectures like Domain Model.
+Typical use cases:
+Rapid prototypes.
+Simple CRUD applications.
+Services that process clear, linear requests.
+When to avoid it?
+Avoid when:
+The domain is complex and logic begins to be duplicated across scripts.
+There are many shared rules between operations.
+You need logic reuse or rich object behavior.
+In those cases, migrate to patterns like Domain Model or Service Layer.
+Practical example: Simple reservation system
+Suppose we are building a small API that allows:
+Create a reservation.
+List active reservations.
+Cancel a reservation.
+We'll use Python + Flask + SQLite to demonstrate the pattern.
+1. Initialize the database
+File db_init.py:
+```python
+import sqlite3
+def init_db(path='reservas.db'):
+conn = sqlite3.connect(path)
+c = conn.cursor()
+c.execute('''
+CREATE TABLE IF NOT EXISTS reservations (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+customer_name TEXT NOT NULL,
+resource TEXT NOT NULL,
+start_time TEXT NOT NULL,
+end_time TEXT NOT NULL,
+status TEXT NOT NULL DEFAULT 'active',
+created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+''')
+conn.commit()
+conn.close()
+if __name__ == '__main__':
+init_db()
+print("Database initialized at reservas.db")
+```
+Enter fullscreen mode
+Exit fullscreen mode
+2. Transaction scripts
+File transactions.py:
+```python
+import sqlite3
+from contextlib import contextmanager
+DB_PATH = 'reservas.db'
+@contextmanager
+def get_conn():
+conn = sqlite3.connect(DB_PATH)
+try:
+yield conn
+conn.commit()
+except:
+conn.rollback()
+raise
+finally:
+conn.close()
+def select_active_reservations():
+with get_conn() as conn:
+c = conn.cursor()
+c.execute("SELECT id, customer_name, resource, start_time, end_time, status, created_at FROM reservations WHERE status = 'active'")
+return c.fetchall()
+def create_reservation_tx(customer_name, resource, start_time, end_time):
+if start_time >= end_time:
+raise ValueError("start_time must be before end_time")
+with get_conn() as conn:
+c = conn.cursor()
+c.execute('''
+SELECT COUNT(*) FROM reservations
+WHERE resource = ? AND status = 'active'
+AND NOT (end_time <= ? OR start_time >= ?)
+''', (resource, start_time, end_time))
+(overlap_count,) = c.fetchone()
+if overlap_count > 0:
+raise ValueError("There is already a reservation that overlaps that time range")
+c.execute('''
+INSERT INTO reservations (customer_name, resource, start_time, end_time)
+VALUES (?, ?, ?, ?)
+''', (customer_name, resource, start_time, end_time))
+return c.lastrowid
+def cancel_reservation_tx(reservation_id):
+with get_conn() as conn:
+c = conn.cursor()
+c.execute('SELECT status FROM reservations WHERE id = ?', (reservation_id,))
+row = c.fetchone()
+if not row:
+raise ValueError("Reservation not found")
+if row[0] != 'active':
+raise ValueError("The reservation is not active")
+c.execute('UPDATE reservations SET status = ? WHERE id = ?', ('cancelled', reservation_id))
+return True
+```
+Enter fullscreen mode
+Exit fullscreen mode
+3. Flask API
+File app.py:
+```python
+from flask import Flask, request, jsonify
+from transactions import create_reservation_tx, cancel_reservation_tx, select_active_reservations
+from db_init import init_db
+app = Flask(__name__)
+init_db()
+@app.route('/reservations', methods=['POST'])
+def create_reservation():
+payload = request.get_json()
+try:
+res_id = create_reservation_tx(
+customer_name=payload['customer_name'],
+resource=payload['resource'],
+start_time=payload['start_time'],
+end_time=payload['end_time']
+)
+return jsonify({"id": res_id}), 201
+except Exception as e:
+return jsonify({"error": str(e)}), 400
+@app.route('/reservations', methods=['GET'])
+def list_reservations():
+rows = select_active_reservations()
+reservations = [
+{
+"id": r[0],
+"customer_name": r[1],
+"resource": r[2],
+"start_time": r[3],
+"end_time": r[4],
+"status": r[5],
+"created_at": r[6]
+}
+for r in rows
+]
+return jsonify(reservations), 200
+@app.route('/reservations/<int:res_id>/cancel', methods=['POST'])
+def cancel_reservation(res_id):
+try:
+cancel_reservation_tx(res_id)
+return jsonify({"status": "cancelled"}), 200
+except Exception as e:
+return jsonify({"error": str(e)}), 400
+if __name__ == '__main__':
+app.run(debug=True)
+```
+Enter fullscreen mode
+Exit fullscreen mode
+4. Quick test with curl
+Create a reservation:
+```bash
+curl -X POST http://127.0.0.1:5000/reservations \
+-H "Content-Type: application/json" \
+-d '{"customer_name":"Ana Perez","resource":"room-A","start_time":"2025-09-20T10:00","end_time":"2025-09-20T11:00"}'
+```
+Enter fullscreen mode
+Exit fullscreen mode
+List reservations:
+```bash
+curl http://127.0.0.1:5000/reservations
+```
+Enter fullscreen mode
+Exit fullscreen mode
+Cancel:
+```bash
+curl -X POST http://127.0.0.1:5000/reservations/1/cancel
+```
+Enter fullscreen mode
+Exit fullscreen mode
+Advantages
+Simple and direct.
+Easy for any developer to read.
+Great for prototypes or small projects.
+Disadvantages
+Tends to duplicate logic as the project grows.
+Does not scale well for complex domains.
+Less reusable as rules increase.
+Conclusion
+The Transaction Script pattern is an excellent entry point to designing enterprise applications. If your system is small, this pattern brings clarity and speed. However, as complexity grows you will likely need to evolve toward other patterns such as Domain Model or Service Layer.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AHMED HASAN AKHTAR OVIEDO
+Follow
+Joined
+Apr 21, 2025
+Trending on DEV Community
+Hot
+Bring AI Into Any App With One Keystroke
+#ai
+#programming
+#javascript
+#productivity
+In Defense of C++
+#cpp
+#programming
+#c
+#discuss
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
