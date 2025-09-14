@@ -1,0 +1,532 @@
+c++ - RC-5 IR protocol, out of solution - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+RC-5 IR protocol, out of solution
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+35 times
+0
+This is my first post ! I recently bought a Cambridge Audio Azur 651A with no remote, I just want to make sure everything on the remote side works. It uses the Philips RC-5 protocol.
+I wrote a very simple program for a PIC18F2550 with CCS C Compiler to control the amp.
+This is my problem and I tried every solutions I could think of. Every even command (bit0 value 0) are working but all the odd command (bit0 value 1) are not ??
+I inserted a printf to check with Putty if every 14 bits were send correctly and they were !
+So I don't know what is the problem ?? This is my program:
+//////////////////////////////////////////////////////////////////////////
+//
+//
+//
+PHILIPS RC-5 PROTOCOL
+//
+//
+//
+//
+This program can reproduce with an IR led emitter, the code to
+//
+//
+control any electronics that uses the RC-5 Protocol. Just send
+//
+//
+the Address and Command you want.
+//
+//
+//
+//
+Remember that you send the two start bits (Always 1), the toggle
+//
+//
+bit, the MSB to LSB of the Address and then the MSB to LSB of the
+//
+//
+Command.
+//
+//
+//
+//
+The toggle bit is a bit that it maintains the same logic level as
+//
+//
+long as a key is pressed continuously, but if a key is released and //
+//
+is pressed back again (the same or a different key), the toggle bit //
+//
+is inverted. If for example you press the button "1" and you keep
+//
+//
+it pressed, the remote control sends the RC5 protocol with 114mSec
+//
+//
+repetition interval, and all these repetitions have the same toggle //
+//
+bit (for example 1). Now suppose that you release the key and you
+//
+//
+press the same or another button. The next series of packets will
+//
+//
+be sent with the toggle bit inverted (0). The reason for this bit
+//
+//
+is for the receiver to recognize the double-click from a long
+//
+//
+press. If for example you press button 1 twice (to switch to
+//
+//
+channel 11), the receiver will understand this from the toggle bit
+//
+//
+that will appear inverted the second time.
+//
+//
+//
+//
+Start, Inverted MSB of Command, Toggle, 5 bits of Address, Lower 6
+//
+//
+bits of Command
+//
+//
+//
+//
+//
+//
+Cambridge Audio Azur 651A exemple:
+//
+//
+//
+//
+Address: 16 for Amp (5 bits)
+Command: 4 for S5 (6 bits)
+//
+//
+//
+//
+S1 S0 T A4 A3 A2 A1 A0 C5 C4 C3 C2 C1 C0
+//
+//
+1
+1
+0
+1
+0
+0
+0
+0
+0
+0
+0
+1
+0
+0
+//
+//
+//
+//
+//
+//
+You get a range of about 8 feet with this setup
+//
+//
+and more if you put a reflector on the led.
+//
+//
+//
+//
++5V --- (+IR LED-) ---39ohms---- (C 2N3904 E) ----- GND
+//
+//
+B
+//
+//
+|
+//
+//
+2N3904
+1k Ohms
+//
+//
+1
+2
+3
+|
+//
+//
+E
+B
+C
+RC2/CCP1
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////
+#include <18F2550.h>
+#device adc=10
+#fuses HS
+// High speed Osc (> 4Mhz for PCM/PCH)
+#fuses NOWDT
+// No watch dog timer
+#fuses NOPROTECT
+// Code not protected from reading
+#fuses NOLVP
+// No low voltage programming
+#fuses NODEBUG
+// No debug mode for ICD
+#fuses CPUDIV1
+// No System Clock Postscaler
+#fuses PUT
+// Power Up Timer
+#use delay(clock=20MHZ)
+// 20 Mhz crystal
+// Software UART, not using UART hardware pins.
+// Can use any pins for xmit and rcv !!
+//#use rs232(baud=57600, xmit=PIN_C6, rcv=PIN_C7, errors)
+// Hardware UART, using UART hardware pins.
+//#use rs232(baud=9600, UART1, ERRORS)
+// PWM is on pin RC2
+// IRLED = 1 (to turn PWM Off, set pin as input)
+// IRLED = 0 (to turn PWM On, set pin as output)
+// This is the only way for changing pin RC2 direction without
+// affecting the other pins on PORTC.
+#byte TRISC=getenv("SFR:TRISC")
+#bit
+IRLED=TRISC.2
+// Command list with address: 16
+int16 USB
+= 0b0011010000000000; // 0
+(0x3400)
+int16 S1
+= 0b0011010000000010; // 2
+(0x3402)
+int16 S2
+= 0b0011010000000101; // 5
+(0x3405)
+int16 S3
+= 0b0011010000000011; // 3
+(0x3403)
+int16 S4
+= 0b0011010000000001; // 1
+(0x3401)
+int16 S5
+= 0b0011010000000100; // 4
+(0x3404)
+int16 Vol_up
+= 0b0011010000010000; // 16
+(0x3410)
+int16 Vol_down = 0b0011010000010001; // 17
+(0x3411)
+int16 Amp_on
+= 0b0011010000001110; // 14
+(0x340E)
+int16 Amp_off
+= 0b0011010000001111; // 15
+(0x340F)
+int16 Speaker
+= 0b0011010000010100; // 20
+(0x3414)
+int1
+toggle_bit = 0;
+int8
+nb_time = 1;
+void Remote_send(int16 command)
+{
+if (toggle_bit)
+{
+bit_set(command,11);
+}
+else
+{
+bit_clear(command,11);
+}
+do
+{
+// Send the 14-bit RC-5 Protocol
+for (int8 i = 0;i < 14;i++)
+{
+if (bit_test(command,(13-i)))
+{
+// According to RC-5
+IRLED = 1;
+delay_us(890);
+IRLED = 0;
+delay_us(890);
+//printf("1");
+}
+else
+{
+// According to RC-5
+IRLED = 0;
+delay_us(890);
+IRLED = 1;
+delay_us(890);
+//printf("0");
+}
+}
+// 14 bit long = 24.9ms
+// Repeat interval = 114ms
+// Interval between packets = 89.1ms
+delay_ms(90);
+nb_time++;
+// Repeat 3 times
+}while(nb_time < 4);
+nb_time = 1;
+toggle_bit = ~toggle_bit;
+}
+void main()
+{
+setup_adc_ports(NO_ANALOGS);
+setup_adc(ADC_OFF);
+setup_spi(SPI_SS_DISABLED);
+setup_timer_0(T0_OFF);
+setup_timer_1(T1_DISABLED);
+// PWM frequency:
+// clock / ( 4 * prescaler * (period +1))
+// 20,000,000 hz / ( 4 * 1 * 138) = 36,232Hz
+// Philips RC-5 protocol works at 36khz
+setup_timer_2(T2_DIV_BY_1,137,1);
+setup_comparator(NC_NC_NC_NC);
+setup_ccp1(CCP_PWM);
+setup_ccp2(CCP_OFF);
+setup_vref(FALSE);
+disable_interrupts(INT_TIMER2);
+// 25% to 33% duty cycle (.30 * period) according to RC-5 protocol
+set_pwm1_duty(41);
+// Wait for the RS232 port to settle.
+//delay_ms(200);
+//printf("Philips RC-5 Emitter\n\n\r");
+// IR Led OFF
+IRLED = 1;
+while(true)
+{
+delay_ms(5000);
+Remote_send(Amp_on);
+delay_ms(5000);
+Remote_send(USB);
+delay_ms(5000);
+Remote_send(S1);
+delay_ms(5000);
+Remote_send(S2);
+delay_ms(5000);
+Remote_send(S3);
+delay_ms(5000);
+Remote_send(S4);
+delay_ms(5000);
+Remote_send(S5);
+delay_ms(5000);
+Remote_send(Speaker);
+delay_ms(5000);
+Remote_send(Amp_off);
+}
+}
+c++
+Share
+Improve this question
+Follow
+asked 1 hour ago
+guizmo1967guizmo1967
+111 bronze badge
+New contributor
+guizmo1967 is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+1
+Welcome to StachOverflow. Please take a tour and see How to Ask. Specifically: it is not clear what the actual specific problem is. Also - if you use a C compiler, you should remove the c++ tag and add c instead.
+wohlstad
+–
+wohlstad
+2025-09-14 04:56:20 +00:00
+Commented
+56 mins ago
+Add a comment
+|
+Related questions
+845
+How to find out if an item is present in a std::vector?
+441
+How do I print out the contents of a vector?
+380
+Find out if string ends with another string in C++
+Related questions
+845
+How to find out if an item is present in a std::vector?
+441
+How do I print out the contents of a vector?
+380
+Find out if string ends with another string in C++
+248
+Accessing an array out of bounds gives no error, why?
+50
+protocol buffer lite versus regular protocol buffer
+2
+Work out a solution for codality?
+136
+C++: Print out enum value as text
+0
+Thrift or Protocol buffer as cross-language serialization solution?
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Hot Network Questions
+2008 Toyota Tacoma
+When will be the next version of ConTeXt if any? Why?
+"Fine knacks for ladies" by John Dowland
+Placement, agreement and functional role of "y compris"
+Search both directions with less or similar tools
+The relation between 穀 and 谷
+Why don't military fighter jets have static wicks?
+Python implementation of core fundamentals to calculate math arithmetic
+Water around foundation inside the home
+Tabularx & Amsmath: How to scale matrices with different dimensions inside a table so they are positioned one below the other perfectly?
+Implications of OP_RETURN changes in upcoming Bitcoin Core version 30.0
+Confidence interval for difference of probabilities, for paired data
+Please help assess the homebrew spell: Disrupt Causation
+For an electric pump rocket engine like the rutherford engine, is it possible to place the main valve upstream of the pump?
+What is the purpose of this opening in the airplane interior?
+Why don't people add confidence intervals on the p-values they report? (E.g. from bootstrapping the sampling distribution)
+Apache httpd keeps rewriting VirtualHost on separate port to use HTTPS instead of HTTP
+Modems are not detected unless Windows is restarted
+Can chess engines solve the bishop and knight mate without the use of an endings tablebase?
+Poland invokes Article 4 of NATO Charter in response to Russian incursion, when and why has this Article been invoked before?
+Anyone know a book about researchers in boats being chased on an alien planet by humanoid aliens?
+Matching style of mesh of 3D surface with style of 3D curves in ParametricPlot3D
+New Boss insulting my appearance
+Examples of mathematically interesting numbers that can be expressed as an integer tetration (besides Graham’s number)
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

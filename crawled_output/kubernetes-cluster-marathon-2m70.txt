@@ -1,0 +1,287 @@
+Kubernetes cluster marathon! - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Robert Scott
+Posted on Sep 14
+Kubernetes cluster marathon!
+#devops
+#kubernetes
+#docker
+#containers
+Setting up a Kubernetes Cluster on Ubuntu 24.04: A Troubleshooting Journey
+Or: How I learned that sometimes starting over is the best solution
+Setting up Kubernetes should be straightforward, right? Well, as I discovered today, reality has other plans. Here's my troubleshooting journey setting up a two-node Kubernetes cluster on Ubuntu 24.04, complete with all the roadblocks I hit and how to fix them.
+The Initial Problem: Package Repository Issues
+My first hurdle came immediately when trying to install kubectl and kubelet:
+sudo apt install kubectl kubelet kubeadm
+# Error: couldn't find the programs kubectl and kubelet
+Enter fullscreen mode
+Exit fullscreen mode
+The Fix: Updated Repository URLs
+The issue was that Google changed their package repository URLs in 2024, but many tutorials still reference the old packages.cloud.google.com URLs. Here's the correct way for Ubuntu 24.04:
+# Remove any old repository entries
+sudo rm -f /etc/apt/sources.list.d/kubernetes.list
+sudo rm -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+# Add the current official Kubernetes repository
+sudo apt-get update
+sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+# Add the official GPG key (note the updated URL)
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+# Add the repository
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+# Update and install
+sudo apt-get update
+sudo apt-get install -y kubectl kubelet kubeadm
+sudo apt-mark hold kubelet kubeadm kubectl
+Enter fullscreen mode
+Exit fullscreen mode
+Problem #2: CRI Socket Confusion
+When running kubeadm init, I got:
+error: define which one you wish to use by setting crisocket field for kubeadm
+Enter fullscreen mode
+Exit fullscreen mode
+This happens when you have multiple container runtimes installed. Ubuntu 24.04 can have both Docker and containerd available.
+The Fix: Choose Your Container Runtime
+I chose containerd (recommended for modern Kubernetes):
+# Install and configure containerd
+sudo apt-get install -y containerd
+# Generate proper config with CRI enabled
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+# Make sure CRI plugin isn't disabled
+sudo sed -i 's/disabled_plugins = \["cri"\]/disabled_plugins = []/g' /etc/containerd/config.toml
+# Enable and start
+sudo systemctl enable --now containerd
+# Use explicit CRI socket
+sudo kubeadm init --cri-socket unix:///var/run/containerd/containerd.sock
+Enter fullscreen mode
+Exit fullscreen mode
+Problem #3: The CRI v1 Runtime API Error
+Even after installing containerd, I got:
+failed to create new CRI runtime service: validate service connection: validate CRI v1 runtime API for endpoint "unix:///var/run/containerd/containerd.sock": rpc error: code = Unimplemented desc = unknown service runtime.v1.RuntimeService
+Enter fullscreen mode
+Exit fullscreen mode
+The Fix: Proper containerd Configuration
+The default containerd config sometimes has the CRI plugin disabled. The key is generating a proper config:
+# Stop containerd
+sudo systemctl stop containerd
+# Remove bad config
+sudo rm /etc/containerd/config.toml
+# Generate proper config
+sudo containerd config default | sudo tee /etc/containerd/config.toml
+# Enable SystemdCgroup (required for Ubuntu 24.04)
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+# Ensure CRI plugin is enabled
+grep -A5 -B5 disabled_plugins /etc/containerd/config.toml
+# Restart
+sudo systemctl start containerd
+Enter fullscreen mode
+Exit fullscreen mode
+Test with:
+sudo crictl version
+Enter fullscreen mode
+Exit fullscreen mode
+Problem #4: Hostname Resolution Issues
+During kubeadm init, I got errors about kubelet not being able to reach the hostname. Ubuntu 24.04 sets up hostname resolution with:
+127.0.0.1 for localhost
+127.0.1.1 for your hostname
+But 127.0.1.1 isn't reachable from other machines!
+The Fix: Use Your Real Network IP
+# Find your actual network IP
+ip route get 8.8.8.8 | grep -oP 'src \K\S+'
+# Update /etc/hosts to use real IP instead of 127.0.1.1
+sudo sed -i 's/127.0.1.1/192.168.1.244/' /etc/hosts
+# Initialize with your real IP
+sudo kubeadm init --cri-socket unix:///var/run/containerd/containerd.sock --apiserver-advertise-address=192.168.1.244
+Enter fullscreen mode
+Exit fullscreen mode
+Problem #5: Port Already in Use
+Even after kubeadm reset, I kept getting "port 6443 is in use" errors.
+The Fix: Thorough Cleanup
+# Reset with CRI socket specified
+sudo kubeadm reset --force --cri-socket unix:///var/run/containerd/containerd.sock
+# Clean up everything
+sudo rm -rf /etc/kubernetes/
+sudo rm -rf /var/lib/etcd/
+sudo rm -rf /var/lib/kubelet/
+sudo rm -rf ~/.kube/
+sudo rm -rf /etc/cni/net.d/
+# Reset iptables
+sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X
+# Kill any hanging processes
+sudo pkill -f kube-apiserver
+sudo pkill -f etcd
+sudo pkill -f kubelet
+# Restart services
+sudo systemctl restart containerd
+sudo systemctl restart kubelet
+Enter fullscreen mode
+Exit fullscreen mode
+Problem #6: Worker Node Network Connectivity
+When trying to join my worker node, I got:
+error execution phase preflight: couldn't validate the identity of the API server - failed to request cluster info configmap: the client timed out waiting for headers
+Enter fullscreen mode
+Exit fullscreen mode
+The worker node simply couldn't reach the control plane, even though I was using the correct IP address.
+The Root Cause: Network Complexity
+This is where things got complicated. I had:
+Tailscale running on the control plane but not the worker
+Potential firewall issues
+VM networking complications
+The Final Solution: Sometimes Starting Over Is Best
+After hours of debugging network connectivity, container runtime conflicts, and configuration issues, I realized something important: it's okay to start over.
+Instead of continuing to debug a complex setup with multiple moving parts, the better approach was:
+Start with a clean VM
+Set up Tailscale first (before any Kubernetes components)
+Use a single container runtime from the beginning
+Use Tailscale IPs for all cluster communication
+This eliminates:
+Network routing issues
+Firewall complications
+IP address confusion
+Container runtime conflicts
+Key Takeaways
+Google changed Kubernetes repository URLs in 2024 - use the new pkgs.k8s.io URLs
+Ubuntu 24.04 needs SystemdCgroup enabled for containerd
+Always specify the CRI socket when you have multiple container runtimes
+Use your real network IP, not 127.0.1.1 for multi-node clusters
+Thorough cleanup is essential when resetting kubeadm
+Network connectivity issues are the hardest to debug - consider using overlay networks like Tailscale from the start
+Starting over with a plan beats fixing a messy setup
+The Most Important Lesson
+Don't feel bad about starting over! Kubernetes has a steep learning curve, and networking issues can be genuinely tricky even for experienced developers. Sometimes the fastest path to success is a clean slate with lessons learned.
+Getting the control plane running (which I did!) is actually the hardest part. The worker node join should be straightforward once the networking is sorted out properly.
+Have you faced similar Kubernetes setup challenges? What was your biggest hurdle? Share your experiences in the comments!
+Tags
+kubernetes #ubuntu #devops #troubleshooting #containerization #networking
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Robert Scott
+Follow
+Im not new to computers or building them but I'm just starting my devops journey!
+Joined
+Aug 19, 2025
+More from Robert Scott
+The journey to complete the docker+kubernetes pair
+#devops
+#docker
+#kubernetes
+#python
+DevOps from the Driver's seat part 1
+#programming
+#homelab
+#python
+#devops
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

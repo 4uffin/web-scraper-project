@@ -61,7 +61,7 @@ today
 Modified
 today
 Viewed
-50 times
+54 times
 0
 I am writing a API for a program. The program has a native support of "globed" paths such as img-0*.png. I would like to know how to be sure that there is at least a file satisfying that pattern, a kind of is_globable(path) method.
 path = 'img-0*.png'
@@ -77,7 +77,7 @@ pythonvalidationpathglob
 Share
 Improve this question
 Follow
-asked 4 hours ago
+asked 5 hours ago
 cardscards
 5,21511 gold badge1313 silver badges2727 bronze badges
 2
@@ -87,18 +87,18 @@ cards
 cards
 2025-09-14 00:31:03 +00:00
 Commented
-4 hours ago
+5 hours ago
 got it! Makes sense now.
 Aadvik
 –
 Aadvik
 2025-09-14 00:42:31 +00:00
 Commented
-3 hours ago
+4 hours ago
 Add a comment
 |
-2 Answers
-2
+3 Answers
+3
 Sorted by:
 Reset to default
 Highest score (default)
@@ -121,8 +121,8 @@ https://docs.python.org/3/library/glob.html (first thing)
 Share
 Improve this answer
 Follow
-edited 2 hours ago
-answered 3 hours ago
+edited 3 hours ago
+answered 4 hours ago
 AadvikAadvik
 1,43922 silver badges3030 bronze badges
 2
@@ -134,14 +134,14 @@ John Gordon
 John Gordon
 2025-09-14 01:45:19 +00:00
 Commented
-2 hours ago
+3 hours ago
 @JohnGordon Good point, I edited my answer.
 Aadvik
 –
 Aadvik
 2025-09-14 02:18:58 +00:00
 Commented
-2 hours ago
+3 hours ago
 Add a comment
 |
 0
@@ -161,10 +161,257 @@ return bool(next(iglob(path), False))
 Share
 Improve this answer
 Follow
-edited 2 hours ago
-answered 3 hours ago
+edited 3 hours ago
+answered 4 hours ago
 cardscards
 5,21511 gold badge1313 silver badges2727 bronze badges
+Add a comment
+|
+0
+This is my solution, it has several features as follows:
+✅ Validates all common glob patterns (*, ?, [], {}, **)
+✅ Checks for invalid characters and path length
+✅ Validates bracket matching and pattern sanity
+✅ Supports both Windows and Unix path styles
+✅ Detailed error messages
+✅ Batch validation support
+✅ Performance optimized with caching
+import re
+from typing import Union, List, Tuple, Set, Optional
+from functools import lru_cache
+import time
+class GlobPathValidator:
+"""
+Optimized glob path validator with comprehensive pattern validation
+"""
+# Precompiled regex patterns for performance
+_INVALID_CHARS_PATTERN = re.compile(r'[<>:"|?*\x00-\x1f]')
+_MULTI_ASTERISK_PATTERN = re.compile(r'\*\*+')
+_VALID_GLOB_CHARS = re.compile(r'^[a-zA-Z0-9_\-\.\/\*\?\[\]\{\}\!\{\}]+$')
+_WINDOWS_DRIVE_PATTERN = re.compile(r'^[a-zA-Z]:')
+_CONSECUTIVE_SLASHES = re.compile(r'/{2,}')
+def __init__(self, max_path_length: int = 4096, allow_windows_path: bool = False):
+self.max_path_length = max_path_length
+self.allow_windows_path = allow_windows_path
+@lru_cache(maxsize=1024)
+def validate_glob_path(self, path: str) -> Tuple[bool, str]:
+"""
+Validate a glob path pattern
+Args:
+path: Path string to validate
+Returns:
+Tuple[is_valid, error_message]
+"""
+# 1. Basic null and type checks
+if not path:
+return False, "Path cannot be empty"
+if not isinstance(path, str):
+return False, "Path must be a string"
+# 2. Length validation
+if len(path) > self.max_path_length:
+return False, f"Path exceeds maximum length ({self.max_path_length} characters)"
+# 3. Invalid character detection
+invalid_chars = self._INVALID_CHARS_PATTERN.findall(path)
+if invalid_chars:
+return False, f"Path contains invalid characters: {set(invalid_chars)}"
+# 4. Multiple asterisk validation
+if self._MULTI_ASTERISK_PATTERN.search(path):
+return False, "Consecutive asterisks beyond '**' are not allowed"
+# 5. Basic glob pattern character validation
+if not self._VALID_GLOB_CHARS.match(path.replace('\\', '/')):
+return False, "Path contains invalid glob pattern characters"
+# 6. Windows path specific validation
+if self.allow_windows_path and self._is_windows_path_invalid(path):
+return False, "Invalid Windows path format"
+# 7. Bracket matching validation
+bracket_error = self._validate_bracket_matching(path)
+if bracket_error:
+return False, bracket_error
+# 8. Glob pattern sanity checks
+pattern_error = self._validate_glob_patterns(path)
+if pattern_error:
+return False, pattern_error
+# 9. Path separator validation
+if self._CONSECUTIVE_SLASHES.search(path.replace('\\', '/')):
+return False, "Path contains consecutive separators"
+return True, "Path is valid"
+def _is_windows_path_invalid(self, path: str) -> bool:
+"""Check for Windows-specific path issues"""
+if path.startswith('\\\\'):
+# UNC path validation
+return len(path) < 3 or '\\' not in path[2:]
+elif ':' in path:
+return not self._WINDOWS_DRIVE_PATTERN.match(path)
+return False
+def _validate_bracket_matching(self, path: str) -> Optional[str]:
+"""Validate proper bracket matching in glob patterns"""
+bracket_pairs = {'[': ']', '{': '}', '(': ')'}
+stack = []
+for position, char in enumerate(path):
+if char in bracket_pairs:
+stack.append((char, position))
+elif char in bracket_pairs.values():
+if not stack:
+return f"Unmatched closing bracket '{char}' at position {position}"
+opening_char, opening_pos = stack.pop()
+expected_closing = bracket_pairs[opening_char]
+if char != expected_closing:
+return f"Bracket mismatch: '{opening_char}' at {opening_pos} with '{char}' at {position}"
+if stack:
+char, pos = stack[0]
+return f"Unclosed bracket '{char}' at position {pos}"
+return None
+def _validate_glob_patterns(self, path: str) -> Optional[str]:
+"""Validate glob pattern sanity"""
+# Check for excessive recursive patterns
+if path.count('**') > 3:
+return "Too many recursive directory patterns (**)"
+# Check for invalid character class patterns
+if '[]' in path or '[!' in path and ']' not in path.split('[!', 1)[1]:
+return "Invalid character class pattern"
+return None
+def validate_multiple_paths(self, paths: List[str]) -> List[Tuple[str, bool, str]]:
+"""
+Batch validate multiple paths
+Args:
+paths: List of path strings to validate
+Returns:
+List of validation results (path, is_valid, message)
+"""
+return [(path, *self.validate_glob_path(path)) for path in paths]
+# Utility functions
+def is_valid_glob_path(path: str, **kwargs) -> bool:
+"""Quick validation check for glob paths"""
+validator = GlobPathValidator(**kwargs)
+return validator.validate_glob_path(path)[0]
+def validate_glob_path_details(path: str, **kwargs) -> dict:
+"""Get detailed validation information for a glob path"""
+validator = GlobPathValidator(**kwargs)
+is_valid, message = validator.validate_glob_path(path)
+return {
+'path': path,
+'is_valid': is_valid,
+'message': message,
+'length': len(path),
+'has_wildcards': any(char in path for char in '*?[{'),
+'is_recursive': '**' in path,
+'character_count': len(path),
+'contains_patterns': any(pattern in path for pattern in ['*', '?', '[', ']', '{', '}'])
+}
+# Test functions
+def run_validation_tests():
+"""Execute comprehensive validation tests"""
+validator = GlobPathValidator()
+test_cases = [
+# (path, expected_result, description)
+("*.txt", True, "Basic wildcard"),
+("**/*.py", True, "Recursive wildcard"),
+("data/[0-9].json", True, "Character range"),
+("file{1,2}.txt", True, "Brace expansion"),
+("path/to/file", True, "Normal path"),
+("", False, "Empty path"),
+("file*.txt", True, "Asterisk wildcard"),
+("file?.txt", True, "Question mark wildcard"),
+("file**txt", False, "Invalid consecutive asterisks"),
+("file<>.txt", False, "Invalid characters"),
+("path//to/file", False, "Consecutive separators"),
+("path/[open/file", False, "Unclosed bracket"),
+("path/]file", False, "Unmatched closing bracket"),
+("a" * 5000, False, "Excessive length"),
+("C:/Windows/*.exe", True, "Windows path style"),
+("/usr/lib/**/*.so", True, "Unix path style"),
+("src/**/*.py", True, "Complex recursive pattern"),
+("data/*.json", True, "Simple wildcard pattern"),
+]
+print("Glob Path Validator Test Results:")
+print("=" * 65)
+all_passed = True
+passed_count = 0
+for test_path, expected, description in test_cases:
+is_valid, error_msg = validator.validate_glob_path(test_path)
+test_passed = is_valid == expected
+status = "PASS" if test_passed else "FAIL"
+marker = "✓" if test_passed else "✗"
+if test_passed:
+passed_count += 1
+else:
+all_passed = False
+print(f"{marker} {status:4} {description:25} | '{_truncate_text(test_path, 25)}'")
+if not test_passed:
+print(f"
+Expected: {expected}, Got: {is_valid}")
+if error_msg:
+print(f"
+Error: {error_msg}")
+print("=" * 65)
+total_tests = len(test_cases)
+print(f"Results: {passed_count}/{total_tests} tests passed")
+print(f"Status: {'ALL TESTS PASSED' if all_passed else 'SOME TESTS FAILED'}")
+def _truncate_text(text: str, max_length: int) -> str:
+"""Helper function to truncate text for display"""
+if len(text) <= max_length:
+return text
+return text[:max_length-3] + '...'
+def performance_benchmark():
+"""Performance benchmark tests"""
+validator = GlobPathValidator()
+# Test paths for performance measurement
+test_paths = [
+"*.txt", "**/*.py", "data/[0-9].json", "file{1,2}.txt",
+"src/**/*.py", "docs/*.md", "test/**/test_*.py"
+] * 500
+# Repeat for larger test set
+print("\nPerformance Benchmark:")
+print("-" * 40)
+# Warm up cache
+for path in test_paths[:100]:
+validator.validate_glob_path(path)
+# Actual performance test
+start_time = time.perf_counter()
+for path in test_paths:
+validator.validate_glob_path(path)
+end_time = time.perf_counter()
+total_paths = len(test_paths)
+total_time = end_time - start_time
+avg_time = (total_time * 1000) / total_paths
+print(f"Validated {total_paths:,} paths in {total_time:.3f} seconds")
+print(f"Average time per path: {avg_time:.6f} ms")
+print(f"Paths per second: {total_paths / total_time:,.0f}")
+# Example usage demonstration
+def demonstrate_usage():
+"""Show example usage of the validator"""
+print("\nUsage Examples:")
+print("-" * 40)
+examples = [
+"src/**/*.py",
+"data/*.json",
+"invalid/path//file",
+"file<>.txt",
+"docs/[a-z].md",
+"logs/**/*.log"
+]
+validator = GlobPathValidator()
+for example_path in examples:
+is_valid, message = validator.validate_glob_path(example_path)
+status = "VALID" if is_valid else "INVALID"
+print(f"Path: '{example_path}'")
+print(f"Status: {status}")
+if not is_valid:
+print(f"Reason: {message}")
+print()
+if __name__ == "__main__":
+# Run comprehensive tests
+run_validation_tests()
+# Performance benchmarking
+performance_benchmark()
+# Usage demonstration
+demonstrate_usage()
+Share
+Improve this answer
+Follow
+answered 21 mins ago
+Marc StevenMarc Steven
+55455 silver badges1717 bronze badges
 Add a comment
 |
 Your Answer
@@ -219,30 +466,30 @@ How to get full path of a file?
 673
 Find full path of the Python interpreter (Python executable)?
 Hot Network Questions
-What was the origin of ++ and --?
-Is this efflorescence on my new build tile floor, and how can I clean it off?
-Why don't military fighter jets have static wicks?
-Upper Frequency Limit for Bouncing Off Ionosphere
-Is the inductor of CE oscillator connected to VCC?
-When will be the next version of ConTeXt if any? Why?
-How should one handle a flawed question in a textbook?
-Examples of mathematically interesting numbers that can be expressed as an integer tetration (besides Graham’s number)
-How to convert an MP3 CD into a regular (Red Book) audio CD?
-Disk Encryption for a Linux File Server Used by Multiple Devices
-Why do Aave transactions on Etherscan show misleading transfer amounts for aTokens?
-Examples of representations of finite groups with conditions on the tensor square
-Best bike for ultra steep climbs in the forest? (Mountain)
-Apache httpd keeps rewriting VirtualHost on separate port to use HTTPS instead of HTTP
-Water around foundation inside the home
-pgfpolar-plot is shifted right
-How can one deal with the case of someone misrepresenting his academic job title?
 Correlation values falling outside the estimated range derived from the p-value
-Placement, agreement and functional role of "y compris"
-Applying to a PhD in algebraic number theory as a high-school teacher with uneven undergrad grades
-Rewording statements that contain "we"
-Connect two voltages to one capacitor
-Why does Isaiah 53 use a mix of Past Tense and Present Tense?
-Search both directions with less or similar tools
+Is this efflorescence on my new build tile floor, and how can I clean it off?
+Which keyboard layout is this?
+For an electric pump rocket engine like the rutherford engine, is it possible to place the main valve upstream of the pump?
+When will be the next version of ConTeXt if any? Why?
+Where can I see the rules for Alchemy cards in Magic Arena?
+How do I get rid of this Adobe Acrobat “Make Adobe Acrobat your default PDF app” notification?
+How should one handle a flawed question in a textbook?
+How to choose between brute force and efficient solution that has overhead?
+Confidence interval for difference of probabilities, for paired data
+What's the cultural significance of the 500kg bomb in the Helldivers 2 community?
+New Boss insulting my appearance
+Essential ConTeXt
+RadioCall at non-towered airport or practice area
+How does the NSDT program end?
+Are copies made by God-Eternal Kefnet cast from my hand for the purpose of Gale, Waterdeep Prodigy?
+Does the train between Sofia, Bucharest and Varna have Wi-Fi?
+Python implementation of core fundamentals to calculate math arithmetic
+800-W High efficiency bridgeless Power Factor Correction (PFC) reference design
+Why don't military fighter jets have static wicks?
+Reducing an integral to a Gamma function type
+PC used in movie "Ghosthouse" (1988)
+Chopin Nocturne Op 27 No 2 Note F or A flat
+Checking for string isomorphism in C++
 more hot questions
 Question feed
 Subscribe to RSS
