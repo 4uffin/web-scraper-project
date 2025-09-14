@@ -1,0 +1,321 @@
+Wolverine, Azure Service Bus, and Integration Tests - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+kakins
+Posted on Sep 14
+Wolverine, Azure Service Bus, and Integration Tests
+#dotnet
+#testing
+#azure
+#testcontainers
+Introduction
+Wolverine is a great messaging library.
+Personally, I have have found it to be a better experience working with it compared to the other major messaging libraries in the .NET space.
+Complimentary to unit testing, I've had success validating message-based services by creating local integration tests using Testcontainers.
+This type of testing gives us the ability to quickly verify the the flow and various asynchronous interactions inside our service without requiring a full-blown deployment or relying upon setting up complex external dependencies during development.
+Wolverine has rich support for Azure Service Bus, and Microsoft has released the Azure Service Bus Emulator which, as we will see, combined with Testcontainers makes configuring and running these types of tests relatively trivial.
+We'll also be using XUnit as our testing framework.
+So enough of me babbling, let's get into it!
+Wolverine Configuration
+Let's start with building a very simple .NET 8 Wolverine application that listens to an Azure Service Bus topic.
+public class Program
+{
+public static async Task Main(string[] args)
+{
+var host = CreateApp(args);
+await host.RunAsync();
+}
+public static WebApplication CreateApp(string[] args)
+{
+var builder = WebApplication.CreateBuilder(args);
+builder.UseWolverine(opts =>
+{
+// Get the ASB connection string from environment variable or configuration
+// This will be set as an environment variable in our test host
+var connectionString = Environment.GetEnvironmentVariable("AzureServiceBusConnectionString");
+var azureServiceBus = opts.UseAzureServiceBus(connectionString);
+azureServiceBus
+.ListenToAzureServiceBusSubscription("my-subscription")
+.FromTopic("my-topic");
+// NOTE: If you're using any of the following options, makes ure they are *disabled* when running integration tests.
+// opts.Services.AddResourceSetupOnStartup(); // Should not be called for integration tests
+// azureServiceBus.SystemQueuesAreEnabled(false); // Should be called with 'false' for integration tests
+// azureServiceBus.EnableWolverineControlQueues(); // Should not be called for integration tests
+// azureServiceBus.AutoProvision(); // Should not be called for integration tests
+});
+var services = builder.Services;
+var app = builder.Build();
+return app;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Message Handler
+Next, let's implement a very simpler message handler
+using Wolverine;
+public class MyMesssageHandler
+{
+public async Task Handle(MyMessage message, IMessageContext context)
+{
+// Handle message ...
+return Task.CompletedTask;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test Host
+We'll use the WebApplicationFactory<T>, giving us the ability override our app's Azure Service Bus connection string.
+More details on this below.
+public class TestAppFactory : WebApplicationFactory<Program>
+{
+public string ServiceBusConnectionString { get; set; }
+public IHost Host { get; private set; }
+protected override IHost CreateHost(IHostBuilder builder)
+{
+builder
+.ConfigureHostConfiguration(cfg =>
+{
+Environment.SetEnvironmentVariable("AzureServiceBusConnectionString", ServiceBusConnectionString);
+});
+Host = base.CreateHost(builder);
+return Host;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Azure Service Bus Emulator Config
+One of the main differences using the Azure Service Bus Emulator compared to an actual instance in Azure is how resources (queues, topics, subscriptions, etc.) are defined.
+In the emulator you must define all of these resources in a specialized configuration structure, which can be stored in a file alongside your test code.
+You can ensure this file is included in your build output if needed, and loading it into the emulator is pretty straight forward as we will see below.
+Here is an example config file.
+NOTE: The sbemulatorns namespace name is important, do not change it.
+{
+"UserConfig": {
+"Namespaces": [
+{
+"Name": "sbemulatorns",
+"Queues": [
+{
+"Name": "my-queue"
+}
+],
+"Topics": [
+{
+"Name": "my-topic",
+"Subscriptions": [
+{
+"Name": "my-topic-subscription"
+}
+]
+}
+]
+}
+],
+"Logging": {
+"Type": "File"
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test Fixture
+You'll very likely end up creating a dedicated test fixture if you write more than a single integration test.
+This will allow us to reuse the Azure Service Bus container for multiple test cases by way of the XUnit CollectionDefinition attribute.
+[CollectionDefinition(nameof(TestFixture), DisableParallelization = true)]
+public class TestCollection : ICollectionFixture<TestFixture> { }
+public class TestFixture
+{
+public ServiceBusContainer ServiceBusContainer { get; protected set; } = null!;
+public TestAppFactory AppFactory { get; protected set; } = null!;
+public TestFixture()
+{
+var configPath = Path.Combine(AppContext.BaseDirectory, "azure-servicebus-config.json");
+ServiceBusContainer = new ServiceBusBuilder()
+.WithImage("mcr.microsoft.com/azure-messaging/servicebus-emulator:latest")
+.WithAcceptLicenseAgreement(true)
+.WithName("my-azure-service-bus-container")
+.WithConfig(configPath)
+.WithPortBinding(5672, false);
+.Build();
+await ServiceBusContainer.StartAsync();
+AppFactory = new TestAppFactory
+{
+ServiceBusConnectionString = ServiceBusContainer.GetConnectionString()
+};
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The tests
+And finally!
+The moment we've all been waiting for.
+Wolverine has a pretty rich and easy-to-use API for this type of testing.
+[Collection(nameof(TestFixture))]
+public class MyTests
+{
+private readonly TestFixture _fixture;
+private readonly TestAppFactory _app;
+public MyTests(TestFixture fixture)
+{
+_fixture = fixture;
+_app = _fixture.AppFactory;
+}
+[Fact]
+public async Task Handles_my_message()
+{
+// Arrange
+var message = new MyMessage();
+// Act
+// Publish the message and wait for it to be processed
+await _app.Host
+.TrackActivity()
+.Timeout(5.Seconds()) // or whatever you think is reasonable
+.WaitForMessageToBeReceivedAt<MyMessage>(_app.Host)
+.PublishMessageAndWaitAsync(message);
+// Assert
+// Some other verification logic here
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+This may have seemed like a lot of setup to get from point A to B.
+But a lot of it was just that, initial configuration.
+The beauty about this is that most of the work is largely a one-time effort.
+Adding tests from that point on should be fairly easy.
+Happy testing!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+kakins
+Follow
+Joined
+Sep 13, 2025
+Trending on DEV Community
+Hot
+In Defense of C++
+#cpp
+#programming
+#c
+#discuss
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+Bring AI Into Any App With One Keystroke
+#ai
+#programming
+#javascript
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

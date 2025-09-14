@@ -1,0 +1,554 @@
+Deploying StarRocks in Shared Data Mode on Minikube with S3 Integration - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Mohamed Ammar
+Posted on Sep 14
+Deploying StarRocks in Shared Data Mode on Minikube with S3 Integration
+#starrocks
+#aws
+#moderndataplatform
+#datalake
+The Modern Data Stack
+In the world of real-time analytics, the ability to query massive datasets at lightning speed is not just a luxury—it's a necessity. StarRocks has emerged as a powerhouse in this space, renowned for its sub-second query performance on petabyte-scale data. Its native vectorized execution engine and cost-based optimizer make it a top contender for replacing complex, multi-component data architectures.
+But how do you manage and scale such a high-performance database?
+The de facto standard for container orchestration, Kubernetes provides the elasticity, resilience, and portability that modern applications demand. By running StarRocks on Kubernetes, you can automate deployments, scaling, and management, making your analytics infrastructure as agile as your code.
+In this guide, I'll dive into a particularly powerful feature: StarRocks' Shared Data Mode. This architecture decouples compute from storage. Your compute nodes (CNs) are stateless and can be spun up or down in seconds, while your data remains safely and durably stored in a central repository like Amazon S3. This means you can scale your compute resources elastically based on query load, leading to significant cost savings and performance optimization.
+We'll walk through setting this all up on a local Minikube cluster running on an EC2 machine, providing a perfect sandbox for development, testing, and learning.
+📋 Prerequisites
+Before we begin, ensure you have the following:
+EC2 with Linux OS
+AWS Account: With credentials (Access Key and Secret Key) for an S3 bucket.
+🛠️ Phase 1: Setting Up Our Kubernetes playground on EC2
+First, we need a machine to host our cluster. An EC2 instance is perfect for this.
+Launch an EC2 Instance
+Log into your AWS Console and navigate to EC2.
+Launch a new instance. A t2.xlarge or c5.2xlarge (8 vCPUs, 16 GiB RAM) is recommended to ensure Minikube has enough resources.
+Select an Amazon Linux
+Configure security groups to allow SSH (port 22) access from your IP.
+Launch the instance, ensuring you have the .pem key pair to connect.
+Connect and Prepare the EC2 Instance
+Connect via SSH using your terminal or SSH client.
+Once logged in, update the system and install necessary base packages.
+sudo yum update -y
+Enter fullscreen mode
+Exit fullscreen mode
+📁 Files Required
+We've prepared a set of files to automate and configure our setup. Download them to your EC2 instance into the same directory.
+env_setup.sh: Installs Minikube, kubectl, Helm, and other dependencies.
+configmap.yaml: Contains the StarRocks configuration to enable Shared Data mode.
+starrocks-cluster.yaml: The main manifest defining our StarRocks cluster (FE, BE, CN).
+test-s3.py: A simple script to validate our S3 credentials before deployment.
+You can create these files directly on the EC2 instance using vim or nano.
+env_setup.sh:
+#!/bin/bash
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+# Install Minikube
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+# Install Helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# Install Docker (required by Minikube's docker driver)
+sudo yum install docker -y # Use apt for Ubuntu
+sudo usermod -aG docker $USER && newgrp docker
+sudo systemctl start docker
+sudo systemctl enable docker
+echo "All tools installed! Please log out and back in for group changes to take effect, or run 'newgrp docker'."
+Enter fullscreen mode
+Exit fullscreen mode
+configmap.yaml:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+name: poc-starrockscluster-fe-cm
+labels:
+cluster: starrockscluster-poc-cp
+data:
+fe.conf: |
+LOG_DIR = ${STARROCKS_HOME}/log
+DATE = "$(date +%Y%m%d-%H%M%S)"
+JAVA_OPTS="-Dlog4j2.formatMsgNoLookups=true -Xmx8192m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:${LOG_DIR}/fe.gc.log.$DATE"
+JAVA_OPTS_FOR_JDK_9="-Dlog4j2.formatMsgNoLookups=true -Xmx8192m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xlog:gc*:${LOG_DIR}/fe.gc.log.$DATE:time"
+JAVA_OPTS_FOR_JDK_11="-Dlog4j2.formatMsgNoLookups=true -Xmx8192m -XX:+UseG1GC -Xlog:gc*:${LOG_DIR}/fe.gc.log.$DATE:time"
+http_port = 8030
+rpc_port = 9020
+query_port = 9030
+edit_log_port = 9010
+mysql_service_nio_enabled = true
+sys_log_level = INFO
+# config for shared-data mode
+run_mode = shared_data
+cloud_native_meta_port = 6090
+# Whether volume can be created from conf. If it is enabled, a builtin storage volume may be created.
+enable_load_volume_from_conf = true
+# GCS uses S3 Protocol
+cloud_native_storage_type = S3
+# For example, testbucket/subpath
+aws_s3_path = <YOUR-BUCKET-NAME>
+# For example: us-east1
+aws_s3_region = <YOUR-AWS-REGION>
+# For example: https://s3.amazonaws.com
+aws_s3_endpoint = https://s3.amazonaws.com
+aws_s3_access_key = "<YOUR-ACCESS-KEY>"
+aws_s3_secret_key = "<YOUR-SECRET-KEY>"
+Enter fullscreen mode
+Exit fullscreen mode
+starrocks-cluster.yaml:
+#This manifest deploys a StarRocks cluster running in shared data mode.
+# see https://docs.starrocks.io/docs/cover_pages/shared_data_deployment/ for more information about shared-data mode.
+#
+# You will have to download and edit this YAML file to specify the details for your shared storage. See the
+# examples in the docs, and add your customizations to the ConfigMap `starrockscluster-sample-fe-cm` at the
+# bottom of this file.
+# https://docs.starrocks.io/en-us/latest/deployment/deploy_shared_data#configure-fe-nodes-for-shared-data-starrocks
+apiVersion: starrocks.com/v1
+kind: StarRocksCluster
+metadata:
+name: poc-starrocks-cluster
+# change the name if needed.
+spec:
+starRocksFeSpec:
+image: starrocks/fe-ubuntu:3.2.7
+replicas: 3
+limits:
+memory: 3Gi
+requests:
+cpu: '1'
+memory: 1Gi
+configMapInfo:
+configMapName: poc-starrockscluster-fe-cm
+resolveKey: fe.conf
+starRocksCnSpec:
+image: starrocks/cn-ubuntu:3.2.7
+#try 3.3-latest
+replicas: 1
+limits:
+memory: 5Gi
+requests:
+cpu: '1'
+memory: 2Gi
+autoScalingPolicy: # Automatic scaling policy of the CN cluster.
+maxReplicas: 10 # The maximum number of CNs is set to 10.
+minReplicas: 1 # The minimum number of CNs is set to 1.
+# operator creates an HPA resource based on the following field.
+# see https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/ for more information.
+hpaPolicy:
+metrics: # Resource metrics
+- type: Resource
+resource:
+name: memory
+# The average memory usage of CNs is specified as a resource metric.
+target:
+averageUtilization: 15
+type: Utilization
+- type: Resource
+resource:
+name: cpu # The average CPU utilization of CNs is specified as a resource metric.
+target:
+averageUtilization: 15
+type: Utilization
+behavior: #
+The scaling behavior is customized according to business scenarios, helping you achieve rapid or slow scaling or disable scaling.
+scaleUp:
+policies:
+- type: Pods
+value: 1
+periodSeconds: 10
+scaleDown:
+policies:
+- type: Pods
+value: 1
+periodSeconds: 60
+stabilizationWindowSeconds: 300
+selectPolicy: Max
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+name: poc-starrockscluster-fe-cm
+labels:
+cluster: starrockscluster-poc-cp
+data:
+fe.conf: |
+LOG_DIR = ${STARROCKS_HOME}/log
+DATE = "$(date +%Y%m%d-%H%M%S)"
+JAVA_OPTS="-Dlog4j2.formatMsgNoLookups=true -Xmx8192m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:${LOG_DIR}/fe.gc.log.$DATE"
+JAVA_OPTS_FOR_JDK_9="-Dlog4j2.formatMsgNoLookups=true -Xmx8192m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xlog:gc*:${LOG_DIR}/fe.gc.log.$DATE:time"
+JAVA_OPTS_FOR_JDK_11="-Dlog4j2.formatMsgNoLookups=true -Xmx8192m -XX:+UseG1GC -Xlog:gc*:${LOG_DIR}/fe.gc.log.$DATE:time"
+http_port = 8030
+rpc_port = 9020
+query_port = 9030
+edit_log_port = 9010
+mysql_service_nio_enabled = true
+sys_log_level = INFO
+# config for shared-data mode
+run_mode = shared_data
+cloud_native_meta_port = 6090
+# Whether volume can be created from conf. If it is enabled, a builtin storage volume may be created.
+enable_load_volume_from_conf = true
+# GCS uses S3 Protocol
+cloud_native_storage_type = S3
+# For example, testbucket/subpath
+aws_s3_path = "<YOUR-BUCKET-NAME>"
+# For example: us-east1
+aws_s3_region = us-west-2
+# For example: https://s3.amazonaws.com
+aws_s3_endpoint = https://s3.amazonaws.com
+aws_s3_access_key = "<YOUR-ACCESS-KEY>"
+aws_s3_secret_key = "<YOUR-SECRET-KEY>"
+Enter fullscreen mode
+Exit fullscreen mode
+test-s3.py:
+import boto3
+from botocore.exceptions import ClientError
+BUCKET_NAME = "<YOUR-BUCKET-NAME>"
+REGION = "<YOUR-AWS-REGION>"
+ACCESS_KEY = "<YOUR-ACCESS-KEY>"
+SECRET_KEY = "<YOUR-SECRET-KEY>"
+s3 = boto3.client(
+'s3',
+region_name=REGION,
+aws_access_key_id=ACCESS_KEY,
+aws_secret_access_key=SECRET_KEY
+)
+try:
+response = s3.list_buckets()
+print("Connection successful! Available buckets:")
+for bucket in response['Buckets']:
+print(f'
+{bucket["Name"]}')
+# Try a head bucket operation for a more specific check
+s3.head_bucket(Bucket=BUCKET_NAME)
+print(f"\nSuccessfully accessed the target bucket: {BUCKET_NAME}")
+except ClientError as e:
+print(f"Error: {e}")
+Enter fullscreen mode
+Exit fullscreen mode
+🔐** Phase 2: Configure S3 Access**
+Our entire setup hinges on StarRocks being able to communicate with S3. Let's test this first.
+Edit both test-s3.py and configmap.yaml. Replace all placeholders (<...>, your-...) with your actual S3 Bucket Name, Region, Access Key, and Secret Key.
+Install the Boto3 library and run the test script:
+pip3 install boto3
+python3 test-s3.py
+Enter fullscreen mode
+Exit fullscreen mode
+A successful output confirms your credentials and permissions are correct. Fix any errors here before proceeding.
+⚙️ Phase 3: Setup Environment & Start Minikube
+Now, let's turn our EC2 instance into a single-node Kubernetes cluster.
+Make the setup script executable and run it:
+bash
+chmod +x env_setup.sh
+./env_setup.sh
+Enter fullscreen mode
+Exit fullscreen mode
+Start Minikube with adequate resources. The shared data mode is memory and CPU intensive.
+minikube start --driver=docker --cpus=8 --memory=12288
+Enter fullscreen mode
+Exit fullscreen mode
+Verify the cluster is running:
+bash
+kubectl get nodes
+🚀** Phase 4: Install the StarRocks Kubernetes Operator**
+Operators are Kubernetes-native applications that manage complex stateful services like databases. We'll use the StarRocks operator to deploy our cluster.
+bash
+helm repo add starrocks https://starrocks.github.io/starrocks-kubernetes-operator
+helm repo update
+helm install starrocks-operator starrocks/operator \
+--create-namespace --namespace starrocks
+Enter fullscreen mode
+Exit fullscreen mode
+Check if the operator pod is running:
+bash
+kubectl get pods -n starrocks
+Enter fullscreen mode
+Exit fullscreen mode
+📦 Phase 5: Deploy the StarRocks Cluster
+With the operator running, we can now deploy our custom-configured StarRocks cluster.
+Apply the configuration that points to our S3 bucket:
+bash
+kubectl apply -f configmap.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Deploy the cluster itself:
+bash
+kubectl apply -f starrocks-cluster.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Watch the pods come up. This may take a few minutes as it pulls large container images.
+bash
+kubectl get pods -n starrocks
+Enter fullscreen mode
+Exit fullscreen mode
+Wait until you see an output similar to this:
+Notice the three FE pods for high availability and the single CN pod. There are no BE pods.
+🔌 Phase 6: Connect and Load Data
+Let's interact with our cluster and load some sample data.
+Connect to the MySQL Client
+We'll exec into the FE pod to use the built-in MySQL client.
+bash
+kubectl exec --stdin --tty poc-starrocks-cluster-fe-0 --
+mysql -P9030 -h127.0.0.1 -u root --prompt="StarRocks > "
+Enter fullscreen mode
+Exit fullscreen mode
+Create a Database and Tables
+Run these SQL commands inside the MySQL client:
+sql
+CREATE DATABASE IF NOT EXISTS quickstart;
+USE quickstart;
+CREATE TABLE IF NOT EXISTS crashdata (
+CRASH_DATE DATETIME,
+BOROUGH STRING,
+ZIP_CODE STRING,
+LATITUDE INT,
+LONGITUDE INT,
+LOCATION STRING,
+ON_STREET_NAME STRING,
+CROSS_STREET_NAME STRING,
+OFF_STREET_NAME STRING,
+CONTRIBUTING_FACTOR_VEHICLE_1 STRING,
+CONTRIBUTING_FACTOR_VEHICLE_2 STRING,
+COLLISION_ID INT,
+VEHICLE_TYPE_CODE_1 STRING,
+VEHICLE_TYPE_CODE_2 STRING
+);
+CREATE TABLE IF NOT EXISTS weatherdata (
+DATE DATETIME,
+NAME STRING,
+HourlyDewPointTemperature STRING,
+HourlyDryBulbTemperature STRING,
+HourlyPrecipitation STRING,
+HourlyPresentWeatherType STRING,
+HourlyPressureChange STRING,
+HourlyPressureTendency STRING,
+HourlyRelativeHumidity STRING,
+HourlySkyConditions STRING,
+HourlyVisibility STRING,
+HourlyWetBulbTemperature STRING,
+HourlyWindDirection STRING,
+HourlyWindGustSpeed STRING,
+HourlyWindSpeed STRING
+);
+Enter fullscreen mode
+Exit fullscreen mode
+Type exit to leave the MySQL client.
+Download and Upload Sample Datasets
+bash
+curl -O https://raw.githubusercontent.com/StarRocks/demo/master/documentation-samples/quickstart/datasets/NYPD_Crash_Data.csv
+curl -O https://raw.githubusercontent.com/StarRocks/demo/master/documentation-samples/quickstart/datasets/72505394728.csv
+Enter fullscreen mode
+Exit fullscreen mode
+Copy the files into the FE pod
+kubectl cp ./NYPD_Crash_Data.csv poc-starrocks-cluster-fe-0:/tmp/NYPD_Crash_Data.csv -n default
+kubectl cp ./72505394728.csv poc-starrocks-cluster-fe-0:/tmp/72505394728.csv -n default
+Enter fullscreen mode
+Exit fullscreen mode
+Get a shell inside the FE pod to run the curl commands for loading data.
+bash
+kubectl exec -it poc-starrocks-cluster-fe-0 -n default -- /bin/bash
+Enter fullscreen mode
+Exit fullscreen mode
+Inside the container, run the two curl commands from your outline to load data into the weatherdata and crashdata tables.
+Remember, just press Enter when prompted for a password.
+curl --location-trusted -u root
+\
+-T /tmp/72505394728.csv
+\
+-H "label:weather-0"
+\
+-H "column_separator:,"
+\
+-H "skip_header:1"
+\
+-H "enclose:\""
+\
+-H "max_filter_ratio:1"
+\
+-H "columns: STATION, DATE, LATITUDE, LONGITUDE, ELEVATION, NAME, REPORT_TYPE, SOURCE, HourlyAltimeterSetting, HourlyDewPointTemperature, HourlyDryBulbTemperature, HourlyPrecipitation, HourlyPresentWeatherType, HourlyPressureChange, HourlyPressureTendency, HourlyRelativeHumidity, HourlySkyConditions, HourlySeaLevelPressure, HourlyStationPressure, HourlyVisibility, HourlyWetBulbTemperature, HourlyWindDirection, HourlyWindGustSpeed, HourlyWindSpeed, Sunrise, Sunset, DailyAverageDewPointTemperature, DailyAverageDryBulbTemperature, DailyAverageRelativeHumidity, DailyAverageSeaLevelPressure, DailyAverageStationPressure, DailyAverageWetBulbTemperature, DailyAverageWindSpeed, DailyCoolingDegreeDays, DailyDepartureFromNormalAverageTemperature, DailyHeatingDegreeDays, DailyMaximumDryBulbTemperature, DailyMinimumDryBulbTemperature, DailyPeakWindDirection, DailyPeakWindSpeed, DailyPrecipitation, DailySnowDepth, DailySnowfall, DailySustainedWindDirection, DailySustainedWindSpeed, DailyWeather, MonthlyAverageRH, MonthlyDaysWithGT001Precip, MonthlyDaysWithGT010Precip, MonthlyDaysWithGT32Temp, MonthlyDaysWithGT90Temp, MonthlyDaysWithLT0Temp, MonthlyDaysWithLT32Temp, MonthlyDepartureFromNormalAverageTemperature, MonthlyDepartureFromNormalCoolingDegreeDays, MonthlyDepartureFromNormalHeatingDegreeDays, MonthlyDepartureFromNormalMaximumTemperature, MonthlyDepartureFromNormalMinimumTemperature, MonthlyDepartureFromNormalPrecipitation, MonthlyDewpointTemperature, MonthlyGreatestPrecip, MonthlyGreatestPrecipDate, MonthlyGreatestSnowDepth, MonthlyGreatestSnowDepthDate, MonthlyGreatestSnowfall, MonthlyGreatestSnowfallDate, MonthlyMaxSeaLevelPressureValue, MonthlyMaxSeaLevelPressureValueDate, MonthlyMaxSeaLevelPressureValueTime, MonthlyMaximumTemperature, MonthlyMeanTemperature, MonthlyMinSeaLevelPressureValue, MonthlyMinSeaLevelPressureValueDate, MonthlyMinSeaLevelPressureValueTime, MonthlyMinimumTemperature, MonthlySeaLevelPressure, MonthlyStationPressure, MonthlyTotalLiquidPrecipitation, MonthlyTotalSnowfall, MonthlyWetBulb, AWND, CDSD, CLDD, DSNW, HDSD, HTDD, NormalsCoolingDegreeDay, NormalsHeatingDegreeDay, ShortDurationEndDate005, ShortDurationEndDate010, ShortDurationEndDate015, ShortDurationEndDate020, ShortDurationEndDate030, ShortDurationEndDate045, ShortDurationEndDate060, ShortDurationEndDate080, ShortDurationEndDate100, ShortDurationEndDate120, ShortDurationEndDate150, ShortDurationEndDate180, ShortDurationPrecipitationValue005, ShortDurationPrecipitationValue010, ShortDurationPrecipitationValue015, ShortDurationPrecipitationValue020, ShortDurationPrecipitationValue030, ShortDurationPrecipitationValue045, ShortDurationPrecipitationValue060, ShortDurationPrecipitationValue080, ShortDurationPrecipitationValue100, ShortDurationPrecipitationValue120, ShortDurationPrecipitationValue150, ShortDurationPrecipitationValue180, REM, BackupDirection, BackupDistance, BackupDistanceUnit, BackupElements, BackupElevation, BackupEquipment, BackupLatitude, BackupLongitude, BackupName, WindEquipmentChangeDate" \
+-XPUT http://127.0.0.1:8030/api/quickstart/weatherdata/_stream_load
+Enter fullscreen mode
+Exit fullscreen mode
+curl --location-trusted -u root
+\
+-T /tmp/NYPD_Crash_Data.csv
+\
+-H "label:crashdata-0"
+\
+-H "column_separator:,"
+\
+-H "skip_header:1"
+\
+-H "enclose:\""
+\
+-H "max_filter_ratio:1"
+\
+-H "columns:tmp_CRASH_DATE, tmp_CRASH_TIME, CRASH_DATE=str_to_date(concat_ws(' ', tmp_CRASH_DATE, tmp_CRASH_TIME), '%m/%d/%Y %H:%i'),BOROUGH,ZIP_CODE,LATITUDE,LONGITUDE,LOCATION,ON_STREET_NAME,CROSS_STREET_NAME,OFF_STREET_NAME,NUMBER_OF_PERSONS_INJURED,NUMBER_OF_PERSONS_KILLED,NUMBER_OF_PEDESTRIANS_INJURED,NUMBER_OF_PEDESTRIANS_KILLED,NUMBER_OF_CYCLIST_INJURED,NUMBER_OF_CYCLIST_KILLED,NUMBER_OF_MOTORIST_INJURED,NUMBER_OF_MOTORIST_KILLED,CONTRIBUTING_FACTOR_VEHICLE_1,CONTRIBUTING_FACTOR_VEHICLE_2,CONTRIBUTING_FACTOR_VEHICLE_3,CONTRIBUTING_FACTOR_VEHICLE_4,CONTRIBUTING_FACTOR_VEHICLE_5,COLLISION_ID,VEHICLE_TYPE_CODE_1,VEHICLE_TYPE_CODE_2,VEHICLE_TYPE_CODE_3,VEHICLE_TYPE_CODE_4,VEHICLE_TYPE_CODE_5" \
+-XPUT http://127.0.0.1:8030/api/quickstart/crashdata/_stream_load
+Enter fullscreen mode
+Exit fullscreen mode
+📈 Phase 7: Test Queries and Observe Auto-Scaling
+The magic of Shared Data Mode is its elasticity. Let's see it in action.
+Enable Metrics Server: Minikube needs this for the Horizontal Pod Autoscaler (HPA) to work.
+bash
+minikube addons enable metrics-server
+Enter fullscreen mode
+Exit fullscreen mode
+Run a Sample Query: Connect again with the MySQL client and run the analytical queries from the outline.
+Trigger a Scale-Out: Run a heavy, full-table scan. This will spike CPU usage.
+Connect to the MySQL Client
+bash
+kubectl exec --stdin --tty poc-starrocks-cluster-fe-0 --
+mysql -P9030 -h127.0.0.1 -u root --prompt="StarRocks > "
+Enter fullscreen mode
+Exit fullscreen mode
+sql
+SELECT * FROM crashdata;
+Enter fullscreen mode
+Exit fullscreen mode
+Watch the Autoscaler Work: Open a new terminal window on your EC2 instance and watch the pods.
+bash
+watch kubectl get pods -n starrocks
+Enter fullscreen mode
+Exit fullscreen mode
+✅ You should observe:
+After a minute or so of the heavy query, a new CN pod (e.g., plaid-starrocks-cluster-cn-1) will appear with status ContainerCreating and then Running.
+The HPA automatically provisioned it to handle the load!
+Wait 3-5 minutes after the query finishes. You will see the extra CN pod automatically terminate. This is the autoscaler saving resources by scaling down.
+🚨 Clean-Up: Don't forget to tear down your environment to avoid unnecessary costs!
+Conclusion
+This modern data platform successfully decouples compute from storage, enabling you to scale horizontally and seamlessly. The benefits are clear: significant cost savings by only paying for the compute you use, blistering query performance powered by elastic resources, and the agility to handle any analytical workload on demand. You've just built the future of data analytics.
+This setup is not just for learning; it mirrors the architecture used in production environments to achieve both high performance and cost efficiency. You can now stop your Minikube cluster (minikube stop) and even terminate your EC2 instance to avoid unnecessary costs, knowing you can recreate this entire environment from scratch using the code and configs you've written.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Mohamed Ammar
+Follow
+I am a senior data Enginner
+Joined
+Sep 28, 2024
+Trending on DEV Community
+Hot
+What was your win this week?
+#weeklyretro
+#discuss
+In Defense of C++
+#cpp
+#programming
+#c
+#discuss
+AI-Powered Cloud Cost Management: Architect’s Guide to AWS Billing MCP Server
+#aws
+#ai
+#agentaichallenge
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
