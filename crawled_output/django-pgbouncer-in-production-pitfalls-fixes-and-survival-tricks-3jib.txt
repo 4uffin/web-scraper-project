@@ -1,0 +1,258 @@
+Django + PgBouncer in Production: Pitfalls, Fixes, and Survival Tricks - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Artem
+Posted on Sep 14
+Django + PgBouncer in Production: Pitfalls, Fixes, and Survival Tricks
+#python
+#webdev
+#database
+#django
+In this article I will tell you about my experience of using PgBouncer with the Production Django application, and how it worked for us and what difficulties we met.
+First, I’ll explain why we needed a connection pooler like PgBouncer and how it helps solve common database connection overhead problems. After that, I will guide you through our installation process and share our experience using it in a production environment, including the specific problems we faced and the solutions we implemented
+Why did we need to add PgBouncer?
+Our backend wasn’t constantly flooded with users, but during ad campaigns we saw huge traffic spikes that created hundreds of open connections to PostgreSQL instance. This connection overhead was a significant bottleneck. So, we decided to offload the connection burden from the database by adding a connection pooler.
+To understand the problem, we first need to look at how PostgreSQL handles client connections. Every time a new connection is established, the following occurs:
+TCP Handshake: A three-way handshake between the client (our Django app) and the database to establish a connection.
+If TLS/SSL is enabled, another handshake to secure the connection
+Authentication, the database authenticates the user's credentials
+In addition to these steps, each open connection consumes a certain amount of memory and CPU resources. This can add an unwanted extra load on the database server. Furthermore, if the number of connections exceeds the configured maximum, new connection requests can fail.
+PgBouncer's core job here is to maintain a fixed number of "hot" connections to the database. This effectively solves the problem by allowing the expensive, three-step connection process that I described above, to happen only once for each connection in the pool.
+When our Django app needs a connection, it talks to PgBouncer, which immediately provides a ready-to-use connection from its pool. After the query or transaction is finished, PgBouncer immediately returns the connection to the pool, ready for the next client to use.
+You can always check the max_connections limit for your specific database (for example, on Amazon RDS). If you can predict a fairly fixed and manageable amount of connections, you might not need to add the complexity of a connection pooler to your architecture. However, in our case, the unpredictable traffic spikes made a connection pooler a necessity.
+Installation and configuration process
+Installing and setting up PgBouncer is pretty straightforward, you can use official docker image or build it directly from sources.
+We chose to use Docker container as we use ECS for our deployment process.
+The core of PgBouncer's setup is pgbouncer.ini configuration file or if you use Docker container you can specify file with the environment variables. These are the parameters we used:
+PGBOUNCER_LISTEN_ADDRESS=*
+PGBOUNCER_POOL_MODE=transaction
+PGBOUNCER_PORT=6432
+PGBOUNCER_MAX_CLIENT_CONN=1000
+PGBOUNCER_DEFAULT_POOL_SIZE=80
+PGBOUNCER_MIN_POOL_SIZE=30
+PGBOUNCER_AUTH_TYPE=md5
+POSTGRESQL_PASSWORD=<YOUR_PASSWORD>
+POSTGRESQL_HOST=<YOUR_HOST>
+POSTGRESQL_PORT=<POSTGRES_PORT>
+POSTGRESQL_USERNAME=<POSTGRES_USERNAME>
+POSTGRESQL_DATABASE=<POSTGRES_DATABASE>
+PGBOUNCER_DATABASE=<PGBOUNCER_DATABASE>
+Enter fullscreen mode
+Exit fullscreen mode
+Here is the overview of interesting parameters
+PGBOUNCER_LISTEN_ADDRESS: Specifies the network interface PgBouncer listens on for incoming client connections. We set it to *, which means it listens on all available interfaces. This is not recommended to use * unless you have correctly configured your security groups on a platform like AWS to restrict incoming traffic. For better security, you should use a more specific address like the private IP of the host or a specific network interface.
+PGBOUNCER_POOL_MODE: A setting that defines how PgBouncer manages its connections. We chose transaction mode, as it reuses connections after each transaction. Detailed about it below.
+PGBOUNCER_MAX_CLIENT_CONN: The maximum number of total client connections your PgBouncer instance will accept.
+PGBOUNCER_DEFAULT_POOL_SIZE: The number of "hot" connections PgBouncer maintains to the database for each user and database pair. Set this value to your usual connections amount.
+PGBOUNCER_MIN_POOL_SIZE: The minimum number of connections PgBouncer will maintain in the pool, even during periods of low activity. This helps reduce latency by keeping connections ready.
+PGBOUNCER_AUTH_TYPE: The authentication method PgBouncer uses to verify clients.
+POSTGRESQL_HOST, POSTGRESQL_PORT, POSTGRESQL_USERNAME, POSTGRESQL_DATABASE: These parameters tell PgBouncer how to connect to the actual PostgreSQL database. They are the credentials for the database itself, not the client.
+Security note: you should make PgBouncer accessible only from within your trusted network (preferably only for the backend instance) and treat access to it with the same level of caution as you would a direct connection to your database.
+The difficult choice of the pool mode
+There are 3 types of pool mode for PgBoucner: Session mode, Transaction mode, Statement mode.
+Statement mode is the most aggressive and performant pooling mode, but it's the least compatible with most applications because it breaks transactions support, on the other hand session mode is the most compatible pooling mode for the usual application, but it's the least performant, however it still gives you the advantage of "hot" tcp connections pool. Transaction mode allocates a connection per transaction and is somewhere in the middle of the three pooling modes.
+There is no single "best" mode; the right choice depends on your application's unique needs. Transaction mode is the standard for most Django apps, but if your app relies on session-level features, session mode is a necessary compromise.
+So we started with session mode on our dev server, then used it in production and confirmed everything was stable. Afterward, we enabled transaction mode on production, which required some tricks to get working.
+The tricks we used to solve transaction mode issues and make our Django application reliable
+In this section, I am describing complexities with the PgBouncer and providing solutions for them.
+Migrations
+When running Django migrations through PgBouncer in transaction pooling mode, some operations fail because they require a single session with an open transaction. For example:
+CREATE INDEX CONCURRENTLY or DROP INDEX CONCURRENTLY
+These statements are disallowed inside a transaction block, but Django wraps migrations in transactions by default.
+Long‐running schema changes (e.g., adding constraints) may get interrupted because transaction pooling swaps connections between queries.
+Advisory locks (pg_advisory_lock) and similar session-based features also fail under transaction pooling.
+To solve it we run migrations against PostgreSQL directly, not through PgBouncer:
+# set PG_BOUNCER_HOST and PG_BOUNCER_PORT to none to run migration directly against Postgresql
+PG_BOUNCER_HOST= PG_BOUNCER_PORT= python manage.py migrate
+Enter fullscreen mode
+Exit fullscreen mode
+Search path
+We used a custom schema for storing our tables and specified it with the search path in the database connection settings
+We used a custom schema for storing our tables and specified it with the search path in the database connection settings.
+When PgBouncer is running in transaction pooling mode, every query may use a different backend connection. That means any session-level settings (like search_path, SET ROLE, SET TIMEZONE, etc.) do not persist across queries.
+This works fine when Django talks directly to Postgres, because each session is pinned to a single connection.
+But with PgBouncer in transaction pooling, the search_path setting disappears as soon as the transaction ends. The next query may land on a different connection that doesn’t know about your search_path override.
+This may lead to:
+A migration that tries to create a table may end up running in the default public schema, ignoring your schema defined in the search path.
+You end up with “phantom” tables in public, while your app is looking in your defined schema.
+We fixed it by making our non-default schema the actual default schema, and stopped relying on search_path:
+We altered the database schema setup so that our custom is the default. Using ALTER ROLE <db_user> SET search_path = <your_schema>;
+Then we removed the OPTIONS → -c search_path=cryptonary_wp2 entirely from Django’s database settings.
+Then we migrated tables from public schema to our custom schema
+using sql script
+Disabling server side cursor
+Django can stream large querysets efficiently by using server-side cursors under the hood — for example, when you call .iterator(), rows are fetched incrementally instead of all being loaded into memory at once.
+However, PgBouncer in transaction pooling mode breaks this.
+Server-side cursors depend on the connection being pinned to the same backend for the lifetime of the cursor.
+Transaction pooling reuses connections between queries, so as soon as the transaction ends, the cursor is lost.
+In practice, this results in errors like cursor does not exist when iterating, or worse, inconsistent data reads.
+For example, we periodically saw this exception when browsing the Django admin panel
+InvalidCursorName: cursor "_django_curs_140116399986368_sync_1" does not exist
+To avoid this, Django has a built-in option for the database connection:
+"OPTIONS": {
+"DISABLE_SERVER_SIDE_CURSORS": True,
+}
+With this setting enabled, Django’s .iterator() will fetch the entire result set into backend memory. That means your memory usage can grow significantly when iterating over large querysets, which may affect your application performance
+Reliability: Fallback from PgBouncer to Postgres
+We also added a simple reliability check in our settings to make sure the application can still connect even if PgBouncer is down or misconfigured.
+try:
+if PG_BOUNCER_HOST and PG_BOUNCER_PORT:
+conn = psycopg2.connect(
+dbname=os.environ.get("POSTGRES_NAME"),
+user=os.environ.get("POSTGRES_USER"),
+password=os.environ.get("POSTGRES_PASSWORD"),
+host=PG_BOUNCER_HOST,
+port=PG_BOUNCER_PORT,
+connect_timeout=2,
+)
+conn.close()
+DB_HOST = PG_BOUNCER_HOST
+DB_PORT = PG_BOUNCER_PORT
+else:
+raise OperationalError("No PgBouncer host set")
+except OperationalError:
+DB_HOST = POSTGRES_HOST
+DB_PORT = POSTGRES_PORT
+Enter fullscreen mode
+Exit fullscreen mode
+This provides a graceful degradation path: the app may lose PgBouncer’s pooling benefits temporarily, but it will stay online and functional
+I think that was a lot, right? Do you still want to connect PgBouncer to your Django application or CONN_MAX_AGE saves the day?
+Conclusion
+PgBouncer is the right tool to help scale your Postgres app when the number of database connections becomes an issue. Keep in mind that while adding PgBouncer introduces additional complexity for your team, careful setup, monitoring, and tuning should improve your app’s performance.
+That said, PgBouncer should only be introduced if you really need it. It adds complexity, hidden caveats (like migrations, search path resets, server-side cursors), and operational costs. If you do adopt it, make sure you fully understand these trade-offs and adjust your Django configuration accordingly.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Artem
+Follow
+I’m a full-stack Python developer who loves working on the backend, databases, and networking. Always curious to learn new things, and I enjoy sharing knowledge and mentoring others along the way.
+Location
+Ukraine
+Joined
+Sep 14, 2025
+Trending on DEV Community
+Hot
+In Defense of C++
+#cpp
+#programming
+#c
+#discuss
+What was your win this week?
+#weeklyretro
+#discuss
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
