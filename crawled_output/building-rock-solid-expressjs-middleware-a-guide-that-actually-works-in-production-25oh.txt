@@ -370,7 +370,7 @@ What do you think? Have you built similar middleware systems? What patterns have
 And if this helped you out, give it a clap 👏 and share it with your fellow developers. We've all wasted too much time on middleware that doesn't work properly.
 Happy coding! 🚀
 P.S. – If you're working on a team, seriously consider standardizing on something like this. Future you (and your teammates) will thank you when you're not debugging middleware interactions at 2 AM.
-Top comments (0)
+Top comments (1)
 Subscribe
 Personal
 Trusted User
@@ -379,6 +379,132 @@ Templates let you quickly answer FAQs or store snippets for re-use.
 Submit
 Preview
 Dismiss
+Collapse
+Expand
+Mykhailo Toporkov 🇺🇦
+Mykhailo Toporkov 🇺🇦
+Mykhailo Toporkov 🇺🇦
+Follow
+Hi there! I'm a Full-Stack engineer who is always ready for new challenges. Also I hate russians!
+Location
+Ukraine
+Education
+National Technical University of Ukraine 'Kyiv Polytechnic Institute'​
+Pronouns
+I am fond of LEGO, sci-fi, magical genres of cinema and literature and always to play in PC games
+Joined
+Nov 12, 2023
+•
+Sep 14
+• Edited on Sep 14
+• Edited
+Dropdown menu
+Copy link
+Hide
+1) The first thing you need when building an Express app is an asyncHandler middleware for handling exceptions inside async routes and passing them to your error handlers
+export const asyncHandler = fn =>
+function (...args) {
+const fnReturn = fn(...args)
+const next = args[args.length-1]
+return Promise.resolve(fnReturn).catch(next)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2) When it comes to error handling, we’re mostly talking about exceptions such as resource not found, access denied, and similar cases:
+export const HttpStatus = Object.freeze({
+OK: 200,
+CREATED: 201,
+ACCEPTED: 202,
+NO_CONTENT: 204,
+BAD_REQUEST: 400,
+UNAUTHORIZED: 401,
+FORBIDDEN: 403,
+NOT_FOUND: 404,
+METHOD_NOT_ALLOWED: 405,
+NOT_ACCEPTABLE: 406,
+REQUEST_TIMEOUT: 408,
+CONFLICT: 409,
+GONE: 410,
+PAYLOAD_TOO_LARGE: 413,
+UNSUPPORTED_MEDIA_TYPE: 415,
+UNPROCESSABLE_ENTITY: 422,
+TOO_MANY_REQUESTS: 429,
+INTERNAL_SERVER_ERROR: 500,
+NOT_IMPLEMENTED: 501,
+BAD_GATEWAY: 502,
+SERVICE_UNAVAILABLE: 503,
+GATEWAY_TIMEOUT: 504,
+});
+export const HttpMessage = Object.freeze({
+OK: "OK",
+CREATED: "Created",
+ACCEPTED: "Accepted",
+NO_CONTENT: "No Content",
+BAD_REQUEST: "Bad Request",
+UNAUTHORIZED: "Unauthorized",
+FORBIDDEN: "Forbidden",
+NOT_FOUND: "Not Found",
+METHOD_NOT_ALLOWED: "Method Not Allowed",
+NOT_ACCEPTABLE: "Not Acceptable",
+REQUEST_TIMEOUT: "Request Timeout",
+CONFLICT: "Conflict",
+GONE: "Gone",
+PAYLOAD_TOO_LARGE: "Payload Too Large",
+UNSUPPORTED_MEDIA_TYPE: "Unsupported Media Type",
+UNPROCESSABLE_ENTITY: "Unprocessable Entity",
+TOO_MANY_REQUESTS: "Too Many Requests",
+INTERNAL_SERVER_ERROR: "Internal Server Error",
+NOT_IMPLEMENTED: "Not Implemented",
+BAD_GATEWAY: "Bad Gateway",
+SERVICE_UNAVAILABLE: "Service Unavailable",
+GATEWAY_TIMEOUT: "Gateway Timeout",
+});
+export
+class HttpException extends Error {
+constructor(
+message = HttpMessage.INTERNAL_SERVER_ERROR,
+status = HttpStatus.INTERNAL_SERVER_ERROR,
+cause = null
+) {
+super(message, { cause });
+this.name = this.constructor.name;
+this.status = status;
+this.cause = cause;
+}
+};
+export class BadRequestException extends HttpException {
+constructor(cause) {
+super(HttpMessage.BAD_REQUEST, HttpStatus.BAD_REQUEST, cause);
+}
+};
+export class UnauthorizedException extends HttpException {
+constructor(cause) {
+super(HttpMessage.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, cause);
+}
+};
+export class NotFoundException extends HttpException {
+constructor(cause) {
+super(HttpMessage.NOT_FOUND, HttpStatus.NOT_FOUND, cause);
+}
+};
+// ...etc for all exceptions you might need
+export function httpExceptionsHandler(error, _request, response, _next) {
+const cause = error.cause || "Something went wrong";
+const status = error.status || HttpStatus.INTERNAL_SERVER_ERROR;
+const message = error.message || HttpMessage.INTERNAL_SERVER_ERROR;
+response.status(status).json({ status, message, cause });
+};
+Enter fullscreen mode
+Exit fullscreen mode
+3) For validations, I recommend sticking with a popular solution like zod, yup, or class-validator. In general, you can use a simple middleware function that accepts a schema for the body, query parameters, etc., and throws a BadRequestException if something is invalid.
+4) For logging and error tracking, I recommend tools like Sentry, PostHog, or Winston etc... Honestly, it’s a matter of taste and what you want to achieve.
+5) Rate limiting should be implemented based on what you want to achieve. If you only want to limit request rates globally, do it at the web server level using Nginx or Apache. If you need to limit usage per API key or per user ID, then use Express middleware.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
 Code of Conduct
 •
 Report abuse

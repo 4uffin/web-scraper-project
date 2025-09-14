@@ -61,7 +61,7 @@ today
 Modified
 today
 Viewed
-43 times
+51 times
 -1
 I want to create a repository base class, every service should inherit from this BaseService.
 This is my code:
@@ -174,7 +174,7 @@ asp.netasp.net-core
 Share
 Improve this question
 Follow
-edited 4 hours ago
+edited 5 hours ago
 marc_s
 759k185185 gold badges1.4k1.4k silver badges1.5k1.5k bronze badges
 asked 8 hours ago
@@ -207,47 +207,89 @@ Guru Stron
 Guru Stron
 2025-09-14 06:17:26 +00:00
 Commented
-4 hours ago
+5 hours ago
 Add a comment
 |
-Related questions
-681
-How do you create a custom AuthorizeAttribute in ASP.NET Core?
-623
-Resolving instances with ASP.NET Core DI from within ConfigureServices
-887
-ASP.NET Web Site or ASP.NET Web Application?
-Related questions
-681
-How do you create a custom AuthorizeAttribute in ASP.NET Core?
-623
-Resolving instances with ASP.NET Core DI from within ConfigureServices
-887
-ASP.NET Web Site or ASP.NET Web Application?
-617
-How to register multiple implementations of the same interface in Asp.Net Core?
-493
-How to unapply a migration in ASP.NET Core with EF Core
-430
-ASP.NET Core Web API exception handling
-306
-.NET Core vs ASP.NET Core
-398
-ASP.NET Core Get Json Array using IConfiguration
-435
-How to specify the port an ASP.NET Core application is hosted on?
-3
-Asp.net Core how to use ReflectionIT.Mvc.Paging with ViewModel?
-Load 7 more related questions
-Show fewer related questions
-0
+1 Answer
+1
 Sorted by:
 Reset to default
 Highest score (default)
 Trending (recent votes count more)
 Date modified (newest first)
 Date created (oldest first)
-Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+0
+If I read this correctly you want to implement boilerplate code in a base class, scan for all concrete implementations, and inject them into DI automatically.
+If so, I think you're overcomplicating things.
+Here's a simple demo to show one way of doing that.
+First a generic interface:
+public interface IMyService<T>
+where T : class, new()
+{
+public T Data { get;}
+Task<T> GetAsync(long id);
+}
+And a simple data object:
+public record MyData
+{
+public string Name { get; init; } = "Not Set";
+}
+Next the base service definition:
+public abstract class BaseService<T>
+where T : class, new()
+{
+public Task<T> GetAsync(long id)
+=> Task.FromResult<T>(new T() );
+}
+Note no IMyService inheritance: we don't want to capture it in any assembly scanning for the interface.
+And finally a concrete implementation:
+public class TestService : BaseService<MyData>, IMyService<MyData>
+{
+public MyData Data => new MyData() { Name = ($"{this.GetType().FullName}") };
+public TestService() : base() { }
+}
+The following IServiceCollection extension class scans the main assembly, finds all the IMyService Services
+and registers each against the interface.
+public static class AddServicesExtensions
+{
+public static void AddMyServices(this IServiceCollection services)
+{
+var assembly = Assembly.GetCallingAssembly();
+var requestHandlerInterfaceType = typeof(IMyService<>);
+var handlerTypes = assembly
+.GetTypes()
+.Where(type => !type.IsAbstract && !type.IsInterface)
+.SelectMany(type => type.GetInterfaces()
+.Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == requestHandlerInterfaceType)
+.Select(i => new { Interface = i, Implementation = type }));
+foreach (var handler in handlerTypes)
+{
+services.AddScoped(handler.Interface, handler.Implementation);
+}
+}
+}
+And Registration:
+var builder = WebApplication.CreateBuilder(args);
+// Add services to the container.
+builder.Services.AddRazorComponents()
+.AddInteractiveServerComponents();
+builder.Services.AddMyServices();
+var app = builder.Build();
+Here's a Blazor page that uses the service:
+@page "/"
+@inject IMyService<MyData> _service
+<PageTitle>Home</PageTitle>
+<h1>Hello, world! - @_service.Data.Name</h1>
+Welcome to your new app.
+Share
+Improve this answer
+Follow
+edited 37 mins ago
+answered 48 mins ago
+MrC aka Shaun CurtisMrC aka Shaun Curtis
+32k33 gold badges2727 silver badges5656 bronze badges
+Add a comment
+|
 Your Answer
 Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
 Draft saved
@@ -282,31 +324,52 @@ stackoverflow.ai - rebuilt for attribution
 Policy: Generative AI (e.g., ChatGPT) is banned
 New and improved coding challenges
 New comment UI experiment graduation
+Related
+681
+How do you create a custom AuthorizeAttribute in ASP.NET Core?
+623
+Resolving instances with ASP.NET Core DI from within ConfigureServices
+887
+ASP.NET Web Site or ASP.NET Web Application?
+617
+How to register multiple implementations of the same interface in Asp.Net Core?
+493
+How to unapply a migration in ASP.NET Core with EF Core
+430
+ASP.NET Core Web API exception handling
+306
+.NET Core vs ASP.NET Core
+398
+ASP.NET Core Get Json Array using IConfiguration
+435
+How to specify the port an ASP.NET Core application is hosted on?
+3
+Asp.net Core how to use ReflectionIT.Mvc.Paging with ViewModel?
 Hot Network Questions
-RadioCall at non-towered airport or practice area
-New Boss insulting my appearance
-How do I replicate the shrink-wrap and lattice modifier for instances realized from a procedural geometry node script on to a curvy surface object?
-Why does the do-while loop in C-like languages require the curly brackets `{` and `}`? Wouldn't the grammar be perfectly parsable without them?
-Genesis 2:19, How נֶפֶשׁ חַיָּה is translated?
-For an electric pump rocket engine like the rutherford engine, is it possible to place the main valve upstream of the pump?
-Does the train between Sofia, Bucharest and Varna have Wi-Fi?
-Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
-Why does my real-time FFT of a logarithmic sweep keep sinking — and why does this weird normalization fix it?
-A million and one constants
-Liaison after verbs in the third person plural
-PC used in movie "Ghosthouse" (1988)
+Placement, agreement and functional role of "y compris"
+Mickey Mouse Polygon - Regular Polygons forming Mysterious Angle
+Where can I see the rules for Alchemy cards in Magic Arena?
+Why don't military fighter jets have static wicks?
 A joystick seen in the film “Ghosthouse” (1988)
-The relation between 穀 and 谷
-2008 Toyota Tacoma Rust Recall Expired
+Reducing an integral to a Gamma function type
+Is this efflorescence on my new build tile floor, and how can I clean it off?
+Why do Aave transactions on Etherscan show misleading transfer amounts for aTokens?
+What is the purpose of the neutral line in unbalanced three-phase systems?
+How can referees verify computationally intensive results when HPC resources are required?
+Ubuntu Server can't change timezone
+What would the Romans call a non-religious sacrifice?
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
 Python implementation of core fundamentals to calculate math arithmetic
-Anyone know a book about researchers in boats being chased on an alien planet by humanoid aliens?
-What do these phrases mean: 皂隶斥责, 号房, 孔孔伸头, 房房露脚？
-HowTo place two boxes of math (e.g., {array}{|c|c|}) over a single box spanning the same two columns?
+Is it normal for postdoc to write grant proposals for PI, but then is denied the opportunity to work on the projects later on?
+TCBListing overlay: testing whether segmentation nodes have been defined
+What is the purpose of this opening in the airplane interior?
+Liaison after verbs in the third person plural
+Cryptic Family Reunion: It's Easy to Overlook Us
 Best bike for ultra steep climbs in the forest? (Mountain)
-Checking for string isomorphism in C++
-Reusing BH-90 barb insert?
-Mirror clipping doesn't join the pieces together
-What are these angled things on the Saab 340 tail?
+How to convert an MP3 CD into a regular (Red Book) audio CD?
+why centroid is located on 2:1 ratio of medians
+PC used in movie "Ghosthouse" (1988)
+How should one handle a flawed question in a textbook?
 more hot questions
 Question feed
 Subscribe to RSS
