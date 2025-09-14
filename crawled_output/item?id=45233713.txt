@@ -1,113 +1,117 @@
-RIP pthread_cancel | Hacker NewsHacker Newsnew | past | comments | ask | show | jobs | submitloginRIP pthread_cancel (eissing.org)198 points by robin_reala 18 hours ago
-| hide | past | favorite | 88 comments
-blaz0 6 hours ago
+RIP pthread_cancel | Hacker NewsHacker Newsnew | past | comments | ask | show | jobs | submitloginRIP pthread_cancel (eissing.org)209 points by robin_reala 20 hours ago
+| hide | past | favorite | 90 comments
+blaz0 8 hours ago
 | next [–]
 I'm the author of the GitHub issue that the blog links to, and I'd like to thank Stefan for quickly acknowledging the problem and addressing the issue! I try to keep one of our internal applications up to date with the latest libcurl version within a day or two of a release, so we sometimes hit fresh problems while running our battery of tests.Ironically, our application has also struggled with blocking DNS resolution in the past, so I appreciate the discussion here. In case anyone is interested, here is a quick reference of the different asynchronous DNS resolution methods that you can use in a native code application for some of the most popular platforms:
 - Windows/Xbox: GetAddrInfoExW / GetAddrInfoExCancel
 - macOS/iOS: CFHostStartInfoResolution / CFHostCancelInfoResolution
 - Linux (glibc): getaddrinfo_a / gai_cancel
 - Android: android.net.DnsResolver.query (requires the use of JNI)
-- PS5: proprietary DNS resolver APIreplywolletd 2 hours ago
+- PS5: proprietary DNS resolver APIreplysomat 1 hour ago
 | parent | next [–]
-This information about `getaddrinfo_a` should probably also be in the Github issue?replyyardstick 15 hours ago
-| prev | next [–]
-It’s been decades, why doesn’t getaddrinfo have a standardised way to specify a timeout? Set a timeout to 10 seconds and life becomes a lot easier.Yes I know in Linux you can set the timeout in a config file.But really the dns setting should be configurable by the calling code. Some code requires fast lookups and doesn’t mind failing which, while others won’t mind waiting longer. It’s not a one size fits all thing.replyeklitzke 13 hours ago
-| parent | next [–]
-A few reasons, I think.The first is that getaddrinfo is specified by POSIX, and the POSIX evolve very conservatively and at a glacial pace.The second reason is that specifying a timeout breaks symmetry with a lot of other functions in Unix/C, both system calls and libc calls. For example, you can't specify a timeout when opening a file, reading from a file, or closing a file, which are all potentially blocking operations. There are ways to do these things in a non-blocking manner with timeouts using aio or io_uring, but those are already relatively complicated APIs for just using simple system calls, and getaddrinfo is much more complicated.The last reason is that if you use the sockets APIs directly it's not that hard to write a non-blocking DNS resolver (c-ares is one example). The thing is though that if you write your own resolver you have to consider how to do caching, it won't work with NSS on Linux, etc. You can implement these things (systemd-resolved does it, and works with NSS) but they are a lot of work to do properly.replyjstimpfle 4 hours ago
-| root | parent | next [–]
-> For example, you can't specify a timeout when opening a file, reading from a file, or closing a file, which are all potentially blocking operations.No they're not. Not really, unless you consider disk access and interacting with the page cache/inode cache inside the kernel to be blocking. But if you do that, you should probably also consider scheduling and really any CPU instruction to be blocking. (If the system is too loaded, anything can be slow).To be fair, network requests can be considered non-blocking in a similar way, but they're depending on other systems that you generally can't control or inspect. In practice you'll see network timeouts. Note that you (at least normally -- there might be tricky exceptions) won't see EINTR from read() to a filesystem file. But you can see EINTR for network sockets. The difference is that, in Unix terminology, disks are not considered "slow devices".replyjcelerier 4 hours ago
-| root | parent | next [–]
-I'd consider "blocking" anything that given same inputs, state and cpu frequency, may take variable time. That means pretty much every system call and entering the system scheduler, doing something that leads to a page fault, etc. Pretty much only pure math in total functions and function calls to paged functions are acceptable.replyJoker_vD 3 hours ago
-| root | parent | next [–]
-Yeah... the sudden paging in also has been noted as a source of latency in the network-oriented software. But that's the problem with our current state of the APIs and their implementations: ideally, you'd have as many independent threads of executions as you want/need, and every time one of them initiates some "blocking" operation, it is quickly end efficiently scheduled, and another ready-to-run thread is switched in. Native threads don't give you that context-switching efficiency, and user-space threads can accidentally cause an underlying native thread block even on "read a non-local variable".replyJoker_vD 3 hours ago
-| root | parent | prev | next [–]
-> disks are not considered "slow devices".And neither are the tapes. But the pipes, apparently, are.Well, unfortunately, disk^H^H^H^H large persistent storage I/O is actually slow, or people wouldn't have been writing thread-pools to make it look asynchrnous, or sometimes even process-pools to convert disk I/O to pipe I/O, for the last two decades.replyo11c 14 hours ago
+If we are doing a survey. I found a few more. It feels like we need to get everyone together in a room and say "we will let you out when you decide on a standard non-blocking address lookup" What a mess.
+- OpenBSD: getaddrinfo_async / asr_abort https://man.openbsd.org/asr_run
+- FreeBSD: dnsres_getaddrinfo / found no way to abort https://man.freebsd.org/cgi/man.cgi?query=dnsresreplywolletd 4 hours ago
 | parent | prev | next [–]
-On Linux you can do what you're asking with `getaddrinfo_a` + `gai_suspend`.As always, on non-Linux Unixen the answer is "screw you!"replysedatk 13 hours ago
+This information about `getaddrinfo_a` should probably also be in the Github issue?replyyardstick 17 hours ago
+| prev | next [–]
+It’s been decades, why doesn’t getaddrinfo have a standardised way to specify a timeout? Set a timeout to 10 seconds and life becomes a lot easier.Yes I know in Linux you can set the timeout in a config file.But really the dns setting should be configurable by the calling code. Some code requires fast lookups and doesn’t mind failing which, while others won’t mind waiting longer. It’s not a one size fits all thing.replyeklitzke 15 hours ago
+| parent | next [–]
+A few reasons, I think.The first is that getaddrinfo is specified by POSIX, and the POSIX evolve very conservatively and at a glacial pace.The second reason is that specifying a timeout breaks symmetry with a lot of other functions in Unix/C, both system calls and libc calls. For example, you can't specify a timeout when opening a file, reading from a file, or closing a file, which are all potentially blocking operations. There are ways to do these things in a non-blocking manner with timeouts using aio or io_uring, but those are already relatively complicated APIs for just using simple system calls, and getaddrinfo is much more complicated.The last reason is that if you use the sockets APIs directly it's not that hard to write a non-blocking DNS resolver (c-ares is one example). The thing is though that if you write your own resolver you have to consider how to do caching, it won't work with NSS on Linux, etc. You can implement these things (systemd-resolved does it, and works with NSS) but they are a lot of work to do properly.replyjstimpfle 6 hours ago
 | root | parent | next [–]
-Just wanted to note that Windows doesn't have that problem either. Even Windows NT had async getaddrinfo() variants.replythrowawayoogux 11 hours ago
+> For example, you can't specify a timeout when opening a file, reading from a file, or closing a file, which are all potentially blocking operations.No they're not. Not really, unless you consider disk access and interacting with the page cache/inode cache inside the kernel to be blocking. But if you do that, you should probably also consider scheduling and really any CPU instruction to be blocking. (If the system is too loaded, anything can be slow).To be fair, network requests can be considered non-blocking in a similar way, but they're depending on other systems that you generally can't control or inspect. In practice you'll see network timeouts. Note that you (at least normally -- there might be tricky exceptions) won't see EINTR from read() to a filesystem file. But you can see EINTR for network sockets. The difference is that, in Unix terminology, disks are not considered "slow devices".replyjcelerier 6 hours ago
+| root | parent | next [–]
+I'd consider "blocking" anything that given same inputs, state and cpu frequency, may take variable time. That means pretty much every system call and entering the system scheduler, doing something that leads to a page fault, etc. Pretty much only pure math in total functions and function calls to paged functions are acceptable.replyJoker_vD 5 hours ago
+| root | parent | next [–]
+Yeah... the sudden paging in also has been noted as a source of latency in the network-oriented software. But that's the problem with our current state of the APIs and their implementations: ideally, you'd have as many independent threads of executions as you want/need, and every time one of them initiates some "blocking" operation, it is quickly end efficiently scheduled, and another ready-to-run thread is switched in. Native threads don't give you that context-switching efficiency, and user-space threads can accidentally cause an underlying native thread block even on "read a non-local variable".replyJoker_vD 5 hours ago
 | root | parent | prev | next [–]
-OpenBSD has getaddrinfo_async since 5.6 (March 2014).replyBobbyTables2 12 hours ago
+> disks are not considered "slow devices".And neither are the tapes. But the pipes, apparently, are.Well, unfortunately, disk^H^H^H^H large persistent storage I/O is actually slow, or people wouldn't have been writing thread-pools to make it look asynchrnous, or sometimes even process-pools to convert disk I/O to pipe I/O, for the last two decades.replyo11c 16 hours ago
+| parent | prev | next [–]
+On Linux you can do what you're asking with `getaddrinfo_a` + `gai_suspend`.As always, on non-Linux Unixen the answer is "screw you!"replysedatk 15 hours ago
+| root | parent | next [–]
+Just wanted to note that Windows doesn't have that problem either. Even Windows NT had async getaddrinfo() variants.replythrowawayoogux 14 hours ago
+| root | parent | prev | next [–]
+OpenBSD has getaddrinfo_async since 5.6 (March 2014).replyBobbyTables2 14 hours ago
 | root | parent | prev | next [–]
 Wow, TIL !
-Thanks!replyasveikau 11 hours ago
+Thanks!replyasveikau 14 hours ago
 | parent | prev | next [–]
-I think getaddrinfo_a is cancellable, including the ability to block with a timeout. It is a glibc extension.replyokanat 13 hours ago
+I think getaddrinfo_a is cancellable, including the ability to block with a timeout. It is a glibc extension.replyokanat 16 hours ago
 | parent | prev | next [–]
-Just leave DNS out, are there any POSIX standard async functionality for networking or even normal IO? All I know by reading some libraries is epoll or io_uring used on Linux, kevent on BSDs.replycomex 12 hours ago
+Just leave DNS out, are there any POSIX standard async functionality for networking or even normal IO? All I know by reading some libraries is epoll or io_uring used on Linux, kevent on BSDs.replycomex 14 hours ago
 | root | parent | next [–]
 Yes for networking.
 You set your sockets into O_NONBLOCK mode and use poll() or select().
-These APIs are in POSIX and also have direct equivalents in Winsock.There is also POSIX AIO for async I/O on any file descriptor, but at least historically speaking it doesn't work properly on Linux.replyepcoa 7 hours ago
+These APIs are in POSIX and also have direct equivalents in Winsock.There is also POSIX AIO for async I/O on any file descriptor, but at least historically speaking it doesn't work properly on Linux.replyepcoa 9 hours ago
 | root | parent | next [–]
-POSIX AIO on “Linux” is implemented in glibc with userland threads using regular blocking syscalls behind the scenes. It basically works properly, it just doesn’t gain any potential efficiency benefits, it adds avoidable overhead, prone to priority inversion, etc. The linux kernel has no provision for POSIX AIO.Until io_uring the only asynchronous disk IO interface was the io_* syscalls, which were confusingly referred to as Asynchronous IO, though these have nothing to do with POSIX AIO and can only be used bypassing the page cache, and suck for general purpose use.replymort96 12 hours ago
+POSIX AIO on “Linux” is implemented in glibc with userland threads using regular blocking syscalls behind the scenes. It basically works properly, it just doesn’t gain any potential efficiency benefits, it adds avoidable overhead, prone to priority inversion, etc. The linux kernel has no provision for POSIX AIO.Until io_uring the only asynchronous disk IO interface was the io_* syscalls, which were confusingly referred to as Asynchronous IO, though these have nothing to do with POSIX AIO and can only be used bypassing the page cache, and suck for general purpose use.replymort96 14 hours ago
 | root | parent | prev | next [–]
-POSIX has poll for that.replyComputerGuru 15 hours ago
+POSIX has poll for that.replyComputerGuru 17 hours ago
 | parent | prev | next [–]
-I disagree, there are too many variables and ultimately the end user would be th one that knows best. The proper solution isn’t having the library or application dev, who has no idea what kind of network connection the user is running, the type of dns server (caching or not, lan or remote, etc) or the name servers of the target domain and their performance or availability. This is all really the domain of the sysadmin.The solution is to make it a properly non-blocking api.replyrwmj 16 hours ago
+I disagree, there are too many variables and ultimately the end user would be th one that knows best. The proper solution isn’t having the library or application dev, who has no idea what kind of network connection the user is running, the type of dns server (caching or not, lan or remote, etc) or the name servers of the target domain and their performance or availability. This is all really the domain of the sysadmin.The solution is to make it a properly non-blocking api.replyrwmj 18 hours ago
 | prev | next [–]
 Netscape used to start a new thread (or maybe it was a subprocess?) to handle DNS lookups, because the API at the time (gethostbyname) was blocking.
-It's kind of amazing that we're 30 years on and this is still a problem.replyjeroenhd 15 hours ago
+It's kind of amazing that we're 30 years on and this is still a problem.replyjeroenhd 17 hours ago
 | parent | next [–]
-getaddrinfo_a is available, but not widely adopted (*BSD and Linux), probably because you can't guarantee it'll be available on every computer/phone/modem. This is only an issue if you're targeting POSIX rather than modern operating systems.Windows 8 and above also have their own asynchronous DNS API on NON-POSIX land.replyArnavion 13 hours ago
+getaddrinfo_a is available, but not widely adopted (*BSD and Linux), probably because you can't guarantee it'll be available on every computer/phone/modem. This is only an issue if you're targeting POSIX rather than modern operating systems.Windows 8 and above also have their own asynchronous DNS API on NON-POSIX land.replyArnavion 15 hours ago
 | root | parent | next [–]
->getaddrinfo_a is available, but not widely adopted (*BSD and Linux), probably because you can't guarantee it'll be available on every computer/phone/modem. This is only an issue if you're targeting POSIX rather than modern operating systems.To be precise, even on Linux getaddrinfo_a is not guaranteed to be present. It's a glibc extension. musl doesn't have it.replyo11c 7 hours ago
+>getaddrinfo_a is available, but not widely adopted (*BSD and Linux), probably because you can't guarantee it'll be available on every computer/phone/modem. This is only an issue if you're targeting POSIX rather than modern operating systems.To be precise, even on Linux getaddrinfo_a is not guaranteed to be present. It's a glibc extension. musl doesn't have it.replyo11c 9 hours ago
 | root | parent | next [–]
-And MUSL's explicit policy of "do not implement essential features, just because the standards are falling behind" is a major reason why many programs choose to never support building against MUSL.replyrfl890 14 hours ago
+And MUSL's explicit policy of "do not implement essential features, just because the standards are falling behind" is a major reason why many programs choose to never support building against MUSL.replyrfl890 16 hours ago
 | root | parent | prev | next [–]
 >Windows 8 and above also have their own asynchronous DNS API on NON-POSIX land.
-Interesting. Which API?replypoizan42 14 hours ago
+Interesting. Which API?replypoizan42 16 hours ago
 | root | parent | next [–]
-GetAddrInfoEx[0] has async support support since Windows 8 - it had the overlapped parameters earlier but didn't support them. I'm guessing that is what GP is referring to.[0] https://learn.microsoft.com/en-us/windows/win32/api/ws2tcpip...replynly 16 hours ago
+GetAddrInfoEx[0] has async support support since Windows 8 - it had the overlapped parameters earlier but didn't support them. I'm guessing that is what GP is referring to.[0] https://learn.microsoft.com/en-us/windows/win32/api/ws2tcpip...replynly 18 hours ago
 | parent | prev | next [–]
 If you want DNS resolution to obey user/system preferences then you need to use the system provided
-APIreplyrwmj 16 hours ago
+APIreplyrwmj 18 hours ago
 | root | parent | next [–]
 For sure!
-The only problem is there should be a non-blocking system-provided API and there isn't.replyfoota 16 hours ago
+The only problem is there should be a non-blocking system-provided API and there isn't.replyfoota 18 hours ago
 | root | parent | next [–]
-System provided is maybe a strange word to use here since getaddrinfo is a libc function, not a system call.replyrwmj 15 hours ago
+System provided is maybe a strange word to use here since getaddrinfo is a libc function, not a system call.replyrwmj 18 hours ago
 | root | parent | next [–]
-POSIX as the system, of course.replyfroh 9 hours ago
+POSIX as the system, of course.replyfroh 12 hours ago
 | root | parent | prev | next [–]
 the system API is not syscalls but libc.
-so why does it feel strange?replytremon 14 hours ago
+so why does it feel strange?replytremon 16 hours ago
 | root | parent | prev | next [–]
-The system-provided API for getting DNS user/system preferences on Unix systems is to read /etc/resolv.conf. Every application is free to implement their own lookup from that.replydcrazy 13 hours ago
+The system-provided API for getting DNS user/system preferences on Unix systems is to read /etc/resolv.conf. Every application is free to implement their own lookup from that.replydcrazy 15 hours ago
 | root | parent | next [–]
-That is absolutely not the API on macOS, which is a certified UNIX.replySpivak 12 hours ago
+That is absolutely not the API on macOS, which is a certified UNIX.replySpivak 14 hours ago
 | root | parent | prev | next [–]
-This isn't even correct on Linux as it won't work if your user has anything other than or in addition to the dns module in their nsswitch.conf. You must use glibc's resolution on Linux for correct behavior. If it's software on your own systems then do what you want but you'll piss off some sysadmins deploying your software if you don't. Even Go farms out to cgo to resolve names if it detects modules it doesn't recognize.replySeattle3503 14 hours ago
+This isn't even correct on Linux as it won't work if your user has anything other than or in addition to the dns module in their nsswitch.conf. You must use glibc's resolution on Linux for correct behavior. If it's software on your own systems then do what you want but you'll piss off some sysadmins deploying your software if you don't. Even Go farms out to cgo to resolve names if it detects modules it doesn't recognize.replySeattle3503 16 hours ago
 | root | parent | prev | next [–]
-In this case it isn't in the kernel, but in glibc. Could someone implement an equivalent alternative? Do any language runtimes re-implement DNS resolution?replyNewJazz 14 hours ago
+In this case it isn't in the kernel, but in glibc. Could someone implement an equivalent alternative? Do any language runtimes re-implement DNS resolution?replyNewJazz 16 hours ago
 | root | parent | next [–]
-I think most languages use the OS api by default, but there are plenty of libraries out there that bypass the system resolution.replybradfitz 14 hours ago
+I think most languages use the OS api by default, but there are plenty of libraries out there that bypass the system resolution.replybradfitz 16 hours ago
 | root | parent | prev | next [–]
-Go does. And it supports timeouts and cancelation.replysilon42 16 hours ago
+Go does. And it supports timeouts and cancelation.replysilon42 18 hours ago
 | parent | prev | next [–]
-As long as broken APIs exist, they will be problematic... they really should be deprecated.Calling a separate (non-cancellable) thread to perform the lookup sounds a like viable solution...replypizlonator 16 hours ago
+As long as broken APIs exist, they will be problematic... they really should be deprecated.Calling a separate (non-cancellable) thread to perform the lookup sounds a like viable solution...replypizlonator 19 hours ago
 | prev | next [–]
-At first I wondered if musl does it better, so I checked, and the version I have disables cancellation in the guts of `getaddrinfo`.I've always thought APIs like `pthread_cancel` are too nasty to use. Glad to see well documented evidence of my crank opinionreplypengaru 15 hours ago
+At first I wondered if musl does it better, so I checked, and the version I have disables cancellation in the guts of `getaddrinfo`.I've always thought APIs like `pthread_cancel` are too nasty to use. Glad to see well documented evidence of my crank opinionreplypengaru 17 hours ago
 | parent | next [–]
 The asynchronous cancellation in particular is difficult to use correctly, but is also one of the most useful aspects of the api in situations where appropriate.Imagine cpu-bound worker threads that do nothing but consume work via condition variables and spend long periods of time in hot compute-only loops working on said work...
 Instead of adding a conditional in the compute you're probably not interested in slowing down at all, you turn on async cancellation and pthread_cancel() the workers when you need to interrupt what's going on.But it's worth noting pthread_cancel() is also rarely supported anywhere outside first-class pthreads-capable systems like modern linux.
 So if you have any intention of running elsewhere, forget about it.
-Thread cancellation support in general is actually somewhat rare IME.replyepcoa 14 hours ago
+Thread cancellation support in general is actually somewhat rare IME.replyepcoa 16 hours ago
 | root | parent | next [–]
-> But it's worth noting pthread_cancel() is also rarely supported anywhere outside first-class pthreads-capable systems like modern linuxHaving written some of the implementation for a non x86 commercial Unix well over 30 years ago now (yeah, I know), pthread_cancel is not that rare. A carve out like “modern linux” is io_uring or even inotify and epoll. AIX and HP-UX, fuck even OSF/1 had pthread_cancel.Windows has TerminateThread. Most RTOS have some kind of thread level task killing interface.While they have different semantics than pthread_cancel, that doesn’t really affect the example you’re giving - they can all be used for the “cpu-bound worker”replylll-o-lll 13 hours ago
+> But it's worth noting pthread_cancel() is also rarely supported anywhere outside first-class pthreads-capable systems like modern linuxHaving written some of the implementation for a non x86 commercial Unix well over 30 years ago now (yeah, I know), pthread_cancel is not that rare. A carve out like “modern linux” is io_uring or even inotify and epoll. AIX and HP-UX, fuck even OSF/1 had pthread_cancel.Windows has TerminateThread. Most RTOS have some kind of thread level task killing interface.While they have different semantics than pthread_cancel, that doesn’t really affect the example you’re giving - they can all be used for the “cpu-bound worker”replylll-o-lll 15 hours ago
 | root | parent | next [–]
-I’m not familiar with pthread_cancel, but I am with TerminateThread. It’s not something that can be used safely: ever. Raymond Chen has written a few times about it, including the history.> Originally, there was no Terminate­Thread function. The original designers felt strongly that no such function should exist because there was no safe way to terminate a thread, and there’s no point having a function that cannot be called safely. But people screamed that they needed the Terminate­Thread function, even though it wasn’t safe, so the operating system designers caved and added the function because people demanded it. Of course, those people who insisted that they needed Terminate­Thread now regret having been given it.replypizlonator 14 hours ago
+I’m not familiar with pthread_cancel, but I am with TerminateThread. It’s not something that can be used safely: ever. Raymond Chen has written a few times about it, including the history.> Originally, there was no Terminate­Thread function. The original designers felt strongly that no such function should exist because there was no safe way to terminate a thread, and there’s no point having a function that cannot be called safely. But people screamed that they needed the Terminate­Thread function, even though it wasn’t safe, so the operating system designers caved and added the function because people demanded it. Of course, those people who insisted that they needed Terminate­Thread now regret having been given it.replypizlonator 16 hours ago
 | root | parent | prev | next [–]
-pthreads has `pthread_kill`, which is like `TerminateThread`.`pthread_cancel` is differentreplysthustfo 6 hours ago
-| root | parent | prev | next [–]
-asynchronous cancellation (when compared to deferred) is only recommended in scenarios where the thread does not share any data, semaphore or conditional variables with other threads. The target thread tends to cleanup any data within the thread cleanup handlers via pthread_cleanup_pop(). If not, the entire application might end up going down. Async cancellation has a very narrow application scope imho.replyhedora 13 hours ago
+pthreads has `pthread_kill`, which is like `TerminateThread`.`pthread_cancel` is differentreplyhedora 15 hours ago
 | root | parent | prev | next [–]
 Assuming it’s OK to take 10msec to cancel, that conditional can be a well-predicted branch and a read of a cached memory address every 10msec.
 On a 1GHz processor,
 that’s a one cycle instruction that’s run every 10 million cycles.
-Unless the conditional or the cached read is the straw that breaks the back of the cache, there’s no way it’ll be measurable.replyachierius 8 hours ago
+Unless the conditional or the cached read is the straw that breaks the back of the cache, there’s no way it’ll be measurable.replyachierius 10 hours ago
 | root | parent | next [–]
-How do you insert a branch "every 10ms" without some sort of hardware-provided interrupt?If your code is running in a hot loop, you would have to insert that branch into the hot loop (even well-predicted branches add a few cycles, and can do things like break up decode groups) or have the hot loop bail out every once in a while to go execute the branch and code, which would mean tiling your interior hot loop and thus adding probably significant overhead that way.Also, you say "cached memory address" but I can almost guarantee that unless you're doing that load a lot more frequently than once every 10 milliseconds the inner loop is going to knock that address out of l1 and probably l2 by the time you get back around to it.replycomex 15 hours ago
+How do you insert a branch "every 10ms" without some sort of hardware-provided interrupt?If your code is running in a hot loop, you would have to insert that branch into the hot loop (even well-predicted branches add a few cycles, and can do things like break up decode groups) or have the hot loop bail out every once in a while to go execute the branch and code, which would mean tiling your interior hot loop and thus adding probably significant overhead that way.Also, you say "cached memory address" but I can almost guarantee that unless you're doing that load a lot more frequently than once every 10 milliseconds the inner loop is going to knock that address out of l1 and probably l2 by the time you get back around to it.replysthustfo 8 hours ago
+| root | parent | prev | next [–]
+asynchronous cancellation (when compared to deferred) is only recommended in scenarios where the thread does not share any data, semaphore or conditional variables with other threads. The target thread tends to cleanup any data within the thread cleanup handlers via pthread_cleanup_pop(). If not, the entire application might end up going down. Async cancellation has a very narrow application scope imho.replycomex 17 hours ago
 | prev | next [–]
 pthread_cancel is not a good design because it operates entirely separately from normal mechanisms of error handling and unwinding.
 (That is, if you’re using C.
@@ -129,101 +133,103 @@ Once everything is unwound, the “interrupted” flag is cleared and the origin
 The difference is because userspace generally doesn’t want to abort operations upon receiving EINTR, and because from userspace’s perspective there’s no persistent flag.)pthread_cancel could have been designed the same way: cancellation points return an error code rather than forcibly unwinding.
 Admittedly, this system might not work quite as well in userspace as it does in kernels.
 Kernel code already needs to be scrupulous about proper error handling, whereas userspace code often just aborts if a syscall fails.
-Still, the system would work fine for well-written userspace code, which is more than can be said for pthread_cancel.replyalbertzeyer 15 hours ago
+Still, the system would work fine for well-written userspace code, which is more than can be said for pthread_cancel.replywhatifitoldyou 41 minutes ago
 | prev | next [–]
-Why not use getaddrinfo_a / getaddrinfo_async_start / GetAddrInfoExW?Or just use some standalone DNS resolve code or library (which basically replicates getaddrinfo but supports this in an async way)?See also here the discussion: https://github.com/crystal-lang/crystal/issues/13619replyeliaspro 14 hours ago
+pthread_cancel is never the answer. Abrupt thread cancelation is always a risk for leaks and/or even worse, deadlocks. No matter of it was blocked in one libc function. The function is not one instruction you don't know what the poor thread was doing when it was killed.replyalbertzeyer 17 hours ago
+| prev | next [–]
+Why not use getaddrinfo_a / getaddrinfo_async_start / GetAddrInfoExW?Or just use some standalone DNS resolve code or library (which basically replicates getaddrinfo but supports this in an async way)?See also here the discussion: https://github.com/crystal-lang/crystal/issues/13619replyeliaspro 17 hours ago
 | parent | next [–]
-A standalone library would have to work with all the existing system facilities (e.g. NSS on Linux systems) to be not restricted to just resolv.conf entries, but to allow for all the various other methods of resolving names.replyflopsamjetsam 13 hours ago
+A standalone library would have to work with all the existing system facilities (e.g. NSS on Linux systems) to be not restricted to just resolv.conf entries, but to allow for all the various other methods of resolving names.replyflopsamjetsam 16 hours ago
 | root | parent | next [–]
-libcurl's c-ares support would fit the bill?replyjuliangmp 2 hours ago
+libcurl's c-ares support would fit the bill?replypajko 13 hours ago
 | prev | next [–]
-I feel like the entire pthread_cancel and cancellation point feature is only really useful when your application is exiting and resource management doesn't matter anymore. If you want to use it on a long running process, the thread that gets canceled must effectively be completely free of any resource allocation....Unless of course you're making use of shared memory between processes, then you could still leak even when the entire process is shut down.replypajko 11 hours ago
+This is clearly an implementation error in getaddrinfo(). It should set up cleanup functions: https://man7.org/linux/man-pages/man3/pthread_cleanup_push.3...replyjuliangmp 4 hours ago
 | prev | next [–]
-This is clearly an implementation error in getaddrinfo(). It should set up cleanup functions: https://man7.org/linux/man-pages/man3/pthread_cleanup_push.3...replysenderista 7 hours ago
+I feel like the entire pthread_cancel and cancellation point feature is only really useful when your application is exiting and resource management doesn't matter anymore. If you want to use it on a long running process, the thread that gets canceled must effectively be completely free of any resource allocation....Unless of course you're making use of shared memory between processes, then you could still leak even when the entire process is shut down.replysenderista 9 hours ago
 | prev | next [–]
-Relevant for Linux: https://www.imperialviolet.org/2005/06/01/asynchronous-dns-l...replyhacker_homie 10 hours ago
+Relevant for Linux: https://www.imperialviolet.org/2005/06/01/asynchronous-dns-l...replyhacker_homie 13 hours ago
 | prev | next [–]
 what's old is new again, I loved java in the early 2000's trying to remotely stop a threadThread.destroy()
 Thread.stop()
-Thread.suspend()so much potential for corrupted state.replyrurban 3 hours ago
+Thread.suspend()so much potential for corrupted state.replyenva2712 7 hours ago
 | prev | next [–]
-Just use c-ares. Threads with signals are evilreplyenva2712 5 hours ago
+i’ve run into this issue with pthread_cancelit makes cleanup logic convoluted when you can’t easily pthread_cleanup_push, forcing you to either block on the join or signal cancellation and detachreplyrurban 5 hours ago
 | prev | next [–]
-i’ve run into this issue with pthread_cancelit makes cleanup logic convoluted when you can’t easily pthread_cleanup_push, forcing you to either block on the join or signal cancellation and detachreplyAardwolf 16 hours ago
+Just use c-ares. Threads with signals are evilreplyAardwolf 18 hours ago
 | prev | next [–]
-Maybe this is naive, but could there just be some amount of worker threads that run forever, wait for and take jobs when needed, and message when the jobs are done? Don't need to be canceled, don't blockreplydanappelxx 15 hours ago
+Maybe this is naive, but could there just be some amount of worker threads that run forever, wait for and take jobs when needed, and message when the jobs are done? Don't need to be canceled, don't blockreplydanappelxx 18 hours ago
 | parent | next [–]
-If the DNS resolution call blocks the thread, then you need N worker threads to perform N DNS calls. Threads aren’t free, so this is suboptimal. OTOH some thread pools e.g. libdispatch on Apple operating systems will spawn new threads on demand to prevent starvation, so this _can_ be viable. Though of course this can lead to thread explosion which may be even more problematic depending on the use case. In libcurl’s situation, spawning a million threads is probably even worse than a memory leak, which is worse than long timeouts.In general, what you really want is for the API call to be nonblocking so you’re not forced to burn a thread.replyvariadix 12 hours ago
+If the DNS resolution call blocks the thread, then you need N worker threads to perform N DNS calls. Threads aren’t free, so this is suboptimal. OTOH some thread pools e.g. libdispatch on Apple operating systems will spawn new threads on demand to prevent starvation, so this _can_ be viable. Though of course this can lead to thread explosion which may be even more problematic depending on the use case. In libcurl’s situation, spawning a million threads is probably even worse than a memory leak, which is worse than long timeouts.In general, what you really want is for the API call to be nonblocking so you’re not forced to burn a thread.replyvariadix 14 hours ago
 | parent | prev | next [–]
-Yeah, I’m not sure I see the problem (other than that threads are more expensive than e.g. file descriptors, but this is a moot point without a better API). You define how many requests in flight you want to allow and that sets the cap on how many worker threads you spawn/use, you could also support an unbounded number in flight this way by lazily spawning worker threads per requests. Cancellation/kill interfaces for multithreading are pretty much always a footgun. Even for multiprocessing on modern machines, if you’re doing something non-trivial and decide to use SIGKILL to terminate a worker process, it’s easy to leave e.g. file system resources in a bad state.replyComputerGuru 15 hours ago
+Yeah, I’m not sure I see the problem (other than that threads are more expensive than e.g. file descriptors, but this is a moot point without a better API). You define how many requests in flight you want to allow and that sets the cap on how many worker threads you spawn/use, you could also support an unbounded number in flight this way by lazily spawning worker threads per requests. Cancellation/kill interfaces for multithreading are pretty much always a footgun. Even for multiprocessing on modern machines, if you’re doing something non-trivial and decide to use SIGKILL to terminate a worker process, it’s easy to leave e.g. file system resources in a bad state.replyComputerGuru 17 hours ago
 | parent | prev | next [–]
-This is, essentially, what the previous (largely pathetic) excuse for true asynchronous I/O on Linux did with the libc aio(7) interface to essentially fake support for truly asynchronous file IO. It wasn’t great.replySomeone 15 hours ago
+This is, essentially, what the previous (largely pathetic) excuse for true asynchronous I/O on Linux did with the libc aio(7) interface to essentially fake support for truly asynchronous file IO. It wasn’t great.replySomeone 18 hours ago
 | prev | next [–]
-> Then it needs to sort them if there is more than one address. And in order to do that it needs to read /etc/gai.confI don’t see why glibc would have to do that inside a call to getaddrinfo. can’t it do that once at library initialization? If it has to react to changes to that file while a process is running, couldn’t it have a separate thread for polling that file for changes, or use inotify for a separate thread to be called when it changes? Swapping in the new config atomically might be problematic, but I would think that is solvable.Even ignoring the issue mentioned it seems wasteful to open, parse, and close that file repeatedly.replyloeg 15 hours ago
+> Then it needs to sort them if there is more than one address. And in order to do that it needs to read /etc/gai.confI don’t see why glibc would have to do that inside a call to getaddrinfo. can’t it do that once at library initialization? If it has to react to changes to that file while a process is running, couldn’t it have a separate thread for polling that file for changes, or use inotify for a separate thread to be called when it changes? Swapping in the new config atomically might be problematic, but I would think that is solvable.Even ignoring the issue mentioned it seems wasteful to open, parse, and close that file repeatedly.replyloeg 17 hours ago
 | parent | next [–]
 I think the libc people might argue this level of functionality is just outside the scope of libc.
-(Arguably, it is a mistake for DNS to be part of libc, given how complicated it is.)replyComputerGuru 15 hours ago
+(Arguably, it is a mistake for DNS to be part of libc, given how complicated it is.)replyComputerGuru 17 hours ago
 | root | parent | next [–]
-To be sure, complexity isn’t the determinator for whether something is or isn’t in scope for libc though.replyloeg 8 hours ago
+To be sure, complexity isn’t the determinator for whether something is or isn’t in scope for libc though.replyloeg 10 hours ago
 | root | parent | next [–]
-Historically libcs have been leery of imposing threading on otherwise singlethreaded applications; and for similar reasons, try to minimize startup costs.replycesarb 13 hours ago
+Historically libcs have been leery of imposing threading on otherwise singlethreaded applications; and for similar reasons, try to minimize startup costs.replycesarb 15 hours ago
 | parent | prev | next [–]
-> I don’t see why glibc would have to do that inside a call to getaddrinfo. can’t it do that once at library initialization?If it were a library dedicated to DNS, sure, but glibc is used by nearly every process in the system, including many which will never call getaddrinfo.replyNewJazz 14 hours ago
+> I don’t see why glibc would have to do that inside a call to getaddrinfo. can’t it do that once at library initialization?If it were a library dedicated to DNS, sure, but glibc is used by nearly every process in the system, including many which will never call getaddrinfo.replyNewJazz 16 hours ago
 | parent | prev | next [–]
-You want libc to start a thread whenever it is loaded?replySomeone 4 hours ago
+You want libc to start a thread whenever it is loaded?replySomeone 6 hours ago
 | root | parent | next [–]
-If it’s the only alternative to being broken: yes.It could read and parse the file the first time a thread gets created, too.A cheaper alternative is to check the modification time of the config file, and only reparse it in pthread_cancel when that changes. That doesn’t 10% fix the problem in theory, but would do it in practice.replyjart 15 hours ago
+If it’s the only alternative to being broken: yes.It could read and parse the file the first time a thread gets created, too.A cheaper alternative is to check the modification time of the config file, and only reparse it in pthread_cancel when that changes. That doesn’t 10% fix the problem in theory, but would do it in practice.replyjart 17 hours ago
 | prev | next [–]
-Why can't they help fix the C library in question? Cancelation is really tricky to implement for the C library author. It's one of those concepts that, like fork, has implications that pervade everything. Please give your C library maintainers a little leeway if they get cancelation wrong. Especially if it's just a memory leak.replyRedShift1 15 hours ago
+Why can't they help fix the C library in question? Cancelation is really tricky to implement for the C library author. It's one of those concepts that, like fork, has implications that pervade everything. Please give your C library maintainers a little leeway if they get cancelation wrong. Especially if it's just a memory leak.replyRedShift1 17 hours ago
 | parent | next [–]
-I'm betting this code is so old and its behavior so ingrained everywhere else that nobody dares touching it.replyjart 9 hours ago
+I'm betting this code is so old and its behavior so ingrained everywhere else that nobody dares touching it.replyjart 12 hours ago
 | root | parent | next [–]
-No it sounds like they just need to add a pthread_cleanup_push() call somewhere in the getaddrinfo() implementation.C libraries are not black magic. Nor are they holy code. We needn't fear them. It's the simplest part of the software stack.replynly 16 hours ago
+No it sounds like they just need to add a pthread_cleanup_push() call somewhere in the getaddrinfo() implementation.C libraries are not black magic. Nor are they holy code. We needn't fear them. It's the simplest part of the software stack.replynly 18 hours ago
 | prev | next [–]
-Why is running the DNS resolution thread a problem? It should be dequeuing resolution requests and pushing responses and sleeping when there is nothing to doWhen someone kills off the curl context surely you simply set a suicide flag on the thread and wake it up so it can be joined.replyfoota 16 hours ago
+Why is running the DNS resolution thread a problem? It should be dequeuing resolution requests and pushing responses and sleeping when there is nothing to doWhen someone kills off the curl context surely you simply set a suicide flag on the thread and wake it up so it can be joined.replyfoota 18 hours ago
 | parent | next [–]
-The thread started sounds like it's single use, not a thread handling requests in a loop. Anyway, a single thread handling requests in a loop would serialize these DNS lookups which if they're hanging would be problematic.replyloeg 15 hours ago
+The thread started sounds like it's single use, not a thread handling requests in a loop. Anyway, a single thread handling requests in a loop would serialize these DNS lookups which if they're hanging would be problematic.replyloeg 17 hours ago
 | root | parent | next [–]
 Yes, but why?
-As GP notes, the thread doesn't have to be single-use.replyrwmj 16 hours ago
+As GP notes, the thread doesn't have to be single-use.replyrwmj 18 hours ago
 | parent | prev | next [–]
-One problem may be that fork() kills background threads, so now any program that uses libcurl + fork has to have a new API to restart the DNS thread (or use posix_atfork which is a big PITA), and that might break existing programs using curl.replyComputerGuru 15 hours ago
+One problem may be that fork() kills background threads, so now any program that uses libcurl + fork has to have a new API to restart the DNS thread (or use posix_atfork which is a big PITA), and that might break existing programs using curl.replyComputerGuru 17 hours ago
 | root | parent | next [–]
-It’s not too much of an exaggeration to say that everything about using fork() instead of vfork() plus exec() is essentially fundamentally broken in modern osdev without a whole stack of hacks to try and patch individual issues one-by-one.replyEPWN3D 10 hours ago
+It’s not too much of an exaggeration to say that everything about using fork() instead of vfork() plus exec() is essentially fundamentally broken in modern osdev without a whole stack of hacks to try and patch individual issues one-by-one.replyEPWN3D 12 hours ago
 | root | parent | next [–]
-It's not an exaggeration in any sense. fork(2) basically cannot be done correctly in modern userspace stacks.replyloeg 15 hours ago
+It's not an exaggeration in any sense. fork(2) basically cannot be done correctly in modern userspace stacks.replyloeg 17 hours ago
 | root | parent | prev | next [–]
-A surmountable problem, sure.replyrwmj 15 hours ago
+A surmountable problem, sure.replyrwmj 17 hours ago
 | root | parent | next [–]
 Sometimes.
 To give one counterexample, golang doesn't have a way to restart the threads it uses for I/O (apparently a decision the golang developers made), so if you're embedding golang code in another binary, it better not call fork.
-(The reason for this warning: https://gitlab.com/nbdkit/nbdkit/-/commit/2589e6da40939af9ae...)replyloeg 8 hours ago
+(The reason for this warning: https://gitlab.com/nbdkit/nbdkit/-/commit/2589e6da40939af9ae...)replyloeg 10 hours ago
 | root | parent | next [–]
 This is a policy choice of Golang, but a C library like Curl (the topic of this thread) is not constrained by the policy choices of the Go developers.
-Curl could use MADV_WIPEONFORK or other primitives to restart its DNS thread automatically.replycharcircuit 11 hours ago
+Curl could use MADV_WIPEONFORK or other primitives to restart its DNS thread automatically.replycharcircuit 13 hours ago
 | prev | next [–]
-Why isn't DNS in a service on the operating system instead of libc? You'll want requests to be locally cache anyways. This also makes it easier to just abandon a RPC instead of stopping a thread you don't control.replycesarb 11 hours ago
+Why isn't DNS in a service on the operating system instead of libc? You'll want requests to be locally cache anyways. This also makes it easier to just abandon a RPC instead of stopping a thread you don't control.replycesarb 13 hours ago
 | parent | next [–]
-> Why isn't DNS in a service on the operating system instead of libc?On modern Linux systems, it is: systemd-resolved (https://www.freedesktop.org/software/systemd/man/latest/syst...) is a system service which can be queried through RPC (using dbus or varlink), through the traditional glibc APIs (using a NSS plugin), or even by being queried on the loopback interface as if it were a normal recursive DNS server (for compatibility with software which bypasses glibc and does direct DNS queries).replykelnos 7 hours ago
+> Why isn't DNS in a service on the operating system instead of libc?On modern Linux systems, it is: systemd-resolved (https://www.freedesktop.org/software/systemd/man/latest/syst...) is a system service which can be queried through RPC (using dbus or varlink), through the traditional glibc APIs (using a NSS plugin), or even by being queried on the loopback interface as if it were a normal recursive DNS server (for compatibility with software which bypasses glibc and does direct DNS queries).replykelnos 9 hours ago
 | root | parent | next [–]
 Not sure how standard that is, though.
-E.g. on Debian systemd-resolved isn't even installed by default, let alone enabled and set up as the default resolver.replycharcircuit 8 hours ago
+E.g. on Debian systemd-resolved isn't even installed by default, let alone enabled and set up as the default resolver.replycharcircuit 10 hours ago
 | root | parent | prev | next [–]
-Well from the blogpost it looks like calling it via glibc does extra work than just querying the service.replygary_0 15 hours ago
+Well from the blogpost it looks like calling it via glibc does extra work than just querying the service.replygary_0 17 hours ago
 | prev | next [–]
-[deleted]replyokl 15 hours ago
+[deleted]replyokl 17 hours ago
 | parent | next [–]
-https://c-ares.org/replythrowaway81523 16 hours ago
+https://c-ares.org/replythrowaway81523 18 hours ago
 | prev [–]
 There might be a way to getaddrinfo asynchronously with io_uring by now.
 Otherwise just call the synchronous version in another thread and let it time out so the thread exits normally, right?
-Why bother with pthread_cancel?replygary_0 15 hours ago
+Why bother with pthread_cancel?replyyxhuvud 17 hours ago
 | parent | next [–]
-The problem is that the standard library function is specified to be blocking (and it's in userspace, so io_uring is not relevant). It's quite possible to do a non-blocking DNS lookup but you have to use a separate non-standard library (like c-ares).replyyxhuvud 15 hours ago
+No. Getaddrinfo is libc, not the kernel. It is of course possible, but complicated, to implement dns resolution with io_uring, but making it behave the same as glibc is very much a nontrivial piece of work.replygary_0 17 hours ago
 | parent | prev | next [–]
-No. Getaddrinfo is libc, not the kernel. It is of course possible, but complicated, to implement dns resolution with io_uring, but making it behave the same as glibc is very much a nontrivial piece of work.replyloeg 15 hours ago
+The problem is that the standard library function is specified to be blocking (and it's in userspace, so io_uring is not relevant). It's quite possible to do a non-blocking DNS lookup but you have to use a separate non-standard library (like c-ares).replyloeg 17 hours ago
 | parent | prev | next [–]
-io_uring is for calling kernel APIs; this is a userspace API.reply1over137 15 hours ago
+io_uring is for calling kernel APIs; this is a userspace API.reply1over137 17 hours ago
 | parent | prev [–]
 io_uring is a linux-ism, curl is cross-platform.reply
 Guidelines | FAQ | Lists | API | Security | Legal | Apply to YC | Contact

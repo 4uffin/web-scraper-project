@@ -1,0 +1,653 @@
+Teaching AI to Blog: My Journey into Agentic AI Development — Part 1 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Jimmy
+Posted on Sep 14
+Teaching AI to Blog: My Journey into Agentic AI Development — Part 1
+#python
+#langgraph
+#ai
+#agentic
+Recently, I embarked on my journey of learning agentic AI development, searching for an engaging project to kickstart my learning. As a veteran Java backend developer for decades, working with agentic AI solutions using Python and LLMs feels quite refreshing to me.
+When considering multi-agent scenarios, one of the classic examples is having a dedicated agent for web searching, another agent to draft a blog post based on that information, and perhaps a third to polish the final result.
+What, another agentic blog writing application? Again?
+I get it — on the surface, it might sound uninspired. But for me, mastering the basics is key. Documenting my entire learning process is even more important. These foundational steps are crucial if I want to tackle more complex challenges down the road, like maintaining context memory or building human-in-the-loop systems. My goal is to make this journey a bit more interesting than the usual tutorials out there.
+Speaking of blogging, I actually ran a WordPress blog before, mostly writing about photography — especially candid street photography. I always had a wealth of ideas and topics I wanted to explore, but finding the right tone and style for each post was a constant challenge. Sometimes I wanted a lighthearted, humorous voice; other times, I aimed for a storytelling approach tied to a specific photographic theme. More often than not, though, I ended up writing generic articles that failed to leave a lasting impression on my readers.
+For this project, I’ll focus on automating the creation of photography-related blog posts. Of course, the same approach can easily be adapted for generating different types of content. My hope is that, by sharing my progress, others can learn from both my successes and missteps along the way.
+What does this application require?
+Let’s dive into the high-level vision for this application. Here’s what I want it to do:
+Automatically perform web searches for any topic I provide.
+Generate complete blog posts using the information gathered from those searches.
+Allow users to customize the editing style of the resulting blog post.
+Create relevant images to accompany the article, ensuring they match the chosen style.
+Given these goals, a robust agentic AI solution will need several core components:
+A web-searching agent to gather up-to-date information on the selected topic.
+A writer agent responsible for drafting the blog post based on the search results.
+An editor agent to apply the final stylistic touches and ensure the post fits the desired tone.
+Supporting these agents, I’ll also need:
+A web search tool to fetch real-time information.
+An image generation tool to create visuals tailored to the article’s content and style.
+To make everything accessible and user-friendly, I plan to build an elegant user interface that streamlines the workflow.
+For orchestrating the entire process, I’ll use LangGraph as the coordination backbone. This will connect the different agent nodes in a seamless pipeline, ensuring each step flows smoothly into the next.
+The "research", "write", and "edit" stages will each be powered by LLM-based agent nodes. Meanwhile, "web_search" and "image_generation" will function as specialized tool nodes within the system.
+To connect these nodes, we’ll need to define the appropriate edges in our workflow graph. For tool nodes, we must also create conditional edges using custom routing functions — these ensure that each tool is triggered under the right circumstances.
+Once all nodes and edges are defined, the entire graph must be compiled using the graph builder. This step is essential for making the workflow available to the frontend, so users can execute the process seamlessly.
+Now, let’s dive into the code!
+Charting the course
+Each agent node in this application is powered by a large language model (LLM). Specifically, we have three LLM nodes: “researcher”, “writer”, and “editor”. All three use the same Azure OpenAI model — gpt-4o — so I’ve consolidated their shared logic into a common BaseLLM class. This approach keeps the codebase clean, maintainable, and easy to extend as the project evolves.
+from agents.base_agent import BaseLlm
+class ResearcherLlm(BaseLlm):
+def __init__(self, prompt_path='prompts/researcher.txt'):
+super().__init__(prompt_path)
+Enter fullscreen mode
+Exit fullscreen mode
+class BaseLlm:
+"""Base class for all agents with standardized functionality."""
+def __init__(self, prompt_path: str):
+"""
+Initialize the agent with a prompt template.
+Args:
+prompt_path: Path to the prompt template file
+"""
+os.environ["AZURE_OPENAI_API_KEY"] = AZURE_OPENAI_API_KEY
+os.environ["AZURE_OPENAI_ENDPOINT"] = AZURE_OPENAI_ENDPOINT
+os.environ["OPENAI_API_VERSION"] = "2024-12-01-preview"
+os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"] = "gpt-4o"
+self.llm = init_chat_model(model_provider="azure_openai", model=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"])
+self.prompt_template = load_prompt(prompt_path)
+Enter fullscreen mode
+Exit fullscreen mode
+LangGraph offers several ways to initialize LLM objects. Typically, you can use either the create_react_agent method or the more general init_chat_model method. When you use create_react_agent, the resulting LLM object automatically handles routing to the tool node whenever a "tool_calls" message is detected—there’s no need to manually set up a conditional edge.
+However, for greater flexibility and control, I’ve chosen to explicitly define conditional edges to trigger tool usage (I’ll cover the details of this setup a bit later).
+Each agent’s behavior is driven by its own prompt, which I keep in a dedicated prompt file for clarity and easy updates. For example, here’s what the prompt for the research agent looks like:
+You are a professional research assistant. Your task is to conduct thorough research on the following topic:
+Topic: {topic}
+***IMPORTANT**
+- You MUST use the tools available to do web searching for all research.
+- NEVER answer from your own knowledge. Always use the search tool for up-to-date information.
+Instructions:
+- Use the available search tools to gather comprehensive information about the topic.
+- Perform multiple searches if needed to collect sufficient data.
+- After gathering information, provide a comprehensive research summary.
+Your research summary should include:
+- **Key Facts**: Core information about the topic
+- **Recent Developments**: Latest updates or trends
+- **Controversies**: Any debates or unresolved issues
+- **Sources**: Cite where information came from
+Organize your findings in clear bullet points or sections. Be thorough and comprehensive in your research.
+Begin your research summary below:
+Enter fullscreen mode
+Exit fullscreen mode
+For the researcher agent, it’s crucial to specify in the prompt that the agent MUST use the available web search tools for research and should NEVER rely on its own built-in knowledge. One key lesson I’ve learned: your prompt needs to be very clear and direct if you want the LLM to use tools reliably. Simply binding tools and setting up a conditional edge won’t guarantee tool usage — ultimately, the LLM decides whether or not to call a tool based on its interpretation of the prompt.
+To define a tools node, you’ll need to create a list of tools and explicitly bind them to the agent:
+def build_workflow(editor_style: str = "General", enable_image_generation: bool = True):
+# Create agents
+research_llm = ResearcherLlm()
+search_tools = get_search_tools()
+# Use the new bind_tools method for cleaner syntax
+research_llm.bind_tools(search_tools)
+.......
+Enter fullscreen mode
+Exit fullscreen mode
+def get_search_tools():
+tavily_search_tool = _get_tavily_search_tool()
+tools = [tavily_search_tool]
+return tools
+def _get_tavily_search_tool():
+return TavilySearch(
+max_results=10,
+tavily_api_key=PROD_TAVILY_API_KEY,
+description="Search the web for current information about topics. Use this to gather comprehensive research data, recent developments, statistics, and factual information. Provide specific search queries to get the most relevant results."
+)
+Enter fullscreen mode
+Exit fullscreen mode
+LangChain makes it easy to add web search capabilities to your agents using Tavily. With a single API — TavilySearch()—you can instantly enable web searching for your application.
+One important tip: always provide a clear and descriptive explanation for each tool. The LLM relies on these descriptions to determine whether a tool is appropriate for the current task.
+After you’ve created your list of tools, don’t forget to bind them to the LLM. (A word of caution: I didn’t realize that bind_tools() returns a callable — it took me 3 hours to troubleshoot that 😅)
+def bind_tools(self, tools):
+"""
+Bind tools to the LLM and return self for method chaining.
+Args:
+tools: List of tools to bind to the LLM
+Returns:
+self: Returns the instance for method chaining
+"""
+self.llm = self.llm.bind_tools(tools)
+return self
+Enter fullscreen mode
+Exit fullscreen mode
+Following a similar approach to the research LLM, I created the writer LLM and editor LLM as well, and bound the image tools to the editor LLM.
+def build_workflow(editor_style: str = "General", enable_image_generation: bool = True):
+# Create agents
+research_llm = ResearcherLlm()
+search_tools = get_search_tools()
+# Use the new bind_tools method for cleaner syntax
+research_llm.bind_tools(search_tools)
+writer_llm = WriterLlm()
+editor_llm = EditorLlm()
+# Bind image generation tools to editor if enabled
+if enable_image_generation:
+image_tools = get_image_generation_tools()
+editor_llm.bind_tools(image_tools)
+Enter fullscreen mode
+Exit fullscreen mode
+For the image generation component, I deployed a DALL-E 3 model on Azure to handle all image creation tasks (though, to be honest, I actually prefer Google’s Imagen 4 for generating images!). Here’s how I integrated it:
+import logging
+from typing import List, Dict, Any
+from langchain_core.tools import Tool
+from openai import AzureOpenAI
+from llm.azure_secrets import AZURE_DALL_E_3_ENDPOINT, AZURE_DALL_E_3_API_KEY
+logger = logging.getLogger(__name__)
+# You can use OpenAI's DALL-E, Stability AI, or any other image generation API
+def generate_article_image(prompt: str, style: str = "photorealistic") -> Dict[str, Any]:
+"""
+Generate an image based on the prompt for the article using Azure OpenAI DALL-E 3.
+Args:
+prompt: Description of the image to generate
+style: Style of the image (photorealistic, illustration, cartoon, etc.)
+Returns:
+Dict containing image URL or base64 data
+"""
+try:
+# Initialize Azure OpenAI client for dall-e-3
+client = AzureOpenAI(
+api_key=AZURE_DALL_E_3_API_KEY,
+azure_endpoint=AZURE_DALL_E_3_ENDPOINT,
+azure_deployment='dall-e-3'
+)
+# Enhance prompt with style
+enhanced_prompt = f"{prompt}, {style} style"
+logger.info(f"Generating image with prompt: {enhanced_prompt[:100]}...")
+# Generate image using DALL-E 3
+response = client.images.generate(
+model="dall-e-3",
+# or your deployment name from Azure
+prompt=enhanced_prompt,
+size="1024x1024",
+quality="standard",
+n=1
+)
+# Get the image URL from response
+image_url = response.data[0].url
+logger.info(f"Successfully generated image for prompt: {prompt[:50]}...")
+logger.info(image_url)
+return {
+"url": image_url,
+"prompt": prompt,
+"style": style
+}
+except Exception as e:
+logger.error(f"Error generating image: {str(e)}")
+# Return placeholder image on error
+return {
+"url": f"https://via.placeholder.com/1024x1024.png?text=Image+Generation+Failed",
+"prompt": prompt,
+"style": style,
+"error": str(e)
+}
+def get_image_generation_tools() -> List[Tool]:
+"""Get image generation tools for the editor."""
+return [
+Tool(
+name="generate_article_image",
+description="Generate an image to accompany the article. Use this to create visual content that enhances the article.",
+func=generate_article_image
+)
+]
+Enter fullscreen mode
+Exit fullscreen mode
+Now for something interesting: for the editor LLM, I created multiple prompts to support different writing styles. Using the same draft generated by the writer agent, the editor LLM rewrites the article based on the specific guidelines defined in each prompt file. This choice of editing style also influences the image generation prompts. For example, selecting a “critical” style will ask for images that are more realistic and documentary-like, while a “hilarious” style will request cartoonish visuals.
+def build_workflow(editor_style: str = "General", enable_image_generation: bool = True):
+......
+# Load shared image generation instructions
+image_instructions = load_prompt('prompts/image_generation_instruction.txt') if enable_image_generation else ""
+# Update editor prompt based on style
+editor_prompts = {
+"General": 'prompts/editor.txt',
+"Emotional": 'prompts/editor_emotional.txt',
+"Hilarious": 'prompts/editor_hilarious.txt',
+"Critical": 'prompts/editor_critical.txt'
+}
+if editor_style in editor_prompts:
+base_prompt = load_prompt(editor_prompts[editor_style])
+# Append image instructions if enabled
+if enable_image_generation:
+editor_llm.prompt_template = base_prompt.replace(
+"{article_draft}",
+"{article_draft}\n\n" + image_instructions
+)
+else:
+editor_llm.prompt_template = base_prompt
+Enter fullscreen mode
+Exit fullscreen mode
+For example, the prompt for emotional style editing is as follows:
+Editor Style: EMOTIONAL
+You are a deeply emotional and empathetic blog editor who writes with passion and heart. Your task is to revise the provided article into an emotionally resonant blog post that feels like a short story or novel, weaving the article’s topic and details into a compelling narrative. Storytelling is central to your approach, and the story’s theme (e.g., romance, family, friendship, or another fitting emotional narrative) should align with the article’s original topic to create a heartfelt connection.
+Instructions:
+- Transform the article into a blog post that reads like a short story or novel, immersing the topic’s details into the narrative to make them relatable and engaging.
+- Choose a story theme (e.g., romance, family, friendship) that complements the article’s topic, ensuring the narrative feels authentic and emotionally compelling.
+- Infuse emotional depth, heartfelt connections, and personal reflections to evoke empathy and make readers feel deeply connected to the topic.
+- Use warm, caring language that touches the heart and maintains emotional resonance throughout.
+- Ensure the narrative flows smoothly, with vivid descriptions, relatable characters, and emotional insights that enhance the storytelling.
+- Break up long paragraphs for readability and use emotional headings or subheadings to guide the reader through the story.
+- Correct any grammar, spelling, or stylistic errors from the original draft.
+- Seamlessly integrate the article’s key facts, findings, or insights into the story, ensuring they feel natural within the narrative.
+- Maintain a tone that is warm, empathetic, and emotionally engaging, drawing readers into the story and the topic.
+- If the original article includes an image or image-related instructions, incorporate a description of a relevant, evocative image (e.g., “Picture a weathered photograph of a family gathered around a table”) within the narrative, but do not generate or retrieve actual images unless explicitly requested.
+Here is the article to edit:
+{article_draft}
+Return the emotionally enhanced blog post only.
+Enter fullscreen mode
+Exit fullscreen mode
+And it will be combined with the generic image generation instructions:
+You have access to an image generation tool powered by DALL-E 3. You MUST generating 1-2 relevant images that would:
+- Illustrate key concepts
+- Break up long text sections
+- Enhance reader engagement
+- Support the article's main points
+When generating images:
+- Use the generate_article_image tool with detailed, descriptive prompts that DALL-E 3 can understand
+- Write clear, specific prompts that describe exactly what you want to see in the image
+- Include details about composition, lighting, colors, and mood when relevant
+- Specify an appropriate style based on the editor style:
+a. CRITICAL STYLE: Use "photorealistic documentary photography" style
+- Request: "Shot with professional camera, journalistic photography, high detail, natural lighting"
+- Example: "Photorealistic documentary photograph of [subject], professional journalism style, shot with DSLR camera, natural lighting, high detail, serious tone"
+b. EMOTIONAL STYLE: Use "artistic storybook illustration" style
+- Request: "Painted illustration, storybook art style, warm colors, emotional atmosphere"
+- Example: "Beautiful storybook illustration of [subject], painted art style, warm emotional colors, soft lighting, narrative atmosphere, reminiscent of children's book art"
+c. HILARIOUS STYLE: Use "3D animated cartoon" style
+- Request: "3D rendered cartoon, Pixar/Disney animation style, bright colors, exaggerated features"
+- Example: "Adorable 3D cartoon illustration of [subject], Pixar animation style, bright vibrant colors, cute characters with big eyes, playful atmosphere, high quality render"
+d. GENERAL STYLE: Use "professional digital illustration" style
+- Request: "Clean digital illustration, modern design, balanced colors"
+- Example: "Professional digital illustration of [subject], clean modern style, clear details, balanced color palette, informative design"
+- Call the generate_article_image tool
+- The tool will return a URL that may look complex with many parameters like:
+https://dalleprodsec.blob.core.windows.net/private/images/[id]/generated_00.png?se=...&sig=...
+- Use this EXACT URL as-is, even though it's long and complex
+- DO NOT modify, shorten, or clean up the URL
+- DO NOT add .jpg or any extension - use the URL exactly as returned
+- Avoid requesting text in images as DALL-E 3 may not render it accurately
+- Do not request specific people, celebrities, or copyrighted characters
+- Keep prompts under 400 characters for best results
+IMPORTANT: After generating an image, you MUST embed it in the article using this exact format:
+![Alt text description of the image](URL)
+*Caption: Brief description of what the image shows*
+Do not use placeholder text like [IMAGE: Description]. Use the actual URL returned by the tool.
+Maintain the article's original message while significantly improving its quality and visual appeal.
+Enter fullscreen mode
+Exit fullscreen mode
+The editor LLM will use the combined prompt to revise the draft article and generate images, resulting in a properly formatted blog post with embedded images.
+Next, we’ll create the actual agent nodes based on these LLM objects:
+def build_workflow(editor_style: str = "General", enable_image_generation: bool = True):
+...
+# Create standardized agent nodes with explicit data flow
+researcher = research_llm.create_node(
+expected_fields=['topic'],
+output_field='research_summary'
+)
+writer = writer_llm.create_node(
+expected_fields=['research_summary', 'word_count'],
+output_field='article_draft'
+)
+editor = editor_llm.create_node(
+expected_fields=['article_draft'],
+# Added topic for context
+output_field='edited_article'
+)
+.....
+Enter fullscreen mode
+Exit fullscreen mode
+class BaseLlm:
+"""Base class for all agents with standardized functionality."""
+.....
+def process_query(self, state: Dict[str, Any]) -> Dict[str, Any]:
+"""
+Process a query using the prompt template and LLM.
+Args:
+state: A dictionary containing 'messages' (list of messages) and additional fields
+specific to each agent (e.g., 'topic', 'research_summary', 'article_draft')
+Returns:
+Updated state with the agent's response appended to messages.
+"""
+messages = state["messages"]
+# Format the prompt with the state fields (excluding 'messages')
+prompt_kwargs = {k: v for k, v in state.items() if k != "messages"}
+formatted_prompt = self.prompt_template.format(**prompt_kwargs)
+# Combine existing messages with the new prompt
+input_messages = messages + [HumanMessage(content=formatted_prompt)]
+# Invoke the LLM
+response = self.llm.invoke(input_messages)
+# Return updated state with response appended to messages
+return {
+"messages": messages + [response],
+**prompt_kwargs
+# Preserve all other state fields
+}
+def create_node(self, expected_fields: Optional[List[str]] = None, output_field: Optional[str] = None):
+"""
+Create a LangGraph node for this agent.
+Args:
+expected_fields: List of field names this agent expects from state.
+If None, no validation is performed.
+output_field: Name of the field to store this agent's output in state.
+If None, output is only stored in messages.
+Returns:
+A node function compatible with LangGraph.
+"""
+def node(state: State) -> State:
+print(f"\n{self.__class__.__name__} is processing...")
+# Build agent state with messages and topic (always needed)
+agent_state = {
+"messages": state["messages"],
+"topic": state["topic"]
+}
+# Add expected fields to agent state
+if expected_fields:
+for field_name in expected_fields:
+# Check if field exists in state
+if field_name in state:
+agent_state[field_name] = state[field_name]
+else:
+# If not in state, try to extract from last AI message
+# This provides backward compatibility with implicit data flow
+field_value = None
+for msg in reversed(state["messages"]):
+if hasattr(msg, 'type') and msg.type == 'ai' and hasattr(msg, 'content'):
+field_value = msg.content
+break
+if field_value is None:
+raise ValueError(f"Expected field '{field_name}' not found in state or messages")
+agent_state[field_name] = field_value
+# Process the query
+result = self.process_query(agent_state)
+# If output_field is specified, store the agent's output in that field
+if output_field and result["messages"]:
+last_message = result["messages"][-1]
+if hasattr(last_message, 'content'):
+result[output_field] = last_message.content
+return result
+return node
+.....
+Enter fullscreen mode
+Exit fullscreen mode
+The create_node method essentially generates a callback function that gets triggered during agent execution to update the state object. You need to explicitly specify both expected_fields and output_field. The message stack will be scanned for the values of the expected fields, which are then used to prepare the final prompt and send it to the respective LLM for processing. The result is stored in the output_field.
+In fact, the create_node and process_query methods were the most time-consuming parts for me. I spent a significant amount of time understanding how LangGraph processes messages, and I also had to consider how to make message handling both generic and easy to troubleshoot. That’s why I include the values of expected_field and output_field.
+Now that all the agent nodes and tools are ready, let’s create a graph to link them together.
+def build_workflow(editor_style: str = "General", enable_image_generation: bool = True):
+....
+search_tool_node = ToolNode(search_tools)
+# Create image generation tool node if enabled
+if enable_image_generation:
+image_tool_node = ToolNode(image_tools)
+graph_builder = StateGraph(State)
+graph_builder.add_node(RESEARCH_NODE, researcher)
+graph_builder.add_node(WRITE_NODE, writer)
+graph_builder.add_node(EDIT_NODE, editor)
+graph_builder.add_node(WEB_SEARCH_NODE, search_tool_node)
+# Add image generation node if enabled
+if enable_image_generation:
+graph_builder.add_node(IMAGE_GENERATION_NODE, image_tool_node)
+graph_builder.add_edge(START, RESEARCH_NODE)
+def route_after_research(state: State) -> str:
+"""
+Route to web_search if the researcher requests a tool call, otherwise to write.
+"""
+try:
+last_message = state["messages"][-1]
+if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+logger.info(f"Tool calls detected, routing to web search")
+return WEB_SEARCH_NODE
+return WRITE_NODE
+except (IndexError, AttributeError) as e:
+logger.warning(f"Routing error: {str(e)}, defaulting to write node")
+return WRITE_NODE
+def route_after_edit(state: State) -> str:
+"""
+Route to image_generation if the editor requests a tool call, otherwise finish.
+"""
+try:
+last_message = state["messages"][-1]
+if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+logger.info(f"Image generation tool calls detected, routing to image generation")
+return IMAGE_GENERATION_NODE
+return END
+# Changed from "end" to END
+except (IndexError, AttributeError) as e:
+logger.warning(f"Routing error: {str(e)}, finishing workflow")
+return END
+# Changed from "end" to END
+graph_builder.add_conditional_edges(
+RESEARCH_NODE,
+route_after_research,
+{
+WEB_SEARCH_NODE: WEB_SEARCH_NODE,
+WRITE_NODE: WRITE_NODE
+}
+)
+graph_builder.add_edge(WEB_SEARCH_NODE, RESEARCH_NODE)
+graph_builder.add_edge(WRITE_NODE, EDIT_NODE)
+# Add conditional routing after editor
+if enable_image_generation:
+graph_builder.add_conditional_edges(
+EDIT_NODE,
+route_after_edit,
+{
+IMAGE_GENERATION_NODE: IMAGE_GENERATION_NODE,
+END: END
+}
+)
+# After image generation, go back to editor to incorporate the images
+graph_builder.add_edge(IMAGE_GENERATION_NODE, EDIT_NODE)
+else:
+graph_builder.set_finish_point(EDIT_NODE)
+# Compile the graph before returning
+return graph_builder.compile()
+Enter fullscreen mode
+Exit fullscreen mode
+First, we need to turn the web searching tool list and the image generation tool list into tool nodes. In total, we’ll have three agent nodes and two tool nodes.
+To build the graph, we start by initializing a new StateGraph object. The state definition looks like this:
+from typing import TypedDict, Annotated, Optional, List, Dict, Any
+from langgraph.graph import add_messages
+class State(TypedDict):
+topic: str
+# ✅ Flows from user → researcher → writer
+word_count: int
+messages: Annotated[list, add_messages]
+research_summary: Optional[str]
+# ✅ Flows from researcher → writer
+article_draft: Optional[str]
+# ✅ Flows from writer → editor
+edited_article: Optional[str]
+# ✅ Final output from editor
+generated_images: Optional[List[Dict[str, Any]]]
+# Generated images
+Enter fullscreen mode
+Exit fullscreen mode
+The add_node call is straightforward and easy to understand. However, pay special attention to the route_after_research and route_after_edit functions—these are required when creating the conditional edges for calling the respective tools.
+When the LLM determines that a tool needs to be called, the last message returned will include a tool_calls attribute. If this is detected, the flow will proceed to the appropriate tool node.
+Remember that the edge between an agent node and its bound tool node should be two-way. This means that after the tool execution is complete, control returns to the calling node. For example, here’s how you set up the flow between the RESEARCH_NODE and the WEB_SEARCH_NODE:
+def route_after_research(state: State) -> str:
+"""
+Route to web_search if the researcher requests a tool call, otherwise to write.
+"""
+try:
+last_message = state["messages"][-1]
+if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+logger.info(f"Tool calls detected, routing to web search")
+return WEB_SEARCH_NODE
+return WRITE_NODE
+except (IndexError, AttributeError) as e:
+logger.warning(f"Routing error: {str(e)}, defaulting to write node")
+return WRITE_NODE
+........
+graph_builder.add_conditional_edges(
+RESEARCH_NODE,
+route_after_research,
+{
+WEB_SEARCH_NODE: WEB_SEARCH_NODE,
+WRITE_NODE: WRITE_NODE
+}
+)
+graph_builder.add_edge(WEB_SEARCH_NODE, RESEARCH_NODE)
+Enter fullscreen mode
+Exit fullscreen mode
+Now that the entire graph is set up, it must be compiled before you can execute it:
+# Compile the graph before returning
+return graph_builder.compile()
+Enter fullscreen mode
+Exit fullscreen mode
+You can use the draw_mermaid() method provided by the StateGraph object to generate a graph diagram, similar to the one shown above:
+# Build the workflow to get the graph
+compiled_graph = build_workflow(enable_image_generation=enable_image_generation)
+# Generate Mermaid diagram
+mermaid_code = compiled_graph.get_graph().draw_mermaid()
+# Create HTML with Mermaid
+mermaid_html = f"""
+<div class="mermaid">
+{mermaid_code}
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({{startOnLoad: true, theme: 'default'}});
+</script>
+"""
+Enter fullscreen mode
+Exit fullscreen mode
+Let’s pause here before things get overwhelming. In Part 2, I’ll bring everything together and present it within an elegant user interface — stay tuned!
+(source code: https://github.com/jimmyhott/MARAGS/tree/ver-1.2)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Jimmy
+Follow
+Being content with less is sinful
+Joined
+Sep 14, 2025
+Trending on DEV Community
+Hot
+How to Build a CI/CD Pipeline with AWS (Step-by-Step Guide)
+#webdev
+#programming
+#javascript
+#ai
+What was your win this week?
+#weeklyretro
+#discuss
+Turning a Photo into a 1/7 Scale PVC Figurine with Bandai-Style Packaging
+#3dmodelling
+#webdev
+#ai
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
