@@ -1,0 +1,559 @@
+Kong Cluster - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Booranasak Kanthong
+Posted on Sep 14
+Kong Cluster
+#api
+#architecture
+#devops
+#beginners
+🚦 Kong Cluster 101 (Beginner-friendly)
+What is a “Kong Cluster”?
+In practice, a Kong Cluster just means you run multiple Kong gateway nodes side-by-side so traffic can:
+spread across nodes (load balancing for throughput), and
+keep flowing even if one node dies (high availability/failover).
+In your setup:
+kong-1 and kong-2 are two gateway nodes.
+They share the same Postgres database (your kong-ce-database) so they read/write the same configuration.
+HAProxy (haproxy service) sits in front to split incoming requests across kong-1 and kong-2.
+Enterprise note (for later): Kong Enterprise supports a “hybrid” CP/DP model. For OSS/CE, clustering typically means “multiple data planes behind a load balancer using the same DB,” which is exactly what we’re doing here.
+Why put a Load Balancer in front of Kong?
+A load balancer (LB) like HAProxy:
+Distributes requests across nodes (round-robin by default).
+Health checks each node and stops sending traffic to unhealthy nodes (automatic failover).
+Gives you one stable endpoint to point apps at (no app-side juggling of multiple Kong hosts).
+Your compose already includes HAProxy. We’ll finish it with a tiny config (your version).
+🧩 Use your docker-compose.yml (what you already have)
+You’ve done 90% of the heavy lifting. Here’s what’s in place:
+Postgres 13 for Kong (DB mode)
+One-time migrations
+Two Kong nodes (different admin/proxy ports)
+HAProxy (front door)
+Mongo + Konga (nice UI)
+(Optional) Kong Dashboard
+We’ll add:
+a HAProxy config file (yours, including X-Served-By + admin LB),
+two tiny upstream services to demonstrate failover (httpbin), and
+a Kong upstream with active health checks.
+1) HAProxy: load-balance Kong nodes (your config)
+Create ./haproxy/haproxy.cfg next to your compose file:
+global
+maxconn 4096
+defaults
+# keep tcp as a safe default; we'll override per section
+mode tcp
+timeout connect 5s
+timeout client
+30s
+timeout server
+30s
+# ===== Proxy LB (9200) — must be HTTP to inject headers =====
+frontend fe_proxy
+bind *:9200
+mode http
+option forwardfor
+# add X-Forwarded-For for client IP
+default_backend be_kong
+backend be_kong
+mode http
+balance roundrobin
+http-response add-header X-Served-By %[srv_name]
+# <-- shows kong1/kong2
+server kong1 kong-1:8000 check inter 2000 rise 3 fall 2
+server kong2 kong-2:18000 check inter 2000 rise 3 fall 2
+# ===== Admin LB (9201) — leave as HTTP, no need to add headers here =====
+frontend fe_admin
+bind *:9201
+mode http
+default_backend be_admin
+backend be_admin
+mode http
+option httpchk GET /
+balance roundrobin
+server kong1 kong-1:8001 check inter 2000 rise 3 fall 2
+server kong2 kong-2:18001 check inter 2000 rise 3 fall 2
+Enter fullscreen mode
+Exit fullscreen mode
+Exposes http://localhost:9200 (proxy LB) and http://localhost:9201 (admin LB).
+The proxy LB injects X-Served-By so you can see which Kong node handled the request.
+2) Full docker-compose.yml (merged + test apps)
+Save this as your compose file (it’s your original, plus: HAProxy port 9201 and two httpbin services).
+# Shared Kong DB config (CE/OSS)
+x-kong-config: &kong-env
+KONG_DATABASE: postgres
+KONG_PG_HOST: kong-ce-database
+KONG_PG_DATABASE: kong
+KONG_PG_USER: kong
+KONG_PG_PASSWORD: kong
+services:
+# ------------------------------
+# Postgres 13 for Kong (CE/OSS)
+# ------------------------------
+kong-ce-database:
+image: postgres:13
+container_name: kong-ce-database
+environment:
+POSTGRES_USER: kong
+POSTGRES_DB: kong
+POSTGRES_PASSWORD: kong
+volumes:
+- kong_db_data:/var/lib/postgresql/data
+networks: [kong-ce-net]
+ports:
+- "5432:5432"
+# optional: expose for local access
+healthcheck:
+test: ["CMD-SHELL", "pg_isready -U kong -d kong"]
+interval: 10s
+timeout: 5s
+retries: 20
+restart: unless-stopped
+# ------------------------------
+# One-time Kong migrations
+# ------------------------------
+kong-migrations:
+image: kong:3.9.1
+container_name: kong-migrations
+depends_on:
+kong-ce-database:
+condition: service_healthy
+environment:
+<<: *kong-env
+entrypoint: >
+/bin/sh -lc
+"kong migrations bootstrap -v || (kong migrations up -v && kong migrations finish -v)"
+networks: [kong-ce-net]
+restart: "no"
+# ------------------------------
+# Kong Gateway node #1
+# ------------------------------
+kong-1:
+image: kong:3.9.1
+container_name: kong-1
+depends_on:
+kong-ce-database:
+condition: service_healthy
+kong-migrations:
+condition: service_completed_successfully
+environment:
+<<: *kong-env
+KONG_ADMIN_LISTEN: "0.0.0.0:8001,0.0.0.0:8444 ssl"
+ports:
+- "8000:8000"
+# proxy
+- "8443:8443"
+# proxy ssl
+- "8001:8001"
+# admin
+- "8444:8444"
+# admin ssl
+healthcheck:
+test: ["CMD", "kong", "health"]
+networks: [kong-ce-net]
+restart: unless-stopped
+# ------------------------------
+# Kong Gateway node #2 (different internal ports)
+# ------------------------------
+kong-2:
+image: kong:3.9.1
+container_name: kong-2
+depends_on:
+kong-ce-database:
+condition: service_healthy
+kong-migrations:
+condition: service_completed_successfully
+environment:
+<<: *kong-env
+KONG_ADMIN_LISTEN: "0.0.0.0:18001,0.0.0.0:18444 ssl"
+KONG_PROXY_LISTEN: "0.0.0.0:18000,0.0.0.0:18443 ssl"
+ports:
+- "8002:18000"
+# proxy (host)
+- "18443:18443" # proxy ssl (host)
+- "18001:18001" # admin (host)
+- "18444:18444" # admin ssl (host)
+healthcheck:
+test: ["CMD", "kong", "health"]
+networks: [kong-ce-net]
+restart: unless-stopped
+# ------------------------------
+# HAProxy to load-balance kong-1 / kong-2
+# ------------------------------
+haproxy:
+image: haproxy:2.9
+container_name: kong-haproxy
+networks: [kong-ce-net]
+depends_on:
+kong-1:
+condition: service_started
+kong-2:
+condition: service_started
+ports:
+- "9200:9200"
+# proxy LB
+- "9201:9201"
+# admin LB
+volumes:
+- ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+command: ["/usr/local/sbin/haproxy","-f","/usr/local/etc/haproxy/haproxy.cfg","-db"]
+restart: unless-stopped
+# ------------------------------
+# MongoDB 4.4 for Konga
+# ------------------------------
+mongo:
+image: mongo:4.4
+container_name: mongo
+volumes:
+- mongo_data:/data/db
+networks: [kong-ce-net]
+ports:
+- "27017:27017"
+# optional
+healthcheck:
+test: ["CMD", "mongo", "--eval", "db.runCommand({ ping: 1 })"]
+interval: 10s
+timeout: 5s
+retries: 20
+restart: unless-stopped
+# ------------------------------
+# Konga DB prepare (Mongo)
+# ------------------------------
+konga-prepare:
+image: pantsel/konga:latest
+container_name: konga-prepare
+depends_on:
+mongo:
+condition: service_healthy
+command: -c prepare -a mongo -u mongodb://mongo:27017/konga
+networks: [kong-ce-net]
+restart: "no"
+# ------------------------------
+# Konga (Admin UI) on Mongo
+# ------------------------------
+konga:
+image: pantsel/konga:latest
+container_name: konga
+depends_on:
+mongo:
+condition: service_healthy
+konga-prepare:
+condition: service_completed_successfully
+environment:
+DB_ADAPTER: mongo
+DB_HOST: mongo
+DB_PORT: 27017
+DB_DATABASE: konga
+NODE_ENV: production
+ports:
+- "1337:1337"
+networks: [kong-ce-net]
+restart: unless-stopped
+# ------------------------------
+# KongDash (optional)
+# ------------------------------
+kongdash:
+image: pgbi/kong-dashboard:v2
+container_name: kongdash
+command: ["start", "--kong-url", "http://kong-1:8001"]
+depends_on:
+kong-1:
+condition: service_started
+ports:
+- "8085:8080"
+networks: [kong-ce-net]
+restart: unless-stopped
+# ------------------------------
+# Test upstream apps for failover
+# ------------------------------
+httpbin1:
+image: mccutchen/go-httpbin:v2.15.0
+container_name: httpbin1
+networks: [kong-ce-net]
+restart: unless-stopped
+httpbin2:
+image: mccutchen/go-httpbin:v2.15.0
+container_name: httpbin2
+networks: [kong-ce-net]
+restart: unless-stopped
+volumes:
+kong_db_data: {}
+# Postgres data for Kong
+mongo_data: {}
+# Mongo data for Konga
+networks:
+kong-ce-net:
+driver: bridge
+Enter fullscreen mode
+Exit fullscreen mode
+Bring everything up:
+docker compose up -d
+Enter fullscreen mode
+Exit fullscreen mode
+3) Configure Kong (via Admin API) for upstream failover
+We’ll create:
+an Upstream (logical name) with
+two Targets (httpbin1 & httpbin2), plus
+active health checks so Kong can remove a bad target automatically,
+a Service pointing to the upstream, and
+a Route to expose it.
+Run these against either Admin API (e.g. http://localhost:8001 for kong-1 or http://localhost:18001 for kong-2).
+3.1 Upstream with health checks
+curl -sS -X POST http://localhost:8001/upstreams \
+-H "Content-Type: application/json" \
+-d '{
+"name": "demo-upstream",
+"healthchecks": {
+"active": {
+"http_path": "/status/200",
+"timeout": 1,
+"healthy": { "interval": 5, "successes": 1 },
+"unhealthy": { "interval": 5, "http_failures": 1, "tcp_failures": 1, "timeouts": 1 }
+}
+}
+}'
+Enter fullscreen mode
+Exit fullscreen mode
+In Konga -> UPSTREAMS
+3.2 Register the two targets
+curl -sS -X POST http://localhost:8001/upstreams/demo-upstream/targets \
+-H "Content-Type: application/json" \
+-d '{"target":"httpbin1:8080","weight":100}'
+curl -sS -X POST http://localhost:8001/upstreams/demo-upstream/targets \
+-H "Content-Type: application/json" \
+-d '{"target":"httpbin2:8080","weight":100}'
+Enter fullscreen mode
+Exit fullscreen mode
+In Konga -> UPSTREAMS -> Click at Detail
+Then Click Targets
+3.3 Create a Service using the upstream
+curl -sS -X POST http://localhost:8001/services \
+-H "Content-Type: application/json" \
+-d '{"name":"demo-svc","host":"demo-upstream","port":8080,"protocol":"http"}'
+Enter fullscreen mode
+Exit fullscreen mode
+In Konga -> Service
+3.4 Expose it with a Route
+curl -sS -X POST http://localhost:8001/services/demo-svc/routes \
+-H "Content-Type: application/json" \
+-d '{"name":"demo-route","paths":["/demo"]}'
+Enter fullscreen mode
+Exit fullscreen mode
+In Konga -> Route
+demo-route will set as a Route
+Your app endpoint (through HAProxy → Kong) is:
+http://localhost:9200/demo/get
+Enter fullscreen mode
+Exit fullscreen mode
+Basic test:
+curl -i http://localhost:9200/demo/get
+# expect 200 + an X-Served-By header from HAProxy: kong1 or kong2
+Enter fullscreen mode
+Exit fullscreen mode
+Set up Connection in Konga (UI)
+1). Open http://localhost:1337 and create an admin user.
+2). Add a Connection (point Konga at the admin LB):
+In Konga -> CONNECTIONS -> Click button [+ NEW CONNECTION]
+Enter the following detail
+Name: Haproxy-LB
+Kong Admin URL: http://localhost:9201
+Username: Your Konga Username
+Password: Your Konga Password
+3). In Konga, you can build the same objects via UI:
+Upstreams → Add Upstream (demo-upstream)
+Targets → Add Target (httpbin1:8080, httpbin2:8080)
+Services → Add Service (demo-svc, host: demo-upstream, port 8080)
+Routes → Add Route (demo-route, paths: /demo)
+Healthchecks: enable Active checks with path /status/200.
+Either method (API or Konga) updates the shared Postgres DB, so both Kong nodes use the same config.
+✅ How to PROVE failover works (two ways)
+A) Gateway node failover (HAProxy removes bad Kong)
+See which node served you:
+curl -i http://localhost:9200/status | grep -i X-Served-By
+Enter fullscreen mode
+Exit fullscreen mode
+Kill one Kong node:
+docker stop kong-1
+for i in {1..6}; do curl -sI http://localhost:9200/status | grep -i X-Served-By; done
+# expect only kong2 now
+docker start kong-1
+Enter fullscreen mode
+Exit fullscreen mode
+By killing Kong-1, only Kong-2 remains running. All the load will then go to Kong-2 instead of Kong-1, which is down. I then restarted Kong-1, and this time the load was distributed between Kong-1 and Kong-2.
+B) Upstream target failover (Kong removes bad target)
+# both targets healthy?
+curl -sS http://localhost:8001/upstreams/demo-upstream/health | jq .
+# stop one target
+docker stop httpbin1
+# calls should still return 200 (served by httpbin2)
+for i in {1..6}; do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:9200/demo/get; done
+# health should show httpbin1 UNHEALTHY
+curl -sS http://localhost:8001/upstreams/demo-upstream/health | jq .
+# recover
+docker start httpbin1
+Enter fullscreen mode
+Exit fullscreen mode
+First, I checked the upstream health status:
+curl -sS http://localhost:8001/upstreams/demo-upstream/health | jq .
+At this point, only httpbin2 was healthy and available.
+Next, I sent 6 requests to the service:
+for i in {1..6}; do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:9200/demo/get; done
+All requests were routed successfully to httpbin2, since httpbin1 was still down.
+I then verified the upstream health again:
+curl -sS http://localhost:8001/upstreams/demo-upstream/health | jq .
+The results confirmed that only httpbin2 was handling traffic.
+After that, I restarted httpbin1:
+docker start httpbin1
+Finally, I checked the upstream health one more time:
+curl -sS http://localhost:8001/upstreams/demo-upstream/health | jq .
+Now both httpbin1 and httpbin2 were healthy, so the load could be distributed across both instances again.
+🧭 Troubleshooting quick hits
+Konga can’t reach Admin API? Use the admin LB: http://localhost:9201.
+HAProxy 503? Check haproxy logs and verify both admins & proxies:
+curl http://localhost:8001/status
+curl http://localhost:18001/status
+Enter fullscreen mode
+Exit fullscreen mode
+DB is a single point of failure in this demo. For real HA, use a managed Postgres/cluster or explore DB-less with declarative config + an external config store.
+Health checks too slow/fast? Tweak interval/thresholds in the Upstream healthchecks.active.
+🧠 What you just built (recap)
+A two-node Kong cluster (OSS) sharing one Postgres DB.
+HAProxy in front for node-level load balancing and failover (proxy :9200, admin :9201 with X-Served-By).
+A Kong Upstream with active health checks for service-level failover between two targets.
+Konga as a friendly admin UI.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Booranasak Kanthong
+Follow
+Just an hour more, am gonna fall asleep
+Joined
+Jul 8, 2025
+Trending on DEV Community
+Hot
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+Bring AI Into Any App With One Keystroke
+#ai
+#programming
+#javascript
+#productivity
+Postman vs Insomnia: Which API Testing Tool Reigns Supreme?
+#webdev
+#programming
+#beginners
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
