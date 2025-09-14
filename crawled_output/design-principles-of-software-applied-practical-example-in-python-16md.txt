@@ -1,0 +1,246 @@
+Design Principles of Software Applied: Practical Example in Python - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+AHMED HASAN AKHTAR OVIEDO
+Posted on Sep 14
+Design Principles of Software Applied: Practical Example in Python
+#python
+#architecture
+#bestpractices
+#softwaredesign
+Design Principles of Software Applied: Practical Example in Python
+Summary: In this article I explain key software design principles (SOLID —with emphasis on SRP and DIP—, DRY, KISS, YAGNI) and show a minimal, practical example in Python: a notification service (email + SMS) designed to be extensible, testable, and easy to understand.
+Chosen principles
+SOLID (SRP, OCP, LSP, ISP, DIP) — emphasis on SRP and DIP.
+DRY (Don't Repeat Yourself).
+KISS (Keep It Simple, Stupid).
+YAGNI (You Aren't Gonna Need It).
+Separation of concerns / Testability / Modularity.
+Real problem
+We need a component that sends notifications to users via multiple channels (e.g., email and SMS). Practical requirements:
+Be able to add new channels (Push, Webhook) without changing core logic.
+Make unit testing easy without real network calls.
+Keep code clear and responsibilities separated.
+Design (brief)
+Define an abstraction Notifier that represents the contract for sending notifications.
+Concrete implementations (EmailNotifier, SMSNotifier) implement the abstraction.
+NotificationService coordinates notifiers via dependency injection (it does not know concrete implementations).
+External clients (SMTP, SMS provider) are encapsulated and mocked in tests.
+Example code (suggested files: notifiers.py, test_notifiers.py)
+```python
+# notifiers.py
+from abc import ABC, abstractmethod
+from typing import List, Dict
+class Notifier(ABC):
+"""Contract: any Notifier must implement send."""
+@abstractmethod
+def send(self, to: str, subject: str, body: str) -> bool:
+pass
+class EmailNotifier(Notifier):
+"""SRP: this class only knows how to send emails."""
+def __init__(self, smtp_client):
+# smtp_client encapsulates real sending logic
+self.smtp = smtp_client
+def send(self, to: str, subject: str, body: str) -> bool:
+return self.smtp.send_email(to, subject, body)
+class SMSNotifier(Notifier):
+def __init__(self, sms_client):
+self.sms = sms_client
+def send(self, to: str, subject: str, body: str) -> bool:
+# Simplify: use subject as prefix in SMS
+text = f"{subject}: {body}"
+return self.sms.send_sms(to, text)
+class NotificationService:
+"""DIP: depends on the Notifier abstraction, not concrete classes."""
+def __init__(self, notifiers: List[Notifier]):
+self.notifiers = notifiers
+def notify_all(self, to: str, subject: str, body: str) -> Dict[str, bool]:
+results = {}
+for n in self.notifiers:
+key = n.__class__.__name__
+results[key] = n.send(to, subject, body)
+return results
+# Mock clients for demo/local
+class MockSMTPClient:
+def send_email(self, to, subject, body):
+print(f"[MockSMTP] Sending email to {to}: {subject} / {body}")
+return True
+class MockSMSClient:
+def send_sms(self, to, text):
+print(f"[MockSMS] Sending SMS to {to}: {text}")
+return True
+if __name__ == "__main__":
+email_notifier = EmailNotifier(MockSMTPClient())
+sms_notifier = SMSNotifier(MockSMSClient())
+svc = NotificationService([email_notifier, sms_notifier])
+result = svc.notify_all("user@example.com", "Welcome", "Hi, thanks for signing up.")
+print("Result:", result)
+```
+Enter fullscreen mode
+Exit fullscreen mode
+Tests (example with pytest — test_notifiers.py)
+```python
+# test_notifiers.py
+from notifiers import Notifier, NotificationService
+class DummyNotifier(Notifier):
+def __init__(self):
+self.sent = False
+def send(self, to, subject, body):
+self.sent = True
+return True
+def test_notification_service_sends_to_all():
+a = DummyNotifier()
+b = DummyNotifier()
+svc = NotificationService([a, b])
+res = svc.notify_all("u@x.com", "t", "b")
+assert res["DummyNotifier"] is True
+assert a.sent and b.sent
+```
+Enter fullscreen mode
+Exit fullscreen mode
+How the principles apply here
+SRP (Single Responsibility): Each class has a single responsibility: EmailNotifier only sends emails, SMSNotifier only sends SMS, NotificationService only orchestrates.
+DIP (Dependency Inversion): NotificationService depends on Notifier (abstraction), not concrete implementations. This allows injecting mocks for testing.
+OCP (Open/Closed): To add PushNotifier you do not modify NotificationService; create a new Notifier implementation and register it.
+LSP & ISP: Implementations respect the send contract and do not force extra unnecessary methods.
+DRY: Transport-specific logic is encapsulated, avoiding duplication.
+KISS / YAGNI: Simple design that covers current requirements; no retries, batching, or added complexity until required.
+Testability / Modularity: By injecting dependencies and using mock clients, tests are deterministic and fast.
+How to run locally
+Create a virtual environment (recommended):
+python -m venv .venv
+source .venv/bin/activate
+# Linux/macOS
+.venv\Scripts\activate
+# Windows
+pip install pytest
+Run the demo:
+python notifiers.py
+Run tests:
+pytest -q
+Conclusion
+This minimal example demonstrates how to apply design principles to build a notification component that is extensible, testable, and maintainable. By prioritizing abstractions, separation of concerns, and simplicity, the code is prepared to grow (add channels, instrumentation, retries) without becoming fragile.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AHMED HASAN AKHTAR OVIEDO
+Follow
+Joined
+Apr 21, 2025
+More from AHMED HASAN AKHTAR OVIEDO
+Transaction Script: Patrón simple para lógica de negocio (Catalog of Patterns of EAA — Martin Fowler)
+#architecture
+#patterns
+#enterprise
+#backend
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
