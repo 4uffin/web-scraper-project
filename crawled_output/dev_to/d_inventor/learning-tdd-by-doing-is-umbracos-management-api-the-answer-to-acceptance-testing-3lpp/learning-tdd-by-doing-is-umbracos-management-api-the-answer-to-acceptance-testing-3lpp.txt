@@ -1,0 +1,227 @@
+Learning TDD by doing: Is Umbraco's management API the answer to acceptance testing? - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Dennis
+Posted on Sep 15
+Learning TDD by doing: Is Umbraco's management API the answer to acceptance testing?
+#testing
+#umbraco
+#dotnet
+Learning TDD by doing (8 Part Series)
+1
+I'm learning TDD with dotnet, follow along and let's learn together
+2
+Learning TDD by doing: An SPA content finder for Umbraco
+...
+4 more parts...
+3
+Learning TDD by doing: Business hours
+4
+Learning TDD by doing: Tagging members in Umbraco's Rich Text Editor
+5
+Learning TDD by doing: Dealing with Umbraco's published content
+6
+Learning TDD by doing: Umbraco & EF Core
+7
+The ultimate Umbraco automated testing reference?
+8
+Learning TDD by doing: Is Umbraco's management API the answer to acceptance testing?
+Remember: 🔴 Red, 🟢 Green, ♻️ Refactor
+For a while I've been thinking about how to approach acceptance testing in an Umbraco application. It's a topic that I've been stuck on for a while, because I couldn't figure out how to set up test scenario's in Umbraco on a real website for testing. In this post I will explain what makes this so difficult and how I think the management API might help. This post is more speculative and I will share more once I've given this an honest try.
+It's been a while since I've written about TDD. The thing is: I have now been writing unit tests for a while and unit testing has now become somewhat repetitive and not necessarily engaging to write about. This is a good thing: it means that I have gotten better since I started doing this. Yay for me 😅. However, now I need to find new topics to explore and specifically acceptance testing has been on my todo-list for a while. I just couldn't figure out where to start with it... until now.
+About acceptance testing
+The idea of acceptance testing is to engage with your system from the perspective of a user. If your user visits your website with a webbrowser, you'll want to test your system with a real browser, when your system is deployed to a real environment. An acceptance test verifies that a user can do what you want them to do by simulating different scenarios and user interactions. This is the difficult part:
+What makes it so difficult?
+The most important part of a good test is that it starts with a predictable state. Without control over your entire system, your tests might become flaky. For example: A test that verifies that your "related content block" shows a specific set of related content, requires a predictable set of related content pages. A test that runs before or parallel to this test, may modify the content of your site and thereby influence the result. This is highly undesirable.
+In an Umbraco website, the state is your content, your media, configured domains and languages and sometimes even members. If you want to do acceptance testing, you need to be able to create a consistent content tree.
+There are different ways to approach this challenge:
+Create a brand new database and website for each test(set). This is great for parallel testing, provided you have the ability to create new websites and databases on-demand and you can clean these up afterwards.
+Use a single website and database and reset the content tree before every test(set). This option requires each test(set) to run in series, but the hosting setup is less complex. You also don't need to worry about cleanup afterwards, because cleanup is part of the setup for each test(set). You may experience flakiness if you don't clean up properly.
+Neither of these are easy to set up. For me it's simply not possible to create websites and databases on-demand, so that option is off the table. So, how do you set up different content scenario's in a single Umbraco website then?
+Umbraco management API for setting up scenarios
+Setting up content programmatically on a real environment requires two things:
+Secure machine-to-machine authentication
+An HTTP API to influence the backoffice
+In Umbraco 13, you would have had to build both of these yourself. I would go as far as to say that it is not worth the effort. In Umbraco 16 however, this is not only possible, but quite easy.
+If you visit the backoffice and go to the Users section, you'll find that, in addition to regular users, you can create API Users. An API User follows the same permission model as regular users, but allows you to create machine credentials. That takes care of the first point.
+The machine credentials allow you to connect with the backoffice. Specifically to Umbraco's management API. The management API is Umbraco's interface for managing the state of the backoffice. You can create and modify content, media and everything else, just like a regular user would. By leveraging the management API, you should be able to create a consistent content tree.
+Since Umbraco implements OpenAPI, you might leverage that to generate your own API client. I'm interested to see how this performs with NSwagStudio: my preferred C# client generator. With a management API client, it should be possible to create reliable acceptance tests.
+What a test might look like
+In an acceptance test, you use the domain language to specify your requirements without technical terms. You may use a tool for that, but you can also just do this in C# (or any conventional programming language for that matter). Here is how I imagine a test might look:
+[Fact]
+public async Task ShouldUseSEOTitleAsPageTitle()
+{
+// given
+await Scenario
+.HasBaseContent()
+.Has<DetailPage>().WithSEO(title: "Title overwritten by SEO")
+.BuildAsync();
+// when
+await User.VisitAsync(Scenario.DetailPages[0]);
+// then
+Assert.Equal("Title overwritten by SEO", Page.Title);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The idea here is that the Scenario is a builder that defines the starting condition. The .BuildAsync() call would communicate with Umbraco through the management API and set up the content. The User could be a selenium webdriver and the test finishes with a classic xUnit assertion.
+Obviously, this is only the tip of the iceberg: How do I set up this "base content"? How exactly does the scenario builder work? How is the user implemented? There are a lot of open ends, but I believe it can all be worked out.
+In conclusion
+Although all of this is speculative, the Umbraco management API seems like a suitable tool for acceptance testing inside a real environment. In combination with API users, it provides an integration point through which testing scenarios can be configured.
+I am very interested to explore this further and will ofcourse share an update when I get to it. Exciting!
+Learning TDD by doing (8 Part Series)
+1
+I'm learning TDD with dotnet, follow along and let's learn together
+2
+Learning TDD by doing: An SPA content finder for Umbraco
+...
+4 more parts...
+3
+Learning TDD by doing: Business hours
+4
+Learning TDD by doing: Tagging members in Umbraco's Rich Text Editor
+5
+Learning TDD by doing: Dealing with Umbraco's published content
+6
+Learning TDD by doing: Umbraco & EF Core
+7
+The ultimate Umbraco automated testing reference?
+8
+Learning TDD by doing: Is Umbraco's management API the answer to acceptance testing?
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Dennis
+Follow
+Passionate drummer, cyclist, tinkerer, gamer and .NET developer. I love reinventing the wheel to learn the ins and outs of everything.
+Education
+BSc in computer science at the University of Utrecht with specialization in Game Technology
+Work
+Software engineer at Infocaster B.V.
+Joined
+Dec 4, 2022
+More from Dennis
+How to test Umbraco against a real database
+#umbraco
+#testing
+#database
+#dotnet
+Learning TDD by doing: Umbraco & EF Core
+#webdev
+#tutorial
+#testing
+#umbraco
+Driving Umbraco's dictionary to the edge (of your system)
+#webdev
+#umbraco
+#dotnet
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
