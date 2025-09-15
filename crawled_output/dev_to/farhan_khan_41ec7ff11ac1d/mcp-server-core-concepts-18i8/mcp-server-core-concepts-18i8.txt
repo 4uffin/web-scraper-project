@@ -1,0 +1,560 @@
+Core Concepts of MCP - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Farhan Khan
+Posted on Sep 15
+Core Concepts of MCP
+#ai
+#mcp
+#llm
+#python
+1. Introduction
+The Model Context Protocol (MCP) is an open standard that lets AI systems connect to external tools and data in a consistent way. An MCP server exposes capabilities such as resources (data), tools (actions), and prompts (templates), while clients like IDEs or AI agents can automatically discover and use them.
+Built on JSON-RPC 2.0, MCP is transport-agnostic and modular, so a server written once can work with any compatible client. This standardization makes AI integrations more scalable, reusable, and secure compared to custom one-off APIs.
+2. Protocol and Transport
+MCP is built on JSON-RPC 2.0, a lightweight standard for structured request–response communication. JSON-RPC provides a predictable format for requests, responses, and errors, making MCP simple to implement across programming languages.
+A major design choice is that MCP is transport-agnostic. The protocol defines what the messages look like, but not how they are delivered. This means the same MCP server can communicate over:
+stdin/stdout (common for local developer tools)
+sockets (for long-lived processes)
+web transports such as WebSockets (for cloud-hosted or browser-based integrations)
+This separation of protocol and transport ensures MCP integrations are portable and future-proof.
+Example: JSON-RPC Request in MCP
+Request
+{
+"jsonrpc": "2.0",
+"id": 1,
+"method": "callTool",
+"params": {
+"name": "validateConfig",
+"arguments": {
+"filePath": "configs/sample.pkl"
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Response
+{
+"jsonrpc": "2.0",
+"id": 1,
+"result": {
+"status": "ok",
+"issues": []
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3. Resources
+Resources are a core building block of an MCP server. They represent structured data that the server makes available for clients to read. A resource could be a configuration file, a schema, a database table, or any other external dataset that the server wants to expose.
+Each resource comes with metadata (such as its name, description, and MIME type) and a schema that defines the shape of the data. This ensures that clients know exactly what structure to expect when they request the resource.
+Importantly, the MCP protocol itself defines standard methods for working with resources:
+resources/list – lets clients discover what resources exist (metadata only).
+resources/read – lets clients fetch the actual contents of a specific resource.
+This standardization is what makes MCP interoperable: clients don’t need custom code for each server. They just call the same protocol methods, and the server fills in the details about its resources.
+By enforcing this contract, MCP allows clients to interact with external data in a predictable and reusable way — without ad hoc APIs.
+Discovery
+Agents typically follow a Retrieval-Augmented Generation (RAG) pattern when working with resources:
+Retrieve – Call resources/list (or a search tool) to identify candidate resources using metadata like title, description, mimeType, or schema.
+Read – Fetch selected resources with resources/read to get their actual content.
+Augment – Insert the retrieved content into the model’s prompt/context to provide grounding knowledge.
+Generate – Produce the final answer, explanation, or action using both the user’s query and the augmented data.
+This makes resources the knowledge base layer of MCP, ensuring that agents can dynamically pull in just the data they need to reason effectively.
+Scalability
+When a server exposes a large number of resources (thousands or even millions), MCP provides mechanisms to keep discovery and retrieval efficient:
+Pagination – resources/list supports cursors, so clients can fetch resources in manageable chunks.
+Resource templates – Servers can advertise URI templates (e.g., product://{category}/{id}) so clients can generate URIs without enumerating every possible item.
+Server-side search tools – Instead of scrolling huge lists, clients can call a search tool (like searchCatalog) to fetch a small set of relevant URIs.
+Subscriptions – Clients can subscribe to changes instead of constantly re-listing, making updates lightweight.
+By combining these strategies, MCP ensures that agents scale gracefully: they don’t need to load everything, just the right resources at the right time.
+Example: Resource Interaction
+Step 1 — Client lists resources
+{
+"jsonrpc": "2.0",
+"id": 1,
+"method": "resources/list",
+"params": {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Response
+{
+"jsonrpc": "2.0",
+"id": 1,
+"result": {
+"resources": [
+{
+"uri": "product://starship/ftl-2000",
+"name": "FTL-2000",
+"title": "FTL-2000 Starship",
+"description": "Faster-than-light exploration vessel with warp drive",
+"mimeType": "application/json",
+"schema": {
+"type": "object",
+"properties": {
+"id": { "type": "string" },
+"price": { "type": "number" },
+"currency": { "type": "string" },
+"specs": {
+"type": "object",
+"properties": {
+"engine": { "type": "string" },
+"crewCapacity": { "type": "integer" },
+"range": { "type": "string" }
+},
+"required": ["engine", "crewCapacity"]
+}
+},
+"required": ["id", "price", "currency", "specs"]
+}
+}
+]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2 – Client requests a product resource
+{
+"jsonrpc": "2.0",
+"id": 2,
+"method": "resources/read",
+"params": {
+"uri": "product://starship/ftl-2000"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Response
+{
+"jsonrpc": "2.0",
+"id": 2,
+"result": {
+"contents": [
+{
+"uri": "product://starship/ftl-2000",
+"name": "FTL-2000",
+"title": "FTL-2000 Starship",
+"mimeType": "application/json",
+"text": "{ \"id\": \"ftl-2000\", \"price\": 1200000000, \"currency\": \"Galactic Credits\", \"specs\": { \"engine\": \"Warp Core MkIV\", \"crewCapacity\": 12, \"range\": \"Andromeda Sector\" } }"
+}
+]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3. Tools
+Tools are a core building block of an MCP server. If Resources are the data layer, Tools are the action layer: operations the server can perform on behalf of the client/agent (for example: compareProducts, checkInventory, manageShoppingCart).
+MCP standardizes how clients discover and run tools:
+tools/list — discover available tools, their parameters, and result schemas (metadata only).
+callTool — invoke a specific tool with structured arguments; receive a structured result.
+Tools always define:
+name (unique identifier)
+description (what it does)
+input schema (arguments in JSON Schema)
+output schema (result in JSON Schema)
+Tools always define:
+name – unique identifier)
+description – what it does
+input schema – arguments in JSON Schema
+output schema – result in JSON Schema
+This makes tool use predictable, typed, and interoperable across different clients.
+Discovery
+Before a tool can be invoked, it must first be discovered. The client calls tools/list, and the server responds with metadata describing each available tool: its name, description, input schema, and output schema.
+This step is crucial because it makes MCP dynamic:
+The client doesn’t need to know in advance what tools a server supports.
+The server can add or remove tools without requiring client changes.
+The schemas tell the client exactly what arguments to pass and what result format to expect.
+Once discovered, tools can be invoked immediately using callTool.
+Example: Compare Products Tool
+Step 1 – Discover tool
+{
+"jsonrpc": "2.0",
+"id": 1,
+"method": "tools/list",
+"params": {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Response
+{
+"jsonrpc": "2.0",
+"id": 1,
+"result": {
+"tools": [
+{
+"name": "compareProducts",
+"description": "Compare two product JSON specs and return key differences.",
+"inputSchema": {
+"type": "object",
+"properties": {
+"left":
+{ "type": "object" },
+"right": { "type": "object" }
+},
+"required": ["left", "right"]
+},
+"outputSchema": {
+"type": "object",
+"properties": {
+"differences": {
+"type": "array",
+"items": {
+"type": "object",
+"properties": {
+"path": { "type": "string" },
+"left": {},
+"right": {}
+},
+"required": ["path", "left", "right"]
+}
+}
+},
+"required": ["differences"]
+}
+}
+]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2 – Call the tool
+{
+"jsonrpc": "2.0",
+"id": 2,
+"method": "callTool",
+"params": {
+"name": "compareProducts",
+"arguments": {
+"left":
+{ "id": "ftl-2000", "specs": { "range": "Andromeda", "crewCapacity": 12 } },
+"right": { "id": "quantum-comm", "specs": { "range": "Galaxy-wide", "crewCapacity": 0 } }
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Response
+{
+"jsonrpc": "2.0",
+"id": 2,
+"result": {
+"differences": [
+{ "path": "specs.range",
+"left": "Andromeda",
+"right": "Galaxy-wide" },
+{ "path": "specs.crewCapacity", "left": 12,
+"right": 0 }
+]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+5. Prompts
+Prompts are a core building block of an MCP server. If Resources are the data layer and Tools are the action layer, Prompts are the guidance layer. They are reusable prompt templates that servers expose to clients, helping agents interact with models in a consistent and structured way.
+Prompts can be used to:
+Standardize how models summarize or explain data.
+Provide reusable templates for common tasks (e.g., summarizeTechSpecs, trainingIntro, generateAdCopy).
+Reduce prompt-engineering overhead by centralizing phrasing in the server.
+Discovery
+Prompts are discovered dynamically. The client calls prompts/list, and the server responds with metadata describing each available prompt:
+name: unique identifier of the prompt
+description: what the prompt is for
+arguments: placeholders that can be filled in by the client
+Because prompts live on the server, they can be added, updated, or removed without changing client logic. This ensures agents always use the most up-to-date phrasing patterns.
+Servers may also expose prompts in different personas or styles, allowing the same data to be presented in very different ways. For example:
+A strictInstructor prompt could return concise, no-nonsense training commands for starship crews.
+An enthusiasticSalesRep prompt could turn the very same specs into energetic sales copy designed to excite customers.
+This flexibility means the agent can pick the right “voice” depending on whether the user wants discipline or persuasion.
+Example: Prompt Discovery
+Imagine the user says to the agent:
+User> I need both a technical spec summary and a sales pitch for the FTL-2000 starship.
+Enter fullscreen mode
+Exit fullscreen mode
+Step 1: Client lists prompts
+{
+"jsonrpc": "2.0",
+"id": 1,
+"method": "prompts/list",
+"params": {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Response
+{
+"jsonrpc": "2.0",
+"id": 1,
+"result": {
+"prompts": [
+{
+"name": "strictInstructor",
+"description": "Provide concise, no-nonsense training instructions.",
+"arguments": [{ "name": "topic", "required": true }]
+},
+{
+"name": "enthusiasticSalesRep",
+"description": "Pitch products with energy and persuasive flair.",
+"arguments": [{ "name": "productSpec", "required": true }]
+}
+]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2: Client fetches and uses enthusiasticSalesRep
+{
+"jsonrpc": "2.0",
+"id": 3,
+"method": "prompts/get",
+"params": {
+"name": "enthusiasticSalesRep",
+"arguments": {
+"productSpec": "{ \"id\": \"ftl-2000\", \"specs\": { \"engine\": \"Warp Core MkIV\", \"crewCapacity\": 12, \"range\": \"Andromeda Sector\" } }"
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Response
+{
+"jsonrpc": "2.0",
+"id": 3,
+"result": {
+"messages": [
+{
+"role": "user",
+"content": "Write an energetic, persuasive pitch for this product:\n\n{ \"id\": \"ftl-2000\", \"specs\": { \"engine\": \"Warp Core MkIV\", \"crewCapacity\": 12, \"range\": \"Andromeda Sector\" } }"
+}
+]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Model Output
+User> I need both a technical spec summary and a sales pitch for the FTL-2000 starship.
+LLM> Step aboard the FTL-2000 Starship — the ultimate vessel for bold explorers! With a Warp Core MkIV engine, room for 12 adventurers, and the range to reach Andromeda, this ship isn’t just transportation, it’s freedom across the stars.
+6. MCP Agent Workflow
+We’re showing how an agent uses MCP to answer a user request about the FTL-2000 starship, producing both a tech spec summary and a sales pitch.
+Step 1 — User Request
+The user says:
+User> Give me a technical spec summary and a sales pitch for the FTL-2000 starship.
+Step 2 — Discovery
+The agent is discovering available prompts, resources, and tools it can use to answer the user’s request.
+{
+"jsonrpc": "2.0",
+"id": 1,
+"method": "prompts/list",
+"params": {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+{
+"jsonrpc": "2.0",
+"id": 2,
+"method": "resources/list",
+"params": { "filters": { "product": "FTL-2000" } }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+{
+"jsonrpc": "2.0",
+"id": 3,
+"method": "tools/list",
+"params": {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3 — Acquisition
+The agent reads the relevant resources (e.g., technical spec file and marketing notes for the FTL-2000) to gather the factual content it will use.
+{
+"jsonrpc": "2.0",
+"id": 4,
+"method": "resources/read",
+"params": { "uri": "res://catalog/starships/FTL-2000/spec.json" }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+{
+"jsonrpc": "2.0",
+"id": 5,
+"method": "resources/read",
+"params": { "uri": "res://marketing/starships/FTL-2000/benefits.md" }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4 — Prompt Composition
+The agent fills in two prompt templates: one for a technical summary and one for a sales pitch, injecting the resource data it just gathered.
+{
+"jsonrpc": "2.0",
+"id": 6,
+"method": "prompts/get",
+"params": {
+"name": "techSpecSummarizer",
+"arguments": {
+"subject": "FTL-2000",
+"context": {
+"spec": {
+"drive": "Quantum-Entangled Fold Drive v3",
+"range_ly": 4200,
+"crew": 8,
+"cargo_tons": 120,
+"power_core": "Tri-helix fusion",
+"safety_rating": "A+"
+}
+}
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+{
+"jsonrpc": "2.0",
+"id": 7,
+"method": "prompts/get",
+"params": {
+"name": "salesPitchPersona",
+"arguments": {
+"product": "FTL-2000",
+"audience": "Fleet procurement",
+"facts": "Half the fuel, double the range; A+ safety; 15-minute turnaround"
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 5 — Generation
+The agent uses the resolved prompts with its model and produces two outputs:
+Technical Spec Summary (FTL-2000): Range 4,200 ly; crew 8; cargo 120 tons; drive: Quantum-Entangled Fold v3; power: Tri-helix fusion; safety: A+.
+Sales Pitch (Fleet Procurement): Cut fuel in half, double the range. A+ safety. 15-minute turnaround keeps ships earning.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Farhan Khan
+Follow
+Joined
+Aug 28, 2025
+More from Farhan Khan
+Vector Database: Core Concepts
+#vectordatabase
+#elasticsearch
+#rag
+#python
+A2A (Agent to Agent): Core Concepts
+#ai
+#adk
+#a2a
+#programming
+LangGraph: Core Concepts
+#langchain
+#langgraph
+#ai
+#python
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

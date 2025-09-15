@@ -1,0 +1,194 @@
+Best-Practice Setup VM on Proxmox - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Fega Suseno
+Posted on Sep 15
+Best-Practice Setup VM on Proxmox
+#proxmox
+#devops
+#linux
+#sysadmin
+Postingan kali ini kita akan bahas best-practice setup vm di proxmox. oke, kadang di sebagian kasus kita cukup kesulitan menentukan standar setting default dari vm apalagi ketika ingin membuat template vm yang reusable. Baiklah, kita akan langsung saja ke rekomendasinya berdasarkan member forum resmi proxmox, bisa cek di sini
+https://forum.proxmox.com/threads/best-practices-for-setting-up-ceph-in-a-proxmox-environment.148790/
+Kita fokus pada jawaban no. 3
+You should really reconsider 3-nodes because of the single-node failure scenario. With that being said, I use the following optimization learned through trial-and-error and write IOPS are in the hundreds while read IOPS are 3x-5x (sometimes higher) than write IOPS. Again not hurting for IOPS for my production workloads.
+Set SAS HDD Write Cache Enable (WCE) (sdparm -s WCE=1 -S /dev/sd[x])
+Set VM Disk Cache to None if clustered, Writeback if standalone
+Set VM Disk controller to VirtIO-Single SCSI controller and enable IO Thread & Discard option
+Set VM CPU Type to 'Host'
+Set VM CPU NUMA on servers with 2 more physical CPU sockets
+Set VM Networking VirtIO Multiqueue to number of Cores/vCPUs
+Set VM Qemu-Guest-Agent software installed
+Set VM IO Scheduler to none/noop on Linux
+Set Ceph RBD pool to use 'krbd' option
+Oke, kita jelaskan ya.
+Point Pertama
+SAS di sini maksudnya adalah Serial Attached SCSI. SAS adalah jenis interface/storage protocol untuk harddisk atau SSD (biasanya kelas enterprise/server). Bedanya dengan SATA:
+SAS → dipakai di server, lebih cepat, lebih andal, bisa full-duplex, dan biasanya dipasangkan di storage enterprise (misalnya Proxmox + Ceph pakai server-grade disk).
+SATA → lebih umum di PC/desktop/laptop, lebih murah, tapi performa dan keandalannya di bawah SAS.
+Jadi ketika ada instruksi:
+sdparm -s WCE=1 -S /dev/sdX
+Enter fullscreen mode
+Exit fullscreen mode
+itu artinya mengaktifkan Write Cache Enable (WCE) pada disk SAS tersebut. Dengan write cache aktif, disk bisa menampung data di cache sebelum ditulis permanen ke platter/flash, sehingga I/O jadi lebih cepat.
+Tapi ini harus hati-hati: kalau power loss dan tidak ada battery-backed cache (BBU) di RAID controller atau UPS, data bisa hilang sebelum sempat flush ke disk.
+Point Kedua
+Nah, bagian ini maksudnya setting disk controller di VM Proxmox biar performa I/O makin optimal
+VirtIO-SCSI Single Controller
+VirtIO-SCSI adalah driver disk yang sudah dioptimalkan untuk virtualisasi (lebih cepat daripada IDE/SATA emulated). Single controller artinya semua disk VM dipasang ke satu controller VirtIO-SCSI (bukan banyak controller). Lebih efisien (lebih sedikit overhead QEMU), cocok kalau VM punya banyak disk (misalnya database).
+IO Thread
+Kalau di-enable, setiap disk VM bisa punya thread I/O sendiri.
+Keuntungannya I/O bisa diproses paralel, tidak bottleneck di 1 thread. Sangat terasa kalau VM ada banyak disk, server host punya banyak core CPU, beban I/O tinggi (contoh: database, Ceph RBD).
+Discard Option (TRIM/UNMAP)
+Kalau aktif, ketika VM menghapus file, informasi blok kosong diteruskan ke storage (Ceph, ZFS, SSD, dll). Hasilnya space reclaim kapasitas di backend storage bisa balik dipakai dan juga
+SSD friendly karena performa SSD lebih terjaga (garbage collection lebih efektif).
+Point Ketiga
+Set VM CPU Type to 'Host'
+Di Proxmox, saat bikin VM default biasanya kvm64 (aman & universal, tapi fitur CPU host banyak yang dimatikan). Kalau pilih host VM akan pakai instruksi CPU asli dari hardware server. Performa lebih tinggi terutama aplikasi yang sensitif CPU, misalnya database, compression, scientific computing.
+Tapi kekuranganya VM jadi kurang portable, kalau migrasi ke host Proxmox lain yang beda generasi CPU, bisa error. Jadi ini best practice kalau cluster kamu CPU-nya sama semua (homogen).
+Set VM CPU NUMA (Non-Uniform Memory Access)
+Berlaku kalau server punya lebih dari 1 socket fisik CPU (misalnya 2x Intel Xeon atau AMD EPYC). NUMA itu cara akses memori di server multi-CPU, tiap CPU punya memory controller sendiri. Akses memori lokal lebih cepat daripada akses ke memori yang dikontrol CPU lain. Kalau NUMA diaktifkan maka VM akan aware tentang topologi NUMA, Hypervisor (Proxmox/QEMU) bisa mengalokasikan vCPU dan RAM sesuai node NUMA, performa lebih stabil dan latency rendah. Sangat berguna buat workload besar (database, aplikasi high I/O, VM dengan banyak core/RAM).
+Solusi
+Kalau server kamu 1 socket CPU → NUMA tidak perlu diaktifkan.
+Kalau server kamu ≥2 socket CPU → wajib aktifkan NUMA di setting VM.
+Pastikan jumlah vCPU untuk VM jangan lebih banyak dari core fisik per NUMA node.
+Okeh, sementara itu dulu, selanjutanya akan kita update berkala.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Fega Suseno
+Follow
+I'm a DevOps Engineer, my passion is open source technology, Linux administration and programming. I currently work as an IT staff member at a hospital.
+Education
+Cirebon Muhammadiyah University
+Work
+Mitra Plumbon Helathcare Group
+Joined
+Sep 19, 2023
+More from Fega Suseno
+Remove index.php in Apache URL Using .htaccess
+#web
+#linux
+#devops
+#programming
+Main Service on Ceph Proxmox
+#virtualmachine
+#devops
+#linux
+#proxmox
+OSD, Pool & PG on Ceph Proxmox
+#proxmox
+#ceph
+#linux
+#devops
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
