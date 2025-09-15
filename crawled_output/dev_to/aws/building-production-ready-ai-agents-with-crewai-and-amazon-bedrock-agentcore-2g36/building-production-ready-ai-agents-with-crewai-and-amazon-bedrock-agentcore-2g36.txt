@@ -1,0 +1,519 @@
+Building Production-Ready AI Agents with CrewAI and Amazon Bedrock AgentCore - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Danilo Poccia
+for AWS
+Posted on Sep 15
+Building Production-Ready AI Agents with CrewAI and Amazon Bedrock AgentCore
+#ai
+#aws
+#agentcore
+#bedrock
+Building Production-Ready AI Agents (4 Part Series)
+1
+Building Production-Ready AI Agents: A Multi-Framework Journey with Amazon Bedrock AgentCore
+2
+Building Production-Ready AI Agents with Strands Agents and Amazon Bedrock AgentCore
+3
+Building Production-Ready AI Agents with CrewAI and Amazon Bedrock AgentCore
+4
+Building Production-Ready AI Agents with Pydantic AI and Amazon Bedrock AgentCore
+In this second deep dive of our multi-framework series, I'll show you how to build collaborative multi-agent systems using CrewAI and deploy them with Amazon Bedrock AgentCore. The complete code for this implementation, along with examples for other frameworks, is available on GitHub at agentcore-multi-framework-examples.
+CrewAI takes a fundamentally different approach from the single-agent model we explored with Strands Agents. Instead of one agent handling everything, CrewAI orchestrates multiple specialized agents working together like a well-coordinated team. Each agent has a specific role, goal, and backstory that shapes its behavior. This mirrors how human teams operate—you have researchers who gather information, analysts who process it, and managers who coordinate the workflow. Note that Strands Agents supports different approaches and protocols for multi-agent architectures but in the sample code uses only one agent for simplicity.
+CrewAI maps to real-world workflows in a straightforward way. When I need to research a topic and write a report, I'm essentially performing multiple roles: first as a researcher gathering information, then as an analyst synthesizing findings. CrewAI makes this explicit, allowing me to define these roles as separate agents that collaborate through structured tasks.
+Setting Up the Development Environment
+Let's start by setting up the CrewAI project. If you haven't already cloned the repository:
+git clone https://github.com/danilop/agentcore-multi-framework-examples.git
+cd agentcore-multi-framework-examples
+Enter fullscreen mode
+Exit fullscreen mode
+Now let's set up the CrewAI project. I'm using uv, a fast Python package installer, to manage dependencies:
+cd agentcore-crew-ai
+uv sync
+source .venv/bin/activate
+Enter fullscreen mode
+Exit fullscreen mode
+The project dependencies include:
+crewai[tools]: The core framework with built-in tools support
+bedrock-agentcore: The SDK for integrating with AgentCore services
+bedrock-agentcore-starter-toolkit: CLI tools for deployment
+boto3: AWS SDK for Python, used by AgentCore
+I also install the CrewAI CLI tool which helps with project scaffolding:
+uv tool install crewai
+Enter fullscreen mode
+Exit fullscreen mode
+I previously used the CrewAI CLI to create the initial project structure with crewai create crew agentcore-crew-ai. When prompted, I selected one of the Amazon Bedrock models, though this isn't a requirement for using AgentCore Runtime—any LLM provider supported by CrewAI will work.
+Creating and Configuring AgentCore Memory
+Before we dive into building our crew, let's set up AgentCore Memory. If you've already done this for the Strands Agents example, you can skip the creation steps and just copy the configuration file to have long-term memory "shared" between the agents.
+Quick Memory Setup
+For those who haven't set up memory yet, here's the quick version:
+cd ../scripts
+uv sync
+uv run create-memory
+uv run add-sample-memory
+cd ../agentcore-crew-ai
+cp ../config/memory-config.json .
+Enter fullscreen mode
+Exit fullscreen mode
+The memory system provides three strategies that automatically extract insights from conversations: User Preferences (behavioral patterns), Semantic Facts (domain knowledge), and Session Summaries (conversation overviews). These work together to give our agents persistent memory across sessions.
+Building the Crew
+When running, CrewAI orchestrates multiple agents. Let me show you how I've structured the crew for our research and reporting workflow. This is based on the sample crews created by the crew tool.
+Defining Agents Through Configuration
+CrewAI supports YAML configuration for defining agents, which I find cleaner than hardcoding everything. In config/agents.yaml, I define two specialized agents:
+researcher:
+role: >
+{topic} Senior Data Researcher
+goal: >
+Uncover cutting-edge developments in {topic}
+backstory: >
+You're a seasoned researcher with a knack for uncovering the latest
+developments in {topic}. Known for your ability to find the most relevant
+information and present it in a clear and concise manner.
+reporting_analyst:
+role: >
+{topic} Reporting Analyst
+goal: >
+Create detailed reports based on {topic} data analysis and research findings
+backstory: >
+You're a meticulous analyst with a keen eye for detail. You're known for
+your ability to turn complex data into clear and concise reports, making
+it easy for others to understand and act on the information you provide.
+Enter fullscreen mode
+Exit fullscreen mode
+Notice the {topic} placeholders—these get replaced at runtime with the actual topic the user wants to research. The backstory is particularly important as it shapes how the agent approaches its tasks, influencing the tone and style of its outputs.
+Defining Tasks
+Similarly, tasks are defined in config/tasks.yaml:
+research_task:
+description: >
+Conduct a thorough research about {topic}
+Make sure you find any interesting and relevant information given
+the current year is {current_year}.
+expected_output: >
+A list with 10 bullet points of the most relevant information about {topic}
+agent: researcher
+reporting_task:
+description: >
+Review the context you got and expand each topic into a full section for a report.
+Make sure the report is detailed and contains any and all relevant information.
+expected_output: >
+A fully fledged report with the main topics, each with a full section of information.
+. . .
+agent: reporting_analyst
+Enter fullscreen mode
+Exit fullscreen mode
+Each task specifies which agent should handle it, creating clear ownership and responsibility. The expected_output field helps the agent understand what format the result should take.
+The Crew Class
+The crew itself is defined using CrewAI @CrewBase decorator pattern:
+from crewai import Agent, Crew, Process, Task
+from crewai.project import CrewBase, agent, crew, task
+@CrewBase
+class AgentcoreCrewAi():
+"""AgentcoreCrewAi crew"""
+@agent
+def researcher(self) -> Agent:
+return Agent(
+config=self.agents_config['researcher'],
+verbose=True
+)
+@agent
+def reporting_analyst(self) -> Agent:
+return Agent(
+config=self.agents_config['reporting_analyst'],
+verbose=True
+)
+@task
+def research_task(self) -> Task:
+return Task(
+config=self.tasks_config['research_task'],
+)
+@task
+def reporting_task(self) -> Task:
+return Task(
+config=self.tasks_config['reporting_task'],
+)
+@crew
+def crew(self) -> Crew:
+"""Creates the AgentcoreCrewAi crew"""
+return Crew(
+agents=self.agents,
+tasks=self.tasks,
+process=Process.sequential,
+verbose=True,
+)
+Enter fullscreen mode
+Exit fullscreen mode
+The decorators handle all the wiring—@agent and @task automatically collect the defined agents and tasks, making them available to the crew. I'm using Process.sequential here, which means tasks execute one after another. CrewAI also supports hierarchical processes for more complex workflows where a manager agent coordinates subordinates.
+Integrating with AgentCore Runtime
+Now comes the crucial part—integrating our crew with AgentCore Runtime for production deployment. The integration happens in main.py:
+from bedrock_agentcore import BedrockAgentCoreApp
+from bedrock_agentcore.runtime.context import RequestContext
+app = BedrockAgentCoreApp()
+@app.entrypoint
+def invoke(payload: Dict[str, Any], context: Optional[RequestContext] = None) -> str:
+"""
+Invoke the crew with enhanced memory functionality.
+"""
+logger.info("CrewAI invocation started")
+user_input = payload.get("prompt")
+if not user_input:
+logger.warning("No prompt provided in payload")
+return "Error: No prompt provided"
+# Get actor_id and session_id from payload or context
+actor_id = payload.get("actor_id", DEFAULT_ACTOR_ID)
+session_id = context.session_id if context and context.session_id else payload.get("session_id", DEFAULT_SESSION_ID)
+# Enhance input with memory context
+memory_context = memory_manager.get_memory_context(
+user_input=user_input,
+actor_id=actor_id,
+session_id=session_id
+)
+enhanced_input = f"{memory_context}\n\n{user_input}" if memory_context else user_input
+# Prepare inputs and execute the crew
+inputs = {
+'topic': enhanced_input,
+'current_year': str(datetime.now().year)
+}
+# Execute the crew and get the result
+result = AgentcoreCrewAi().crew().kickoff(inputs=inputs)
+# Store the conversation in memory
+memory_manager.store_conversation(
+user_input=user_input,
+response=result.raw,
+actor_id=actor_id,
+session_id=session_id
+)
+# Return the crew's raw text output
+return result.raw
+Enter fullscreen mode
+Exit fullscreen mode
+The BedrockAgentCoreApp handles all the infrastructure concerns—setting up the HTTP server, managing request routing, and handling errors. The @entrypoint decorator marks the function that AgentCore Runtime will invoke when your agent receives a request.
+The key line is result = AgentcoreCrewAi().crew().kickoff(inputs=inputs) where the crew executes all its tasks. The kickoff() method returns a result object containing the crew's output. We then return result.raw, which contains the raw text output from the crew's execution. AgentCore Runtime takes this string response and packages it appropriately for the response, handling HTTP response formatting automatically.
+The RequestContext provides session information that's automatically managed by AgentCore. This is crucial for maintaining conversation continuity—each user gets their own isolated session that persists across invocations.
+AgentCore Memory Integration
+One of the interesting aspects of this implementation is how seamlessly memory integrates with the crew workflow. I use the same memory module we developed for Strands Agents, demonstrating the portability of our architecture.
+Enhancing Input with Memory Context
+Before the crew starts working, I retrieve relevant memories and add them to the input:
+# Enhance input with relevant memories using memory manager
+memory_context = memory_manager.get_memory_context(
+user_input=user_input,
+actor_id=actor_id,
+session_id=session_id
+)
+enhanced_input = f"{memory_context}\n\n{user_input}" if memory_context else user_input
+# Prepare inputs for crew
+inputs = {
+'topic': enhanced_input,
+'current_year': str(datetime.now().year)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The MemoryManager class encapsulates all memory operations. Let me show you exactly how get_memory_context() works internally:
+def get_memory_context(
+self,
+user_input: str,
+actor_id: Optional[str] = None,
+session_id: Optional[str] = None,
+load_conversation_context: bool = True,
+retrieve_relevant_memories: bool = True
+) -> str:
+"""Get memory context as a string to be added to user input."""
+actor_id = actor_id or self.default_actor_id
+session_id = session_id or self.default_session_id
+session_key = f"{actor_id}:{session_id}"
+context_parts = []
+# Load conversation history on first invocation
+if load_conversation_context and not self._initialized_sessions.get(session_key, False):
+self.logger.info(f"Loading conversation context for session: {session_key}")
+conversation_context = self._load_conversation_context(actor_id, session_id)
+if conversation_context:
+context_parts.append(f"Recent conversation:\n{conversation_context}")
+self._initialized_sessions[session_key] = True
+# Retrieve semantically relevant memories
+if retrieve_relevant_memories and user_input:
+relevant_memories = retrieve_memories_for_actor(
+memory_id=self.memory_config.memory_id,
+actor_id=actor_id,
+search_query=user_input,
+memory_client=self.memory_client
+)
+if relevant_memories:
+memory_context = format_memory_context(relevant_memories)
+context_parts.append(f"Relevant long-term memory context:\n{memory_context}")
+return "\n\n".join(context_parts) if context_parts else ""
+Enter fullscreen mode
+Exit fullscreen mode
+This method performs two critical functions:
+Loading Conversation History: On the first invocation of a session, it retrieves previous conversation turns using the get_last_k_turns API. The _initialized_sessions dictionary tracks which sessions have been loaded, preventing redundant API calls.
+Retrieving Relevant Memories: The retrieve_memories_for_actor function performs semantic search across all stored memories—preferences, facts, and summaries—using the RetrieveMemories operation. Here's how it builds the namespace and performs the search:
+def retrieve_memories_for_actor(
+memory_id: str,
+actor_id: str,
+search_query: str,
+memory_client: MemoryClient
+) -> List[Dict[str, Any]]:
+"""Retrieve memories for a specific actor from the memory store."""
+namespace = f"/actor/{actor_id}/"
+try:
+memories = memory_client.retrieve_memories(
+memory_id=memory_id,
+namespace=namespace,
+query=search_query
+)
+return memories
+except Exception as e:
+logger.error(f"Failed to retrieve memories: {e}")
+return []
+Enter fullscreen mode
+Exit fullscreen mode
+The namespace structure /actor/{actor_id}/ provides isolation between users—each actor has their own memory space that can be used to retrieve memories.
+Running the Crew
+With memory context prepared, I execute the crew:
+# Execute the crew
+result = AgentcoreCrewAi().crew().kickoff(inputs=inputs)
+# Store the conversation in memory
+memory_manager.store_conversation(
+user_input=user_input,
+response=result.raw,
+actor_id=actor_id,
+session_id=session_id
+)
+# Return the result
+return result.raw
+Enter fullscreen mode
+Exit fullscreen mode
+The kickoff method starts the crew execution. The agents work through their tasks sequentially—first the researcher gathers information, then the reporting analyst creates a comprehensive report based on those findings. The result object contains the crew's output, with result.raw providing the raw text that we return to the user.
+After execution, I store the conversation using store_conversation(). This triggers the create_event API, which not only stores the raw conversation but also triggers the memory strategies to extract preferences, facts, and generate summaries.
+Memory Manager Architecture
+The MemoryManager class provides a high-level interface that abstracts the complexity of AgentCore Memory:
+class MemoryManager:
+"""
+Unified memory manager for all AgentCore frameworks.
+"""
+def __init__(
+self,
+default_actor_id: str = "default-user",
+default_session_id: str = "default-session",
+max_conversation_turns: int = 100,
+logger: Optional[logging.Logger] = None
+):
+# Load memory configuration
+self.memory_config = MemoryConfig()
+self.memory_client = MemoryClient()
+# Session tracking for conversation context loading
+self._initialized_sessions: Dict[str, bool] = {}
+Enter fullscreen mode
+Exit fullscreen mode
+The class tracks which sessions have been initialized to avoid reloading conversation history on every invocation. This optimization is important because loading history is only needed once per session lifecycle.
+Shared Memory Architecture
+One key architectural decision I made was creating a unified memory management module that's identical across all framework implementations in this series. This memory.py module contains two classes and two standalone functions:
+Classes:
+MemoryConfig class: Manages centralized configuration
+__init__() method: Loads the memory configuration from JSON file with caching
+memory_id property: Returns the configured memory ID
+MemoryManager class: High-level interface for all memory operations
+get_memory_context() method: Retrieves both conversation history and relevant memories
+store_conversation() method: Saves user input and agent responses
+Additional helper methods for managing session state
+Standalone Functions:
+retrieve_memories_for_actor(): Performs semantic search across memory namespaces for a specific actor
+format_memory_context(): Formats retrieved memories into consistent text for injection into prompts
+By sharing this module across CrewAI, Strands Agents, Pydantic AI, LlamaIndex, and LangGraph implementations, I try to share a consistent and portabile approach. Memory created by one framework can be used by another, and improvements benefit all implementations.
+The CrewAI implementation instantiates the MemoryManager class directly in main.py, using it to enhance inputs before crew execution and store results afterward. This demonstrates how the shared architecture adapts to different framework patterns while maintaining the same core functionality.
+Testing Locally
+Before deploying to production, I always test locally. First, configure the agent for AgentCore:
+agentcore configure -n crewaiagent -e src/agentcore_crew_ai/main.py
+Enter fullscreen mode
+Exit fullscreen mode
+Press Enter to accept all defaults. This creates the necessary AWS resources like IAM roles and ECR repositories.
+Handling Python Version Compatibility
+CrewAI has a dependency (chroma-hnswlib) that needs specific Python versions. To handle this, I update the base image in the generated Dockerfile:
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+Enter fullscreen mode
+Exit fullscreen mode
+I also explicitly set the model environment variable since the .dockerignore file (correctly) excludes .env files that are often used for credentials and API keys:
+ENV MODEL=bedrock/us.amazon.nova-pro-v1:0
+Enter fullscreen mode
+Exit fullscreen mode
+You can use any model supported by CrewAI here—AgentCore Runtime is model-agnostic.
+Local Launch and Testing
+Now launch the agent locally:
+agentcore launch --local
+Enter fullscreen mode
+Exit fullscreen mode
+This builds a Docker container and starts it locally. Test it with:
+agentcore invoke --local '{ "prompt": "AI multi-agent architectures - Also, what did I say about fruit?" }'
+Enter fullscreen mode
+Exit fullscreen mode
+The crew should research AI multi-agent architectures and create a detailed report. Additionally, it should retrieve the memory about fruit preferences we added earlier, demonstrating that memory persistence works across different framework implementations!
+Deploying to Production
+Once local testing is complete, deploying to AWS is straightforward:
+agentcore launch
+Enter fullscreen mode
+Exit fullscreen mode
+AgentCore Runtime handles all the complexity:
+Building and pushing container images to Amazon ECR
+Creating AWS Lambda functions with proper networking
+Setting up API Gateway endpoints
+Configuring IAM permissions
+Enabling CloudWatch logging
+Managing auto-scaling policies
+Check your deployment status:
+agentcore status
+Enter fullscreen mode
+Exit fullscreen mode
+This shows your endpoint ARN, CloudWatch logs location, and other deployment details. To monitor logs in real-time, use the AWS CLI command provided:
+aws logs tail /aws/bedrock-agentcore/runtimes/<AGENT_ID-ENDPOINT_ID> --follow
+Enter fullscreen mode
+Exit fullscreen mode
+Test the production deployment:
+agentcore invoke '{ "prompt": "AI multi-agent architectures - Also, what did I say about fruit?" }'
+Enter fullscreen mode
+Exit fullscreen mode
+The production agent should perform exactly like the local version, but now it's running on scalable, managed infrastructure.
+What's Next
+This CrewAI implementation shows how to build sophisticated multi-agent systems that are production-ready from day one. The separation between agent roles mirrors real-world team dynamics, making the system intuitive to design and maintain.
+In the next article, I'll explore Pydantic AI, showing how to build type-safe agents with automatic validation. You'll see how the same memory system and deployment patterns work with a completely different framework philosophy, demonstrating the flexibility of the AgentCore platform.
+The complete code is available on GitHub. I encourage you to experiment with different crew configurations—try adding more agents, implementing parallel processes, or integrating custom tools. The combination of CrewAI flexibility and AgentCore infrastructure gives you endless possibilities.
+Ready to build your own AI crew? Clone the repo and start experimenting!
+Building Production-Ready AI Agents (4 Part Series)
+1
+Building Production-Ready AI Agents: A Multi-Framework Journey with Amazon Bedrock AgentCore
+2
+Building Production-Ready AI Agents with Strands Agents and Amazon Bedrock AgentCore
+3
+Building Production-Ready AI Agents with CrewAI and Amazon Bedrock AgentCore
+4
+Building Production-Ready AI Agents with Pydantic AI and Amazon Bedrock AgentCore
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS
+Follow
+Collection of articles by AWS Developer Advocates
+More from AWS
+Building Production-Ready AI Agents with Strands Agents and Amazon Bedrock AgentCore
+#ai
+#bedrock
+#aws
+#agentcore
+Building Production-Ready AI Agents: A Multi-Framework Journey with Amazon Bedrock AgentCore
+#ai
+#agentcore
+#bedrock
+#aws
+First Impressions with Amazon Bedrock AgentCore
+#aws
+#beginners
+#agents
+#ai
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

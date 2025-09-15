@@ -1,0 +1,530 @@
+Creating a Security Incident Portal with Kiro and AWS - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+David💻
+Posted on Sep 15
+Creating a Security Incident Portal with Kiro and AWS
+#aws
+#todayilearned
+#programming
+#webdev
+This article aims to showcase how Kiro’s features can be used to build a simple security incident portal, hosted on AWS with services like Lambda, Secrets Manager, S3, and CloudFront, while leveraging MSAL Entra ID for authentication.
+Requirements
+AWS account
+MSAL Entra ID
+Kiro
+Note: This project was made with Kiro before the release of their pricing plan.
+The proposed architecture
+What is Kiro?
+Kiro IDE is an AI powered development environment designed to speed up software creation. Instead of starting with manual boilerplate code, you interact with Kiro in natural language. You can describe what you want to build, and Kiro generates the project structure, code, and configurations.
+Find it here
+What is Vibe coding?
+Vibe coding is a development style where you start writing software through natural conversation or free form prompts instead of rigid plans or detailed specifications. The focus is on exploration and iteration, you describe what you want, review what’s generated, and refine it step by step.
+Kiro Vibe Mode vs Spec
+Kiro offers two ways to start your project:
+Vibe: Chat first, then build. You provide a prompt with your requirements, Kiro generates code, and you give feedback on the output.
+Spec: Plan first, then build. You give Kiro a detailed set of instructions, similar to a PRD (Product Requirements Document) that outlines the purpose and functionality of the product/feature.
+In my experience, especially during Kiro’s early days, Spec mode quickly ran out of requests and often did a poor job completing specific tasks. Some requests timed out, others didn’t match the requirements, and the code started looking like spaghetti. This led me to restart the project from scratch.
+That’s when I switched to Kiro Vibe mode. Here, I interacted with Kiro through specific prompts about what I needed. I began with the frontend project. Since I wanted to test Kiro’s capabilities, I was intentionally vague and only specified that I wanted a form to report security incidents. Kiro quickly proposed a solution stack: Vite + React. With continuous feedback and iteration, it took me about two days to build the frontend—though I was limited by Kiro’s daily request cap. Without that limitation, it probably would have been faster.
+Note: This project, while necessary, started as a side project in my free time. The main goal was to explore how popular LLM tools could be leveraged for vibe coding and to see the results. Sure, I could have coded everything manually, but that would have required writing unit tests, creating user stories, designing in Figma, and more. With Kiro, I was able to focus on delivering an MVP as quickly as possible.
+Walkthrough
+After installing Kiro IDE, create a project. Feel free to organize both the backend and frontend into two folders.
+Something about the risk of Autopilot
+While Autopilot can be an awesome tool—allowing Kiro to update multiple files automatically—it can also be a double-edged sword. Letting changes go through without review might introduce unnecessary code or even break the codebase. In some cases, other LLM coding assistants have executed terminal commands that interacted with projects and even deleted databases !
+I can’t stress enough that these types of tools should only be used in offline or development environments, not directly in production
+Fortunately, Kiro’s default behavior is to prompt you before authorizing any script or command execution.
+After some prompting
+It is very important to keep in mind that if Autopilot is active, it can lead to massive changes in the codebase. This may result in some functionalities being abandoned or replaced with unnecessary code. To mitigate this risk, I recommend managing our project with git and maintaining a README.MD file for context use, this file is useful if we runout of context window, since it provides a quick reference that allows another session to continue working with the same background knowledge
+Frontend structure
+Note: The code will be at the final of this article in a git repository.
+We start by building our frontend with the following prompts:
+I would like to create a security incident portal where users can authenticate with their organization email using MSAL. The portal should support two roles: User (can only submit reports through a security report form) and Admin (can view submitted reports in a dashboard). Please generate the frontend project structure, including components for login, forms, common UI elements, and an admin dashboard.
+Please organice the project in a good practice matter, be sure to separate the logic on different components
+The user role should be able to fill a form with fields related to a IT security incident, be sure to add fields that details the case, the admin role should be able to view this cases in a dashboard with the option to resolve this reports with a modal view.
+The admin should be also be able to download a report of this incidents in the dashboard tab, through a csv file, please add a button with the option to download the reports including the detailed information
+Note: There was a process of debugging and asking other prompts for fixing some aspects
+Our frontend is being described as the follow:
+components/: All UI building blocks.
+admin/: admin dashboard & modals.
+auth/: login screen and Microsoft (MSAL) button.
+common/: reusable UI bits (logo, spinner, success/error modals).
+forms/: the security incident report form.
+config/: App configuration and constants
+constants.js → shared constants (app names, messages, etc.).
+lambdaUrls.js → API/Lambda endpoints.
+msalConfig.js → MSAL/Entra ID settings (clientId, authority, redirect).
+roles.js → role names/permissions used for RBAC.
+hooks/: Reusable logic as React hooks:
+useRequests.js → fetch/POST helpers to your APIs.
+useUserRole.js → derive the user’s role from MSAL claims or app state.
+Main/Root files
+App.jsx → The root UI shell (routes/layout). It wires providers, nav, and renders pages/components based on auth/role.
+main.jsx →
+The entry point creates the React root and mounts
+(often wraps with MSAL/Context providers).
+App.css / index.css → Global styles.
+env.example → Sample environment variables to copy to your local .env.
+eslint.config.js → Linting rules.
+companylog.webp → Brand/logo asset.
+src/
+├─ assets/
+├─ components/
+│
+├─ admin/
+│
+│
+├─ SecurityDashboard.jsx
+│
+│
+└─ SecurityReportModal.jsx
+│
+├─ auth/
+│
+│
+├─ LoginScreen.jsx
+│
+│
+└─ MicrosoftLoginButton.jsx
+│
+├─ common/
+│
+│
+├─ CompanyLogo.jsx
+│
+│
+├─ ErrorModal.jsx
+│
+│
+├─ LoadingSpinner.jsx
+│
+│
+└─ SuccessModal.jsx
+│
+└─ forms/
+│
+└─ PhishingReportForm.jsx
+├─ config/
+│
+├─ constants.js
+│
+├─ lambdaUrls.js
+│
+├─ msalConfig.js
+│
+└─ roles.js
+├─ hooks/
+│
+├─ useRequests.js
+│
+└─ useUserRole.js
+├─ App.css
+├─ App.jsx
+├─ index.css
+├─ main.jsx
+├─ companylog.webp
+├─ env.example
+└─ eslint.config.js
+Enter fullscreen mode
+Exit fullscreen mode
+Authentication
+Before we can execute our code we have some parameters that need to be filled.
+In this application we will use Entra ID MSAL authentication, since most organizations has a corporate email through Microsoft.
+For this we go to Microsoft Entra Admin Center > App Registrations > New Registration
+In the registration we will give it a name select our current single tenant, and for Redirect URI we will select Web and add our localhost
+Note: We will later deploy this in a bucket using cloudfront and route53
+After registering our app we will copy the ClientID and the TenantID
+And replace it in our code at config > msalConfig.js
+// msalConfig.js - MSAL authentication configuration
+import { PublicClientApplication } from '@azure/msal-browser';
+// Get configuration from environment variables with fallbacks
+const clientId = import.meta.env.VITE_MSAL_CLIENT_ID || "<your-client-id>";
+const tenantId = import.meta.env.VITE_MSAL_TENANT_ID || "<your-tenant-id>";
+export const msalConfig = {
+auth: {
+clientId: clientId,
+authority: `https://login.microsoftonline.com/${tenantId}`,
+redirectUri: window.location.origin + "/",
+},
+cache: {
+cacheLocation: "sessionStorage",
+storeAuthStateInCookie: true,
+},
+};
+export const msalInstance = new PublicClientApplication(msalConfig);
+Enter fullscreen mode
+Exit fullscreen mode
+Running our frontend
+Now we can test out our frontend view by running the following command:
+cd frontend
+npm install
+npm run dev
+Enter fullscreen mode
+Exit fullscreen mode
+Our login landpage should look like this:
+The form:
+The dashboard:
+Now that our that we check our frontend is working at a mock level let's proceed uploading our frontend to AWS.
+For this we execute
+npm run build
+Enter fullscreen mode
+Exit fullscreen mode
+This will generate a dist folder in our project with the following content
+dist/
+├─ index.html
+├─ vite.sg
+├─ assets/
+│
+├─ admin/
+│
+│
+├─ index.js
+│
+│
+└─ index.css
+Enter fullscreen mode
+Exit fullscreen mode
+Frontend from local to AWS
+Now we are going to create an S3 bucket, we can configure it with the default settings, as we are going to use S3 origin access with cloudfront there is no need to make the bucket public we securely expose it through it.
+We go into the AWS Console > S3 Bucket > We left everything as is.
+Note: You might check what object locking and versioning can do, normally we handle our frontend through a CI/CD process, but for this example I will upload the files directly into the bucket.
+After creating we bucket before we upload our files we will go into Properties > Static website hosting.
+We will enabled it as Bucket hosting and set index.html as default
+Our files in our S3
+Now let's proceed with the cloudfront creation:
+For this we give our distribution a name, we are going to use a custom domain since I already have a route53 and my certificate loaded at ACM I will use that, otherwise you can use the provided link at cloudfront or just use s3 directly.
+Here we will use our bucket as a origin, be sure to select the s3 endpoint not the website, as we will configure the s3 endpoint with origin access, AWS cloudfront will provide a policy that should be added to the bucket.
+The policy goes at the permission tab of our bucket at bucket policy, it should look similar to this
+{
+"Version": "2008-10-17",
+"Id": "PolicyForCloudFrontPrivateContent",
+"Statement": [
+{
+"Sid": "AllowCloudFrontServicePrincipal",
+"Effect": "Allow",
+"Principal": {
+"Service": "cloudfront.amazonaws.com"
+},
+"Action": "s3:GetObject",
+"Resource": "arn:aws:s3:::security-portal.company.net/*",
+"Condition": {
+"StringEquals": {
+"AWS:SourceArn": "arn:aws:cloudfront::111882899112:distribution/E1DCXJC9B8PVOV"
+}
+}
+}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+After that feel free to setup WAF and security features to the cloudfront distribution for this example, I will keep it as simple as possible.
+After the distribution is created you have two options to register that alternative domain, you can copy the url provided by cloudfront and register it at your registar or route53 as an A record or CNAME or if. you use route53 you can directly add both required records by pressing the button Route Domains to Cloudfront
+Finally we have our frontend ready, however there is one big task left. Entering the backend.
+Note: Don't forget to add the new domain to MSAL config !
+Backend structure
+For our backend we will manage a simple architecture based on an small mysql rds database and a lambda, the lambda will be deployed on a VPC that has a peering connection between the VPC of the database, otherwise if your database is public or lives in the same VPC there might be no need to do this.
+Our frontend is being described as the follow:
+├─ database/
+│
+├─ schema.sql/
+├─ lambda/
+│
+├─ node-modules/
+│
+├─ index.js
+│
+├─ package.json
+│
+├─ package-lock.json
+Enter fullscreen mode
+Exit fullscreen mode
+database/: Database sql script
+schema.sql → full MySQL 8.0 DDL: tables (requests, request_comments, user_roles, request_audit_log), request_stats view, seed admins, sample data.
+lambda/: Python 3.13 with URI Function and VPC
+index.js → main Lambda handler & router (health, auth role lookup, list/create requests, stats, update status). Includes MySQL pool, JSON helpers, ID generators, Teams/Power Automate notifier, and CORS.
+package.json → Node project manifest (runtime entrypoint, scripts, deps like mysql2/promise).
+package-lock.json → exact dependency lock for reproducible builds.
+node_modules/ → installed npm packages used by the Lambda at runtime.
+For our database we are going to use the following script:
+-- Security Incident Portal Database Schema
+-- Production-ready schema for MySQL 8.0+
+-- Database: SecurityIncidentPortal
+-- Create the database if it doesn't exist
+CREATE DATABASE IF NOT EXISTS SecurityIncidentPortal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE SecurityIncidentPortal;
+-- Main requests table for security incidents
+CREATE TABLE requests (
+id VARCHAR(50) PRIMARY KEY,
+user_id VARCHAR(100) NOT NULL,
+user_info JSON NOT NULL,
+form_data JSON,
+request_type VARCHAR(50) NOT NULL,
+details JSON,
+reason TEXT,
+request_status VARCHAR(20) DEFAULT 'pending',
+priority_level VARCHAR(20) DEFAULT 'normal',
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+approved_at TIMESTAMP NULL,
+completed_at TIMESTAMP NULL,
+assigned_to VARCHAR(100),
+assigned_by VARCHAR(100),
+INDEX idx_user_id (user_id),
+INDEX idx_request_type (request_type),
+INDEX idx_request_status (request_status),
+INDEX idx_priority_level (priority_level),
+INDEX idx_created_at (created_at),
+INDEX idx_assigned_to (assigned_to),
+CONSTRAINT chk_request_status
+CHECK (request_status IN ('open', 'in-progress', 'resolved', 'closed')),
+CONSTRAINT chk_priority_level
+CHECK (priority_level IN ('low', 'medium', 'high', 'critical')),
+CONSTRAINT chk_request_type
+CHECK (request_type IN (
+'phishing-email','suspicious-website','social-engineering',
+'malware','data-breach','identity-theft','other','phishing-report'
+))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Comments table for request discussions
+CREATE TABLE request_comments (
+id VARCHAR(50) PRIMARY KEY,
+request_id VARCHAR(50) NOT NULL,
+user_id VARCHAR(100) NOT NULL,
+user_name VARCHAR(200) NOT NULL,
+message TEXT NOT NULL,
+is_internal BOOLEAN DEFAULT FALSE,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
+INDEX idx_request_id (request_id),
+INDEX idx_user_id (user_id),
+INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- User roles table - For caching user roles and permissions
+CREATE TABLE user_roles (
+user_id VARCHAR(100) PRIMARY KEY,
+email VARCHAR(255) NOT NULL UNIQUE,
+user_name VARCHAR(200),
+user_role VARCHAR(20) DEFAULT 'user',
+permissions JSON,
+last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+INDEX idx_email (email),
+INDEX idx_user_role (user_role),
+CHECK (user_role IN ('user', 'it-support', 'admin'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Request audit log table - For tracking changes
+CREATE TABLE request_audit_log (
+id INT AUTO_INCREMENT PRIMARY KEY,
+request_id VARCHAR(50) NOT NULL,
+user_id VARCHAR(100) NOT NULL,
+action_type VARCHAR(50) NOT NULL,
+old_values JSON,
+new_values JSON,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
+INDEX idx_request_id (request_id),
+INDEX idx_user_id (user_id),
+INDEX idx_action_type (action_type),
+INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Insert a single default admin (generic email)
+INSERT INTO user_roles (user_id, email, user_name, user_role, permissions) VALUES
+('admin-user', 'bolivar.llerena@company.net', 'Admin User', 'admin',
+JSON_ARRAY('request:create','request:view-own','request:view-all','request:approve','request:assign','request:delete','notification:send','user:manage','analytics:view'))
+ON DUPLICATE KEY UPDATE
+user_name = VALUES(user_name),
+user_role = VALUES(user_role),
+permissions = VALUES(permissions);
+-- Comprehensive statistics view
+CREATE VIEW request_stats AS
+SELECT
+COUNT(*) as total_requests,
+SUM(CASE WHEN request_status = 'open' THEN 1 ELSE 0 END) as open_count,
+SUM(CASE WHEN request_status = 'in-progress' THEN 1 ELSE 0 END) as in_progress_count,
+SUM(CASE WHEN request_status = 'resolved' THEN 1 ELSE 0 END) as resolved_count,
+SUM(CASE WHEN request_status = 'closed' THEN 1 ELSE 0 END) as closed_count,
+SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_count,
+SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as week_count,
+SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as month_count,
+SUM(CASE WHEN request_type = 'phishing-email' THEN 1 ELSE 0 END) as phishing_email_count,
+SUM(CASE WHEN request_type = 'suspicious-website' THEN 1 ELSE 0 END) as suspicious_website_count,
+SUM(CASE WHEN request_type = 'social-engineering' THEN 1 ELSE 0 END) as social_engineering_count,
+SUM(CASE WHEN request_type = 'malware' THEN 1 ELSE 0 END) as malware_count,
+SUM(CASE WHEN request_type = 'data-breach' THEN 1 ELSE 0 END) as data_breach_count,
+SUM(CASE WHEN request_type = 'identity-theft' THEN 1 ELSE 0 END) as identity_theft_count,
+SUM(CASE WHEN request_type = 'other' THEN 1 ELSE 0 END) as other_count,
+SUM(CASE WHEN request_type = 'phishing-report' THEN 1 ELSE 0 END) as phishing_report_count,
+SUM(CASE WHEN priority_level = 'low' THEN 1 ELSE 0 END) as priority_low_count,
+SUM(CASE WHEN priority_level = 'medium' THEN 1 ELSE 0 END) as priority_medium_count,
+SUM(CASE WHEN priority_level = 'high' THEN 1 ELSE 0 END) as priority_high_count,
+SUM(CASE WHEN priority_level = 'critical' THEN 1 ELSE 0 END) as priority_critical_count,
+SUM(CASE WHEN request_type IN (
+'phishing-email','suspicious-website','social-engineering',
+'malware','data-breach','identity-theft','phishing-report','other'
+) THEN 1 ELSE 0 END) as security_incidents_count,
+ROUND(AVG(CASE
+WHEN request_status IN ('completed','resolved','closed') AND
+(completed_at IS NOT NULL OR updated_at IS NOT NULL)
+THEN TIMESTAMPDIFF(HOUR, created_at, COALESCE(completed_at, updated_at))
+ELSE NULL
+END), 2) as avg_processing_time_hours
+FROM requests;
+Enter fullscreen mode
+Exit fullscreen mode
+The SQL script defines normalized tables for incidents (requests), threaded discussions (request_comments), role-based access (user_roles), and an immutable change history (request_audit_log). It adds strategic indexes and CHECK constraints for data integrity and query performance, builds a request_stats view that powers dashboards (status/type/priority/time-window counts and average processing time), seeds an admin account,
+With this script we fill basically use for the following API:
+User should be able to fill a form with required and optional fields from different type such as string, timestamp, floats, emails
+User should have two roles user and admin, admin is the only role that is capable of viewing the dashboard, add investigation notes and set incident reports to solved, canceled or closed
+User should be able to see a small metric on how many reports exist, how many are critical, how many are solved
+With this in mind we are going to proceed to create our RDS database and our lambda.
+In the AWS Console, we search for Aurora and RDS > Databases > Create Database, for this example we are going to use MYSQL in a free tier environment with engine 8.0.x
+As a good practice we should use secrets manager to manage our database password, this also enables us to program password rotation and other neat stuff.
+For the instance type a t4g.micro is good enough depending on our workload, and the size feel free to edit it to your needs
+For other configurations select your database vpc, feel free to tune your logs, backup and maintance window, after configuring and creating the database proceed to execute the .sql script.
+Now we can create our lambda, we search for the service called Lambda > Create Function.
+For our lambda, give it a name like security-api, let the lambda create the execution role and be sure to enable Function URL and VPC (if your database is not public)
+Now for our lambda upload the code provided in the github repository at the end of this article and copy the url this url should be the one that needs to be replaced at our frontend
+Note: The lambda uses environment variables however it is recommended to use secrets manager and handle this access through code.
+Finally we have our security incident portal ready to go !
+Lessons learned and a conclusion
+While Kiro is a powerful tool that can help developers accelerate their SDLC process, it still requires close supervision. There is significant feedback and debugging needed, such as addressing unnecessary functions, security concerns, and a lack of unit tests. These challenges, however, can be mitigated by following a proper SDLC process, using Kiro to support each phase and ensuring a solid PRD is in place. I’m excited to see what the future holds there is still much potential yet to be revealed !
+Repositories
+Frontend
+Backend
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+David💻
+Follow
+Passionate about learning something new everyday
+Location
+Ecuador
+Work
+Technical Lead at Kyndryl
+Joined
+Jan 23, 2022
+More from David💻
+Implementing OWIN Authentication with Microsoft Entra ID in ASP.NET Framework
+#azure
+#todayilearned
+#programming
+#webdev
+Engines to get you started in your web-based gaming development
+#devchallenge
+#gamechallenge
+#gamedev
+#webdev
+Create an AWS EKS Fargate v1.30 and play Prince Of Persia !
+#kubernetes
+#todayilearned
+#beginners
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

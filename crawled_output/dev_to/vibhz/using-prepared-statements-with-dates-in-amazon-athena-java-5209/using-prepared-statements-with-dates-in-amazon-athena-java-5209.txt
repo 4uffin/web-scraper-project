@@ -1,0 +1,228 @@
+Using Prepared Statements with Dates in Amazon Athena (Java) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Vibhavi Hettiarachchi
+Posted on Sep 15
+Using Prepared Statements with Dates in Amazon Athena (Java)
+#amazonathena
+#java
+#preparedstatements
+#aws
+Introduction
+Amazon Athena is a serverless, interactive query service that allows you to analyze data in Amazon S3 using standard SQL. While it's simple to run queries by passing SQL strings, this approach can be error-prone, hard to maintain, and vulnerable to SQL injection when dealing with dynamic values.
+When working with Amazon Athena, most developers start by writing raw SQL queries directly in their code.
+For example, here's how a query might look without prepared statements:
+Without Prepared Statement (Old Way)
+String query = "SELECT * FROM orders WHERE order_date >= DATE '" + startDate + "' " +
+"AND order_date <= DATE '" + endDate + "'";
+Enter fullscreen mode
+Exit fullscreen mode
+While this works, notice how the query is built by concatenating strings. If startDate or endDate are not properly formatted, it will lead to runtime errors. Also, this pattern doesn't scale well as queries become more complex.
+To address this, prepared statements provide a cleaner and safer way to work with queries in Athena. Instead of building queries with string concatenation, developers can use ? placeholders and bind values at runtime. Athena supports prepared statements and execution parameters, making queries more readable, less error-prone, and secure against common issues like type mismatches or SQL injection.
+With Prepared Statement (Preferred Way)
+Using ? placeholders makes queries cleaner and reusable:
+String query = """
+SELECT * FROM orders
+WHERE order_date >= ?
+AND order_date <= ?
+""";
+List<Object> parameters = List.of(startDate, endDate);
+List<Row> rows = athenaExecutor.execute(query, parameters);
+Enter fullscreen mode
+Exit fullscreen mode
+This approach improves readability, reduces bugs, and ensures type safety.
+However, real-world usage is not always straightforward. In particular, DATE columns often cause type mismatch errors because Athena doesn't automatically infer parameter types.
+In the next section, we'll demonstrate a safe approach to using parameterized queries in Athena with Java, focusing on proper handling of LocalDate values.
+Problem Statement
+When querying Athena using a prepared-statement-like approach, date fields often cause type mismatch errors. For example, suppose we need to retrieve the most recent order for a customer up to a given date.
+public Order fetchLatestOrder(Long customerId, String orderType, LocalDate targetDate) {
+String query = """
+SELECT * FROM %s.vw_orders
+WHERE customer_id = ?
+AND order_date <= ?
+ORDER BY order_date DESC
+LIMIT 1
+""".formatted(DatabaseSelector.getReportingDatabase());
+List<Object> parameters = List.of(customerId, targetDate);
+List<Row> rows = athenaExecutor.execute(query, parameters);
+if (rows.isEmpty()) {
+throw new DataNotFoundException("No order found for given parameters");
+}
+return mapRowToOrder(rows.get(0));
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Generated SQL (incorrect at runtime)
+SELECT *
+FROM mydb.vw_orders
+WHERE customer_id = 12345
+AND order_date <= 2025-09-05
+-- Athena sees this as integer/string, not DATE
+ORDER BY order_date DESC
+LIMIT 1;
+Enter fullscreen mode
+Exit fullscreen mode
+At runtime, Athena interprets targetDate incorrectly, leading to an error such as:
+Type mismatch: cannot apply operator date <= integer
+Root cause: Athena interprets the LocalDate parameter as a string or number rather than a DATE literal. The comparison order_date <= ? therefore fails.
+Solution
+The fix is to teach the query execution service how to format parameters correctly, especially for LocalDate. By extending the parameter formatter, we can ensure dates are wrapped in Athena's DATE 'yyyy-mm-dd' literal format.
+For example, in the query executor:
+private String formatParameter(Object param) {
+if (param instanceof LocalDate date) {
+return String.format("DATE '%s'", date);
+} else if (param instanceof Number) {
+return param.toString();
+} else if (param != null) {
+return "'" + escapeQuotes(param.toString()) + "'";
+} else {
+return "NULL";
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+With this modification, when targetDate is a LocalDate, Athena will receive:
+SELECT *
+FROM mydb.vw_orders
+WHERE customer_id = 12345
+AND order_date <= DATE '2025-09-05'
+ORDER BY order_date DESC
+LIMIT 1;
+Enter fullscreen mode
+Exit fullscreen mode
+Athena now interprets the date correctly and the query executes successfully.
+Key Takeaways:
+Prepared statements in Athena do not work like traditional database prepared statements.
+They do not inherently prevent SQL injection.
+Using parameterized queries is still recommended for clarity and maintainability, but extra caution is needed for user input.
+Athena requires explicit typing for DATE comparisons.
+Always format LocalDate parameters into DATE 'YYYY-MM-DD' literals.
+Numbers and strings should also be safely formatted and escaped.
+Using a dedicated executor for parameter substitution keeps queries reusable and prevents errors.
+For production, consider using native Athena prepared statements or execution parameters via AWS SDK to avoid manual string substitution entirel
+y.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Vibhavi Hettiarachchi
+Follow
+Senior Software Engineer | Tutor
+Joined
+Oct 3, 2023
+More from Vibhavi Hettiarachchi
+Unlocking the Basics: A Beginner's Guide to AWS Identity and Access Management (IAM)
+#aws
+#techjourney
+#beginners
+#beyondtheabacus
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
