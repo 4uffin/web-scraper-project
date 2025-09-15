@@ -1,0 +1,622 @@
+Mastering Svelte Custom Stores - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ali Aslam
+Posted on Sep 13
+Mastering Svelte Custom Stores
+#svelte
+#webdev
+#javascript
+#programming
+Svelte & SvelteKit Deep Dive (19 Part Series)
+1
+Svelte & SvelteKit Deep Dive: From Beginner to Pro
+2
+Why Learn Svelte in 2025? The Value Proposition & Svelte vs React & Vue
+...
+15 more parts...
+3
+Getting Started with SvelteKit: Setup, Project Structure & First App
+4
+Svelte Crash Course on Reactivity: How Your UI Updates Automatically
+5
+Svelte Components Explained: Props & Composition Made Simple
+6
+Svelte Events & Bindings Tutorial: Master Parent-Child Communication
+7
+Svelte Event Forwarding & Advanced Component Patterns
+8
+Conditionals in Svelte — {#if}, {:else}, and Nesting Explained
+9
+Loops in Svelte — {#each}, Keys, and Building a Todo App
+10
+Styling in Svelte (Scoped CSS, :global, and Class Directives)
+11
+Svelte Motion & Theming Guide: Transitions, Animations, and Dark Mode Explained
+12
+Tailwind CSS + Svelte: Utility-First Styling at Scale
+13
+A Beginner’s Guide to Svelte Stores (Writable, Readable, and Derived)
+14
+Mastering Context and Async Data in Svelte (with Examples)
+15
+SvelteKit Routing Tutorial: Layouts, Nested Routes & Multi-Page Apps
+16
+Forms in SvelteKit — Actions, Validation & Progressive Enhancement
+17
+Mastering Svelte Custom Stores
+18
+Mastering DOM Manipulation with Svelte Actions and Children
+19
+Mastering Svelte Lifecycle Hooks & Accessibility: Essential Tips for Building Dynamic, Accessible Apps
+By now you’ve seen props, context, stores, and even forms with actions. Those give you 80% of what you need to build solid Svelte apps. But at some point you’ll hit cases where the simple writable or derived store isn’t quite enough.
+That’s where custom stores come in.
+Think of them as stores with superpowers: instead of just holding state, they can also embed business logic, persistence, or side effects.
+We’ll build from scratch: a counter, a persistent theme toggle, and a more complex store that handles authentication. Along the way we’ll highlight where to place the files in your project structure and the subtle gotchas (like SSR vs browser code).
+Step 1 — Quick recap: basic stores 🧰
+In Svelte, a store is a small object that represents shared, subscribable state. Concretely, a store is anything that implements the store contract — i.e. it exposes a .subscribe() method that consumers can subscribe to.
+Stores are great when multiple components need to read or update the same value (think: theme, auth user, counters shared across pages). Svelte also gives you a very convenient shorthand inside .svelte components: prefix a store name with $ to auto-subscribe and read its current value reactively. That $ shortcut only works inside Svelte component files.
+Create the simplest store (a counter)
+Save this in src/lib/stores/basic.js:
+// src/lib/stores/basic.js
+import { writable } from 'svelte/store';
+// create a writable store with an initial value of 0
+export const count = writable(0);
+Enter fullscreen mode
+Exit fullscreen mode
+writable(0) creates a store you can read from and write to. The returned object has .subscribe(), .set(), and .update() methods.
+Use the store in a page/component
+<!-- src/routes/+page.svelte -->
+<script>
+import { count } from '$lib/stores/basic.js';
+</script>
+<p>Count: {$count}</p>
+<button onclick={() => $count += 1}>+1</button>
+Enter fullscreen mode
+Exit fullscreen mode
+Notes on that example:
+{$count} — the $ shorthand auto-subscribes to count and inserts the current value into the template. When the store changes, the DOM updates automatically.
+onclick={() => $count += 1} — inside a component you may assign to $count directly; that updates the underlying store. (Equivalent alternatives are shown below.)
+Alternative ways to update the store
+You can pick whichever style reads best to you — they all update the store:
+<!-- using set -->
+<button onclick={() => count.set($count + 1)}>+1 (set)</button>
+<!-- using update -->
+<button onclick={() => count.update(n => n + 1)}>+1 (update)</button>
+Enter fullscreen mode
+Exit fullscreen mode
+.set(value) replaces the store value.
+.update(updater) receives the current value and returns the next value.
+Both are the canonical store APIs from the svelte/store module.
+Important caveats & beginner tips
+The $ shortcut only works inside .svelte components. If you need a store’s value inside plain .js/.ts files, use .subscribe() or get(store) helper patterns instead.
+Stores are ideal for shared state. For purely local component state, you can use plain reactive variables — but when multiple components need the same data, stores are the right tool.
+When you export a store from a module (like src/lib/stores/basic.js), you’re exporting a single shared instance — every import gets the same store object. That’s why stores are handy for application-wide values (theme flags, user object, simple caches).
+💡 Why this matters (short and sweet):
+Stores give you a tiny, predictable API (subscribe, set, update) to share and react to values across components. The $ shortcut makes consuming them effortless in templates — write less plumbing, focus on the logic.
+Step 2 — Why Custom Stores? 🤔
+Our simple counter works — but what happens when requirements change?
+For example:
+Only allow the count to go up to a maximum (say 10).
+Keep track of how many times users pressed the button.
+Reset automatically after 5 minutes.
+If every component has its own button logic, you’d have to copy-paste those rules everywhere. That quickly leads to bugs when one place forgets a rule.
+👉 This is where custom stores come in.
+Think of it like this:
+A basic store is just a box with a number inside.
+A custom store is a box with a remote control: you can press “increment,” “reset,” or “decrement” without touching the number directly.
+This way:
+All your rules (max value, history, reset timer) live inside the store.
+Components only call the safe methods you expose — not the raw set/update.
+That makes your app more consistent and less error-prone.
+Step 3 — The simplest custom store 🛠️
+So far, our counter store was just a box with a number. Components reached in directly and did things like count.set(...) to change it. That works, but it means each component needs to know the exact rules for updating the store.
+With a custom store, we move the logic inside the store instead of scattering it across components. Components don’t touch the raw number anymore — they just call simple, safe methods.
+The recipe for a custom store
+Start with a writable store (as before).
+Wrap it in a function that returns an object.
+That object must include:
+.subscribe (so you can still use the $counter shorthand in components)
+Any extra methods you want, like increment, decrement, or reset.
+Think of it as building a “remote control” 📺 for your store. Instead of every component fiddling with the wires, they just press a button on the remote.
+Store file
+// src/lib/stores/counterStore.js
+import { writable } from 'svelte/store';
+function createCounter() {
+// start with 0
+const { subscribe, set, update } = writable(0);
+return {
+// expose subscribe so $counter works in components
+subscribe,
+// custom methods instead of exposing set/update directly
+increment: () => update(n => n + 1),
+decrement: () => update(n => n - 1),
+reset: () => set(0)
+};
+}
+// export ONE instance of this store
+export const counter = createCounter();
+Enter fullscreen mode
+Exit fullscreen mode
+Component using the store
+<!-- src/routes/+page.svelte -->
+<script>
+import { counter } from '$lib/stores/counterStore.js';
+</script>
+<h2>Counter: {$counter}</h2>
+<button onclick={counter.increment}>+</button>
+<button onclick={counter.decrement}>-</button>
+<button onclick={counter.reset}>Reset</button>
+Enter fullscreen mode
+Exit fullscreen mode
+✅ Now notice
+Components don’t know about set or update anymore.
+They just call the public methods (increment, decrement, reset), like pressing buttons on a remote control.
+All the rules live in one place → reusable, consistent, and easy to test.
+💡 A helpful analogy
+If you’ve ever used Redux (or another state manager), custom stores might feel familiar. Like Redux, they centralize state + logic so components don’t manage everything themselves.
+But here’s the best part:
+No reducers.
+No action types.
+No boilerplate at all.
+Just plain JavaScript methods (increment, reset…), and the $counter automatically keeps your UI in sync. ✨
+Step 4 — Adding constraints & business rules ⚖️
+Right now our counter can go up and down with no limits. That’s fun for a demo, but real apps usually come with rules. For example:
+Don’t let the counter go above a maximum.
+Don’t let it go below zero.
+Keep a history of changes so we can debug or display them later.
+Instead of sprinkling those checks across every component, let’s put them inside the store. That way, all components automatically follow the same rules.
+Store with constraints + history
+// src/lib/stores/counterStore.js
+import { writable } from 'svelte/store';
+function createCounter(max = 10) {
+const { subscribe, set, update } = writable(0);
+// local variable (not exported) to track history
+let history = [];
+return {
+subscribe,
+increment: () => update(n => {
+// never go above max
+const next = Math.min(max, n + 1);
+history.push(next); // record the new value
+return next;
+}),
+decrement: () => update(n => {
+// never go below zero
+const next = Math.max(0, n - 1);
+history.push(next);
+return next;
+}),
+reset: () => {
+history.push(0);
+set(0);
+},
+// public method to read the history
+getHistory: () => history
+};
+}
+// here we create a counter that stops at 5
+export const counter = createCounter(5);
+Enter fullscreen mode
+Exit fullscreen mode
+Using the store in a page
+<!-- src/routes/+page.svelte -->
+<script>
+import { counter } from '$lib/stores/counterStore.js';
+// local history variable
+let history = [];
+function refreshHistory() {
+history = counter.getHistory();
+}
+</script>
+<h2>Counter: {$counter}</h2>
+<button onclick={() => { counter.increment(); refreshHistory(); }}>+</button>
+<button onclick={() => { counter.decrement(); refreshHistory(); }}>-</button>
+<button onclick={() => { counter.reset(); refreshHistory(); }}>Reset</button>
+<h3>History</h3>
+<ul>
+{#each history as h}
+<li>{h}</li>
+{/each}
+</ul>
+Enter fullscreen mode
+Exit fullscreen mode
+What’s happening here?
+Constraints:
+Math.min(max, n + 1) ensures the value never goes above the maximum.
+Math.max(0, n - 1) ensures the value never goes below zero.
+History:
+Every time the counter changes, we push the new value into the history array.
+Encapsulation:
+The history array lives inside the store. Components can’t mess with it directly — they can only access it through getHistory().
+✅ Benefits
+Components stay simple. They just call counter.increment() and don’t need to worry about limits.
+All the business rules are in one place. If requirements change, you update the store, not every button.
+Beginner note
+$counter is reactive — it updates the <h2> automatically when the store changes.
+counter.getHistory() is just a plain function. It doesn’t auto-update, which is why we call it after each button press to refresh the history variable.
+If you wanted history itself to be reactive, you’d make it its own store — that’s a more advanced pattern we’ll cover later.
+Step 5 — Persistent stores with localStorage 💾
+Sometimes you’ll want data to stick around even after a page refresh — things like:
+Dark/light theme
+Remembering filters
+“Stay logged in” preference
+That’s where the browser’s localStorage comes in.
+The SvelteKit Catch 🤯
+SvelteKit apps run in two places:
+On the server (when it first renders a page)
+On the browser (after hydration)
+The server doesn’t have localStorage — it only exists in the browser. If you try to use it directly, your app will crash during server-side rendering (SSR).
+So, before we touch it, we need to check if we’re running in the browser.
+Store with Persistence
+Now, let’s take a look at how we can create a store that persists data in localStorage. But remember, when running on the server, localStorage isn't available, so we need to make sure we only access it in the browser.
+Here’s how you can create a theme store that remembers the user’s preferred theme between page reloads:
+// src/lib/stores/themeStore.js
+import { writable } from 'svelte/store';
+import { browser } from '$app/environment'; // Import the 'browser' utility from SvelteKit
+function createTheme() {
+// Get initial value safely
+const initial = browser
+? localStorage.getItem('theme') || 'light' // Check if we're in the browser before accessing localStorage
+: 'light'; // Default to 'light' theme if not in the browser
+const { subscribe, set, update } = writable(initial);
+return {
+subscribe,
+toggle: () =>
+update(t => {
+const next = t === 'light' ? 'dark' : 'light'; // Toggle theme between light and dark
+if (browser) { // Only set item in localStorage if we're in the browser
+localStorage.setItem('theme', next);
+}
+return next;
+}),
+set
+};
+}
+export const theme = createTheme();
+Enter fullscreen mode
+Exit fullscreen mode
+Usage in a Page
+Next, we use the store in a page to switch between light and dark themes. Here's how you can bind the theme to the body element so that it updates the page styling accordingly.
+<!-- src/routes/+page.svelte -->
+<script>
+import { theme } from '$lib/stores/themeStore.js';
+// Keep <body> class in sync with the current theme
+$effect(() => {
+document.body.classList.remove('light', 'dark'); // Remove old theme class
+document.body.classList.add($theme); // Add the current theme class
+});
+</script>
+<button onclick={theme.toggle}>
+Switch to {$theme === 'light' ? 'dark' : 'light'} mode
+</button>
+<style>
+/* Global selectors so they actually style the real <body> */
+:global(body.light) {
+background: white;
+color: black;
+}
+:global(body.dark) {
+background: #121212;
+color: white;
+}
+button {
+margin-top: 1rem;
+padding: 0.5rem 1rem;
+border-radius: 6px;
+}
+</style>
+Enter fullscreen mode
+Exit fullscreen mode
+How This Works
+✅ Initial value: When the store is created, it checks localStorage for a saved theme. If none is found, it defaults to "light".
+✅ Toggling: Clicking the button flips the theme between "light" and "dark", and the new value is saved back to localStorage.
+✅ Syncing <body>: The $effect keeps the <body> element’s class in sync with the current theme. Whenever $theme changes, it updates the class list so <body> always reflects the latest value.
+✅ Styling with :global(): Svelte normally scopes CSS selectors to a single component. If you wrote body.dark { ... } without :global(), it would compile into something like body.dark.svelte-xyz123, which won’t match the real <body>.
+That’s why we wrap it in :global(...):
+:global(body.dark) { … }
+Enter fullscreen mode
+Exit fullscreen mode
+This tells Svelte “apply this to the actual global <body> element.” Now, when the store updates the class, the CSS takes effect, and you see the whole page background and text color change.
+⚠️ Without the browser check, this would crash on the server, because localStorage doesn’t exist during SSR.
+✅ End result: The user’s theme preference is saved, restored on refresh, and visibly changes the entire page without hydration issues.
+Step 6 — A more advanced custom store: Auth 👤🔑
+So far, our stores have just held numbers or strings. Let’s try something more real: an authentication store.
+This store should:
+Remember who the current user is
+Expose login() and logout() methods
+Persist the user in localStorage (so a refresh doesn’t log you out)
+Restore the user (hydrate) on page load
+Auth store
+// src/lib/stores/authStore.js
+import { writable } from 'svelte/store';
+function createAuth() {
+const { subscribe, set } = writable(null); // start with no user
+// Try to restore user from localStorage
+if (typeof localStorage !== 'undefined') {
+const saved = localStorage.getItem('user');
+if (saved) {
+set(JSON.parse(saved)); // parse string back into an object
+}
+}
+return {
+subscribe,
+// fake login for demo purposes
+login: (user) => {
+set(user);
+if (typeof localStorage !== 'undefined') {
+localStorage.setItem('user', JSON.stringify(user));
+}
+},
+// logout clears store + localStorage
+logout: () => {
+set(null);
+if (typeof localStorage !== 'undefined') {
+localStorage.removeItem('user');
+}
+}
+};
+}
+export const auth = createAuth();
+Enter fullscreen mode
+Exit fullscreen mode
+Using the auth store in a page
+<!-- src/routes/+page.svelte -->
+<script>
+import { auth } from '$lib/stores/authStore.js';
+</script>
+{#if $auth}
+<p>Welcome, {$auth.name}!</p>
+<button onclick={auth.logout}>Logout</button>
+{:else}
+<button onclick={() => auth.login({ name: 'Ada' })}>
+Login as Ada
+</button>
+{/if}
+Enter fullscreen mode
+Exit fullscreen mode
+What’s happening here?
+\$auth value:
+null → no user logged in
+an object → e.g. { name: "Ada" }
+login(user): updates the store and saves the user object into localStorage.
+logout(): clears the store and removes the user from localStorage.
+Automatic hydration: when the store is created, it checks localStorage. If a user was saved from a previous session, it restores them right away.
+✅ Why this is powerful
+Now our store behaves almost like a mini service inside the app. Components don’t need to know how login works — they just call auth.login() or auth.logout().
+Later, if you replace the fake login() with a real API call, none of the consuming components would need to change. Everything is centralized and consistent.
+Step 7 — Gotchas & Best Practices ⚠️
+Custom stores are powerful, but there are a few common pitfalls you’ll want to avoid. Let’s go through them.
+1. Don’t mutate state outside the store 🛑
+Bad:
+// ❌ direct mutation (don’t do this!)
+counter.history.push(123);
+Enter fullscreen mode
+Exit fullscreen mode
+Good:
+// ✅ only change state via store methods
+counter.increment();
+Enter fullscreen mode
+Exit fullscreen mode
+➡️ Think of a store as a black box. Components shouldn’t reach inside and poke at its internals. If you need to change something, expose a method on the store and use that.
+2. SSR vs Browser 🌍
+Remember: in SvelteKit, your code runs both
+on the server (during the first render)
+in the browser (after hydration)
+But things like localStorage, window, and document only exist in the browser.
+So always guard them:
+if (typeof localStorage !== 'undefined') {
+// safe to use
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Or, SvelteKit provides a helper:
+import { browser } from '$app/environment';
+if (browser) {
+// safe to use
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Without these guards, your app will crash during SSR.
+3. Testing is easy 🧪
+One of the best things about stores: they’re just plain JavaScript objects with functions. That makes them simple to test, without any Svelte setup at all.
+import { counter } from '$lib/stores/counterStore';
+import { get } from 'svelte/store';
+counter.increment();
+expect(get(counter)).toBe(1);
+Enter fullscreen mode
+Exit fullscreen mode
+Here we’re using get() from svelte/store to synchronously read the store’s current value.
+4. Don’t over-engineer ⚙️
+Not every store needs to be custom.
+If your state is just a number, string, or boolean → stick with writable().
+Reach for a custom store when you need extra rules (like validation, persistence, history, or side effects).
+Think of custom stores as the “power tool” 🛠️ — handy when needed, but overkill for a single nail.
+✅ Keep these in mind and you’ll avoid the common pitfalls, while knowing exactly when custom stores are worth the effort.
+And that’s custom stores in action:
+Simple counters → custom logic
+Business rules → encapsulated in one place
+Persistence with localStorage
+Real-world auth example
+Stores are the backbone of Svelte apps — once you master them, you’ll find state management much easier and cleaner.
+👉 Next up: we’ll look at Mastering DOM Manipulation with Svelte Actions and Children, which let you attach reusable behavior to DOM nodes and build flexible component APIs.
+Follow me on DEV for future posts in this deep-dive series.
+https://dev.to/a1guy
+If it helped, leave a reaction (heart / bookmark) — it keeps me motivated to create more content
+Checkout my offering on YouTube with (growing) crash courses and content on JavaScript, React, TypeScript, Rust, WebAssembly, AI Prompt Engineering and more: @LearnAwesome
+Svelte & SvelteKit Deep Dive (19 Part Series)
+1
+Svelte & SvelteKit Deep Dive: From Beginner to Pro
+2
+Why Learn Svelte in 2025? The Value Proposition & Svelte vs React & Vue
+...
+15 more parts...
+3
+Getting Started with SvelteKit: Setup, Project Structure & First App
+4
+Svelte Crash Course on Reactivity: How Your UI Updates Automatically
+5
+Svelte Components Explained: Props & Composition Made Simple
+6
+Svelte Events & Bindings Tutorial: Master Parent-Child Communication
+7
+Svelte Event Forwarding & Advanced Component Patterns
+8
+Conditionals in Svelte — {#if}, {:else}, and Nesting Explained
+9
+Loops in Svelte — {#each}, Keys, and Building a Todo App
+10
+Styling in Svelte (Scoped CSS, :global, and Class Directives)
+11
+Svelte Motion & Theming Guide: Transitions, Animations, and Dark Mode Explained
+12
+Tailwind CSS + Svelte: Utility-First Styling at Scale
+13
+A Beginner’s Guide to Svelte Stores (Writable, Readable, and Derived)
+14
+Mastering Context and Async Data in Svelte (with Examples)
+15
+SvelteKit Routing Tutorial: Layouts, Nested Routes & Multi-Page Apps
+16
+Forms in SvelteKit — Actions, Validation & Progressive Enhancement
+17
+Mastering Svelte Custom Stores
+18
+Mastering DOM Manipulation with Svelte Actions and Children
+19
+Mastering Svelte Lifecycle Hooks & Accessibility: Essential Tips for Building Dynamic, Accessible Apps
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Ali Aslam
+Follow
+https://www.linkedin.com/in/maliaslam/
+Joined
+Aug 9, 2025
+More from Ali Aslam
+Mastering Svelte Lifecycle Hooks & Accessibility: Essential Tips for Building Dynamic, Accessible Apps
+#svelte
+#webdev
+#javascript
+#programming
+Mastering DOM Manipulation with Svelte Actions and Children
+#sveltekit
+#webdev
+#svelte
+#javascript
+Forms in SvelteKit — Actions, Validation & Progressive Enhancement
+#svelte
+#webdev
+#javascript
+#ui
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

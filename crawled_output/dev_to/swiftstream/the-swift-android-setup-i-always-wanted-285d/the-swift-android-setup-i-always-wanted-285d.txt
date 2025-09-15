@@ -1,0 +1,792 @@
+The Swift Android Setup I Always Wanted - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Mikhail Isaev
+for Swift Stream
+Posted on Sep 12
+The Swift Android Setup I Always Wanted
+#swift
+#android
+#tutorial
+#beginners
+Hi guys, imike here!!!
+Swift 6's game-changing Android NDK support finally let me ship JNIKit, the convenient tool I've been building for the SwifDroid project since the Swift 5 days! The biggest hurdle is now gone: we can simply import Android instead of wrestling with manual header imports. While the final step, official binary production, is still handled by finagolfin's fantastic swift-android-sdk (which Swift Stream uses), the Swift project is already planning to make it the official SDK.
+Today, I want to show you how to write your first real native Swift code for Android. It's going to be an interesting journey, so grab a cup of tea and let's begin.
+What You'll Need:
+Docker
+VSCode with Dev Containers extension
+The Swift Stream IDE extension for VSCode
+Optionally, have Android Studio installed to test your library with a real Android app later.
+Your operating system doesn't matter as long as it can run Docker and VSCode.
+Once you have Docker installed, open VSCode.
+First, make sure you have the Dev Containers extension installed.
+Next, ensure the Swift Stream IDE extension is also installed.
+If you don't have these extensions yet, just search for them in the marketplace and hit Install (your Captain Obvious 😄)
+Creating a New Project
+On the left sidebar in VSCode, click the Swift Stream icon (the bird).
+...and hit Start New Project 😏
+Now, enter your project name, for example, MyFirstAndroidLib.
+You'll see that the new project will be created in your home folder by default. You can choose a different folder by clicking the three-dots button.
+The next step is to choose the project type. For us, it's Android -> Library.
+Click Create Project.
+Next, enter the Java namespace for your library. This is usually your domain name in reverse (e.g., com.example.mylib).
+After entering the namespace, hit Enter to move to the next step, where you'll choose the Android Min SDK Version.
+I'd recommend choosing 24 or 29, depending on your needs. Hit Enter again to choose the Android Compile SDK Version.
+As of today, 35 is a good choice. Hit Enter one more time to start the project creation process.
+At this point, VSCode will create a folder with all the project files and begin downloading the Docker image with a ready-to-use Android development environment.
+Once the image is downloaded, it will start the container and open a new VSCode window with your project inside it. The container will then download the Swift toolchain, Swift for Android SDK, Gradle, Android NDK, and Android SDK. These tools are cached on shared Docker volumes, so your next project will be created in seconds. However, this first launch might take some time, so please be patient.
+And you're all set! Ready to write some code!
+Preambula
+What is JNI
+The Java Native Interface (JNI) is a bridge that lets native code talk to the Java Virtual Machine. Here’s the deal: if you're writing Java code, you use the Android SDK. But if you're using a language like Swift or C++ that doesn't compile to Java Bytecode, you need the Android NDK to communicate with Java through JNI.
+Using JNI, you can do pretty much anything you can do in Java, the real challenge is doing it in a way that isn't a total headache.
+What is JNIKit
+This is where JNIKit comes in! To feel comfortable and stay productive, we need a convenient layer that wraps those low-level, C-style JNI calls into something much more elegant and Swifty. That’s exactly what JNIKit is for.
+The Project
+Structure
+At its heart, it's a pure Swift Package Manager project. The key dependencies are JNIKit, and AndroidLogging with swift-log.
+Your Swift code lives in Sources/<target_name>/Library.swift by default.
+The Android library (a Gradle project) is in the Library folder. This folder will be automatically generated after your first Swift build. Alternatively, you can create it manually from the Swift Stream sidebar panel.
+The Swift Code
+Everything starts with an initialize method. This method is exposed to the Java/Kotlin side and must be called before any other native methods.
+The following code shows how to use @_cdecl to expose this method for JNI.
+The @_cdecl naming convention is critical, as it follows the JNI pattern:
+Java_<package>_<class>_<method>
+Enter fullscreen mode
+Exit fullscreen mode
+package is the fully qualified package name with underscores instead of dots
+class is the class name
+method is the method name
+The method's arguments also follow JNI convention. The first two are required and are passed automatically by the JNI:
+envPointer: This never changes. It's a pointer to the JNI environment, your main interface for interacting with the JVM.
+clazzRef or thizRef: You get clazzRef if the Java method is static (like in our case, where the method is inside a Kotlin object). You get thizRef if it's an instance method. The first is a pointer to a class; the second is a pointer to an instance.
+Any arguments after these represent the parameters of the Java/Kotlin method itself. In our case, the method has one extra argument: a caller object. We pass this from the app to provide context. This caller instance is necessary to cache the app's class loader (more on that later). Note: if we had thizRef instead of clazzRef, we might not need to pass this extra caller object.
+#if os(Android)
+@_cdecl("Java_to_dev_myandroidlib_myfirstandroidproject_SwiftInterface_initialize")
+public func initialize(
+envPointer: UnsafeMutablePointer<JNIEnv?>,
+clazzRef: jobject,
+callerRef: jobject
+) {
+// Activate Android logger
+LoggingSystem.bootstrap(AndroidLogHandler.taggedBySource)
+// Initialize JVM
+let jvm = envPointer.jvm()
+JNIKit.shared.initialize(with: jvm)
+// ALSO: class loader cache example
+// ALSO: `toString` example
+// ALSO: `Task` example
+}
+#endif
+Enter fullscreen mode
+Exit fullscreen mode
+The method body shows we first bootstrap the Swift logging system with the Android logger (this only needs to be done once).
+After that, we can use the logger anywhere, simply like this:
+let logger = Logger(label: "🐦‍🔥 SWIFT")
+logger.info("🚀 Hello World!")
+Enter fullscreen mode
+Exit fullscreen mode
+Then, we initialize the connection to the JVM. At this point, we're good to go!
+Class Loader and Cache
+Here's a common gotcha: by default, when you try to find a Java class via JNI, it uses a system class loader. This system loader (surprise, surprise!) can't see dynamically loaded classes from your app, meaning it misses your own classes and any Gradle dependencies.
+The solution? We need to get the application's class loader, which is available from any Java object via .getClass().getClassLoader(). The best practice is to grab this class loader once during initialization, create a global reference to it, store it in JNIKit's cache, and use it everywhere. It remains valid for the entire app lifecycle.
+Here’s how to cache it in the initialize method:
+// Access current environment
+let localEnv = JEnv(envPointer)
+// Convert caller's local ref into global ref
+let callerBox = callerRef.box(localEnv)
+// Defer block to clean up local references
+defer {
+// Release local ref to caller object
+localEnv.deleteLocalRef(callerRef)
+}
+// Initialize `JObject` from boxed global reference to the caller object
+guard let callerObject = callerBox?.object() else { return }
+// Cache the class loader from the caller object
+// it is important to load non-system classes later
+// e.g. your own Java/Kotlin classes
+if let classLoader = callerObject.getClassLoader(localEnv) {
+JNICache.shared.setClassLoader(classLoader)
+logger.info("🚀 class loader cached successfully")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Note: You would use thizRef instead of callerRef if your native method was an instance method.
+Can I use Java's toString()?
+Yup, of course! It's a crucial Java method, and JNIKit makes using it as simple as:
+logger.info("🚀 caller description: \(someObject.toString())")
+Enter fullscreen mode
+Exit fullscreen mode
+Environment on Another Thread
+JNIEnv is tied to the current thread. This environment is the bridge that does all the magic, transferring calls to and from the JVM.
+If you switch threads (e.g., in a Task), you must attach a JNI environment to that new thread. JNIKit provides a simple method for this: JEnv.current().
+Task {
+// Access current environment in this thread
+guard let env = JEnv.current() else { return }
+logger.info("🚀 new env: \(env)")
+// Print JNI version into LogCat
+logger.info("🚀 jni version: \(env.getVersionString())")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+How the Code Looks on the Other Side
+Java
+public final class SwiftInterface {
+static {
+System.loadLibrary("MyFirstAndroidProject");
+}
+private SwiftInterface() {}
+public static native void initialize(Object caller);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Kotlin
+object SwiftInterface {
+init {
+System.loadLibrary("MyFirstAndroidProject")
+}
+external fun initialize(caller: Any)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Swift Stream generates the Kotlin files for you, so we'll stick with that. We'll see more JNI examples in a bit 🙂
+Building the Swift Project
+Alright, time to build! Switch to the Swift Stream tab on the left sidebar and hit Project -> Build.
+You'll be prompted to choose a Debug or Release scheme.
+Let's go with Debug for now. The building process will begin.
+In Swift Stream, you can choose the Log Level to control how much detail you see:
+Normal
+Detailed (This is the default)
+Verbose
+Unbearable (For when you really need to see everything)
+With the default Detailed level, you'll see an output similar to this during the build:
+🏗️ Started building debug
+💁‍♂️ it will try to build each phase
+🔦 Resolving Swift dependencies for native
+🔦 Resolved in 772ms
+🔦 Resolving Swift dependencies for droid
+🔦 Resolved in 2s918ms
+🧱 Building `MyFirstAndroidProject` swift target for arm64-v8a
+🧱 Built `MyFirstAndroidProject` swift target for `.droid` in 10s184ms
+🧱 Building `MyFirstAndroidProject` swift target for armeabi-v7a
+🧱 Built `MyFirstAndroidProject` swift target for `.droid` in 7s202ms
+🧱 Building `MyFirstAndroidProject` swift target for x86_64
+🧱 Built `MyFirstAndroidProject` swift target for `.droid` in 7s135ms
+🧱 Preparing gradle wrapper
+🧱 Prepared gradle wrapper in 1m50s
+✅ Build Succeeded in 2m20s
+Enter fullscreen mode
+Exit fullscreen mode
+As you can see, the initial Swift compilation itself was pretty fast, about ~30 seconds total for all three architecture targets (arm64-v8a, armeabi-v7a, and x86_64). The bulk of the time (1m50s) was spent on the initial gradle wrapper setup, which is a one-time cost.
+The great news is that subsequent builds will be super fast, taking only about 3 seconds for all three targets! This is because everything gets cached.
+This build command also automatically generates the Java Library Gradle project for you. It's now ready to use in the Library folder.
+The Java/Kotlin Project
+Source Code
+Swift Stream generates the initial boilerplate code for your library, which you'll then maintain and extend.
+Here’s a sample of the generated Kotlin interface:
+import android.util.Log
+object SwiftInterface {
+init {
+System.loadLibrary("MyFirstAndroidProject")
+}
+external fun initialize(caller: Any)
+external fun sendInt(number: Int)
+external fun sendIntArray(array: IntArray)
+external fun sendString(string: String)
+external fun sendDate(date: Date)
+external fun ping(): String
+external fun fetchAsyncData(): String
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Gradle Files
+Swift Stream IDE automatically manages your Gradle project. It generates Java packages based on your Swift targets from Package.swift and keeps all the Gradle files in sync.
+In Library/settings.gradle.kts, it manages the list of included targets within special comment tags:
+// managed by swiftstreamide: includes-begin
+include(":myfirstandroidproject")
+// managed by swiftstreamide: includes-end
+Enter fullscreen mode
+Exit fullscreen mode
+In each Library/<target>/build.gradle.kts file, it automatically manages dependencies based on the imports in your Swift code and the Swift version you're using:
+implementation("com.github.swifdroid.runtime-libs:core:6.1.3")
+// managed by swiftstreamide: so-dependencies-begin
+implementation("com.github.swifdroid.runtime-libs:foundation:6.1.3")
+implementation("com.github.swifdroid.runtime-libs:foundationessentials:6.1.3")
+implementation("com.github.swifdroid.runtime-libs:i18n:6.1.3")
+// managed by swiftstreamide: so-dependencies-end
+Enter fullscreen mode
+Exit fullscreen mode
+By default, these dependencies are fetched automatically from the SwifDroid runtime-libs JitPack repository, which is maintained for each supported Swift version. This means no manual copying of .so files from the Android SDK bundle!
+But if you need more control, you can take over manually, still without the hassle of manual file copying. The Swift Stream IDE uses a configuration file (.vscode/android-stream.json) where you can set the soMode:
+"soMode": "Packed"
+Enter fullscreen mode
+Exit fullscreen mode
+"Packed" (the default) means Gradle imports everything from JitPack. You can switch to "PickedManually" to specify only the .so files you actually need:
+"soMode": "PickedManually",
+"schemes": [
+{
+"title": "MyFirstAndroidProject Debug",
+"soFiles": [
+"libandroid.so",
+"libc.so",
+"libm.so"
+]
+}
+]
+Enter fullscreen mode
+Exit fullscreen mode
+This config file is also where you control other key project settings:
+"packageName": "to.dev.myandroidlib",
+"compileSDK": 35,
+"minSDK": 24,
+"javaVersion": 11,
+Enter fullscreen mode
+Exit fullscreen mode
+You can even pass custom arguments directly to the Swift compiler for fine-grained control:
+"schemes": [
+{
+"title": "MyFirstAndroidProject Debug",
+"swiftArgs": []
+}
+]
+Enter fullscreen mode
+Exit fullscreen mode
+Assemble with Gradle
+Finally, to build the distributable Android library files (.aar), just hit Java Library Project -> Assemble in the Swift Stream sidebar.
+This command runs either gradlew assembleDebug or gradlew assembleRelease in the background, packaging everything up for distribution.
+Add This Library to Your Android Project (Locally)
+Now for the fun part, let's use this library in a real Android app! Open your existing project or create a new one in Android Studio.
+Once your project is open, the first step is to add JitPack as a repository. Navigate to your settings.gradle.kts file and make sure it includes the JitPack repository:
+dependencyResolutionManagement {
+repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+repositories {
+google()
+maven { url = uri("https://jitpack.io") }
+mavenCentral()
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Next, you need to add the dependencies to your app module's build.gradle.kts file (app/build.gradle.kts). You must include both the .aar file and all the necessary runtime libraries:
+dependencies {
+implementation(files("libs/myfirstandroidproject-debug.aar"))
+implementation("com.github.swifdroid.runtime-libs:core:6.1.3")
+implementation("com.github.swifdroid.runtime-libs:foundation:6.1.3")
+implementation("com.github.swifdroid.runtime-libs:foundationessentials:6.1.3")
+implementation("com.github.swifdroid.runtime-libs:i18n:6.1.3")
+// the rest of dependencies
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Important: You have to manually list these dependencies because Android can't automatically pick them up from inside the .aar file.
+Getting the .AAR File
+Now, grab your freshly built library file! You'll find the .aar file in your Swift Stream project at this path:
+Library/myfirstandroidproject/build/outputs/aar/myfirstandroidproject-debug.aar
+Enter fullscreen mode
+Exit fullscreen mode
+Copy this file. Then, in your Android Studio project, navigate to your app module's directory (e.g., app/) and create a folder named libs right next to the build.gradle.kts file. Paste the .aar file into this new libs folder.
+Let the Magic Begin! 🚀
+You're all set! Now, somewhere in your app, typically in your Application class or the onCreate of your main activity, initialize the Swift code:
+SwiftInterface.initialize(this)
+Enter fullscreen mode
+Exit fullscreen mode
+Sync your Gradle project, build it, and run it on a device or emulator.
+The moment of truth: Open LogCat and filter for "SWIFT". You should see our glorious message:
+I
+[🐦‍🔥 SWIFT] 🚀 Hello World!
+Enter fullscreen mode
+Exit fullscreen mode
+Yaaay! Your Swift code is now running on Android.
+The Development Loop
+When you make changes to your Swift code, here’s your quick update cycle:
+In Swift Stream, hit Project -> Build
+Then, hit Java Library Project -> Assemble
+Copy the new .aar file from the outputs/aar folder into your Android project's app/libs folder, replacing the old one.
+Rebuild and run your Android app!
+That's it! You're now a cross-platform Swift developer.
+JNI Examples
+Now for the most exciting part, the code! Let's talk about how to communicate between Swift and Java/Kotlin. We'll stick with Kotlin, as it's the standard for Android development today.
+We'll cover a few simple but common scenarios in this article and dive into more complex ones next time.
+⚠️ Crucial: Don't forget to call SwiftInterface.initialize(this) before any other native calls!
+Sending an Int from Kotlin to Swift
+Let's start simple. Declare a method in SwiftInterface.kt:
+external fun sendInt(number: Int)
+Enter fullscreen mode
+Exit fullscreen mode
+On the Swift side, implement it:
+#if os(Android)
+@_cdecl("Java_to_dev_myandroidlib_myfirstandroidproject_SwiftInterface_sendInt")
+public func sendInt(
+envPointer: UnsafeMutablePointer<JNIEnv?>,
+clazzRef: jobject,
+number: jint
+) {
+let logger = Logger(label: "🐦‍🔥 SWIFT")
+logger.info("#️⃣ sendInt: \(number)")
+}
+#endif
+Enter fullscreen mode
+Exit fullscreen mode
+Call it from your app:
+SwiftInterface.sendInt(123)
+Enter fullscreen mode
+Exit fullscreen mode
+Check LogCat:
+I
+[🐦‍🔥 SWIFT] #️⃣ sendInt: 123
+Enter fullscreen mode
+Exit fullscreen mode
+Too easy, right? :)
+Sending an IntArray from Kotlin to Swift
+Declare the method:
+external fun sendIntArray(array: IntArray)
+Enter fullscreen mode
+Exit fullscreen mode
+On the Swift side, handle the array:
+#if os(Android)
+@_cdecl("Java_to_dev_myandroidlib_myfirstandroidproject_SwiftInterface_sendIntArray")
+public func sendIntArray(
+envPointer: UnsafeMutablePointer<JNIEnv?>,
+clazzRef: jobject,
+arrayRef: jintArray
+) {
+// Create lightweight logger object
+let logger = Logger(label: "🐦‍🔥 SWIFT")
+// Access current environment
+let localEnv = JEnv(envPointer)
+// Defer block to clean up local references
+defer {
+// Release local ref to array object
+localEnv.deleteLocalRef(arrayRef)
+}
+// Get array length
+logger.info("🔢 sendIntArray 1")
+let length = localEnv.getArrayLength(arrayRef)
+logger.info("🔢 sendIntArray 2 length: \(length)")
+// Get array elements
+var swiftArray = [Int32](repeating: 0, count: Int(length))
+localEnv.getIntArrayRegion(arrayRef, start: 0, length: length, buffer: &swiftArray)
+// Now you can use `swiftArray` as a regular Swift array
+logger.info("🔢 sendIntArray 3 swiftArray: \(swiftArray)")
+}
+#endif
+Enter fullscreen mode
+Exit fullscreen mode
+Call it from your app:
+SwiftInterface.sendIntArray(intArrayOf(7, 6, 5))
+Enter fullscreen mode
+Exit fullscreen mode
+Check LogCat:
+I
+[🐦‍🔥 SWIFT] 🔢 sendIntArray: 1
+I
+[🐦‍🔥 SWIFT] 🔢 sendIntArray: 2 length: 3
+I
+[🐦‍🔥 SWIFT] 🔢 sendIntArray: 3 swiftArray: [7, 6, 5]
+Enter fullscreen mode
+Exit fullscreen mode
+Sending a String from Kotlin to Swift
+Declare the method:
+external fun sendString(string: String)
+Enter fullscreen mode
+Exit fullscreen mode
+On the Swift side:
+#if os(Android)
+@_cdecl("Java_to_dev_myandroidlib_myfirstandroidproject_SwiftInterface_sendString")
+public func sendString(envPointer: UnsafeMutablePointer<JNIEnv?>, clazzRef: jobject, strRef: jobject) {
+// Create lightweight logger object
+let logger = Logger(label: "🐦‍🔥 SWIFT")
+// Access current environment
+let localEnv = JEnv(envPointer)
+// Defer block to clean up local references
+defer {
+// Release local ref to string object
+localEnv.deleteLocalRef(strRef)
+}
+// Wrap JNI string reference into `JString` and get Swift string
+logger.info("✍️ sendString 1")
+guard let string = strRef.wrap().string() else {
+logger.info("✍️ sendString 1.1 exit: unable to unwrap jstring")
+return
+}
+// Now you can use `string` as a regular Swift string
+logger.info("✍️ sendString 2: \(string)")
+}
+#endif
+Enter fullscreen mode
+Exit fullscreen mode
+Call it from your app:
+SwiftInterface.sendString("With love from Java")
+Enter fullscreen mode
+Exit fullscreen mode
+Check LogCat:
+I
+[🐦‍🔥 SWIFT] ✍️ sendString 1
+I
+[🐦‍🔥 SWIFT] ✍️ sendString 2: With love from Java
+Enter fullscreen mode
+Exit fullscreen mode
+Sending a Date Object from Kotlin to Swift
+Declare the method:
+external fun sendDate(date: Date)
+Enter fullscreen mode
+Exit fullscreen mode
+On the Swift side:
+#if os(Android)
+@_cdecl("Java_to_dev_myandroidlib_myfirstandroidproject_SwiftInterface_sendDate")
+public func sendDate(envPointer: UnsafeMutablePointer<JNIEnv?>, clazzRef: jobject, dateRef: jobject) {
+// Create lightweight logger object
+let logger = Logger(label: "🐦‍🔥 SWIFT")
+// Access current environment
+let localEnv = JEnv(envPointer)
+// Defer block to clean up local references
+defer {
+// Release local ref to date object
+localEnv.deleteLocalRef(dateRef)
+}
+// Wrap JNI date reference into `JObjectBox`
+logger.info("📅 sendDate 1")
+guard let box = dateRef.box(localEnv) else {
+logger.info("📅 sendDate 1.1 exit: unable to box Date object")
+return
+}
+// Initialize `JObject` from boxed global reference to the date
+logger.info("📅 sendDate 2")
+guard let dateObject = box.object() else {
+logger.info("📅 sendDate 2.1 exit: unable to unwrap Date object")
+return
+}
+// Call `getTime` method to get milliseconds since epoch
+logger.info("📅 sendDate 3")
+guard let milliseconds = dateObject.callLongMethod(name: "getTime") else {
+logger.info("📅 sendDate 3.1 exit: getTime returned nil, maybe wrong method")
+return
+}
+// Now you can use `milliseconds` as a regular Swift Int64 value
+logger.info("📅 sendDate 4: \(milliseconds)")
+}
+#endif
+Enter fullscreen mode
+Exit fullscreen mode
+Call it from your app:
+SwiftInterface.sendDate(Date())
+Enter fullscreen mode
+Exit fullscreen mode
+Check LogCat:
+I
+[🐦‍🔥 SWIFT] 📅 sendDate 1
+I
+[🐦‍🔥 SWIFT] 📅 sendDate 2
+I
+[🐦‍🔥 SWIFT] 📅 sendDate 3
+I
+[🐦‍🔥 SWIFT] 📅 sendDate 4: 1757533833096
+Enter fullscreen mode
+Exit fullscreen mode
+Receiving a String from Swift in Kotlin
+Declare a method that returns a value:
+external fun ping(): String
+Enter fullscreen mode
+Exit fullscreen mode
+On the Swift side, return a string:
+#if os(Android)
+@_cdecl("Java_to_dev_myandroidlib_myfirstandroidproject_SwiftInterface_ping")
+public func ping(envPointer: UnsafeMutablePointer<JNIEnv?>, clazzRef: jobject) -> jobject? {
+// Wrap Swift string into `JSString` and return its JNI reference
+return "🏓 Pong from Swift!".wrap().reference()
+}
+#endif
+Enter fullscreen mode
+Exit fullscreen mode
+Call it from your app:
+Log.i("HELLO", "Pinging: ${SwiftInterface.ping()}")
+Enter fullscreen mode
+Exit fullscreen mode
+Check LogCat:
+I
+Pinging: 🏓 Pong from Swift!
+Enter fullscreen mode
+Exit fullscreen mode
+Executing Async/Await Swift Code from Kotlin
+Declare the method:
+external fun fetchAsyncData(): String
+Enter fullscreen mode
+Exit fullscreen mode
+You need to know that the @_cdecl attribute doesn't work with the async operator. That's why we're using a semaphore here to execute our Swift code in a way that feels asynchronous. This approach is totally fine, but only for non-UI code. If you try this on the main thread, you'll face a complete and total deadlock, so just don't do it. I'll show you how to deal with UI in the next articles.
+#if os(Android)
+@_cdecl("Java_to_dev_myandroidlib_myfirstandroidproject_SwiftInterface_fetchAsyncData")
+public func fetchAsyncData(env: UnsafeMutablePointer<JNIEnv>, obj: jobject) -> jstring? {
+// Create semaphore to wait for async task
+let semaphore = DispatchSemaphore(value: 0)
+// Create result variable
+var result: String? = nil
+// Start async task
+Task {
+// Simulate async operation
+try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+// Set result
+result = "Async data fetched successfully!"
+// Release semaphore
+semaphore.signal()
+}
+// Wait for async task to complete by blocking current thread
+semaphore.wait()
+// Check if result is available
+guard let result = result else { return nil }
+// Wrap Swift string into `JSString` and return its JNI reference
+return result.wrap().reference()
+}
+#endif
+Enter fullscreen mode
+Exit fullscreen mode
+Call it from your app (off the main thread!):
+CoroutineScope(Dispatchers.IO).launch {
+Log.i("ASYNC", "Swift async call started")
+try {
+val result = SwiftInterface.fetchAsyncData()
+Log.i("ASYNC", "Swift returned: $result")
+} catch (e: Exception) {
+// Handle error
+}
+Log.i("ASYNC", "Swift async call finished")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Check LogCat:
+I
+Swift async call started
+I
+Swift returned: Async data fetched successfully!
+I
+Swift async call finished
+Enter fullscreen mode
+Exit fullscreen mode
+Wrapping Java Classes in Swift
+To use Java classes Swiftly, we need wrappers. Let's create one for java/util/Date:
+public final class JDate: JObjectable, Sendable {
+/// The JNI class name
+public static let className: JClassName = "java/util/Date"
+/// JNI global reference object wrapper, it contains class metadata as well.
+public let object: JObject
+/// Initializer for when you already have a `JObject` reference.
+///
+/// This is useful when you receive a `Date` object from Java code.
+public init (_ object: JObject) {
+self.object = object
+}
+/// Allocates a `Date` object and initializes it so that it represents the time
+/// at which it was allocated, measured to the nearest millisecond.
+public init? () {
+#if os(Android)
+guard
+// Access current environment
+let env = JEnv.current(),
+// It finds the `java.util.Date` class and loads it directly or from the cache
+let clazz = JClass.load(Self.className),
+// Call to create a new instance of `java.util.Date` and get a global reference to it
+let global = clazz.newObject(env)
+else { return nil }
+// Store the object to access it from methods
+self.object = global
+#else
+// For non-Android platforms, return nil
+return nil
+#endif
+}
+/// Allocates a `Date` object and initializes it to represent the specified number of milliseconds since the standard base time known as "the epoch", namely January 1, 1970, 00:00:00 GMT.
+///
+/// - Parameter milliseconds: The number of milliseconds since January 1, 1970, 00:00:00 GMT.
+public init? (_ milliseconds: Int64) {
+#if os(Android)
+guard
+// Access current environment
+let env = JEnv.current(),
+// It finds the `java.util.Date` class and loads it directly or from the cache
+let clazz = JClass.load(Self.className),
+// Call to create a new instance of `java.util.Date`
+// with `milliseconds` parameter and get a global reference to it
+let global = clazz.newObject(env, args: milliseconds)
+else { return nil }
+// Store the object to access it from methods
+self.object = global
+#else
+// For non-Android platforms, return nil
+return nil
+#endif
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This right here is the absolute bare minimum you need to get this class working. It lets you initialize a java.util.Date from scratch or wrap an incoming JObject that's already the right class.
+Alright, the skeleton is built. Now we need to give it some muscles, let's write down the class methods!
+/// Returns the day of the week represented by this date.
+public func day() -> Int32? {
+// Convenience call to `java.util.Date.getDay()`
+object.callIntMethod(name: "getDay")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+You get the idea! Now, go ahead and do the exact same thing for the getHours, getMinutes, getSeconds, and getTime methods. It's just more of the same pattern!
+Now for something a bit more interesting: a more complex method that takes another JDate as a parameter.
+/// Tests if this date is before the specified date.
+public func before(_ date: JDate) -> Bool {
+// Convenience call to `java.util.Date.before(Date date)`
+// which passes another `Date` object as a parameter
+// and returns a boolean result
+object.callBoolMethod(name: "before", args: date.object.signed(as: JDate.className)) ?? false
+}
+Enter fullscreen mode
+Exit fullscreen mode
+And, you guessed it, do the same thing one more time for the after method. It's practically identical to before.
+Finally, to cover the absolute minimum and make this class actually useful, let's add a super convenient method that converts our Java JDate into a native Swift Date object.
+/// Converts this java `Date` object to a Swift `Date`.
+public func date() -> Date? {
+// Get milliseconds since epoch using `getTime` method
+guard let time = time() else { return nil }
+// Convert milliseconds to seconds and create a Swift `Date` object
+return Date(timeIntervalSince1970: TimeInterval(time) / 1000.0)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Now you have a basic understanding of how Swift works with Java/Kotlin via JNI! I hope you've successfully compiled and tested this with your Android project.
+That's all for today, folks!
+For even more deep dives and advanced features, check out the comprehensive JNIKit README on GitHub. It's packed with details!
+Find me in Swift Stream Discord community, join and don't hesitate to ask questions!
+Hit subscribe so you don't miss the next article! We'll definitely talk about library distribution via JitPack, dive into more complex JNI cases, and the... UI!
+Stay tuned!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Swift Stream
+Follow
+swift, ide, web, webassembly, server, android, embedded
+Swift Stream is a powerful open source IDE for VS Code that enhances your ability to work with Swift projects beyond the traditional iOS/macOS ecosystem. Web, server, android, and embedded – use Swift for all of it. IDE works on any platform!
+Join our community
+Trending on DEV Community
+Hot
+Bring AI Into Any App With One Keystroke
+#ai
+#programming
+#javascript
+#productivity
+The Future of Work: 5 Jobs AI Will Redefine by 2030
+#ai
+#career
+#discuss
+#beginners
+Top 11 Document Parsing AI Tools for developers in 2025
+#ai
+#tooling
+#beginners
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

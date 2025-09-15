@@ -1,0 +1,510 @@
+Building a Hands-Free AI Fitness Applet with Gemini Live API - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Prema Ananda
+Posted on Sep 14
+Building a Hands-Free AI Fitness Applet with Gemini Live API
+#devchallenge
+#googleaichallenge
+#ai
+#gemini
+This is a submission for the Google AI Studio Multimodal Challenge
+What I Built
+AI Personal Trainer is an experimental fitness app with a "voice-first" approach that turns your smartphone into an interactive workout partner. The app is primarily controlled by voice commands, allowing you to focus on exercises rather than the screen.
+The problem I'm exploring:
+Distractions during workouts: The need to constantly interact with the phone screen
+Lack of personalization: Most apps offer one-size-fits-all solutions
+Passive interaction: Apps work as trackers rather than assistants
+Implemented features:
+🎤 Voice program creation: Dialog with AI to create personalized workout programs
+🧠 Real-time audio interaction: Two-way voice communication during workouts
+📊 Comprehensive database system: System for storing programs, sessions, and progress
+📈 Analytics dashboard: Visual progress tracking and performance insights
+📅 Google Calendar integration: Automatic addition of workouts to calendar
+🎯 Hybrid architecture: Combining dialog speed with analysis accuracy
+Demo
+⚡ Live Applet
+📱 View in AI Studio
+💻 GitHub Repository:ai-personal-trainer
+How I Used Google AI Studio
+Development started directly in Google AI Studio, where I experimented with different approaches to multimodal interaction.
+Development process:
+Prototyping in Google AI Studio: Creating user interface and initial system setup
+Export and development: Downloaded the project for local development
+Extended development: Used Gemini CLI to integrate complex functions
+Final deployment: Uploaded the finished project and used Deploy App
+Two-model architecture:
+Main model: Real-time dialog
+// Connection to live audio dialog
+sessionRef.current = await clientRef.current.live.connect({
+model: 'gemini-2.5-flash-preview-native-audio-dialog',
+callbacks: {
+onopen: () => setConnectionStatus('connected'),
+onmessage: async (message) => {
+// Processing user speech
+if (message.serverContent?.inputTranscription) {
+const userText = message.serverContent.inputTranscription.text;
+onTranscript(userText);
+}
+// Playing AI response
+const audio = message.serverContent?.modelTurn?.parts[0]?.inlineData;
+if (audio && outputAudioContextRef.current) {
+await playAudioResponse(audio);
+}
+}
+},
+config: {
+systemInstruction: createDynamicPrompt(),
+responseModalities: [Modality.AUDIO],
+outputAudioTranscription: {}, // <--- Enable LLM transcription
+inputAudioTranscription: {}, // <--- Enable user transcription
+speechConfig: {
+voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Orus' } }
+}
+}
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Analytics model: Data extraction
+// Precise interpretation of user commands
+export const interpretWorkoutCommand = async (transcript: string): Promise<{ command: 'log_set' | 'get_form_tip' | 'chat_message', data: { reps?: number, weight?: number, text?: string } | null }> => {
+const prompt = `You are an AI assistant interpreting voice commands from a user during a workout. The user's voice transcript is: "${transcript}".
+Your task is to analyze the transcript and classify it into one of the following commands, extracting relevant data.
+POSSIBLE COMMANDS:
+1. 'log_set': The user is reporting the completion of a set. They might mention repetitions (reps) and/or weight.
+- Keywords: "done", "finished", "log it", "reps", "weight", "kilos", numbers.
+- Example Transcripts: "Okay, 12 reps at 50 kilos", "I'm done", "8 reps", "log 90 pounds".
+2. 'get_form_tip': The user is asking for advice on their exercise form.
+- Keywords: "form", "technique", "how do I do this", "am I doing it right".
+- Example Transcripts: "check my form", "what's the technique for this".
+3. 'chat_message': The user is saying something else, likely a question or comment for the AI coach. This is the default if no other command fits.
+- Example Transcripts: "how many sets left", "I'm feeling tired", "what's the next exercise".
+Respond in JSON format with "command" and optional "data".
+- For 'log_set', 'data' should be an object with optional 'reps' and 'weight' numbers.
+- For 'get_form_tip', 'data' should be null.
+- For 'chat_message', 'data' should be an object with the original transcript as 'text'.
+Return ONLY the JSON object.
+Example Responses:
+- Transcript: "10 reps at 80 kg" -> { "command": "log_set", "data": { "reps": 10, "weight": 80 } }
+- Transcript: "how do I do this right?" -> { "command": "get_form_tip", "data": null }
+- Transcript: "what's the next exercise?" -> { "command": "chat_message", "data": { "text": "what's the next exercise?" } }
+`;
+try {
+const result = await ai.models.generateContent({
+model: "gemini-2.5-flash",
+contents: prompt,
+...
+Enter fullscreen mode
+Exit fullscreen mode
+Multimodal Capabilities
+1. Seamless audio interaction
+Implemented: using client.live.connect from Gemini Live API SDK connection with continuous bidirectional streaming
+Uniqueness: Works like a phone conversation — you can interrupt and get instant responses
+2. Hybrid command processing
+Architecture:
+Dialog Model: Maintains natural conversation
+Analysis Model: Extracts precise data from speech
+Processing example:
+User: "Did eight reps with sixty kilos, felt pretty easy"
+Dialog Model → "Great! Logged 8 reps with 60 kg. Should we increase the weight?"
+Analysis Model →
+{
+"command": "log_set",
+"data": {
+"reps": 8,
+"weight": 60
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3. Full-featured data system
+Implemented architecture:
+Workout programs (/programs/{programId}):
+{
+"name": "Strength program, 12 weeks",
+"createdBy": "userId",
+"workouts": {
+"day1": {
+"dayName": "Chest and triceps",
+"exercises": [
+{
+"exerciseId": "bench_press",
+"name": "Barbell bench press",
+"sets": [{"reps": 8, "weight": 60}],
+"rest": 120
+}
+]
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Detailed training sessions (/sessions/{sessionId}):
+{
+"userId": "user123",
+"date": "2024-01-15T10:00:00Z",
+"programId": "strength_program_001",
+"workoutId": "day1_chest",
+"duration": 5400, // seconds
+"voiceTranscript": "Complete log of conversation with AI...",
+"performedSets": {
+"set001": {
+"exerciseId": "bench_press",
+"setNumber": 1,
+"reps": 8,
+"weight": 62.5,
+"timestamp": "2024-01-15T10:15:30Z"
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+4. Automatic calendar integration
+Implemented: Direct integration with Google Calendar API
+export const scheduleWorkouts = async (workouts: Workout[], accessToken: string): Promise<void> => {
+if (!workouts || workouts.length === 0) {
+throw new Error("No workouts to schedule.");
+}
+const schedulePromises = workouts.map(workout => {
+const startTime = getNextWorkoutDate(workout.dayOfWeek);
+const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // Assume 1-hour duration
+const event = {
+'summary': `Workout: ${workout.dayName}`,
+'description': `Your scheduled workout session.\n\nExercises:\n- ${workout.exercises.map(e => e.name).join('\n- ')}`,
+'start': {
+'dateTime': startTime.toISOString(),
+'timeZone': Intl.DateTimeFormat().resolvedOptions().timeZone,
+},
+'end': {
+'dateTime': endTime.toISOString(),
+'timeZone': Intl.DateTimeFormat().resolvedOptions().timeZone,
+},
+};
+return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+method: 'POST',
+headers: {
+'Authorization': `Bearer ${accessToken}`,
+'Content-Type': 'application/json',
+},
+body: JSON.stringify(event),
+});
+});
+await Promise.all(schedulePromises);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+5. Contextual understanding of fitness terminology
+AI understands specific vocabulary:
+Recognition of data for set logging (log_set): AI searches user speech for numbers and keywords (such as "reps", "times", "weight", "pounds") to automatically fill in data about completed sets.
+Processing requests and comments (get_form_tip, chat_message): Phrases that don't contain direct data for logging are processed as trainer requests or simple comments.
+6. Comprehensive Analytics Dashboard
+Implemented: A dedicated analytics section that provides detailed insights into workout performance and progress tracking.
+Features include:
+Visual progress charts and graphs
+Historical workout data visualization
+Performance metrics and trends analysis
+Current MVP Limitations
+Main challenges:
+Speech recognition accuracy: AI doesn't always correctly interpret commands in live dialog, especially with background noise
+Command execution: The model sometimes "forgets" to execute specific actions in the app after responding
+Why Multimodality Matters for Fitness
+Traditional fitness apps force you to choose: EITHER data tracking OR workout focus. The multimodal approach solves this dilemma:
+Voice interface allows you to stay focused on exercises
+Intelligent speech analysis structures data automatically
+Real-time feedback creates the feeling of a personal trainer
+Automatic workout scheduling integrates fitness into daily life
+The result is a fitness companion that understands natural speech and adapts to each user's unique style.
+Note: Despite my AI trainer being quite smart and motivating, we strongly recommend maintaining common sense, especially when it comes to health matters. 💪
+Acknowledgments
+I express deep gratitude to the organizers of the Google AI Studio Multimodal Challenge for the unique opportunity to experiment with cutting-edge artificial intelligence technologies.
+Special thanks to:
+The Google AI Studio team for the intuitive platform that makes complex technologies accessible
+Gemini Live Audio API developers for the revolutionary real-time voice interaction technology
+The Dev.to community for providing an inspiring platform for innovative projects
+This project was made possible by an ecosystem of cutting-edge tools and the supportive developer community that Google AI creates.
+MVP developed with React, TypeScript, Firebase, Google Calendar API and Google Gemini multimodal capabilities
+Built with ❤️ by Premananda
+Top comments (7)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Prema Ananda
+Prema Ananda
+Prema Ananda
+Follow
+Full-stack developer: AI applications, rapid MVPs, database expert (MongoDB, Redis, PostgreSQL). Multi-agent systems specialist. Fixed-price development. Days, not months!
+Email
+djoty108@gmail.com
+Location
+Ukraine
+Joined
+May 24, 2025
+•
+Sep 14
+Dropdown menu
+Copy link
+Hide
+🤝 Partnership offer: 20% prize share for demo video creation
+My hands-free AI fitness applet with Gemini Live API needs a professional demo video.
+Ready to share 20% of any prize money for quality video production.
+Project highlights real-time voice interaction and hands-free workout logging.
+DM if interested!
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+AquaScript Team
+AquaScript Team
+AquaScript Team
+Follow
+AquaScript Free JSON APIs Provider
+Email
+support@aquascript.xyz
+Location
+Internet
+Pronouns
+They/Them
+Work
+Web Development
+Joined
+May 28, 2025
+•
+Sep 14
+Dropdown menu
+Copy link
+Hide
+If you don't selected as winner,
+then what happen?, If you will not the winner of this challenge then video
+creator will get nothing....?
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Prema Ananda
+Prema Ananda
+Prema Ananda
+Follow
+Full-stack developer: AI applications, rapid MVPs, database expert (MongoDB, Redis, PostgreSQL). Multi-agent systems specialist. Fixed-price development. Days, not months!
+Email
+djoty108@gmail.com
+Location
+Ukraine
+Joined
+May 24, 2025
+•
+Sep 14
+Dropdown menu
+Copy link
+Hide
+Exactly - I'm offering true partnership, not a service contract.
+This is "let's win together," not "do work for me."
+Good video = higher winning chances = bigger reward for both of us. I'll even increase it to 30% because I believe in this project.
+No win = no money. That's partnership. We both invest (my code, your video skills) and share the outcome.
+Like comment:
+Like comment:
+2 likes
+Like
+Thread
+Thread
+Comment deleted
+Like comment:
+Like comment:
+1 like
+Like
+Thread
+Thread
+Prema Ananda
+Prema Ananda
+Prema Ananda
+Follow
+Full-stack developer: AI applications, rapid MVPs, database expert (MongoDB, Redis, PostgreSQL). Multi-agent systems specialist. Fixed-price development. Days, not months!
+Email
+djoty108@gmail.com
+Location
+Ukraine
+Joined
+May 24, 2025
+•
+Sep 14
+Dropdown menu
+Copy link
+Hide
+Perfect! 30% of the prize is yours if we get the video done.
+Let's do this! 🚀
+Like comment:
+Like comment:
+2 likes
+Like
+Thread
+Thread
+AquaScript Team
+AquaScript Team
+AquaScript Team
+Follow
+AquaScript Free JSON APIs Provider
+Email
+support@aquascript.xyz
+Location
+Internet
+Pronouns
+They/Them
+Work
+Web Development
+Joined
+May 28, 2025
+•
+Sep 15
+Dropdown menu
+Copy link
+Hide
+Today! I will send you a video,
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Some comments may only be visible to logged-in visitors. Sign in to view all comments.
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Prema Ananda
+Follow
+Full-stack developer: AI applications, rapid MVPs, database expert (MongoDB, Redis, PostgreSQL). Multi-agent systems specialist. Fixed-price development. Days, not months!
+Location
+Ukraine
+Joined
+May 24, 2025
+More from Prema Ananda
+My Summer 2025 Dev Journey: AI Challenges, Robot Adventures, and Community Growth 🌞
+#discuss
+#ai
+#robotics
+#webdev
+Building a Multi-Agent AI Brand Monitoring System with n8n and BrightData
+#devchallenge
+#n8nbrightdatachallenge
+#ai
+#webdev
+Beyond Caching: How Redis 8 Became Our Forum's Primary Database and AI Engine
+#redischallenge
+#devchallenge
+#database
+#ai
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,247 @@
+Bug in CloudFront's Continuous Deployment Feature - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Maurice Borgmeier
+for AWS Community Builders
+Posted on Sep 12
+• Originally published at mauricebrg.com
+Bug in CloudFront's Continuous Deployment Feature
+#aws
+#cloudfront
+#artillery
+#cloud
+This blog post was inspired by a question on stackoverflow. The user experienced intermittent HTTP 500 error codes from CloudFront. They seemed confident, that their setup was correct, so I was intrigued.
+The user had deployed a static website to S3 and was using CloudFront in a continuous deployment configuration. That's a setup, where you have two distributions - production and staging. In such a setup, you can test configuration changes in the staging distribution and divert a fraction of production traffic to it in order to to see how it behaves. Once you're satisfied with your configuration changes in the staging environment, you promote them to the production distribution and serve all traffic from there.
+This is a pretty neat feature that allows you to test changes on a subset of real users. You can configure it to send traffic to the staging distribution based on either a header value or a percentage of total traffic (weighted). In the latter case you can additionally enable sticky sessions to ensure that users are typically routed to the same distribution for a consistent experience. There are some constraints if you want to use continuous deployments, but in general it's quite a useful feature.
+Back to our original problem from stackoverflow. The user was experiencing random HTTP 500 responses from this setup when using weighted routing. Header-based routing worked perfectly fine, so an underlying permission issue seemed unlikely.
+I recreated the setup in one of my accounts and tried to reproduce the issue, which failed - at first. For me everything seemed to work. The next day, the user added a crucial detail - they were using custom error responses. That feature allows you to replace CloudFront's error response with your own and can be used to change the HTTP Status code or serve a prettier error page. Once I enabled custom error pages, I started seeing HTTP 500 codes when I accessed a path that would trigger the error condition (e.g. a 404/403 error) - but not all the time. Here's an example.
+We can't connect to the server for this app or website at this time. There might be too much traffic or a configuration error. Try again later, or contact the app or website owner.
+If you provide content to customers through CloudFront, you can find steps to troubleshoot and help prevent this error by reviewing the CloudFront documentation.
+So, how do we identify what's going on here? Intermittent errors are some of the most annoying to debug. The first step is making sure that we can identify where our response is coming from to figure out if it's related to only one of the distributions, so I created two response header policies that set the Environment header to Production or Staging depending on which distribution served the request.
+Through some manual trial and error I found out that the error is only triggered when we request a URL that triggers the custom error response. I wanted to estimate how frequently this happens and under which conditions. I created a configuration for the load testing tool artillery to automate part of this analysis and wrote some custom code to count the responses per distribution.
+# load_test.yml
+config:
+target: "https://d2dge64jsf7e3f.cloudfront.net"
+phases:
+- duration: 120
+arrivalRate: 50
+name: "Load test phase"
+processor: "./hooks.js"
+plugins:
+metrics-by-endpoint: {}
+scenarios:
+# Requesting a non-existent page from the S3 origin triggers an HTTP 403
+# from S3, which should be turned into a HTTP 404 + custom error page by
+# the custom error repsponse config.
+- name: "Non-existent page"
+weight: 100
+flow:
+- get:
+url: "/non-existent-page"
+afterResponse: "logAndMetrics"
+Enter fullscreen mode
+Exit fullscreen mode
+This configuration will request a non-existent page 50 times per second for a period of two minutes. It will evaluate each response with the logAndMetrics function from the processor, which is implemented as follows:
+// hooks.js
+module.exports = {
+logAndMetrics: function(requestParams, response, context, event, next) {
+if (response.statusCode === 500) {
+//
+console.log(`Path: ${requestParams.url}`);
+console.log('Headers:', response.headers);
+console.log('Body:', response.body);
+}
+const environment = response.headers.environment || "unknown"
+// Increment counters for the environment and the environment + status code
+event.emit('counter', `environment_${environment}_${response.statusCode}`, 1)
+event.emit('counter', `environment_${environment}`, 1)
+return next();
+}
+};
+Enter fullscreen mode
+Exit fullscreen mode
+I chose to test with a continuous deployment policy that sends 15% of all requests to the staging distribution, which is the maximum that's supported. This means for any load test I'll get fewer responses from the staging distribution, giving me less confident estimates, but such is life.
+resource "aws_cloudfront_continuous_deployment_policy" "weighted" {
+enabled = true
+staging_distribution_dns_names {
+items
+= [aws_cloudfront_distribution.staging_distribution.domain_name]
+quantity = 1
+}
+traffic_config {
+type = "SingleWeight"
+single_weight_config {
+weight = "0.15"
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The code for this analysis is available on Github and deploys two distributions in a continuous deployment configuration with a weighted continuous deployment policy that forwards 15% of the production traffic to the staging distribution. Each distribution has its own response headers policy that allows us to identify which distribution sent the response. They use the same S3 bucket and origin access control as the origin.
+In this setup, I tested five permutations - well I planned to test four, but retesting during peak traffic hours changed the behavior, more on that in a bit. I enabled and disabled the custom error responses on both distributions until I had all four permutations and measured the fraction of errors for each configuration. The numbers are rounded a bit and we have less data for the staging distribution as explained above.
+Custom Error Enabled (Production)
+Custom Error Enabled (Staging)
+HTTP 500 (Production)
+HTTP 500 (Staging)
+Yes
+Yes
+~15%
+~83%
+Yes
+No
+None
+~47%
+No
+Yes
+~13%
+None
+No
+No
+None
+None
+Yes
+No
+None (Peak Traffic)
+None (Peak Traffic)
+As you can see from the table, enabling it on one distribution influences the other and the biggest impact is seen when it's enabled on both the production and staging environment. I've tried the same tests with sticky sessions enabled, it didn't meaningfully change the numbers, so I assume the underlying issue is independent of that feature. The time of day, though, changed things a bit.
+One of the limitations of continuous deployment distributions is, that CloudFront will ignore the configuration during peak traffic hours and stop forwarding traffic to the staging distribution. Under those conditions (like a Friday or Saturday evening when everyone is chilling on the couch) everything was fine, although the same configuration led to a significant number of errors during non-peak hours.
+I also confirmed that this is only related to requests that trigger the error behavior. Requesting a known-good URL works all the time. Additionally I tried separate Origin Access Controls, but that didn't change anything.
+In summary, I'm a bit confused what's going on here but it was interesting to play around with artillery again.
+— Maurice
+I have submitted this bug report to AWS and the team was able to reproduce it. I assume this is going to be fixed at some point.
+Code on Github
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Community Builders
+Follow
+Build On!
+Would you like to become an AWS Community Builder? Learn more about the program and apply to join when applications are open next.
+Learn more
+More from AWS Community Builders
+Turn log lines into alerts (without building a whole observability stack)
+#cloudwatch
+#observability
+#monitoring
+#aws
+🛡️ Beyond the Model: How Amazon Bedrock Guardrails Protect Your Users and Data
+#aws
+#bedrock
+#guardrails
+#awsgenai
+How I Automated Document Insights Using AWS Textract, Bedrock, and QuickSight
+#aws
+#machinelearning
+#devops
+#automation
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

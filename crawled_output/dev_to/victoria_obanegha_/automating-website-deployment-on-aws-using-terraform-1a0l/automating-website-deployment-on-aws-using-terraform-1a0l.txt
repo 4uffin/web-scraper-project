@@ -1,0 +1,402 @@
+Automating Website Deployment on AWS Using Terraform - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Victoria Obanegha
+Posted on Sep 11
+Automating Website Deployment on AWS Using Terraform
+#terraform
+#aws
+#devops
+Ever wondered how to get a website up and running on the cloud without clicking a hundred buttons? I will show you how to use Terraform, an amazing tool that lets you write code to build your infrastructure on services like AWS.
+We'll deploy a simple web server, get a beautiful website template running, and learn some key concepts along the way.
+What You Need to Get Started
+Before we dive in, make sure you have a few things set up:
+Terraform: This is the main tool we'll use. You can download it from the official website
+AWS CLI: This lets your computer talk to your Amazon Web Services account. You'll need to install it and set it up with your credentials.
+An AWS Account: If you don't have one yet, you can sign up for a free tier account.
+Configure an IAM User for Terraform
+Before we dive into writing Terraform code, we need to make sure we’re connecting to AWS the right way.
+Pro tip: 🚨 Never use your AWS root account for projects! Instead, we’ll create a dedicated IAM user just for Terraform.
+Here’s how:
+Login to AWS Console and open IAM (Identity & Access Management).
+Create a new user – call it something like terraform-user.
+Under Access type, check Programmatic access (this gives you an Access Key ID and Secret Access Key).
+Set permissions:
+For learning, you can attach AdministratorAccess (full access).
+But in the real world, you’d only give the exact permissions needed.
+Download credentials: Save the .csv file with your keys , it keep it safe!
+Configure AWS CLI so Terraform knows how to connect. Run this in your terminal:
+aws configure
+Enter fullscreen mode
+Exit fullscreen mode
+Then enter your:
+Access Key ID
+Secret Access Key
+Default region: us-east-1
+Output format: json
+Step 1: Setting Up Your Project Folder
+First things first, let's get organized! Create a new folder for your project on your computer, I made use of vscode( it's easier to set up your projects using it) Inside this folder, you'll create a few files. You can copy the code I've provided below into each file.
+Here's a list of the files you'll need:
+provider.tf
+vars.tf
+keypair.tf
+secgrp.tf
+instance.tf
+web.sh
+Step 2: Tell Terraform to Use AWS (provider.tf)
+This file is like an introduction. It tells Terraform, "Hey, we're going to be working with AWS, and we'll be in the US East (N. Virginia) region."
+Just copy this code into a file named provider.tf.
+provider "aws" {
+region = var.region
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Organize Your Code with Variables (vars.tf)
+Instead of typing things like "us-east-1" over and over, we can use variables. This makes your code cleaner and easier to change later. This file defines where your resources will live and which type of server we'll use.
+Copy this code into vars.tf.
+variable "region" {
+default = "us-east-1"
+}
+variable "zone1" {
+default = "us-east-1a"
+}
+variable "webuser" {
+default = "ubuntu"
+}
+variable "amiID" {
+type = map(any)
+default = {
+us-east-2 = "ami-0cfde0ea8edd312d4"
+us-east-1 = "ami-0360c520857e3138f"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4: Create a Key to Lock and Unlock Your Server (keypair.tf and dovekey.pub)
+To securely log in to your server, you need a special key. This is a standard process called SSH.
+Open your terminal and create your own key pair. You can use this command in your terminal:
+ssh-keygen
+Enter fullscreen mode
+Exit fullscreen mode
+It will ask you to enter the file path: give the key name; press enter.
+This will create two files: dovekey (your private key) and dovekey.pub (your public key). Keep the private key safe!
+Copy the entire content of your new dovekey.pub file into a new file of the same name.
+Now, create a file called keypair.tf to tell AWS to recognize your public key.
+resource "aws_key_pair" "dove-key" {
+key_name
+= "dove-key"
+public_key = file("dovekey.pub")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 5: Set Up Your Server's Firewall (secgrp.tf)
+Think of a security group as a digital bouncer for your server. It decides who gets in and who doesn't.
+Our security group will let people:
+SSH (port 22): Only from your computer. Important: You must change the IP address 197.211.58.41/32 to your own IP address. A quick search for "what is my ip" on Google will show you.
+HTTP (port 80): From anywhere in the world so everyone can see your website.
+All outbound traffic: Your server will be able to connect to the internet to download updates and files.
+Copy this code into secgrp.tf
+resource "aws_security_group" "dove-sg" {
+name
+= "dove-sg"
+description = "dove-sg"
+tags = {
+Name = "dove-sg"
+}
+}
+resource "aws_vpc_security_group_ingress_rule" "ssh-from-my-ip" {
+security_group_id = aws_security_group.dove-sg.id
+cidr_ipv4
+= "197.211.58.41/32"
+from_port
+= 22
+ip_protocol
+= "tcp"
+to_port
+= 22
+}
+resource "aws_vpc_security_group_ingress_rule" "allow_http" {
+security_group_id = aws_security_group.dove-sg.id
+cidr_ipv4
+= "0.0.0.0/0"
+from_port
+= 80
+ip_protocol
+= "tcp"
+to_port
+= 80
+}
+resource "aws_vpc_security_group_egress_rule" "allow_all_outbound_ipv4" {
+security_group_id = aws_security_group.dove-sg.id
+cidr_ipv4
+= "0.0.0.0/0"
+ip_protocol
+= "-1"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 6: Build the Server! (instance.tf)
+This is the main event. This file tells Terraform to create an AWS server (an EC2 instance) and link it to the key pair and security group we just defined.
+The special part here is the provisioner blocks. They tell Terraform to:
+Upload our web.sh file to the server.
+Log in to the server via SSH.
+Run the web.sh script to install our website!
+resource "aws_instance" "web" {
+ami
+= var.amiID[var.region]
+instance_type
+= "t3.micro"
+key_name
+= "dove-key"
+vpc_security_group_ids = [aws_security_group.dove-sg.id]
+availability_zone
+= var.zone1
+tags = {
+Name
+= "Dove-web"
+project = "Dove"
+}
+provisioner "file" {
+source
+= "web.sh"
+destination = "/tmp/web.sh"
+}
+connection {
+type
+= "ssh"
+user
+= var.webuser
+private_key = file("dovekey")
+host
+= self.public_ip
+}
+provisioner "remote-exec" {
+inline = [
+"chmod +x /tmp/web.sh",
+"sudo /tmp/web.sh"
+]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 7: The "Magic" Script (web.sh)
+This simple script is what actually installs a web server (Apache) and puts a website on it. It downloads a free website template( I made use of a template from top plate com), unzips it, and copies all the files to the correct place.
+#!/bin/bash
+apt update
+apt install wget unzip apache2 -y
+systemctl start apache2
+systemctl enable apache2
+wget https://www.tooplate.com/zip-templates/2117_infinite_loop.zip
+unzip -o 2117_infinite_loop.zip
+cp -r 2117_infinite_loop/* /var/www/html/
+systemctl restart apache2
+Enter fullscreen mode
+Exit fullscreen mode
+Step 9: Get the Details of Your New Server (outputs.tf)
+This is where we tell Terraform to show us the most important information after it's done creating everything. This makes it super easy to find your new website.
+Create a new file named outputs.tf and add this code:
+output "instance_id" {
+description = "The ID of the EC2 instance"
+value
+= aws_instance.web.id
+}
+output "public_ip" {
+description = "The public IP address of the EC2 instance"
+value
+= aws_instance.web.public_ip
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 10: An Important Note on State Files
+When you run Terraform, it creates files like terraform.tfstate and terraform.tfstate.backup. These files are very important because they keep a record of everything Terraform has created.
+Never, ever, commit these files to Git! They can contain sensitive information and can cause huge problems if you work with a team.
+To prevent this, create a file in your project folder called .gitignore and add the following lines, or we could create an s3bucket but let's stick with this for now:
+Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+Step 11: Run Your Code!
+Now for the fun part! Open your terminal, go to your project folder, and run these commands one by one.
+Initialize Terraform:
+terraform init- starts up your terraform
+terraform fmt- corrects the format of your file
+terraform validate - checks if your configuration as syntax error
+terraform plan-shows you what changes will be applied.
+terraform apply-Apply the Plan (and Watch the Magic Happen!).
+When prompted, type yes and hit Enter. Terraform will now build everything for you.
+Step 12: Check It Out!
+Once the process is complete, you will see the outputs you defined! Just copy the
+public_ip value and paste it into your web browser. You should see your new website!
+Step 13: Clean Up!
+To avoid getting charged by AWS, it's a great habit to clean up your resources when you're done. Just run this simple command:
+terraform destroy
+This will tear down everything you created. All gone!
+And there you have it!. Below is the image of the website provisioned.
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Roshan Sharma
+Roshan Sharma
+Roshan Sharma
+Follow
+💻 Tech Enthusiast | Linux & Open Source Explorer
+🔧 Sharing insights on Ubuntu, Debian, Docker, and DevOps tools
+🐍 Passionate about Python, SQL & MySQL
+✍️ Writing tutorials, guides, and answers to m
+Joined
+Aug 19, 2025
+•
+Sep 12
+Dropdown menu
+Copy link
+Hide
+Great analysis! Automating deployments using Terraform is transformative. For those aiming to scale, consider integrating AWS App Runner for containerized applications or Elastic Beanstalk for a more managed solution. Has anyone tried combining Terraform with these services?
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Victoria Obanegha
+Victoria Obanegha
+Victoria Obanegha
+Follow
+I’m a cloud engineer passionate about building scalable, serverless applications and bringing ideas to life on the cloud. Currently on a journey of continuous upskilling,diving deeper into AWS service
+Joined
+Apr 24, 2025
+•
+Sep 12
+Dropdown menu
+Copy link
+Hide
+Thanks for the great insight! I haven't tried App runner or elastic beanstalk with terraform yet but I can see how they will simplify scaling and management compared to running everything on Ec2. Definitely something i would like to experiment with!
+Like comment:
+Like comment:
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Victoria Obanegha
+Follow
+I’m a cloud engineer passionate about building scalable, serverless applications and bringing ideas to life on the cloud. Currently on a journey of continuous upskilling,diving deeper into AWS service
+Joined
+Apr 24, 2025
+More from Victoria Obanegha
+[Automate Websetup with Terraform - Beginner Friendly]
+#terraform
+#aws
+#devops
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

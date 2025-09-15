@@ -1,0 +1,463 @@
+Deploying and Managing HashiCorp Vault in Kubernetes with HA and Raft Storage - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Durrell
+Gemuh
+Posted on Sep 13
+Deploying and Managing HashiCorp Vault in Kubernetes with HA and Raft Storage
+#kubernetes
+#vault
+#devops
+#linux
+Vault is a powerful secrets management tool. Running Vault on Kubernetes in HA mode with Raft backend provides resilience and scalability for secure secrets storage. This guide covers: installing Vault, setting up namespaces, deploying via Helm, joining Vault nodes, unsealing, and troubleshooting common issues.
+Prerequisites
+Kubernetes cluster accessible with kubectl
+Helm 3 installed
+Sufficient permissions to create namespaces and PVs
+Basic familiarity with Vault concepts and Kubernetes
+Step 1: Setting Up Namespace and Helm Repo
+Create a namespace for Vault to isolate it:
+kubectl create namespace vault
+Enter fullscreen mode
+Exit fullscreen mode
+Add the HashiCorp Helm repo and update:
+helm repo add hashicorp https://helm.releases.hashicorp.com
+helm repo update
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2: Installing Vault with Helm in HA Mode
+Create a values.yaml for Vault HA using Raft storage (Integrated Storage):
+injector:
+enabled: false
+server:
+image:
+repository: "hashicorp/vault"
+tag: "1.9.0"
+# Overrides the default Image Pull Policy
+pullPolicy: IfNotPresent
+# Configure the Update Strategy Type for the StatefulSet
+updateStrategyType: "OnDelete"
+resources:
+requests:
+memory: 256Mi
+cpu: 250m
+limits:
+memory: 256Mi
+cpu: 250m
+ha:
+enabled: true
+replicas: 3
+raft:
+enabled: true
+config: |
+ui = true
+listener "tcp" {
+tls_disable = 1
+address = "[::]:8200"
+cluster_address = "[::]:8201"
+}
+storage "raft" {
+path = "/vault/data"
+}
+service_registration "kubernetes" {}
+dataStorage:
+enabled: true
+size: 500Mi
+Enter fullscreen mode
+Exit fullscreen mode
+Install Vault:
+helm install vault hashicorp/vault -n vault -f values.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Verify pods:
+$ kubectl get pods -n vault
+NAME
+READY
+STATUS
+RESTARTS
+vault-0
+0/1
+Running
+0
+vault-1
+0/1
+Running
+0
+vault-2
+0/1
+Running
+0
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Joining Vault Nodes and Initializing Cluster
+Only the first Vault pod (vault-0) is initialized once.
+Initialize Vault on vault-0:
+kubectl exec -it vault-0 -n vault -- vault operator init -key-shares=5 -key-threshold=3
+Recovery Key 1: FKjt5wkzN5bUBIuR52KrPP1c2Il/f7RZdn5E+ipfNF8s
+Recovery Key 2: FCzUyduESPyavh6QtqWZpdnUDKa3bEEpBHbX3NgTrCiU
+Recovery Key 3: Tf7FVEpj5tdJLqQqNw/Jt0OytRI5FAZYig/yafSVz3Xg
+Recovery Key 4: duLpa/6IozTOR0mkO7sp0CwmnI+1DsC6d2+oZG/A1CIZ
+Recovery Key 5: pyVFs/rRFEk9rSn57Ru+KeuAQzW6eurl3j0/pS/JRpXD
+Initial Root Token: s.PMOJxNxZYgvXzby5YZr9p3J1
+Vault initialized with 5 key shares and a key threshold of 3. Please securely
+distribute the key shares printed above. When the Vault is re-sealed,
+restarted, or stopped, you must supply at least 3 of these keys to unseal it
+before it can start servicing requests.
+Vault does not store the generated master key. Without at least 3 keys to
+reconstruct the master key, Vault will remain permanently sealed!
+It is possible to generate new unseal keys, provided you have a quorum of
+existing unseal keys shares. See "vault operator rekey" for more information.
+Enter fullscreen mode
+Exit fullscreen mode
+Now, we see the Vault unsealer in action:
+$ kubectl exec -it vault-0 -n vault -- vault operator unseal <unseal_key_1>
+$ kubectl exec -it vault-0 -n vault -- vault operator unseal <unseal_key_2>
+$ kubectl exec -it vault-0 -n vault -- vault operator unseal <unseal_key_3>
+$ kubectl get pods -n vault
+NAME
+READY
+STATUS
+RESTARTS
+vault-0
+1/1
+Running
+0
+vault-1
+0/1
+Running
+0
+vault-2
+0/1
+Running
+0
+Enter fullscreen mode
+Exit fullscreen mode
+However, our replica vault-1 and vault-2 are still not ready. They are follower pods of the leader vault-0. In order to make vault-0 visible, we need to login using our Initial Root Token.
+$ kubectl exec -it vault-0 -- vault login s.d0LAlSnAerb4a7d6ibkfxrZy
+Success! You are now authenticated. The token information displayed below
+is already stored in the token helper. You do NOT need to run "vault login"
+again. Future Vault requests will automatically use this token.
+Key
+Value
+---
+-----
+token
+s.d0LAlSnAerb4a7d6ibkfxrZy
+token_accessor
+hJEFibLTbUP4sgA8X4tMBqZ8
+token_duration
+∞
+token_renewable
+false
+token_policies
+["root"]
+identity_policies
+[]
+policies
+["root"]
+Enter fullscreen mode
+Exit fullscreen mode
+Other pods (vault-1, vault-2) must join the Raft cluster.
+Next, let’s join vault-1 and vault-2 to Vault-0 to make the Vault setup Highly available by running commands as shown below:
+$ kubectl exec -it vault-1 -n vault -- vault operator raft join http://vault-0.vault-internal:8200
+Key
+Value
+---
+-----
+Joined
+true
+$ kubectl exec -it vault-2 -n vault -- vault operator raft join http://vault-0.vault-internal:8200
+Key
+Value
+---
+-----
+Joined
+true
+Enter fullscreen mode
+Exit fullscreen mode
+Save unseal keys securely.
+Step 4: Unsealing Vault Pods
+Unseal all Vault pods (vault-0, vault-1, vault-2) manually with the unseal keys:
+kubectl exec -it vault-1 -n vault -- vault operator unseal <unseal_key_1>
+kubectl exec -it vault-1 -n vault -- vault operator unseal <unseal_key_2>
+kubectl exec -it vault-1 -n vault -- vault operator unseal <unseal_key_3>
+kubectl exec -it vault-2 -n vault -- vault operator unseal <unseal_key_1>
+kubectl exec -it vault-2 -n vault -- vault operator unseal <unseal_key_2>
+kubectl exec -it vault-2 -n vault -- vault operator unseal <unseal_key_3>
+Enter fullscreen mode
+Exit fullscreen mode
+Let’s check the pod status and this time you would be able to see them in running as well as Ready mode:
+$ kubectl get pods -n vault
+NAME
+READY
+STATUS
+RESTARTS
+vault-0
+1/1
+Running
+0
+vault-1
+1/1
+Running
+0
+vault-2
+1/1
+Running
+0
+Enter fullscreen mode
+Exit fullscreen mode
+The last but important step is to verify whether the HA setup is correct or not, is by running the below command against each Vault pod and making sure that the value of HA Enabled parameters is true.
+$ kubectl exec -it -n vault vault-0 -- vault status
+Key
+Value
+---
+-----
+Recovery Seal Type
+shamir
+Initialized
+true
+Sealed
+false
+Total Recovery Shares
+5
+Threshold
+3
+Version
+1.9.0
+Storage Type
+raft
+Cluster Name
+vault-cluster-30882e80
+Cluster ID
+1afbe13a-e951-482d-266b-e31693d17e20
+HA Enabled
+true
+HA Cluster
+https://vault-0.vault-internal:8201
+HA Mode
+active
+Active Since
+2022-01-19T04:39:37.586622342Z
+Raft Committed Index
+61
+Raft Applied Index
+61
+$ kubectl exec -it -n vault vault-1 -- vault status
+Key
+Value
+---
+-----
+…
+HA Enabled
+true
+HA Cluster
+https://vault-0.vault-internal:8201
+HA Mode
+standby
+Active Node Address
+http://10.244.0.17:8200
+Raft Committed Index
+61
+Raft Applied Index
+61
+$ kubectl exec -it -n vault vault-2 -- vault status
+Key
+Value
+---
+-----
+HA Enabled
+true
+HA Cluster
+https://vault-0.vault-internal:8201
+HA Mode
+standby
+Active Node Address
+http://10.244.0.17:8200
+Raft Committed Index
+61
+Raft Applied Index
+61
+Enter fullscreen mode
+Exit fullscreen mode
+Troubleshooting Common Issues
+ClusterRoleBinding Already Exists
+Delete conflicting ClusterRoleBinding before reinstalling Helm chart:
+kubectl delete clusterrolebinding vault-server-binding
+Enter fullscreen mode
+Exit fullscreen mode
+Helm Upgrade Errors ("no deployed releases")
+Uninstall previous release from default namespace:
+helm uninstall vault -n default
+Enter fullscreen mode
+Exit fullscreen mode
+Then install again in the proper namespace.
+Pods Not Unsealing or Ready
+Check pod logs for errors:
+kubectl logs vault-1 -n vault
+Enter fullscreen mode
+Exit fullscreen mode
+Verify PVCs are bound and healthy:
+kubectl get pvc -n vault
+Enter fullscreen mode
+Exit fullscreen mode
+If corrupted PVC, delete PVC and pod, then rejoin:
+kubectl delete pvc data-vault-1 -n vault
+kubectl delete pod vault-1 -n vault
+kubectl exec -it vault-1 -n vault -- vault operator raft join http://vault-0.vault-internal:8200
+Enter fullscreen mode
+Exit fullscreen mode
+Unseal vault-1 after join with the same unseal keys.
+PVC Stuck in Terminating
+Remove finalizers to force delete:
+kubectl patch pvc data-vault-1 -n vault -p '{"metadata":{"finalizers":[]}}' --type=merge
+Enter fullscreen mode
+Exit fullscreen mode
+Removing Corrupted Raft Node
+Remove node from cluster:
+kubectl exec -it vault-0 -n vault -- vault operator raft remove-peer <node-id>
+Enter fullscreen mode
+Exit fullscreen mode
+Delete PVC and pod, then re-join as new.
+Conclusion
+Deploying Vault in Kubernetes with HA and Raft backend provides secure secret storage with scalability. Proper initialization, joining, and unsealing procedures are critical. Troubleshooting involves managing PVC health, pod status, and cluster raft membership carefully.
+Up Next: Vault Web UI - Accessing and viewing vault on UI
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Durrell
+Gemuh
+Follow
+Location
+Buea, Cameroon
+Work
+Founder @ NextGen Playground
+Joined
+Aug 20, 2025
+More from Durrell
+Gemuh
+Accessing HashiCorp Vault UI in Kubernetes with LoadBalancer Service
+#kubernetes
+#vault
+#linux
+#devops
+Master Your Workflow with GitFlow: A Branching Strategy for Seamless Development
+#git
+#devops
+#linux
+#github
+Deploying Agents on Windows & Linux Without SSH Using AWS SSM and Parameter Store
+#devops
+#aws
+#linux
+#ssm
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

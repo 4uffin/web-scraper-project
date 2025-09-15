@@ -1,0 +1,491 @@
+An Engineer’s Answer to the HR Black Hole - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Dmitry Drepin
+Posted on Sep 15
+An Engineer’s Answer to the HR Black Hole
+#rag
+#spring
+#ai
+#llm
+Building a local AI candidate agent with RAG, Spring AI, and Ollama
+When you’re a candidate flooded with dozens of offers and messages every week, it’s nearly impossible to filter, prioritize, and respond smartly. Some opportunities deserve attention, but many don’t match your skills, goals, or expectations. Without a tool to manage this flow, your voice gets lost in the noise — and you risk missing the right role.
+That’s why I built a prototype of local-first AI assistant: not to replace interviews or negotiations, but to help candidates filter irrelevant offers early, highlight what matters, and keep control of their data.
+It was built to represent a candidate during pre-screening: automate repetitive Q&A (availability, salary range, basic skills), surface relevant opportunities, and schedule interviews — all while keeping candidate data local. This tool is explicitly for prescreening automation, not for replacing human interviews or “cheating.” Below I explain how the system is built, why the design choices matter, how components connect, and what consequences those choices have.
+1. High-level goal & motivation
+I needed a way to rapidly filter and respond to dozens/hundreds of inquiries (think LinkedIn volume) without manually replying to each. The prototype’s aims were:
+• Give the candidate a consistent, privacy-preserving voice for pre-screening.
+• Automate repetitive tasks so HR and candidates get to real interviews faster.
+• Keep all sensitive data local (no third-party cloud inference by default).
+• Build something runnable and useful in a week — a practical POC, not a product.
+That constraint (local, fast, privacy-first) shaped every technical decision below.
+2. System architecture (five layers)
+I designed the prototype as a modular stack with clear separation of concerns:
++---------------------------------------------------------------+
+|
+Candidate Frontend
+|
+|
+(web app, chat, CLI)
+|
++------+------------------+-----------------+-------------------+
+|
+|
+|
+v
+v
+v
++-------------------+
++---------------------------+
+|
+Spring Boot REST |
+|
+Streaming WebSocket
+|
+|
+(Spring AI App)
+|
+|
+(Optional)
+|
++-------------------+
++--------------------------+
+|
+v
++---------------------+
++-------------------+
+|
+Spring AI Layer
++-------->|
+Tool/Advisor
+|
+|
+(ChatClient,
+|
+|
+Pattern
+|
+|
+Advisors, RAG,
+|
++-------------------+
+|
+Memory, Tooling)
+|
+|
++---------------------+
+|
+|
+(tool calls)
+|
+v
+-------------- +---------------+
++-------------------+
++-------------------------+
+|
+Ollama Server
+| <---> |
+Vector Store/RAG
+|
+|
+(Local LLM API) |
+|
+(ChromaDB/Pinecone/...)|
++-------------------+
++-------------------------+
+Enter fullscreen mode
+Exit fullscreen mode
+Backend — Java 21+, Spring Boot, Spring REST, Spring Data/Hibernate.
+Frontend — React + Vite with Zustand; SSE (Server-Sent Events) for streaming responses.
+Ollama (Local LLM runtime) — hosts embedding and generative models locally and defines compute usage (CPU/GPU).
+Data layer — PostgreSQL with pgvector for embeddings and PostgresChatMemory for chat context.
+Infrastructure / Postgres ops — Docker / Docker Compose (Kubernetes-ready), Nginx reverse proxy, pgvector tuning and backups.
+Each part represents a responsibility; the system is designed so each piece can be replaced or scaled independently.
+The overall request path is:
+3. Core design pattern: advisors (Chain of Responsibility)
+Spring AI provides an advisors mechanism effectively — a Chain of Responsibility. In my app, AdvisorsProvider is the single place where the chain is assembled and configured (system prompts, model configuration, chat memory, and each advisor tuning).
+Why use this? Because pre-screening conversation requires multiple small, ordered steps: expand the query, attach history, fetch facts, rerank, log, and finally generate. The chain makes that sequence explicit and easy to extend and manage.
+Each advisor:
+• Receives the request and context,
+• May read or write to the context (this is MCP-ready behavior),
+• May call out to external services (vector store, reranker),
+• Passes a modified request to the next advisor.
+This modularity makes it safe to add compliance checks, sentiment analysis, or anything else without changing the core ChatClient logic.
+4. End-to-end workflow (concrete example)
+I'll follow one HR question end-to-end to make the flow concrete.
+HR:
+What is your salary expectations?
+Flow:
+A. UI → Spring REST
+HR types the question; frontend opens an SSE connection to the backend endpoint /chat/stream?question=....
+B. ChatService wraps a ChatClientRequest:
+contains the original question,
+pulls recent session context from PostgresChatMemory (max N messages),
+sets up a response SSE emitter.
+C. Advisors Chain (in order):
+ExpansionQueryAdvisor: expands the question into a richer search query:
+salary range expected compensation benefits negotiation developer role Europe Austria 5+ years experience Quarkus experience must
+Purpose: increase RAG recall for position-specific facts.
+MessageChatMemoryAdvisor: consider last messages; ensures multi-turn context.
+SimpleLoggerAdvisor: logs query for observability (and metrics: RAG hits/misses).
+RagAdvisor: core retrieval logic:
+Use expanded query for pgvector similarity search (vector store).
+BM25 rerank to boost short, high-precision documents.
+Neural cross-encoder rerank (optional) for top-N results.
+Cache top results in a ConcurrentHashMap to avoid repeated expensive retrieval.
+FinalLoggerAdvisor: logs final documents passed to the model.
+D. Generative model (Spring AI ChatClient → Ollama):
+The ChatClient submits prompt + retrieved context to the local Ollama model with configured options (temperature, topK, topP, repeatPenalty, model).
+Model returns text incrementally; ChatClient streams tokens back over SSE.
+E. UI: HR gets a streamed, polished candidate reply:
+Based on my experience and location, my expected salary range is 80–90k EUR. RECOMMENDATION: YES — aligns with the role.
+F. Memory update:
+PostgresChatMemory persists the turn (question, expanded query, final response, RAG references). If MCP exists, it will version this turn and store document references.
+5. The RAGAdvisor internals and consequences
+What RAG does here, in details:
+Vector Search (pgvector): I precompute embeddings for each candidate artifact (CV, cover letter, past notes, detailed candidate description, etc) at startup. A similarity search returns a candidate set for the expanded query.
+Consequence: Pre-embedding speeds retrieval, but embedding model choice (and embedding dimensionality) affects disk and RAM usage.
+BM25 Rerank: BM25 provides keyword-based reweighting with tunable parameters:
+k (saturation) — how term frequency saturates,
+b (document length normalization),
+delta — a small boost to favor short documents.
+Consequence: Good for short snippets (e.g., "expected: 80k"), BM25 is fast and cheap.
+Neural rerank (cross-encoder): Reorders top candidates by scoring query-document pairs jointly with a transformer.
+Consequence: Much higher CPU/GPU cost but increases precision when top N is noisy.
+Caching: If a query repeats (session-level), cache saves the reranked docs.
+Consequence: Faster responses and lower cost on repeated interactions; careful TTL and invalidation policies are required for correctness.
+How it affects the model output
+The generative model receives a compact “context bundle” (top-K documents + system prompt + conversation history). If the RAG stack is precise and recall is high, the model produces factual answers grounded in candidate data. If RAG returns weak or unrelated documents, the model may hallucinate or produce vague responses — hence the importance of thresholds and reranking.
+6. Embeddings layer and Postgres (pgvector) considerations
+I use mxbai-embed-large to encode candidate documents into vector embeddings and store them in PostgreSQL with pgvector.
+At startup, documents are converted and indexed; updates are supported (new CV versions/writes flush and re-embed).
+Similarity threshold filters irrelevant docs.
+Embeddings & Postgres (pgvector) — Why They Matter
+When HR asks a question like “Do you have 5 years of Kubernetes experience?”, the system can’t just do a text search across your CV. Plain SQL queries or LIKE %Kubernetes% are too literal — they miss meaning, synonyms, and context.
+That’s where embeddings come in.
+Think of an embedding as a mathematical fingerprint of a sentence or paragraph. Instead of storing words, we convert the text into a long vector of numbers — usually hundreds of dimensions. Texts that “mean” the same thing will have fingerprints that are close to each other in vector space.
+“5 years of Kubernetes”
+“Half a decade running K8s clusters in production”
+These two sentences look very different in raw text but sit right next to each other when turned into embeddings.
+Why pgvector?
+Postgres is our database backbone, and pgvector is just an extension that lets Postgres understand and store these big vectors. More importantly, it can do vector similarity search — i.e., “find me the top 3 paragraphs in my CV that are closest in meaning to this recruiter’s question.”
+So instead of string-matching, we ask:
+“Which stored embeddings are nearest neighbors to the embedding of this recruiter’s question?”
+That gives us the right chunk of context to feed into the LLM, so the response is grounded in truth instead of hallucination.
+Practical considerations
+Indexing: pgvector supports indexes like IVFFlat that make similarity search fast even if you store millions of vectors. For my prototype (CVs, notes, prior chats), it’s small scale, but the same design scales to enterprise data.
+Chunking strategy: documents must be split into sensible paragraphs or sections before embedding. Too big = expensive + fuzzy. Too small = loses context.
+Cost & performance tradeoff: Every embedding call is extra compute. A local embedding model (like from Ollama) keeps it cheap, while API-based embeddings cost more but can be higher quality.
+So the embeddings layer is essentially the search engine brain of this system. Postgres + pgvector is the memory warehouse, embeddings are the fingerprints, and similarity search is how we fetch the right memories before answering HR.
+7. Ollama & model parameter math (inline, practical + intuition)
+I run both embedding and generative models via Ollama locally. When configuring Ollama in the Spring AI ChatClient, a few parameters completely change how the model behaves.
+ChatClient.builder(chatModel)
+.defaultOptions(OllamaOptions.builder()
+.temperature(expansionQueryTemperature)
+.topK(expansionQueryTopK)
+.topP(expansionQueryTopP)
+.repeatPenalty(expansionQueryRepeatPenalty)
+.model(modelName)
+.build())
+.build()
+Enter fullscreen mode
+Exit fullscreen mode
+Now, here’s the thing: each of these parameters shapes the model’s behavior in a very tangible way.
+temperature is like the creativity dial. With a low value the model always picks the “safest” word, so responses sound factual and consistent. Push it higher and the model starts getting creative, even a bit unpredictable. For prescreening, I keep it low so the agent doesn’t invent benefits or experience.
+topK controls how many tokens the model can even look at. If you set it to 1, it’s basically locked to one possible choice every time. If you open it up (say 20–40), it can still vary phrasing without going off track.
+topP works a bit differently: instead of counting words, it says “include just enough words until you cover, for example, 90% of the probability mass.” It makes responses more natural than just topK alone. I usually pair it with topK for balance.
+repeatPenalty is the guardrail against loops. Without it, the model might say “I have 5 years, 5 years, 5 years…” forever. A gentle penalty (around 1.1) is enough to keep things fresh but still natural.
+model is the biggest decision. Small ones (4B-7B) run on CPUs or modest GPUs but don’t go very deep. Larger ones (13B, 30B, 70B) give better answers but eat memory and VRAM quickly. For local-first HR prescreening, I’ve found 4B–13B hits the right balance between speed and quality.
+Together, these knobs give you fine-grained control over the “voice” of your candidate AI: factual and concise vs. more conversational and human-like.
+8. AdvisorsProvider — annotated core code (key excerpts)
+Below I include the essential, annotated pieces (edited for clarity). This is the class that configures the ChatClient with advisors and system prompts.
+Initialization & properties
+@Value("${spring.ai.ollama.chat.max-messages}")
+public int MAX_MESSAGES_MEMORY;
+@Value("${spring.ai.ollama.chat.model}")
+private String modelName;
+// expansion query config
+@Value("${spring.ai.ollama.expansion-query-temperature}")
+private Double expansionQueryTemperature;
+@Value("${spring.ai.ollama.expansion-query-top-k}")
+private int expansionQueryTopK;
+@Value("${spring.ai.ollama.expansion-query-top-p}")
+private Double expansionQueryTopP;
+@Value("${spring.ai.ollama.expansion-query-repeat-penalty}")
+private Double expansionQueryRepeatPenalty;
+// chat client defaults
+@Value("${spring.ai.ollama.chatclient-query-temperature}")
+private Double chatclientQueryTemperature;
+@Value("${spring.ai.ollama.chatclient-query-top-k}")
+private int chatclientQueryTopK;
+Enter fullscreen mode
+Exit fullscreen mode
+// ...
+Values are loaded from application.properties/yaml. Profiles can override them (factual / creative / summarization), but I left profiles optional.
+System prompt & expansion prompt (two critical templates)
+public static final PromptTemplate CV_SCREENING_EXPANSION_PROMPT = PromptTemplate.builder()
+.template("""...Question: {question} Expanded query:""").build();
+public static final PromptTemplate SYSTEM_PROMPT = new PromptTemplate("""
+system: |
+You are %Your Name% a %your role%... Answer in first person, brief, and to the point.
+... Strategy: Context fact → question → answer → position assessment
+""");
+Enter fullscreen mode
+Exit fullscreen mode
+System prompt encodes identity, tone, and rules.
+System Prompt
+The system prompt is the foundation of the assistant’s behavior. It’s not about answering one question but about setting the overall role and rules of engagement. Imagine it as the constitution of the candidate’s AI voice: it defines tone, boundaries, and what the assistant will never do.
+For example, my assistant is always reminded:
+“You help filter and manage inbound offers. You never exaggerate, you never invent skills, you only prescreen and keep conversations polite but firm.”
+With this in place, no matter how many advisors or steps are involved later in the chain, the assistant always stays within these guardrails. That’s how I make sure it doesn’t accidentally oversell me or leak context it shouldn’t.
+Expansion Prompt
+The expansion prompt works very differently — instead of defining rules, it takes a short, vague question and expands it into a rich, structured query. Recruiters often ask something minimal like:
+“What’s your salary range?”
+On its own, that’s too little for smart retrieval. The expansion prompt reformulates it into something much broader:
+“Salary range, expected compensation, benefits, negotiation, backend developer role, Europe, Austria, 5+ years experience required, Quarkus experience required.”
+Now the advisors can actually dig into my CV, prior negotiations, or stored context and find the right pieces to answer. Without this step, retrieval would miss half of the relevant details.
+So, in short: the system prompt keeps the assistant grounded and consistent, while the expansion prompt makes the conversation intelligent enough to find context in the first place. One sets the rules, the other makes the search smarter — together they form the backbone of the pipeline.
+ChatClient bean (default options + advisors)
+@Bean
+public ChatClient chatClient(ChatClient.Builder builder) {
+return builder.defaultAdvisors(getAdvisors())
+.defaultOptions(OllamaOptions.builder()
+.temperature(chatclientQueryTemperature)
+.topP(chatclientQueryTopP)
+.topK(chatclientQueryTopK)
+.repeatPenalty(chatclientQueryRepeatPenalty)
+.model(modelName)
+.build())
+.defaultSystem(SYSTEM_PROMPT.render())
+.build();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This binds the advisor chain and default model options to the ChatClient.
+Advisors list (core)
+private List<Advisor> getAdvisors(){
+return List.of(
+ExpansionQueryAdvisor.builder(
+ChatClient.builder(chatModel)
+.defaultOptions(OllamaOptions.builder()
+.temperature(expansionQueryTemperature)
+.topK(expansionQueryTopK)
+.topP(expansionQueryTopP)
+.repeatPenalty(expansionQueryRepeatPenalty)
+.model(modelName).build())
+.build(), CV_SCREENING_EXPANSION_PROMPT).build(),
+MessageChatMemoryAdvisor.builder(getChatMemory()).order(AdvisorType.HISTORY.getOrder()).build(),
+SimpleLoggerAdvisor.builder().order(AdvisorType.LOGGER.getOrder()).build(),
+RagAdvisor.build(vectorStore, ChatClient.builder(chatModel)
+.defaultOptions(OllamaOptions.builder()
+.temperature(expansionQueryTemperature).topK(expansionQueryTopK)
+.topP(expansionQueryTopP).repeatPenalty(expansionQueryRepeatPenalty)
+.model(modelName).build()).build())
+.bm25Engine(BM25RerankEngine.builder()
+.defaultK(bm25K).defaultB(bm25B).defaultDelta(bm25Delta).build())
+.searchRequest(SearchRequest.builder()
+.topK(searchRequestTopK)
+.similarityThreshold(searchRequestSimilarityThreshold).build())
+.build(),
+SimpleLoggerAdvisor.builder().order(AdvisorType.FINAL_LOGGER.getOrder()).build()
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This exact ordering (expansion → memory → logger → rag → final logger) is key: expansion helps retrieval; memory provides multi-turn context; BM25/NN rerank ensure quality.
+9. Mock SSE snippet & annotated memory flow (compact)
+Backend SSE endpoint:
+@GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux<ServerSentEvent<String>> streamChat(@RequestParam String question) {
+return chatService.streamAnswer(question).map(ans -> ServerSentEvent.builder(ans).build());
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Frontend (React):
+const es = new EventSource(`/chat/stream?question=${encodeURIComponent(q)}`);
+es.onmessage = e => appendMessage(e.data);
+Enter fullscreen mode
+Exit fullscreen mode
+Annotated flow (memory/cache):
+ChatService writes HR question to PostgresChatMemory. ExpansionQueryAdvisor generates expanded query; expanded query stored in context.
+RagAdvisor checks session cache: if miss → pgvector similarity search → BM25 → optional neural rerank → put result into cache.
+ChatClient generates text using retrieved docs; stream chunks to SSE.
+PostgresChatMemory persists the final turn (with references to RAG docs).
+10. MCP: technical integration and effects (how & why)
+MCP (Model Context Protocol) is on my roadmap — here’s how I’d integrate it and why it matters.
+How advisors would use MCP
+Read/Write API: each advisor would be given an MCP client to read the latest context fragment and write updates atomically.
+Document references: RAGAdvisor writes pointers (document id, offset) to MCP rather than full text, enabling traceability.
+Versioning: each context update is versioned; ChatClient can request a specific version snapshot to reproduce past outputs.
+Per-request metadata: MCP can store overrides (profile=“factual”), flags (sensitive=true), or QA checks.
+Practical consequences for RAG/model responses
+Better grounding: the generative model receives not just raw retrieved text, but MCP-provided provenance links and context snapshots.
+Auditability: every generated answer can be traced to the documents and the context version that produced it.
+Dynamic updates: advisors can add facts mid-request (e.g., calendar availability) and MCP will ensure the generative model sees them.
+Example (calendar integration)
+Availability check: RAGAdvisor queries MCP for candidate calendar references (or calls calendar service); MCP writes back confirmed time slots; the ChatClient uses that to respond with precise start dates.
+11. Resource trade-offs & operational notes
+Embeddings vs Generative models:
+Embeddings storage (pgvector) consumes disk and RAM for indexes; vector search is I/O and CPU bound depending on index type.
+Generative models (esp. >7B) need GPU or lots of RAM for responsive inference.
+Local-first reality: choose quantized or smaller generative models if you must run on constrained hardware, or provision GPU for heavier models.
+Scaling: containerized architecture is Kubernetes-ready; for enterprise you’ll move to orchestrated pods, GPU node pools, and autoscaling.
+Caching policy: tune cache TTLs to allow fresh context while avoiding repeated expensive reranks.
+12. Use-case boundaries and ethical guardrails
+• This prototype is for prescreening automation. It’s designed to answer routine recruiter questions, schedule interviews, and filter irrelevant offers.
+• It does not replace human interviews or decisions. Final evaluation, negotiation, and cultural fit are human tasks.
+• Privacy-first: Candidate data is processed locally; nothing is sent to external services by default. If you integrate cloud models, document that risk explicitly and get consent.
+13. Practical advice (what I’d tell engineers when they clone this repo)
+System prompt is critical. Think of it as your policy and persona. Test and iterate it. Use it to enforce rules (e.g., “don’t invent facts; say ‘I don’t know’”).
+Tune retrieval first. RAG quality dictates factuality. Get embeddings, similarity thresholds, and BM25 right before trying to tune temperature.
+Start small with models. Use a quantized 4B model locally; if you need better reasoning, move to GPU-backed 7B–13B models.
+Make memory explicit. Use PostgresChatMemory and design your advisors to depend on versioned context (MCP-ready).
+Monitor metrics. Track RAG cache hits/misses, BM25 rerank times, and token latency to find bottlenecks.
+14. Conclusion — succinct
+I built a local, modular AI agent that represents a candidate during prescreening: it expands HR queries, retrieves relevant facts via RAG, refines those facts with BM25 and optional neural rerank, and uses a local Ollama model to generate concise replies. The system is privacy-first, extensible via advisors, and MCP-ready for future context/versioning/auditability. It speeds early-stage hiring workflows while preserving the human role in final decisions.
+P.S.
+Here are some resources to help you dive into the world of AI agents and RAG:
+My local, modular AI agent POC
+“Spring AI” course by Evgeny Borisov: If you want to repeat the experiments and understand how to build AI applications, get a 50% discount with the coupon:
+Spring AI RAG
+Spring AI Pro
+Book on RAG: For those who want to study the topic in more depth, I recommend Denis Rothman’s book “RAG and Generative AI” with a 25% discount using the coupon RAG.
+RAG and Generative AI (Piter)
+Free MCP courses or MCP Bootcamp: If you want to learn the principles of building systems like our Model Context Protocol, I suggest starting with this free course on working with vector databases.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Dmitry Drepin
+Follow
+Education
+Mathematic. System Analyst.
+Work
+TL Java
+Joined
+Oct 2, 2021
+Trending on DEV Community
+Hot
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+What was your win this week?
+#weeklyretro
+#discuss
+Turning a Photo into a 1/7 Scale PVC Figurine with Bandai-Style Packaging
+#3dmodelling
+#webdev
+#ai
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

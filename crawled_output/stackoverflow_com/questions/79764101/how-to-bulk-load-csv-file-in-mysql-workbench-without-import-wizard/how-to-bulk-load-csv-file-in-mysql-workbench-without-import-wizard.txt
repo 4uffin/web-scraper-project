@@ -1,0 +1,290 @@
+How to bulk load CSV file in mySQL workbench without import wizard? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to bulk load CSV file in mySQL workbench without import wizard?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+38 times
+1
+I am trying to write a stored procedure to import CSV data from local system to mySQL tables. I do not want to use import wizard as I want SP to create, import and display time taken to import.
+However, when I execute this statement:
+LOAD DATA INFILE 'path/to/your/file.csv' INTO TABLE your_table_name FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n' IGNORE 1 LINES; -- Use this if your file has a header row
+I receive Error Code: 1290. The MySQL server is running with the --secure-file-priv option so it cannot execute this statement.
+Things I have tried:
+Transfer files to path in secure_file_priv C:\ProgramData\MySQL\MySQL Server 8.0\Uploads\
+Updated 'secure_file_priv'="" and 'local_infile'=1 in my.ini file at various locations, getting default file location from cmd, but the path is not updated when I check their updated values.
+I restart mySQL server each time after making changes but no luck.
+Unchecked Safe updates in mySQL preferences
+Please let me know any workaround.
+mysqlcsvimportmysql-workbenchrestriction
+Share
+Improve this question
+Follow
+asked 20 hours ago
+AparnaAparna
+1111 bronze badge
+New contributor
+Aparna is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+2
+Yep, these are the possible solutions for this behaviour. If neither worked, then you probably made a mistake in implementing those solutions. Please show the exact load data statement with the file path C:\ProgramData\MySQL\MySQL Server 8.0\Uploads\ and what error message you got when you tried it.
+Shadow
+–
+Shadow
+2025-09-14 06:38:09 +00:00
+Commented
+19 hours ago
+what does SHOW VARIABLES LIKE 'datadir';
+produce ?
+ticktalk
+–
+ticktalk
+2025-09-14 07:21:01 +00:00
+Commented
+19 hours ago
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+-2
+1. Use LOAD DATA **LOCAL** INFILE
+If you want to read from your local machine, not the server’s upload directory, enable local_infile and use the LOCAL keyword:
+LOAD DATA LOCAL INFILE 'C:/path/to/your/file.csv'
+INTO TABLE your_table_name
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+Make sure local_infile=1 is enabled in both server and client.
+In Workbench, go to Edit → Preferences → SQL Editor → Enable LOAD DATA LOCAL INFILE. Restart Workbench after enabling.
+2. Use the secure_file_priv directory
+If you want to stick with LOAD DATA INFILE (no LOCAL), you must place the file inside the directory allowed by secure_file_priv.
+Check it with:
+SHOW VARIABLES LIKE 'secure_file_priv';
+Copy your CSV there, then:
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/file.csv'
+INTO TABLE your_table_name
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+3. If you want this inside a Stored Procedure
+Wrap the LOAD DATA in dynamic SQL:
+DELIMITER //
+CREATE PROCEDURE import_csv()
+BEGIN
+SET @sql = "
+LOAD DATA LOCAL INFILE 'C:/path/to/your/file.csv'
+INTO TABLE your_table_name
+FIELDS TERMINATED BY ','
+ENCLOSED BY '\"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES
+";
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+END //
+DELIMITER ;
+Then call:
+CALL import_csv();
+Recommended: If you’re running Workbench locally, the simplest fix is to enable local_infile and use LOAD DATA LOCAL INFILE. That avoids the secure_file_priv restriction entirely.
+Share
+Improve this answer
+Follow
+answered 18 hours ago
+TAHSEEN BAIRAGDARTAHSEEN BAIRAGDAR
+7433 bronze badges
+New contributor
+TAHSEEN BAIRAGDAR is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+1
+Unfortunately, this answer just rehashes the lot of other general answers to this error. However, it is clear from the OP's post that they have done their research and found the generic answers. They need help to tweak their solutions so that one of those work.
+Shadow
+–
+Shadow
+2025-09-14 07:42:04 +00:00
+Commented
+18 hours ago
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+mysqlcsvimportmysql-workbenchrestriction
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Related
+568
+How should I resolve --secure-file-priv in MySQL?
+1457
+How can I output MySQL query results in CSV format?
+2
+secure-file-priv error while importing csv file in sql
+809
+How to import CSV file data into a PostgreSQL table
+0
+Cannot import txt file on MySQL Server 8.0, because of secure_file_priv
+384
+How do I import CSV file into a MySQL table?
+3
+secure-file-priv Empty set
+Hot Network Questions
+How far should I go when phonetically transcribing an Irish accent?
+How to convert an MP3 CD into a regular (Red Book) audio CD?
+Here, "supports" appears in the plural. Why is there this difference in usage? ("Analysis on Manifolds" by James R. Munkres.)
+Upper Frequency Limit for Bouncing Off Ionosphere
+Creating a fast connect 4 ai solver in JavaScript
+Malicious tampering of trusted libraries
+What is the purpose of this opening in the airplane interior?
+Why does a higher concentration gradient lead to faster rates of diffusion?
+Reducing an integral to a Gamma function type
+Is it normal for postdoc to write grant proposals for PI, but then is denied the opportunity to work on the projects later on?
+Is the inductor of CE oscillator connected to VCC?
+Why did Israel attack top Hamas members including a negotiator in Qatar?
+"But I'll miss the bus for my game!" what is a teacher's legal liability for letting kids out of class without confirmation?
+Why don't military fighter jets have static wicks?
+Lean4 `rfl` causes error "no goals to be solved"
+Implications of OP_RETURN changes in upcoming Bitcoin Core version 30.0
+Conjunctive adverbs vs. transitional devices
+Workflows for hair semi rigging and semi simulation?
+How to disable all the AI features in Firefox to increase performance?
+where and when to put a good olive oil in focaccia?
+"Fine knacks for ladies" by John Dowland
+Automorphism of the Category of Vector Spaces
+What is the purpose of the neutral line in unbalanced three-phase systems?
+Does systemd-cryptenroll encryption with a TPM bind decryption to that TPM?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-sql
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

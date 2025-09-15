@@ -1,0 +1,264 @@
+DuckDB on AWS Lambda: The Easy Way with Layers - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Benjamin Bourgeois
+Posted on Sep 12
+• Originally published at bbourgeois.dev
+DuckDB on AWS Lambda: The Easy Way with Layers
+#duckdb
+#aws
+#lambda
+A few weeks ago, I faced a recurring task: every week, a batch of TSV files (which is just like a CSV, Comma-Separated Values file, but it uses tabs instead of commas to separate the values) needed to be ingested and loaded into an RDS database. Maintaining a full database for this simple weekly operation felt overkill, and the process itself was time-consuming.
+It seemed like the perfect opportunity to explore DuckDB, an in-process analytical database known for its efficiency and simplicity
+💡 The idea was to process the TSV files directly in a serverless environment, transform them with SQL queries, and store the results without running a persistent database.
+🦆 What is DuckDB
+DuckDB is an open-source, in-process analytical database often described as “the SQLite of analytics”. It is optimized specifically for analytical queries and can scan large datasets efficiently.
+One of its standout features is the ability to read columnar storage formats like Parquet directly from local files, S3 buckets, or HTTP endpoints. DuckDB scans and aggregates data on the fly without loading entire datasets into memory, which is particularly useful in serverless environments where memory and compute usage directly impact cost.
+Now combine that with AWS Lambda : instead of Athena queries, RDS instances, or complex ETL pipelines, DuckDB allows you to run analytical workloads on-demand in a Lambda function, paying only for what you actually use. Existing AWS services like Athena or RDS can address similar needs, but they come with different scaling models and pricing strategies. Athena, for example, charges per scanned byte and introduces query latency, while RDS requires you to maintain an always-on database.
+🤯 The Challenge with DuckDB on Lambda
+To configure my Lambda, I rely on Terraform to manage the infrastructure. However, I quickly ran into a major issue: DuckDB is a compiled library.
+This means you can’t just pip install duckdb locally and upload it through Terraform. If the binary hasn’t been compiled for the Lambda runtime environment, the function will fail to import it. Simply zipping the code is usually not enough, due to ABI incompatibilities and OS differences.
+To get around this, I had to set up a Docker container, build DuckDB inside it, copy the resulting files back to my machine, zip them, and then upload everything to Lambda.
+This approach works, but it’s far from ideal for small projects or when you just need to get a Lambda running quickly. You're forced to deal with problems like installing Docker and setting up a container build process, which adds significant complexity.
+✅ Solution
+That’s why I decided to create prebuilt Lambda layers for each architecture, Python version, and DuckDB version, then make them public.
+A Lambda layer is a convenient way to package and share dependencies across multiple Lambda functions, without having to include them in every single deployment package. This completely eliminates the need for a local build, so anyone can use DuckDB without repeating the same tedious setup.
+These layers are
+✅ Pre-compiled for every Lambda-supported Python runtime (3.8 → 3.13).
+✅ Supports both architectures (x86_64 and arm64).
+✅ Available in all AWS regions.
+✅ Easy to attach to your Lambda without increasing your deployment package size.
+Adding DuckDB to a Lambda function is as simple as attaching a Lambda layer with its ARN:
+aws lambda update-function-configuration \
+--function-name your-function-name \
+--layers LAYER_ARN
+Enter fullscreen mode
+Exit fullscreen mode
+Then inside your handler:
+import duckdb
+def lambda_handler(event, context):
+conn = duckdb.connect(":memory:")
+result = conn.execute("SELECT 'Hello from DuckDB!' AS msg").fetchall()
+return {"statusCode": 200, "body": result[0][0]}
+Enter fullscreen mode
+Exit fullscreen mode
+Once the layer is attached, DuckDB is immediately available in your Lambda function, eliminating the need to build it from source or worry about architecture mismatches.
+These layers make serverless analytics accessible: tasks that previously required RDS, Athena, or complex ETL pipelines can now be handled entirely within Lambda.
+💙 The project is open-source. You can find all layer ARNs and usage instructions on GitHub.
+👉🏼 Back to the Initial Problem
+The original problem I wanted to solve was quite simple: every week I had to fetch a set of TSV files and import them into a MySQL database hosted on RDS.
+With DuckDB, this workflow became surprisingly straightforward. Once the files are downloaded and available locally in the Lambda /tmp directory, DuckDB can both read them directly and push the data into MySQL using its extension system.
+Here’s the core of what it looks like:
+import duckdb
+def handler(event, context):
+# Connect to DuckDB in memory
+con = duckdb.connect(database=':memory:')
+# Install and load the MySQL extension
+con.install_extension("mysql")
+con.load_extension("mysql")
+# Attach to the target MySQL database
+con.execute("""
+ATTACH 'host=... user=... password=... port=... database=...' AS mysql (TYPE mysql);
+""")
+con.execute("USE mysql;")
+# Write directly the TSV into a table
+con.execute("""
+CREATE TABLE users AS
+SELECT * FROM read_csv('/tmp/users.txt', header=true, delim='\\t');
+""")
+# Example query
+result = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+return {
+"statusCode": 200,
+"body": f"Users imported: {result}"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+Working with DuckDB inside AWS Lambda can feel tricky at first because of the binary and platform compatibility issues. But with prebuilt layers, the whole process becomes much simpler: you can focus on writing your Lambda logic instead of worrying about how to build and package DuckDB.
+For my use case, this meant going from a manual Docker build and zip dance to a simple Terraform deployment with a ready-to-use layer. Hopefully, by making these layers public, others can save the same time and frustration.
+💙 The project is open-source. You can find all layer ARNs and usage instructions on GitHub.
+It also exists for NodeJS, thanks to a great initiative by tobilg, you can find it here.
+⭐ Star the repo, give it a try, and do not hesitate to open a PR!
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Suvrajeet Banerjee
+Suvrajeet Banerjee
+Suvrajeet Banerjee
+Follow
+DevOps Engineer with 2+ years of hands-on experience transforming legacy operations into agile, cloud-native ecosystems. Headed procurement for $11 Mn.+mining projects & delivering AWS Solutions ! 😎
+Location
+Bengaluru, Karnataka, India
+Education
+Haldia Institute of Technology
+Work
+Aspiring DevOps Engineer
+Joined
+Jun 30, 2025
+•
+Sep 13
+Dropdown menu
+Copy link
+Hide
+DuckDB layers are turning Lambda analytics into a serverless powerhouse! 🦆
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Roshan Sharma
+Roshan Sharma
+Roshan Sharma
+Follow
+💻 Tech Enthusiast | Linux & Open Source Explorer
+🔧 Sharing insights on Ubuntu, Debian, Docker, and DevOps tools
+🐍 Passionate about Python, SQL & MySQL
+✍️ Writing tutorials, guides, and answers to m
+Joined
+Aug 19, 2025
+•
+Sep 13
+Dropdown menu
+Copy link
+Hide
+Nice share! Makes using DuckDB on Lambda way easier
+Did you cover everything, or is there anything else we should watch out for?
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Benjamin Bourgeois
+Follow
+Software developer interested in Web/3, Cloud and AI
+Location
+Nantes, FR
+Education
+Epitech & Dublin City University
+Work
+Software Developer at Zenika
+Joined
+Sep 15, 2020
+More from Benjamin Bourgeois
+Configuring HTTP Basic Auth on an AWS Elastic Beanstalk application
+#aws
+#webdev
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,225 @@
+What Are Flash Loans? - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Scofield Idehen
+Posted on Sep 12
+• Originally published at blog.learnhubafrica.org
+What Are Flash Loans?
+#blockchain
+#web3
+#cybersecurity
+#security
+Flash loans are a unique DeFi primitive: uncollateralized loans that must be borrowed and repaid inside a single blockchain transaction. Because blockchains are atomic (either the whole transaction succeeds or it reverts), protocols can safely lend large amounts without collateral as long as the borrower returns the principal plus any fee before the transaction completes.
+That atomicity is both the power and the danger of flash loans: they enable useful flows like arbitrage and position migrations, and they also let attackers execute complex, high-capital manipulations in one instant.
+I get it, I just lost you with my complex jargon as an explanation.
+Let's break this down in simple terms.
+When you take a flash loan, you don’t get money into your personal wallet directly — the lending contract gives the funds to a borrower contract you control. Immediately calls a function on that borrower contract. Inside that function, you must return the money (plus a tiny fee) before the function ends.
+The lending contract checks at the end: are its tokens back? If yes, the transaction continues and gets added to the block. If not, the lending contract triggers a revert, and the whole transaction is canceled as if nothing had ever happened.
+Think of it like borrowing a book where the librarian hands it to a helper who must return it to the shelf before the helper leaves the room. If the helper fails to return it before walking out, the door locks, and everyone pretends the helper never entered.
+How repayment is actually done in code terms (simple idea, no exploit details): for token loans, the borrower contract will transfer the same tokens back to the lending contract (or call approve/transferFrom patterns the pool expects).
+For native ETH loans, the borrower contract sends the ETH back in the same call. The lending contract enforces the rule by checking its token/ETH balance after the borrower’s callback finishes — that check is usually a require that the balance equals (principal + fee). If that require fails, the EVM undoes everything.
+Two extra points that clear up common confusion:
+You don’t need to “already have” the money in your wallet to pay it back — your borrower contract can immediately use those borrowed funds inside that callback (for swaps, arbitrage, or other actions) and then return the proceeds before the callback ends. If those actions didn’t produce enough to cover principal+fee, the require fails and everything reverts.
+Miners/validators don’t accept the transaction until it completes without revert; they only include transactions that leave the chain in a valid state.
+So the chain “knows” because the lending contract checks and forces the repayment inside the same transaction; the EVM’s atomic execution makes the borrow-and-repay happen as one inseparable unit.
+Why flash loans exist
+They solve a real developer and trader problem: how to do complex, multi-step on-chain operations without pre-funding. Typical legitimate uses include arbitrage across DEXs, collateral swaps, refinancing a position in a single atomic flow, and batching multiple small ops to save gas and risk. Many protocols (Aave, dYdX historically, etc.) expose flash-loan APIs specifically to enable composability.
+How they actually work
+A user contract calls a lending pool's flashLoan interface and requests tokens. The pool transfers the tokens and calls back into the borrower contract (a function like executeOperation). Inside that callback, the borrower performs any sequence of on-chain actions (e.g., DEX trades, deposits, borrows) and before the callback returns it must send back the principal plus fee. If repayment fails, the pool reverts the whole transaction, making it as if nothing ever happened.
+Where the risk comes from
+Flash loans are an enabling tool — they are not the root cause of hacks. The real problems are fragile design patterns in other contracts: naive oracle choices (single-sample DEX price), unsafe accounting assumptions, missing reentrancy guards, reward/minting logic that trusts instantaneous balances, and unbounded cross-contract calls. Attackers use flash loans to provide the capital needed to manipulate these fragile assumptions in a single transaction.
+Common attack patterns
+Flash loans are simply an enabling tool; attackers combine them with design flaws to extract funds. Common patterns.
+Oracle manipulation/price manipulation
+Many protocols use on-chain prices (e.g., DEX reserves, or single-sample prices) as inputs. An attacker uses a flash loan to temporarily push a token’s on-chain price to an artificial value (by swapping huge amounts), then uses that price to take out loans, mint assets, or withdraw funds, then repays the flash loan and pockets the difference. This is the most classic flash-loan pattern (bZx, Harvest, PancakeBunny, many others).
+Exploiting accounting assumptions/reentrancy
+A smart contract that performs unsafe balance checks, or that relies on token transfer behavior (e.g., non-standard ERC-20), may be tricked during a flash-loan-powered sequence that triggers reentrant calls or inconsistent accounting, allowing drains. Examples: Cream Finance and others, where complex interactions led to large losses.
+Price oracle delays / stale oracles
+If a protocol uses a single-sample oracle (e.g., last trade price) instead of a robust TWAP (time-weighted average price) or external oracle, an attacker can momentarily change that sample with a flash loan and exploit the anomaly.
+Liquidity pool manipulation to fake collateral or mint tokens
+Some yield-aggregators or reward-minting logic could be tricked so attackers falsely inflate balances or mint tokens, withdrawing real value — a pattern in some 2021 BSC attacks (e.g., PancakeBunny forks).
+Cross-protocol dependency attacks
+Many DeFi protocols call each other. An attacker designs a single transaction that manipulates Protocol A’s state, then uses that manipulated state in Protocol B to perform unauthorized withdrawals. Atomicity makes it possible in one go.
+Notable flash-loan incidents
+Below are widely-reported incidents illustrating the attack evolution. This is not exhaustive, but covers the major, instructive ones.
+Feb–Mar 2020 — bZx (one of the first big public flash-loan attacks): attacker used flash loans to manipulate Uniswap prices and make profitable short trades, exposing oracle and composability risk. (early wake-up call).
+Oct 2020 — Harvest Finance: manipulated stablecoin pool prices by swapping on Curve-like pools, draining ~$34M.
+2021 (multiple) — PancakeBunny, Alpha Homora, Cream, and others: attackers exploited reward logic, oracle dependencies, reentrancy, and cross-protocol flows, causing tens to hundreds of millions in losses. PancakeBunny’s minting exploit and Cream’s multi-exploit chain are notable examples.
+Mar 2023 — Euler Finance: a dramatic example where attackers used complex flash-loan flows to withdraw about $197 million worth of assets (one of the largest DeFi thefts tied to flash-loan techniques). The event underlines that even mature protocols can be hit.
+2022–2025 — continuing wave: flash-loan-enabled attacks continued to be a leading cause of DeFi losses. In 2025, smaller projects continued to be exploited (e.g., Nemo Protocol reported a $2.6M exploit attributed to a flash-loan function). Arrests and legal actions have begun in some jurisdictions (e.g., reported court action and arrests tied to Solana DeFi attacks).
+(For readouts and post-mortems, security firms like Halborn, SlowMist, and auditing groups publish detailed write-ups for many of these attacks.)
+These incidents share a common lesson: assume adversaries can borrow enormous amounts instantly and design systems accordingly.
+Are flash loans dangerous?
+Yes, flash loans can be dangerous when protocols are not carefully designed. In one transaction, anyone can borrow millions without collateral and move that money across many platforms at once. This creates a chance for attackers to trick price feeds, break weak accounting systems, or drain funds before the loan is returned.
+Because everything happens instantly, the attack is over before humans can react. Flash loans themselves are not bad, but in the wrong hands, they become a weapon that exposes the weakest points in DeFi.
+Here is why:
+Huge leverage, no upfront capital: attackers can borrow millions.
+Atomicity + composability: cross-protocol calls can be chained in one transaction with no intermediate limits.
+Fragile on-chain data: many protocols rely on single-sample on-chain prices or naive accounting.
+Permissionless: anyone can run these flows, so you can’t just “ban” a malicious actor easily.
+Speed: attacks occur in seconds, with little time for human response.
+Detection & forensic signals
+Flash-loan attacks usually leave a clear trail if you know where to look. The first sign is often a single block where someone swaps such a massive amount of tokens that the pool’s reserves look broken. Another giveaway is a transaction that hops through several protocols in one breath: borrow, swap, lend again, then withdraw.
+Many attackers also spin up a brand-new contract that touches a pool once, drains it, and disappears. The rhythm is the same every time: borrow, bend the rules, repay all inside one block.
+Oracles often show the aftermath too, with sudden price spikes far away from the averages.
+Monitoring tools can catch these moves, and some protocols use guardian controls or multisigs to pause contracts before the damage spreads. But here lies the tension: pausing a contract gives protection, yet it also cuts against the idea of decentralization, where no one should have the power to hit the “stop” button.
+That trade-off is what makes defending against flash-loan attacks so complex — the tools to stop them exist, but using them raises the question of how decentralized a protocol really is.
+Security teams and on-chain monitors also look for these signals:
+Very large one-block token swaps that drastically change pool reserves.
+Transactions that call multiple protocols in a chain (lending → DEX → lending → withdraw).
+New contracts interacting with liquidity pools and immediately performing withdrawals.
+Massive borrow -> manipulate -> repay pattern in a single transaction trace.
+Abnormal oracle reads: sudden big divergence between TWAP and spot price.
+## 9. Mitigations
+The strongest defense against flash-loan abuse begins at the design level. Pricing should never rely on a single DEX spot price; external decentralized oracles such as Chainlink or time-weighted averages (TWAPs) make it far harder to manipulate markets in a single block.
+Protocols also need to recognize that on-chain balances and ratios can shift instantly, so any assumptions about them being “stable” inside one block are dangerous.
+Risk can also be reduced with caps and rate limits. No single withdrawal or parameter change should be able to drain the system in one action.
+Circuit breakers or pause switches provide another layer, giving admins or multisigs the power to freeze activity when anomalies are detected. Yet this is where decentralization concerns creep in: who gets to hold the pause button, and does that compromise the trustless promise of DeFi?
+This is why new approaches like Drosera traps are so important. Instead of relying only on human intervention, Drosera sets automated traps inside smart contracts that detect abnormal flows in real time.
+If a flash-loan attack pattern is spotted, borrow, manipulate, and repay, the trap can trigger protective responses instantly, all without handing too much power to a centralized admin. In effect, it makes circuit breakers proactive and decentralized, catching attackers before they can cash out.
+Economic defenses and careful isolation of complex cross-protocol flows add further resilience, but the real shift is moving from reactive human controls to embedded, automated traps like Drosera that harden DeFi systems against the speed and scale of flash-loan attacks.
+Conclusion
+Flash loans are a powerful primitive enabling composability and innovation in DeFi; banning them would remove legitimate functionality. The correct path is hardening: better oracle architectures, safer accounting patterns, and industry best practices.
+Research into automated on-chain defenses, real-time monitoring, and formal verification continues, and the community is increasingly responsive. OWASP and academic groups are cataloging flash-loan risks and recommended mitigations.
+If you enjoyed this story, consider joining our mailing list. We share real stories, guides, and curated insights on web development, cybersecurity, blockchain, and cloud computing, no spam, just content worth your time.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Scofield Idehen
+Follow
+Content developer for Learnhub Africa, all posts are made on behalf of LearnHub Africa.
+Location
+World
+Education
+University of Benin
+Work
+Nomand
+Joined
+Mar 23, 2022
+More from Scofield Idehen
+Scammers Are Using Ton to Steal on Telegram
+#telegram
+#cybersecurity
+#blockchain
+#web3
+How Flash Loans Enabled Scammers Steal $13.3M From BetterBank & Bunni v2
+#blockchain
+#web3
+#scam
+#beginners
+AI Undressing Underage Girls - A Billion Dollar Industry
+#ai
+#discuss
+#security
+#news
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

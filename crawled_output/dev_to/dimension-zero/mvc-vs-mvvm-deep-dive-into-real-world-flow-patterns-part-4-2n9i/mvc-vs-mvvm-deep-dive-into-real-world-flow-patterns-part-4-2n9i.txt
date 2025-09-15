@@ -1,0 +1,1045 @@
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 4 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Dimension AI Technologies
+Posted on Sep 13
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 4
+#architecture
+#mvc
+#mvvm
+#ui
+Hybrid Patterns and Modern Frameworks: How MVC and MVVM Converge
+Introduction
+Throughout our exploration of architectural patterns, in our first article we've examined the fundamental differences between MVC and MVVM, in Part 1 dived deep into MVC's sequential flow patterns, in Part 2 explored MVVM's reactive mesh architecture, and in Part 3 compared their performance implications.
+But modern applications rarely fit neatly into either category. Today's frameworks blur these distinctions, borrowing the best aspects of both patterns to create hybrid architectures that adapt to contemporary development needs. In Part 4, this article explores how modern frameworks combine MVC and MVVM patterns, and how you can leverage these hybrid approaches in your applications.
+Part 4: Hybrid Patterns and Modern Frameworks
+4.1 The Evolution Toward Hybrid Architectures
+The strict separation between MVC and MVVM has become increasingly artificial as applications evolved to require:
+Server-side rendering for SEO and initial load performance
+Client-side reactivity for rich user interactions
+Real-time updates via WebSockets and server-sent events
+Offline capabilities with service workers and local storage
+Progressive enhancement supporting various client capabilities
+Modern frameworks responded by adopting hybrid patterns that combine MVC's request-response clarity with MVVM's reactive data binding.
+4.2 MVC with Reactive Elements
+Traditional MVC applications increasingly incorporate reactive patterns for enhanced user experience.
+Server-Side MVC + Client-Side Reactivity
+// ASP.NET Core MVC Controller with SignalR for real-time updates
+public class DashboardController : Controller
+{
+private readonly IHubContext<DashboardHub> _hubContext;
+// Traditional MVC action
+[HttpGet]
+public async Task<IActionResult> Index()
+{
+var model = await _dashboardService.GetDashboardDataAsync();
+return View(model); // Server-side rendering
+}
+// API endpoint for client-side updates
+[HttpPost("api/dashboard/metric")]
+public async Task<IActionResult> UpdateMetric([FromBody] MetricUpdate update)
+{
+// Traditional processing
+var result = await _metricsService.UpdateAsync(update);
+// Push real-time update to all connected clients
+await _hubContext.Clients.All.SendAsync("MetricUpdated", new
+{
+MetricId = update.Id,
+NewValue = result.Value,
+Timestamp = DateTime.UtcNow
+});
+return Ok(result);
+}
+}
+// SignalR Hub for bidirectional communication
+public class DashboardHub : Hub
+{
+// Client can subscribe to specific metrics
+public async Task SubscribeToMetric(string metricId)
+{
+await Groups.AddToGroupAsync(Context.ConnectionId, $"metric-{metricId}");
+// Send current value immediately
+var currentValue = await _metricsService.GetCurrentValueAsync(metricId);
+await Clients.Caller.SendAsync("MetricUpdated", currentValue);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+<!-- Razor View with reactive JavaScript -->
+@model DashboardViewModel
+<div id="dashboard">
+<!-- Server-rendered initial content -->
+@foreach (var metric in Model.Metrics)
+{
+<div class="metric-card" data-metric-id="@metric.Id">
+<h3>@metric.Name</h3>
+<span class="value">@metric.Value</span>
+<span class="timestamp">@metric.LastUpdated</span>
+</div>
+}
+</div>
+@section Scripts {
+<script>
+// Client-side reactivity layer
+class DashboardViewModel {
+constructor() {
+this.metrics = new Map();
+this.connection = new signalR.HubConnectionBuilder()
+.withUrl("/dashboardHub")
+.build();
+this.initializeBindings();
+this.startConnection();
+}
+initializeBindings() {
+// Convert server-rendered HTML to reactive components
+document.querySelectorAll('.metric-card').forEach(card => {
+const id = card.dataset.metricId;
+this.metrics.set(id, {
+element: card,
+value: card.querySelector('.value'),
+timestamp: card.querySelector('.timestamp')
+});
+});
+}
+async startConnection() {
+// React to server pushes
+this.connection.on("MetricUpdated", (update) => {
+this.updateMetric(update);
+});
+await this.connection.start();
+// Subscribe to updates for visible metrics
+this.metrics.forEach((_, id) => {
+this.connection.invoke("SubscribeToMetric", id);
+});
+}
+updateMetric(update) {
+const metric = this.metrics.get(update.metricId);
+if (metric) {
+// Reactive update with animation
+metric.value.classList.add('updating');
+metric.value.textContent = update.newValue;
+metric.timestamp.textContent = new Date(update.timestamp).toLocaleTimeString();
+setTimeout(() => {
+metric.value.classList.remove('updating');
+}, 300);
+}
+}
+}
+// Initialize reactive layer on top of server-rendered content
+const viewModel = new DashboardViewModel();
+</script>
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Blazor: .NET's Hybrid Approach
+Blazor represents Microsoft's attempt to unify server and client patterns:
+// Blazor Server: MVC-like with reactive UI
+@page "/orders"
+@implements IDisposable
+<h3>Order Management</h3>
+<!-- Reactive UI with server-side processing -->
+<div class="filters">
+<input @bind="searchTerm" @bind:event="oninput" placeholder="Search..." />
+<select @bind="statusFilter">
+<option value="">All Statuses</option>
+<option value="Pending">Pending</option>
+<option value="Shipped">Shipped</option>
+</select>
+</div>
+<!-- Virtualized list for performance -->
+<Virtualize Items="@FilteredOrders" Context="order" ItemSize="50">
+<ItemContent>
+<OrderCard Order="order" OnStatusChanged="HandleStatusChange" />
+</ItemContent>
+<Placeholder>
+<LoadingSpinner />
+</Placeholder>
+</Virtualize>
+@code {
+// Blazor combines MVC controller logic with MVVM-style binding
+[Inject] private IOrderService OrderService { get; set; }
+[Inject] private NavigationManager Navigation { get; set; }
+private List<Order> orders = new();
+private string searchTerm = "";
+private string statusFilter = "";
+private System.Threading.Timer refreshTimer;
+// Computed property (MVVM-style)
+private IEnumerable<Order> FilteredOrders => orders
+.Where(o => string.IsNullOrEmpty(searchTerm) ||
+o.CustomerName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+.Where(o => string.IsNullOrEmpty(statusFilter) ||
+o.Status == statusFilter);
+protected override async Task OnInitializedAsync()
+{
+// MVC-style initialization
+orders = await OrderService.GetOrdersAsync();
+// Set up real-time updates
+OrderService.OrderUpdated += OnOrderUpdated;
+// Periodic refresh (hybrid approach)
+refreshTimer = new System.Threading.Timer(
+async _ => await RefreshOrders(),
+null,
+TimeSpan.FromSeconds(30),
+TimeSpan.FromSeconds(30)
+);
+}
+private async Task HandleStatusChange(Order order, string newStatus)
+{
+// MVC-style action
+var result = await OrderService.UpdateStatusAsync(order.Id, newStatus);
+if (result.Success)
+{
+// MVVM-style local update
+order.Status = newStatus;
+StateHasChanged(); // Trigger re-render
+}
+else
+{
+// Show error notification
+await ShowError(result.Error);
+}
+}
+private void OnOrderUpdated(object sender, OrderEventArgs e)
+{
+// React to external changes
+InvokeAsync(() =>
+{
+var order = orders.FirstOrDefault(o => o.Id == e.OrderId);
+if (order != null)
+{
+order.UpdateFrom(e.UpdatedOrder);
+StateHasChanged();
+}
+});
+}
+public void Dispose()
+{
+OrderService.OrderUpdated -= OnOrderUpdated;
+refreshTimer?.Dispose();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+4.3 MVVM with Request/Response Patterns
+MVVM applications increasingly need to interact with REST APIs and handle request/response patterns.
+// WPF/MVVM application with API integration
+public class CustomerViewModel : ViewModelBase
+{
+private readonly IApiClient _apiClient;
+private readonly IMapper _mapper;
+public CustomerViewModel(IApiClient apiClient, IMapper mapper)
+{
+_apiClient = apiClient;
+_mapper = mapper;
+// Commands that trigger request/response flows
+LoadCustomersCommand = new AsyncCommand(LoadCustomersAsync);
+SaveCustomerCommand = new AsyncCommand<Customer>(SaveCustomerAsync);
+DeleteCustomerCommand = new AsyncCommand<int>(DeleteCustomerAsync);
+}
+// MVVM properties with REST backend
+private ObservableCollection<Customer> _customers;
+public ObservableCollection<Customer> Customers
+{
+get => _customers;
+set => SetProperty(ref _customers, value);
+}
+// Request/Response pattern in MVVM
+private async Task LoadCustomersAsync()
+{
+try
+{
+IsLoading = true;
+// REST API call
+var response = await _apiClient.GetAsync<List<CustomerDto>>("/api/customers");
+if (response.IsSuccess)
+{
+// Map DTOs to ViewModels
+var customers = response.Data.Select(dto => _mapper.Map<Customer>(dto));
+// Update observable collection on UI thread
+await Application.Current.Dispatcher.InvokeAsync(() =>
+{
+Customers = new ObservableCollection<Customer>(customers);
+});
+}
+else
+{
+await HandleApiError(response);
+}
+}
+finally
+{
+IsLoading = false;
+}
+}
+// Optimistic updates with rollback
+private async Task SaveCustomerAsync(Customer customer)
+{
+// Optimistic update (MVVM style)
+var originalState = customer.Clone();
+customer.IsSaving = true;
+try
+{
+// API request (MVC style)
+var dto = _mapper.Map<CustomerDto>(customer);
+var response = await _apiClient.PutAsync($"/api/customers/{customer.Id}", dto);
+if (response.IsSuccess)
+{
+// Update with server response
+var updated = _mapper.Map<Customer>(response.Data);
+customer.UpdateFrom(updated);
+customer.LastSyncedAt = DateTime.UtcNow;
+}
+else
+{
+// Rollback on failure
+customer.UpdateFrom(originalState);
+await ShowError($"Failed to save customer: {response.Error}");
+}
+}
+catch (HttpRequestException ex)
+{
+// Handle network errors
+customer.UpdateFrom(originalState);
+customer.HasPendingChanges = true;
+await QueueForRetry(customer);
+}
+finally
+{
+customer.IsSaving = false;
+}
+}
+// Offline queue for resilience
+private readonly Queue<Customer> _retryQueue = new();
+private async Task QueueForRetry(Customer customer)
+{
+_retryQueue.Enqueue(customer);
+// Show offline indicator
+IsOffline = true;
+// Start retry timer if not already running
+if (_retryTimer == null)
+{
+_retryTimer = new Timer(async _ => await ProcessRetryQueue(),
+null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+4.4 Modern Framework Patterns
+Contemporary JavaScript frameworks demonstrate the convergence of MVC and MVVM patterns.
+React with Redux: Unidirectional Flow with Reactive Components
+// React + Redux: Combines MVC's predictability with MVVM's reactivity
+// Actions (MVC Controller-like)
+const orderActions = {
+loadOrders: () => async (dispatch, getState) => {
+dispatch({ type: 'ORDERS_LOADING' });
+try {
+// API call (MVC-style)
+const response = await fetch('/api/orders');
+const orders = await response.json();
+dispatch({
+type: 'ORDERS_LOADED',
+payload: orders
+});
+} catch (error) {
+dispatch({
+type: 'ORDERS_ERROR',
+payload: error.message
+});
+}
+},
+updateOrder: (orderId, updates) => async (dispatch) => {
+// Optimistic update (MVVM-style)
+dispatch({
+type: 'ORDER_UPDATE_OPTIMISTIC',
+payload: { orderId, updates }
+});
+try {
+const response = await fetch(`/api/orders/${orderId}`, {
+method: 'PATCH',
+body: JSON.stringify(updates)
+});
+const updatedOrder = await response.json();
+dispatch({
+type: 'ORDER_UPDATE_SUCCESS',
+payload: updatedOrder
+});
+} catch (error) {
+// Rollback
+dispatch({
+type: 'ORDER_UPDATE_FAILURE',
+payload: { orderId, error: error.message }
+});
+}
+}
+};
+// Reducer (Model-like state management)
+const ordersReducer = (state = initialState, action) => {
+switch (action.type) {
+case 'ORDERS_LOADING':
+return { ...state, loading: true, error: null };
+case 'ORDERS_LOADED':
+return {
+...state,
+orders: action.payload,
+loading: false
+};
+case 'ORDER_UPDATE_OPTIMISTIC':
+return {
+...state,
+orders: state.orders.map(order =>
+order.id === action.payload.orderId
+? { ...order, ...action.payload.updates, updating: true }
+: order
+)
+};
+case 'ORDER_UPDATE_SUCCESS':
+return {
+...state,
+orders: state.orders.map(order =>
+order.id === action.payload.id
+? { ...action.payload, updating: false }
+: order
+)
+};
+default:
+return state;
+}
+};
+// React Component (View with MVVM-style binding)
+const OrderList = () => {
+const dispatch = useDispatch();
+const { orders, loading, error } = useSelector(state => state.orders);
+const [filter, setFilter] = useState('');
+// Effect hook for data loading (lifecycle management)
+useEffect(() => {
+dispatch(orderActions.loadOrders());
+// Set up real-time updates via WebSocket
+const ws = new WebSocket('ws://localhost:3001/orders');
+ws.onmessage = (event) => {
+const update = JSON.parse(event.data);
+dispatch({
+type: 'ORDER_REALTIME_UPDATE',
+payload: update
+});
+};
+return () => ws.close();
+}, [dispatch]);
+// Computed property (MVVM-style)
+const filteredOrders = useMemo(() =>
+orders.filter(order =>
+order.customerName.toLowerCase().includes(filter.toLowerCase())
+),
+[orders, filter]
+);
+// Event handler (combines controller action with local state)
+const handleStatusChange = useCallback((orderId, newStatus) => {
+dispatch(orderActions.updateOrder(orderId, { status: newStatus }));
+}, [dispatch]);
+if (loading) return <LoadingSpinner />;
+if (error) return <ErrorMessage error={error} />;
+return (
+<div className="order-list">
+<SearchInput
+value={filter}
+onChange={setFilter}
+placeholder="Filter orders..."
+/>
+<VirtualList
+items={filteredOrders}
+itemHeight={80}
+renderItem={(order) => (
+<OrderCard
+key={order.id}
+order={order}
+onStatusChange={(status) => handleStatusChange(order.id, status)}
+isUpdating={order.updating}
+/>
+)}
+/>
+</div>
+);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+Angular: Component-Based MVC with Reactive Extensions
+// Angular combines MVC structure with MVVM-style data binding
+// Service (Model layer with reactive streams)
+@Injectable({ providedIn: 'root' })
+export class OrderService {
+private ordersSubject = new BehaviorSubject<Order[]>([]);
+public orders$ = this.ordersSubject.asObservable();
+private updateStream = new Subject<OrderUpdate>();
+constructor(private http: HttpClient, private webSocket: WebSocketService) {
+// Set up real-time updates
+this.webSocket.connect<OrderUpdate>('orders')
+.pipe(
+merge(this.updateStream),
+scan((orders, update) => this.applyUpdate(orders, update), [])
+)
+.subscribe(orders => this.ordersSubject.next(orders));
+}
+loadOrders(): Observable<Order[]> {
+return this.http.get<Order[]>('/api/orders').pipe(
+tap(orders => this.ordersSubject.next(orders)),
+catchError(this.handleError)
+);
+}
+updateOrder(orderId: string, changes: Partial<Order>): Observable<Order> {
+// Optimistic update
+this.updateStream.next({
+type: 'optimistic',
+orderId,
+changes
+});
+return this.http.patch<Order>(`/api/orders/${orderId}`, changes).pipe(
+tap(updated => this.updateStream.next({
+type: 'confirmed',
+order: updated
+})),
+catchError(error => {
+// Rollback
+this.updateStream.next({
+type: 'rollback',
+orderId
+});
+return throwError(error);
+})
+);
+}
+}
+// Component (Controller + View with two-way binding)
+@Component({
+selector: 'app-order-list',
+template: `
+<div class="order-container">
+<!-- Two-way binding (MVVM-style) -->
+<mat-form-field>
+<input matInput [(ngModel)]="searchTerm"
+placeholder="Search orders...">
+</mat-form-field>
+<!-- Async pipe for reactive updates -->
+<div class="order-grid">
+<app-order-card
+*ngFor="let order of filteredOrders$ | async; trackBy: trackById"
+[order]="order"
+[isUpdating]="updatingOrders.has(order.id)"
+(statusChange)="onStatusChange(order, $event)"
+(click)="navigateToDetails(order.id)">
+</app-order-card>
+</div>
+<!-- Loading states -->
+<mat-progress-bar *ngIf="loading$ | async" mode="indeterminate">
+</mat-progress-bar>
+</div>
+`
+})
+export class OrderListComponent implements OnInit, OnDestroy {
+searchTerm = '';
+updatingOrders = new Set<string>();
+private destroy$ = new Subject<void>();
+// Reactive streams
+orders$ = this.orderService.orders$;
+loading$ = new BehaviorSubject(false);
+// Computed property using RxJS
+filteredOrders$ = combineLatest([
+this.orders$,
+this.searchTermChanges$
+]).pipe(
+map(([orders, term]) =>
+orders.filter(order =>
+order.customerName.toLowerCase().includes(term.toLowerCase())
+)
+)
+);
+private get searchTermChanges$() {
+return new Observable<string>(observer => {
+// Convert two-way binding to observable stream
+const subscription = this.form.get('searchTerm').valueChanges
+.pipe(
+debounceTime(300),
+distinctUntilChanged()
+)
+.subscribe(observer);
+return () => subscription.unsubscribe();
+});
+}
+constructor(
+private orderService: OrderService,
+private router: Router,
+private snackBar: MatSnackBar
+) {}
+ngOnInit() {
+// Load initial data
+this.loading$.next(true);
+this.orderService.loadOrders()
+.pipe(
+takeUntil(this.destroy$),
+finalize(() => this.loading$.next(false))
+)
+.subscribe();
+}
+onStatusChange(order: Order, newStatus: string) {
+this.updatingOrders.add(order.id);
+this.orderService.updateOrder(order.id, { status: newStatus })
+.pipe(
+takeUntil(this.destroy$),
+finalize(() => this.updatingOrders.delete(order.id))
+)
+.subscribe({
+next: () => this.snackBar.open('Order updated', 'OK', { duration: 2000 }),
+error: (error) => this.snackBar.open(`Error: ${error.message}`, 'OK', { duration: 5000 })
+});
+}
+navigateToDetails(orderId: string) {
+// MVC-style navigation
+this.router.navigate(['/orders', orderId]);
+}
+trackById(index: number, order: Order): string {
+return order.id;
+}
+ngOnDestroy() {
+this.destroy$.next();
+this.destroy$.complete();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Vue.js: The Progressive Middle Ground
+// Vue 3 Composition API with Pinia store
+// Store (combines MVC service layer with MVVM reactivity)
+import { defineStore } from 'pinia';
+import { ref, computed } from 'vue';
+export const useOrderStore = defineStore('orders', () => {
+// Reactive state
+const orders = ref([]);
+const loading = ref(false);
+const error = ref(null);
+const searchTerm = ref('');
+// WebSocket connection for real-time updates
+let ws = null;
+// Computed properties (MVVM-style)
+const filteredOrders = computed(() => {
+if (!searchTerm.value) return orders.value;
+return orders.value.filter(order =>
+order.customerName.toLowerCase()
+.includes(searchTerm.value.toLowerCase())
+);
+});
+const pendingOrders = computed(() =>
+orders.value.filter(o => o.status === 'pending')
+);
+// Actions (MVC controller-like)
+async function loadOrders() {
+loading.value = true;
+error.value = null;
+try {
+const response = await fetch('/api/orders');
+orders.value = await response.json();
+// Initialize WebSocket after loading
+initializeWebSocket();
+} catch (err) {
+error.value = err.message;
+} finally {
+loading.value = false;
+}
+}
+async function updateOrder(orderId, updates) {
+// Find order for optimistic update
+const orderIndex = orders.value.findIndex(o => o.id === orderId);
+const originalOrder = { ...orders.value[orderIndex] };
+// Optimistic update
+orders.value[orderIndex] = {
+...orders.value[orderIndex],
+...updates,
+updating: true
+};
+try {
+const response = await fetch(`/api/orders/${orderId}`, {
+method: 'PATCH',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(updates)
+});
+const updatedOrder = await response.json();
+orders.value[orderIndex] = updatedOrder;
+} catch (err) {
+// Rollback
+orders.value[orderIndex] = originalOrder;
+throw err;
+}
+}
+function initializeWebSocket() {
+ws = new WebSocket('ws://localhost:3001/orders');
+ws.onmessage = (event) => {
+const update = JSON.parse(event.data);
+const index = orders.value.findIndex(o => o.id === update.id);
+if (index !== -1) {
+// Reactive update
+orders.value[index] = update;
+} else {
+// New order
+orders.value.push(update);
+}
+};
+ws.onerror = (error) => {
+console.error('WebSocket error:', error);
+// Retry connection after delay
+setTimeout(initializeWebSocket, 5000);
+};
+}
+function cleanup() {
+if (ws) {
+ws.close();
+}
+}
+return {
+// State
+orders,
+loading,
+error,
+searchTerm,
+// Computed
+filteredOrders,
+pendingOrders,
+// Actions
+loadOrders,
+updateOrder,
+cleanup
+};
+});
+// Component (View with reactive bindings)
+<template>
+<div class="order-management">
+<!-- Two-way binding with v-model -->
+<input
+v-model="orderStore.searchTerm"
+placeholder="Search orders..."
+class="search-input"
+/>
+<!-- Conditional rendering -->
+<div v-if="orderStore.loading" class="loading">
+<spinner />
+</div>
+<div v-else-if="orderStore.error" class="error">
+{{ orderStore.error }}
+<button @click="orderStore.loadOrders()">Retry</button>
+</div>
+<!-- List rendering with computed property -->
+<transition-group
+v-else
+name="order-list"
+tag="div"
+class="order-grid"
+>
+<order-card
+v-for="order in orderStore.filteredOrders"
+:key="order.id"
+:order="order"
+:updating="order.updating"
+@update="handleOrderUpdate"
+@click="navigateToDetails(order.id)"
+/>
+</transition-group>
+<!-- Reactive summary -->
+<div class="summary">
+Total: {{ orderStore.orders.length }} |
+Pending: {{ orderStore.pendingOrders.length }}
+</div>
+</div>
+</template>
+<script setup>
+import { onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { useOrderStore } from '@/stores/orderStore';
+import OrderCard from '@/components/OrderCard.vue';
+import Spinner from '@/components/Spinner.vue';
+const orderStore = useOrderStore();
+const router = useRouter();
+// Lifecycle hooks (similar to MVC initialization)
+onMounted(() => {
+orderStore.loadOrders();
+});
+onUnmounted(() => {
+orderStore.cleanup();
+});
+// Event handlers combining local and store logic
+async function handleOrderUpdate({ orderId, updates }) {
+try {
+await orderStore.updateOrder(orderId, updates);
+// Local UI feedback
+showNotification('Order updated successfully');
+} catch (error) {
+showNotification(`Error: ${error.message}`, 'error');
+}
+}
+function navigateToDetails(orderId) {
+router.push(`/orders/${orderId}`);
+}
+function showNotification(message, type = 'success') {
+// Notification logic
+}
+</script>
+Enter fullscreen mode
+Exit fullscreen mode
+4.5 Migration Strategies
+When transitioning between patterns or adopting hybrid approaches:
+Gradual Migration from MVC to Hybrid
+// Step 1: Add real-time capabilities to existing MVC
+public class HybridOrderController : Controller
+{
+private readonly IOrderService _orderService;
+private readonly IHubContext<OrderHub> _hubContext;
+// Existing MVC action
+public async Task<IActionResult> Index()
+{
+var orders = await _orderService.GetOrdersAsync();
+return View(orders);
+}
+// Step 2: Add API endpoints for progressive enhancement
+[HttpGet("api/orders")]
+public async Task<IActionResult> GetOrdersJson()
+{
+var orders = await _orderService.GetOrdersAsync();
+return Json(orders);
+}
+// Step 3: Support both traditional POST and AJAX
+[HttpPost]
+public async Task<IActionResult> UpdateOrder(int id, OrderUpdateModel model)
+{
+var result = await _orderService.UpdateAsync(id, model);
+// Notify real-time clients
+await _hubContext.Clients.All.SendAsync("OrderUpdated", result);
+// Support both JSON and HTML responses
+if (Request.Headers["Accept"].ToString().Contains("application/json"))
+{
+return Json(result);
+}
+return RedirectToAction(nameof(Index));
+}
+}
+// Step 4: Progressive enhancement in views
+@model List<Order>
+<div id="order-container" data-enhance="true">
+@foreach (var order in Model)
+{
+<div class="order-item" data-order-id="@order.Id">
+<!-- Works without JavaScript -->
+<form method="post" action="/orders/@order.Id/update">
+<!-- form fields -->
+<button type="submit">Update</button>
+</form>
+</div>
+}
+</div>
+<script>
+// Progressive enhancement - only if JavaScript is available
+if (document.querySelector('[data-enhance="true"]')) {
+// Intercept form submissions
+document.querySelectorAll('form').forEach(form => {
+form.addEventListener('submit', async (e) => {
+e.preventDefault();
+// Convert to AJAX request
+const response = await fetch(form.action, {
+method: 'POST',
+body: new FormData(form),
+headers: { 'Accept': 'application/json' }
+});
+const result = await response.json();
+updateUI(result);
+});
+});
+// Add real-time capabilities
+const connection = new signalR.HubConnectionBuilder()
+.withUrl("/orderHub")
+.build();
+connection.on("OrderUpdated", updateUI);
+connection.start();
+}
+</script>
+Enter fullscreen mode
+Exit fullscreen mode
+Key Insights from Hybrid Patterns
+The Best of Both Worlds
+Modern frameworks demonstrate that MVC and MVVM aren't mutually exclusive:
+Request/Response + Reactivity: Frameworks combine MVC's clear request handling with MVVM's reactive updates
+Server + Client: Initial server rendering (MVC) with client-side interactivity (MVVM)
+Predictable + Flexible: Redux's predictable state (MVC-like) with React's reactive components (MVVM-like)
+Progressive Enhancement: Start with MVC, add reactive features as needed
+Common Patterns Across Frameworks
+Despite different implementations, modern frameworks share common hybrid patterns:
+Unidirectional Data Flow: Even reactive frameworks often enforce one-way data flow for predictability
+Component-Based Architecture: Encapsulation of view and logic, borrowing from both patterns
+State Management: Centralized stores (MVC-inspired) with reactive subscriptions (MVVM-inspired)
+Computed Properties: Derived state that updates automatically
+Lifecycle Management: Explicit initialization and cleanup hooks
+Performance Optimizations
+Hybrid approaches enable sophisticated optimizations:
+Virtual DOM/Incremental DOM: Batch UI updates efficiently
+Lazy Loading: Load components and data on demand
+Code Splitting: Separate bundles for different features
+Server-Side Rendering: Initial HTML for fast first paint
+Hydration: Attach client-side behavior to server-rendered HTML
+Choosing Your Hybrid Approach
+Decision Framework
+Consider these factors when selecting a hybrid approach:
+Start with MVC + Add Reactivity When:
+SEO is critical
+Initial load performance is paramount
+Team has MVC expertise
+Progressive enhancement is important
+Start with MVVM + Add Request/Response When:
+Building desktop or mobile apps
+Rich interactivity is primary
+Real-time updates are central
+Team has reactive programming experience
+Choose a Modern Framework When:
+Building new applications
+Need both server and client capabilities
+Want community support and ecosystem
+Require sophisticated state management
+Conclusion
+The evolution from pure MVC and MVVM to hybrid patterns reflects the reality of modern application development. Today's applications need server-side rendering for performance, client-side reactivity for user experience, and real-time capabilities for engagement.
+Modern frameworks have shown us that architectural patterns are tools, not dogma. The best architecture for your application likely combines elements from multiple patterns, adapted to your specific needs.
+Complete Series
+MVC vs MVVM: Understanding Architectural Patterns - Foundational concepts
+MVC Flow Patterns in Detail - Part 1 - Sequential MVC architectures
+MVVM Flow Patterns in Detail - Part 2 - Reactive MVVM architectures
+Comparative Analysis - Part 3 - Performance and testing
+This Article - Part 4 - Hybrid patterns and modern frameworks
+Evolution from "MVC vs MVVM" to "MVC and MVVM" reflects maturity in our industry. As you design your next application, consider not which pattern to choose, but which combination of patterns best serves your users and your team.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Dimension AI Technologies
+Follow
+Adventures in AI startups.
+Location
+Cambridge, UK
+Joined
+Apr 18, 2025
+More from Dimension AI Technologies
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 5
+#architecture
+#mvc
+#mvvm
+#ui
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 2
+#architecture
+#mvc
+#mvvm
+#ui
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 1
+#architecture
+#csharp
+#designpatterns
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

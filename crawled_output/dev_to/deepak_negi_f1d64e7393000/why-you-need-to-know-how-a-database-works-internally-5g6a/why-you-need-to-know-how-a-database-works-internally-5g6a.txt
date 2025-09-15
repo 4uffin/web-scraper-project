@@ -1,0 +1,224 @@
+Why You Need to Know How a Database Works Internally? - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Deepak Singh
+Posted on Sep 14
+Why You Need to Know How a Database Works Internally?
+#softwaredevelopment
+#softwareengineering
+#programming
+#database
+We rarely build our own database engine from scratch, but even then, understanding how databases work internally is important. Without this knowledge, it becomes hard to choose the right database according to business needs or tune a particular database to fit those needs.
+In this article, you will gain a good understanding of the internal workings of databases without much technical jargon. By the end, you will have clear reasons to choose a particular database engine while building your next impactful software application.
+Imagine This: Building the Fastest Database
+Let’s say you sat in a time machine and went a few years back when databases were about to be invented. As a great software engineer from 2025, you are asked to build the fastest database. What technique would come to your mind first? Hashmaps?
+Why not? They are used to read and write data in constant time (O(1)). So theoretically, they should be the best database in the world. And indeed, a similar concept was used in the beginning (like Bitcask). But if you check the 2025 statistics, you’ll find that B-Tree (which we will discuss later) is the most popular database engine for storing data, and it does not use hashmaps.
+Why? Because we don’t need perfection. We need something that works and reduces cost.
+Let’s go through important database engine terms, where to use each one, and their advantages over others.
+Hash Index
+By its name, you already understand that this technique uses hashmaps. But more important is how it is implemented for reliability, concurrency, and fault tolerance.
+Hashmaps are generally in-memory data structures for maximum efficiency. I said generally because we can use disk for hashmaps too, but that wouldn’t be efficient. Disks like HDD and SSD are not designed for this type of random-access operation.
+In a hash index, we maintain an in-memory hashmap whose key is the actual key of the data, and the value is the offset (or location) of that data on the disk. The value can be large, so it is not stored in memory. Only a single seek time (finding a value by address on disk) is added.
+But what if the machine crashes while updating a value? The data would be in a partial state, which would be useless. To solve this, log-structured techniques are used.
+An append-only file (where nothing is overwritten) stores the data. Whenever we need to update a value, we simply write the new value, and the hash index now points to this new version. However, this causes disk space to increase rapidly.
+To solve this, instead of writing the whole data into a single file, we write data in segments and continuously merge them to keep only the latest value for each key (known as compaction). This happens in the background so that read and write operations are not affected.
+Limitations of Hash Index:
+On machine restart, all keys are lost. This is solved by taking periodic snapshots of the keys and storing them on disk.
+RAM is expensive and limited in size, so we can’t store many keys, and several disk management techniques can’t be applied.
+Although we can access any key-value pair in O(1), range queries (retrieving data between a particular range) cannot be efficiently performed with hashmaps. And range queries are crucial in most businesses.
+SSTables and LSM-Trees
+Now we encounter some names that seem technically complex but aren’t.
+What is an SSTable?
+An SSTable (Sorted Strings Table) is a file format where strings (keys) are stored in sorted order. That’s it.
+The idea is to improve upon the hash index.
+We know that in a hash index, data is stored in segments. In the same way, here too, data is stored in segments, but each segment is in SSTable format — sorted by keys.
+Each SSTable has its own in-memory or disk-based hash index. That is, a table we can use to get a key’s value from that segment.
+Better alternatives than hash tables also exist — not necessarily faster, but they work fairly well while reducing cost. For example:
+Sparse tables with binary search
+Other efficient lookup structures
+Because segments aren’t very large, these work great.
+Compaction happens here too, but in a slightly better way. A merge sort is used so that the new segment appears in sorted order.
+But where do SSTables come from?
+Because we write data in any order, we use an in-memory AVL or Red-Black tree. This tree stores incoming data in sorted order. After crossing a threshold, the data is flushed to disk in SSTable format, and memory becomes reusable.
+This helps in writing data more than the available memory and enables range queries because of the sorted keys.
+This entire technique is known as LSM Tree (Log-Structured Merge Tree). Easy peasy, right?
+To read data:
+First, we look in the in-memory tree (called the memtable).
+Then, in the latest segment.
+Then, in older segments sequentially.
+If data is very old or not present, we might have to look into too many segments, which is inefficient. To solve this, Bloom filters are used to quickly check if a key exists in a segment.
+Limitations of LSM Tree:
+Even though we use Bloom filters, reads are not very fast.
+This makes LSM Trees less suitable for read-heavy applications.
+B-Tree
+Don’t confuse it with a Binary Tree or Binary Search Tree — it is completely different.
+B-Tree is the most popular data engine, used by big names like MySQL, PostgreSQL, and Oracle. Why?
+Because of its balanced performance in read and write operations, especially for disk-based databases.
+How does B-Tree work?
+A B-Tree stores several pages of fixed-size blocks.
+Each page holds keys in sorted order and references to other pages.
+References are not random. Each reference between two keys points to pages containing keys in that range.
+Leaf pages contain references to values or the values themselves.
+It looks like a search tree but differs in how data is inserted.
+Any key-value pair is inserted into the appropriate leaf page.
+If a page doesn’t have space for a new key:
+It splits into two equal parts.
+The parent page adds a new reference to the extra page.
+This process continues up to the root.
+If the root splits, a new root is created.
+Although it seems like heavy work, in practice, 4–5 levels contain a lot of data.
+Read and write complexity remains O(log n).
+Limitations of B-Tree:
+In concurrent scenarios or server failures, a B-Tree can become corrupted due to missing parent references.
+This is solved by Write-Ahead Logging (WAL) — an append-only file written before the actual B-Tree modification.
+However, WAL makes B-Tree slower in writes.
+Summary: Choosing the Right DB Engine
+We covered the most popular DB engines and their internal workings.
+B-Tree is the most mature and optimized engine, making it a widely popular choice.
+All techniques are useful and chosen based on specific business needs.
+It’s impossible to directly compare them due to factors like:
+Data type and complexity
+Workload type
+Database tuning
+But generally:
+In the end, the choice is not about the fastest or best, but the one that suits your software application the most.
+Consider your business needs carefully and tune your DB engine accordingly.
+Thank you for reading!
+Feel free to comment your thoughts or share how you chose your database in your last project.
+References
+Kleppmann, M. (2017). Designing Data-Intensive Applications: The big ideas behind reliable, scalable, and maintainable systems. O’Reilly Media.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Deepak Singh
+Follow
+I can do this all day.
+Joined
+Jul 23, 2024
+More from Deepak Singh
+Which Database Should We Use: Relational, Document, or Graph Model?
+#database
+#softwareengineering
+#softwaredevelopment
+#programming
+OOP Didn’t Invent Anything New — It Just Gave Us Discipline
+#softwareengineering
+#programming
+#oop
+#architecture
+Why Programming is Science Rather Than Maths
+#softwareengineering
+#programming
+#architecture
+#science
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

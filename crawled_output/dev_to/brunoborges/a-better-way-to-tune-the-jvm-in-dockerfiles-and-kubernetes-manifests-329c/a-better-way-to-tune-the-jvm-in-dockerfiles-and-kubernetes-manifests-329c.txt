@@ -1,0 +1,205 @@
+A Better Way to Tune the JVM in Dockerfiles and Kubernetes Manifests - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Bruno Borges
+for Microsoft Azure
+Posted on Sep 12
+A Better Way to Tune the JVM in Dockerfiles and Kubernetes Manifests
+#kubernetes
+#java
+#docker
+#performance
+When tuning the JVM inside containers, I often see Dockerfiles and Kubernetes manifests with long, hard-to-read java commands packed with -Xmx, -XX:+UseG1GC, and other flags. Every time you want to tweak memory or GC settings, you have to edit those commands and rebuild or redeploy.
+Free webinar Java on Kubernetes Performance Engineering
+Running Java on Kubernetes? It's harder - and more critical - than you think. Join us September 25th, 2025, for a live webinar with Akamas & Microsoft on tuning Java apps at scale. JVM tips, GC tuning, JDK 25, Project Leyden & more.
+Register at https://akamas.io/events/java-on-kubernetes-lessons-in-performance-engineering-with-akamas-and-microsoft/
+What about JAVA_OPTS?
+This flag is not read by the JVM itself. It only works if the launch script explicitly uses it and expands its content into the call to the java launcher. It behaves exactly the same as Apache Tomcat's CATALINA_OPTS, which is read by catalina.sh.
+There’s a much cleaner way to do this... and it’s built into the JDK. It’s the most modern, well-scoped solution, playing well with deployment orchestration solutions like Kubernetes.
+🚀 Enter JDK_JAVA_OPTIONS
+JDK_JAVA_OPTIONS is an environment variable that the JVM reads automatically. Whatever you put there gets appended to the command line of every JDK tool (java, javac, jshell, etc.) This means you can move all your tuning flags out of your launcher command, keeping your Dockerfiles and manifests clean and maintainable.
+Cleaned-up Dockerfile
+Before (messy):
+CMD ["java", "-Xmx512m", "-XX:+UseG1GC", "-jar", "app.jar"]
+Enter fullscreen mode
+Exit fullscreen mode
+After (clean):
+ENV JDK_JAVA_OPTIONS="-Xmx512m -XX:+UseG1GC"
+CMD ["java", "-jar", "app.jar"]
+Enter fullscreen mode
+Exit fullscreen mode
+Now, if you need to change heap size or GC settings, you just update the environment variable. No need to touch the command.
+Kubernetes Example
+If your container is likely to end up on Kubernetes, don't even tune the JVM in the Dockerfile. Consider leaving this as an external configuration, coming from the Kubernetes manifest.
+This is because the container image doesn't know what memory limits will be applied during runtime. And even if you set a MaxRAMPercentage for the heap, the amount you set may not be ideal if the container ends up with too much memory, potentially wasting memory from the delta not used, for example.
+containers:
+- name: myapp
+image: myapp:latest
+env:
+- name: JDK_JAVA_OPTIONS
+value: "-Xmx512m -XX:+UseG1GC"
+Enter fullscreen mode
+Exit fullscreen mode
+Your deployment YAML stays clean and your operations team can tune JVM behavior at deploy time without changing the image.
+Why JDK_JAVA_OPTIONS Is Better
+✅ Cleaner Manifests – fewer arguments to maintain
+🔄 Configurable at Runtime – no rebuild required
+🛠 Debug-Friendly – JVM prints the options it picked up
+🐳 Perfect for Containers – works across Docker, Kubernetes, ECS, etc.
+🎯 Applies to All JDK Tools – not just java, but also javac, jshell, etc.
+If you’re running Java apps in Docker or Kubernetes, stop hardcoding JVM flags into your command line. Use JDK_JAVA_OPTIONS instead. It makes your images cleaner, your manifests easier to read, and your JVM tuning more flexible.
+Precedence, Order of Priority, and Scope
+The HotSpot JVM supports, in practice, three environment variables. And for many historical reasons we ended up in this situation.
+But in what order are they processed, and where? The rule of thumb is below. Except that in JDK 8, the variable JDK_JAVA_OPTIONS is not supported.
+_JAVA_OPTIONS > JDK_JAVA_OPTIONS > JAVA_TOOL_OPTIONS
+Enter fullscreen mode
+Exit fullscreen mode
+Besides the order they are processed, there is also where they are processed and how this impacts what parameters are effective.
+According to the bug JDK-8170832:
+_JAVA_OPTIONS and JAVA_TOOL_OPTIONS environment variable are interpreted by the VM, not the launcher [java], hence no @-files or launcher-only options. The former is undocumented and unsupported but widely used; the latter is documented and supported.
+You can see for yourself the behaviour of these environment variables with this little project I built (with GitHub Copilot): github.com/brunoborges/jdk-env-vars
+Thoughts?
+What JVM tuning tricks are you using in containers today?
+Have you tried JDK_JAVA_OPTIONS yet?
+Did you know about it?
+Comment below.
+Resources
+Resources
+OpenJDK 21: JAVA_TOOL_OPTIONS documentation
+OpenJDK 21: JDK_JAVA_OPTIONS documentation
+JDK-8170832: Add a new launcher environment variables
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Microsoft Azure
+Follow
+Invent with purpose
+Any language. Any platform.
+Try Azure for Free
+More from Microsoft Azure
+Announcing Azure Command Launcher for Java
+#azure
+#java
+#openjdk
+#cloud
+Deploying AKS Automatic clusters with Pulumi: A step-by-step guide
+#aks
+#pulumi
+#cloudnative
+#kubernetes
+Securely Connecting Azure Container Apps to Azure OpenAI Using User Managed Identity
+#java
+#security
+#managedidentity
+#azurecontainerapps
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,331 @@
+javascript - I want to reverse the direction of the slotreel, As of Now it is from bottom to top - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+I want to reverse the direction of the slotreel, As of Now it is from bottom to top [closed]
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+45 times
+-4
+Closed. This question needs debugging details. It is not currently accepting answers.
+Edit the question to include desired behavior, a specific problem or error, and the shortest code necessary to reproduce the problem. This will help others answer the question.
+Closed 17 hours ago.
+Improve this question
+I want to reverse the direction of the slotreel, As of Now it is from bottom to top.
+but when I am reversing the direction it is creating gap on the top feels like stretching it,
+Below is the code snippet , consider slotItem as just any text lets say but the problem is when I am reversing the direction it creates gap at the top, My aim to stop the movement of reel smoothly after 9-10 seconds when I found the result like it can be any of them , so from bottom to top it creates illusion but from top to bottom , it could not and as a result it shows gap at the top, so what could be done , any other better approach please !
+import { FC, useEffect, useRef, useMemo, useCallback } from 'react';
+import styles from './SpinningBarWheel.module.css';
+import SlotItem from './spinBarHighlight/slotItem/SlotBackgroundItem';
+import WheelHighlight from './spinBarHighlight/wheelHighlight/WheelHighlight';
+// import { isMatchingPrize } from '../wheelDropModals/spinBarUtils';
+import type { WinNotificationType, PrizedropPrizeType } from '@pp/core/src/api/fetchers/promotionsV2/types/promotions';
+interface Props {
+spinBarItems: { text: string; color: string; isBaseColor?: boolean; prize?: PrizedropPrizeType }[];
+result: WinNotificationType;
+}
+const SpinningBarWheel: FC<Props> = ({ result, spinBarItems }) => {
+console.log(result, "result");
+const reelRef = useRef<HTMLDivElement>(null);
+const posRef = useRef(0);
+const animRef = useRef<number>();
+const winningIndexRef = useRef<number | null>(null);
+const rowHeight = 100;
+const reelLength = spinBarItems.length * rowHeight;
+const getMiddleOffset = () => window.innerHeight / 2 - rowHeight / 2;
+console.log(getMiddleOffset(), 'getMiddleOffset');
+// useEffect(() => {
+//
+const handleResize = () => {
+//
+if (winningIndexRef.current !== null && reelRef.current) {
+//
+const loops = 10;
+//
+const newOffset = getMiddleOffset();
+//
+const targetPos = -((winningIndexRef.current + loops * spinBarItems.length) * rowHeight) + newOffset;
+//
+posRef.current = targetPos;
+//
+reelRef.current.style.transform = `translateY(${posRef.current % reelLength}px)`;
+//
+}
+//
+};
+//
+window.addEventListener('resize', handleResize);
+//
+return () => window.removeEventListener('resize', handleResize);
+// }, [spinBarItems.length, reelLength, rowHeight]);
+const getMiddleTextElement = useCallback(() => {
+if (!reelRef.current) return null;
+const rects = Array.from(reelRef.current.children) as HTMLDivElement[];
+const middleY = window.innerHeight / 2;
+for (const child of rects) {
+const rect = child.getBoundingClientRect();
+if (rect.top <= middleY && rect.bottom >= middleY) {
+return child.querySelector('span') as HTMLSpanElement;
+}
+}
+return null;
+}, []);
+const renderedSlotItems = useMemo(() => {
+const loops = 6;
+return Array.from({ length: Math.ceil(loops) }).flatMap((_, i) =>
+spinBarItems.map((item, j) => (
+<SlotItem
+key={`${i}-${j}`}
+text={item.text}
+color={item.color}
+isBaseColor={item.isBaseColor}
+// isFirst={i === 0 && j === 0} // Only true for the very first item
+/>
+))
+);
+}, [spinBarItems]);
+const easeOutCubic = useCallback((t: number) => 1 - Math.pow(1 - t, 3), []);
+useEffect(() => {
+const candidatePositions: number[] = [];
+spinBarItems.forEach((item, idx) => {
+if (idx === 3) {
+winningIndexRef.current = idx; // Save for snapping later
+console.log(idx, "idx");
+for (let loop = 0; loop < 20; loop++) {
+const pos = getMiddleOffset() - ((idx + loop * spinBarItems.length) * rowHeight);
+console.log(pos, "pos");
+candidatePositions.push(pos);
+}
+}
+});
+const target = candidatePositions[candidatePositions.length - 1];
+const start = posRef.current;
+const distance = target - start;
+const duration = 500;
+const startTime = Date.now();
+console.log({ target, start, distance }, 'animation start');
+const animate = () => {
+const elapsed = Date.now() - startTime;
+const t = Math.min(1, elapsed / duration);
+const eased = easeOutCubic(t);
+posRef.current = start + distance * eased;
+if (reelRef.current) {
+reelRef.current.style.transform = `translateY(${posRef.current % reelLength}px)`;
+console.log(posRef.current % reelLength, 'current pos');
+}
+if (t < 1) {
+animRef.current = requestAnimationFrame(animate);
+} else {
+const middleSpan = getMiddleTextElement();
+if (middleSpan) {
+middleSpan.classList.add(styles.resultScale);
+setTimeout(() => middleSpan.classList.remove(styles.resultScale), 4000);
+}
+}
+};
+animRef.current = requestAnimationFrame(animate);
+return () => {
+if (animRef.current) {
+cancelAnimationFrame(animRef.current);
+}
+};
+}, [result, spinBarItems, reelLength, easeOutCubic, getMiddleTextElement]);
+return (
+<>
+<div className={styles.speedlinesWrapper}>
+<div className={styles.speedlines}></div>
+</div>
+<div className={styles.speedlinesBlend}></div>
+<div className={styles.slotContainer}>
+<div ref={reelRef} className={styles.slotReel}>
+{renderedSlotItems}
+</div>
+<WheelHighlight />
+</div>
+</>
+);
+};
+export default SpinningBarWheel;
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+javascripthtmlcssreactjscss-animations
+Share
+Improve this question
+Follow
+asked yesterday
+Amit KumarAmit Kumar
+122 bronze badges
+Add a comment
+|
+Related questions
+6740
+How do I return the response from an asynchronous call?
+2083
+Scroll to the top of the page using JavaScript?
+1467
+How to align content of a div to the bottom
+Related questions
+6740
+How do I return the response from an asynchronous call?
+2083
+Scroll to the top of the page using JavaScript?
+1467
+How to align content of a div to the bottom
+957
+How can I position my div at the bottom of its container?
+1492
+What is the best way to add options to a select from a JavaScript object with jQuery?
+724
+Scroll Automatically to the Bottom of the Page
+1370
+No 'Access-Control-Allow-Origin' header is present on the requested resource—when trying to get data from a REST API
+792
+Check if a user has scrolled to the bottom (not just the window, but any element)
+515
+I do not want to inherit the child opacity from the parent in CSS
+698
+CSS to make HTML page footer stay at bottom of the page with a minimum height, but not overlap the page
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+javascripthtmlcssreactjscss-animations
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Hot Network Questions
+3D plot "hide axis" produces spurious space
+Upper Frequency Limit for Bouncing Off Ionosphere
+Is it OK to pray at breakneck speed?
+How many of each type of dice could you possibly need?
+How to derive the Schrodinger equation with potential from Maxwell's equations?
+Here, "supports" appears in the plural. Why is there this difference in usage? ("Analysis on Manifolds" by James R. Munkres.)
+where and when to put a good olive oil in focaccia?
+Reducing an integral to a Gamma function type
+Truth value of a sentence giving permission?
+Anyone know a book about researchers in boats being chased on an alien planet by humanoid aliens?
+In the novel Dune, why were atomics banned but shield + lasgun explosions weren't?
+Malicious tampering of trusted libraries
+A million and one constants
+How does the NSDT program end?
+Conjunctive adverbs vs. transitional devices
+The pattern { Main verb} + not to [infinitive 1] AND (to) [infinitive 2]} | He decided not to go to the beach and (to) swim for an hour
+New Boss insulting my appearance
+Does For /r Windows CMD has %errorlevel$?
+Best bike for ultra steep climbs in the forest? (Mountain)
+Ubuntu Server can't change timezone
+How do I get rid of this Adobe Acrobat “Make Adobe Acrobat your default PDF app” notification?
+Applications of inner model theory in algebraic topology?
+Hat puzzle with rock, paper, scissors
+Does the train between Sofia, Bucharest and Varna have Wi-Fi?
+more hot questions
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

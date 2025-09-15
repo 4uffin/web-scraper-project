@@ -1,0 +1,969 @@
+How I Automated Document Insights Using AWS Textract, Bedrock, and QuickSight - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Mursal Furqan Kumbhar
+for AWS Community Builders
+Posted on Sep 12
+How I Automated Document Insights Using AWS Textract, Bedrock, and QuickSight
+#aws
+#machinelearning
+#devops
+#automation
+Hello Everyone 👋
+So I had a bunch of scanned invoices and PDFs lying around from an old freelance gig. Manually reading them and extracting data felt like a punishment. Instead of going through them one by one, I decided to try something smarter (I know, common Developer Syndrome 😜), to build a small AWS workflow that could:
+Read scanned docs,
+Summarise key info,
+Convert it to structured data, and
+Visualise everything inside a dashboard.
+Here’s how I did it, step by step. You can follow the same process and tweak it for contracts, reports, receipts, whatever you’ve got.
+✅ Step 1: Set Up Your AWS Environment (Production-ready)
+1) Pick a single region that supports everything
+Goal: Keep S3, Textract, Bedrock, and QuickSight in the same region to avoid cross-region latency/fees.
+How to choose: Check that your chosen region offers Bedrock (model availability varies) and Textract. If QuickSight isn’t in that region, use Athena + Glue as a bridge (S3 anywhere → Athena in QuickSight’s region).
+Edge cases
+Bedrock not in your favorite region: run Textract + S3 where your data lives, then send plain text only to Bedrock in a supported region (privacy + cost trade-off).
+Corporate constraint on regions: document the exception and add an S3 Replication rule or use Athena.
+2) Create an S3 bucket with the right defaults
+Name: doc-insights-<env>-<region>-<account-id> (e.g., doc-insights-prod-eu-central-1-123456789012)
+Settings to enable right away
+Block Public Access: ON (all four toggles).
+Versioning: ON (lets you recover bad parses).
+Default encryption: SSE-KMS (customer-managed key) for auditability.
+Object Ownership: Bucket owner enforced (disables ACLs, simplifies perms).
+Lifecycle rules:
+Move raw/ to infrequent access after N days.
+Expire tmp/ after M days.
+Keep processed/ longer for audits.
+Folder layout (simple + scalable)
+s3://doc-insights-bucket/
+raw/
+# uploads: PDFs, images
+textract-json/
+# raw JSON from Textract (per doc)
+extracted/
+# normalized tables/kv (CSV/Parquet)
+summaries/
+# Bedrock text summaries (JSON/MD)
+processed/
+# final CSVs for BI
+logs/
+# app / pipeline logs
+Enter fullscreen mode
+Exit fullscreen mode
+Edge cases
+Big uploads / flaky networks: use multi-part upload (SDK/CLI handles this).
+PII/PHI compliance: restrict bucket to VPC endpoints (below), rotate KMS keys, and enable CloudTrail data events for S3.
+Cross-account access: prefer bucket policy + role assumption over sharing long-lived keys.
+3) IAM roles & least-privilege policies
+Create three roles (one per workload) and scope them tightly:
+a) Textract role (used by your Lambda/ETL or notebook)
+Trusted entity: lambda.amazonaws.com (or your compute service)
+Inline policy (example)
+{
+"Version": "2012-10-17",
+"Statement": [
+{"Effect":"Allow","Action":["textract:AnalyzeDocument","textract:StartDocumentAnalysis","textract:GetDocumentAnalysis"],"Resource":"*"},
+{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::doc-insights-bucket/*"]},
+{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::doc-insights-bucket"]},
+{"Effect":"Allow","Action":["kms:Encrypt","kms:Decrypt","kms:GenerateDataKey","kms:DescribeKey"],"Resource":"arn:aws:kms:REGION:ACCOUNT:key/KEY_ID"}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Use Start/Get APIs for async jobs (multi-page PDFs); AnalyzeDocument is fine for small/sync runs.
+b) Bedrock role (for summarization)
+{
+"Version":"2012-10-17",
+"Statement":[
+{"Effect":"Allow","Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream"],"Resource":"*"},
+{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::doc-insights-bucket/*"]},
+{"Effect":"Allow","Action":["kms:Encrypt","kms:Decrypt","kms:GenerateDataKey","kms:DescribeKey"],"Resource":"arn:aws:kms:REGION:ACCOUNT:key/KEY_ID"}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Limit Resource to the specific model ARNs once you pick them (Claude, Mistral, etc.).
+c) QuickSight service role access to S3
+Inside QuickSight → Admin → Security & permissions, grant access to your bucket. Backing IAM should allow:
+{
+"Version":"2012-10-17",
+"Statement":[
+{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::doc-insights-bucket/processed/*"]},
+{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::doc-insights-bucket"]}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Edge cases
+SSE-KMS blocks reads: add the QuickSight role principal to your KMS key policy.
+Cross-account S3: add a bucket policy that allows the QuickSight account role + use a manifest file.
+4) KMS key policy that won’t bite you later
+Add all compute roles and the QuickSight role to the key policy (not just IAM perms), e.g.:
+{
+"Version":"2012-10-17",
+"Statement":[
+{"Sid":"EnableRoot","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::ACCOUNT:root"},"Action":"kms:*","Resource":"*"},
+{"Sid":"AllowUseOfKey","Effect":"Allow","Principal":{"AWS":[
+"arn:aws:iam::ACCOUNT:role/TextractRole",
+"arn:aws:iam::ACCOUNT:role/BedrockRole",
+"arn:aws:iam::ACCOUNT:role/service-role/QuickSight-ROLE"
+]},"Action":["kms:Encrypt","kms:Decrypt","kms:GenerateDataKey","kms:DescribeKey"],"Resource":"*"}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Edge cases
+AccessDenied (kms:Decrypt) in QuickSight/Athena: 99% of the time it’s the key policy missing the service role.
+5) Networking (private, compliant, and fast)
+Create VPC interface endpoints (PrivateLink) for:
+S3 (Gateway endpoint), Textract, Bedrock, STS, Logs, etc.
+Lock your compute (Lambda/ECS/EC2) to no-internet and route AWS traffic via endpoints.
+Edge cases
+QuickSight can’t sit in your VPC: it’s managed; keep the S3 bucket policy open to QuickSight role (not public) and allow KMS for that role.
+Corporate egress proxy: verify Bedrock/Textract endpoints are reachable or use endpoints.
+6) Turn on Amazon Bedrock access (once per account/region)
+In the Bedrock console, enable model access (Claude/Mistral etc.). Some models require an opt-in.
+Edge cases
+Model not visible: you’re in a region without that model, or access not granted yet.
+Throughput errors: request service quota increases for InvokeModel if you batch summaries.
+7) Enable Amazon QuickSight
+Choose the same region as your S3 if possible.
+In Security & permissions, tick your bucket and (if needed) Athena access.
+Decide SPICE vs Direct Query:
+SPICE (in-memory) is faster; watch capacity limits.
+Direct is fine for small CSVs; for large data, prefer Parquet in S3 via Athena.
+Edge cases
+CSV > size limit / too many rows: convert to Parquet and query via Athena.
+Timezone mismatches: set dataset time zone explicitly; normalize date formats (ISO-8601).
+8) Budget, cost alerts, and audit
+AWS Budgets: create a monthly budget with email alerts (S3 + Textract + Bedrock + QuickSight).
+CloudTrail data events: ON for S3 (per-object audit).
+CloudWatch Logs: centralize Lambda/app logs to logs/.
+Edge cases
+Sudden spikes: enable S3 object-level CloudWatch metrics and add alarms on object count/size in raw/.
+9) File formats & naming that make your life easy
+Uploads (raw): accept PDF/JPEG/PNG/TIFF; normalize on ingest.
+Outputs: prefer CSV (QuickSight-friendly) and/or Parquet (Athena-friendly).
+Names: raw/{yyyy}/{mm}/{dd}/{vendor}/{fileid}.pdf
+processed/{yyyy}/{mm}/{dd}/invoices.csv
+Edge cases
+Weird encodings: force UTF-8, escape delimiters, include header row.
+Duplicate filenames: use a UUID suffix or checksum in the key.
+10) Optional: IaC and CLI quick start
+Create bucket (CLI)
+aws s3api create-bucket --bucket doc-insights-bucket --create-bucket-configuration LocationConstraint=$AWS_REGION
+aws s3api put-bucket-encryption --bucket doc-insights-bucket --server-side-encryption-configuration '{
+"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"aws:kms","KMSMasterKeyID":"arn:aws:kms:REGION:ACCOUNT:key/KEY_ID"}}]}'
+aws s3api put-bucket-versioning --bucket doc-insights-bucket --versioning-configuration Status=Enabled
+aws s3api put-public-access-block --bucket doc-insights-bucket --public-access-block-configuration \
+'{"BlockPublicAcls":true,"IgnorePublicAcls":true,"BlockPublicPolicy":true,"RestrictPublicBuckets":true}'
+Enter fullscreen mode
+Exit fullscreen mode
+Example lifecycle (CLI)
+aws s3api put-bucket-lifecycle-configuration --bucket doc-insights-bucket --lifecycle-configuration '{
+"Rules":[
+{"ID":"raw-to-ia","Filter":{"Prefix":"raw/"},"Status":"Enabled","Transitions":[{"Days":30,"StorageClass":"STANDARD_IA"}]},
+{"ID":"expire-tmp","Filter":{"Prefix":"tmp/"},"Status":"Enabled","Expiration":{"Days":7}}
+]}'
+Enter fullscreen mode
+Exit fullscreen mode
+📄 Step 2: Use Amazon Textract to Extract Text from Documents (Production-grade)
+Textract can do three things you’ll care about:
+OCR (lines/words) → DetectDocumentText
+Generic forms & tables → AnalyzeDocument with FORMS, TABLES, optionally QUERIES
+Invoice/receipt specialization → AnalyzeExpense (often best for invoices)
+Rule of thumb
+If it’s an invoice/receipt, try AnalyzeExpense first (it returns normalized fields like VENDOR_NAME, INVOICE_TOTAL).
+If it’s a contract/form/report, use AnalyzeDocument with FORMS and TABLES.
+Use QUERIES to target specific fields (e.g., “What is the due date?”) when layout varies wildly.
+1) Sync vs Async: choose the right API
+Synchronous (single call; immediate result)
+AnalyzeDocument (good for single-page or small docs; great for tests)
+DetectDocumentText (basic OCR)
+Asynchronous (submit job → poll or page through results)
+StartDocumentAnalysis + GetDocumentAnalysis
+Required for multi-page and larger PDFs/images
+Supports pagination via NextToken
+Guidance: Use sync for quick console/dev tests or one-pagers; use async for anything real (multi-page, batch).
+2) Pre-processing (massively improves accuracy)
+Input formats: PDF, PNG, JPEG, TIFF work well; keep scans clean.
+Quality: Aim for readable text (good contrast, minimal blur). If possible:
+Deskew, denoise, increase contrast, convert to grayscale/PNG.
+Fix rotation (many scanners rotate by 90° or 180°).
+Encrypted or password-protected PDFs: decrypt before upload.
+Color: Grayscale often beats noisy full-color scans.
+Multi-page splits: If you hit page/file limits, split before upload.
+File names: Include vendor/date hints in the key to simplify downstream routing (e.g., raw/2025/09/11/vendorX/invoice_123.pdf).
+3) Minimal but robust code paths (Python/boto3)
+A. Synchronous: quick test for forms + tables
+import boto3
+textract = boto3.client("textract", region_name="eu-central-1")
+resp = textract.analyze_document(
+Document={"S3Object": {"Bucket": "doc-insights-bucket", "Name": "invoice1.pdf"}},
+FeatureTypes=["FORMS", "TABLES"]
+)
+blocks = resp.get("Blocks", [])
+# → Save raw JSON, parse KEY_VALUE_SET/TABLE blocks later
+Enter fullscreen mode
+Exit fullscreen mode
+B. Asynchronous: production for multi-page docs (handles pagination + retries)
+import boto3, time, itertools
+textract = boto3.client("textract", region_name="eu-central-1")
+job = textract.start_document_analysis(
+DocumentLocation={"S3Object": {"Bucket": "doc-insights-bucket", "Name": "long-invoice.pdf"}},
+FeatureTypes=["FORMS","TABLES"]
+)
+job_id = job["JobId"]
+def get_all_pages(job_id, sleep=2, max_wait_s=900):
+start = time.time()
+pages = []
+next_token = None
+# Wait for completion (simple poll)
+status = "IN_PROGRESS"
+while status == "IN_PROGRESS":
+res = textract.get_document_analysis(JobId=job_id, NextToken=next_token) if next_token \
+else textract.get_document_analysis(JobId=job_id)
+status = res["JobStatus"]
+if status == "IN_PROGRESS":
+# If first page says in progress, wait; otherwise collect & keep paging
+if "Blocks" in res:
+pages.append(res)
+next_token = res.get("NextToken")
+if not next_token:
+time.sleep(sleep)
+else:
+time.sleep(sleep)
+if time.time() - start > max_wait_s:
+raise TimeoutError("Textract job took too long.")
+elif status == "SUCCEEDED":
+pages.append(res)
+while res.get("NextToken"):
+res = textract.get_document_analysis(JobId=job_id, NextToken=res["NextToken"])
+pages.append(res)
+else:
+raise RuntimeError(f"Textract job failed: {res.get('StatusMessage', status)}")
+return pages
+pages = get_all_pages(job_id)
+# Combine blocks across pages for parsing
+all_blocks = list(itertools.chain.from_iterable(p["Blocks"] for p in pages))
+Enter fullscreen mode
+Exit fullscreen mode
+C. Invoices/Receipts: specialized AnalyzeExpense (often higher accuracy on totals/dates)
+import boto3
+textract = boto3.client("textract", region_name="eu-central-1")
+resp = textract.analyze_expense(
+Document={"S3Object": {"Bucket": "doc-insights-bucket", "Name": "invoice1.pdf"}}
+)
+# resp["ExpenseDocuments"][0]["SummaryFields"] includes types like:
+# VENDOR_NAME, INVOICE_RECEIPT_DATE, INVOICE_RECEIPT_ID, TOTAL, DUE_DATE
+Enter fullscreen mode
+Exit fullscreen mode
+D. Targeted fields with QUERIES (when layouts vary)
+import boto3
+textract = boto3.client("textract", region_name="eu-central-1")
+resp = textract.analyze_document(
+Document={"S3Object": {"Bucket": "doc-insights-bucket", "Name": "invoice1.pdf"}},
+FeatureTypes=["QUERIES","TABLES"],
+# you can mix with FORMS too
+QueriesConfig={
+"Queries": [
+{"Text": "What is the invoice number?", "Alias": "invoice_no"},
+{"Text": "What is the total amount?", "Alias": "total_amount"},
+{"Text": "What is the due date?", "Alias": "due_date"}
+]
+}
+)
+Enter fullscreen mode
+Exit fullscreen mode
+You can run QUERIES + TABLES together to pull exact fields and still capture line items.
+4) How to parse Textract blocks safely (just enough for Step 2)
+Textract represents a graph of Blocks with Relationships. The key ones:
+PAGE, LINE, WORD
+KEY_VALUE_SET (with EntityTypes: KEY or VALUE)
+TABLE → CELL (cell has row/col indices)
+QUERY → ANSWER
+Parsing outline (KV):
+Build a dict of blocks by Id.
+Collect all KEY_VALUE_SET blocks.
+For each KEY block, follow Relationships to its VALUE block.
+Extract text by concatenating child WORD blocks; track Confidence.
+Normalize keys (vendor, invoice no, etc.) and keep the BoundingBox for traceability.
+Parsing outline (TABLE):
+Find TABLE blocks, get their child CELLs.
+Use (RowIndex, ColumnIndex) to reconstruct rows.
+Heuristically detect headers (first row or bold-ish/upper-case hints if present in text).
+Output as CSV; preserve page number.
+We’ll do the full CSV/JSON conversion in Step 3. Here we only ensure you’ve got clean raw JSON saved and a clear parser plan.
+5) Storage & idempotency
+Always save raw responses (one file per source doc):
+textract-json/<doc-id>.json (for AnalyzeDocument/DetectDocumentText)
+textract-json/<doc-id>.expense.json (for AnalyzeExpense)
+Add metadata to input S3 objects (e.g., processed=true, textract_job_id=...) to avoid reprocessing.
+Use S3 object ETag/size as a cheap duplicate detector.
+6) Confidence, validation & fallbacks
+Confidence thresholds: treat fields under a threshold (e.g., < 0.8) as “needs review.”
+Numeric sanity checks: parse amounts with a currency regex, verify:
+sum(line_items) ≈ total (± a few cents, taxes/discounts considered)
+date is valid & plausible (e.g., due date ≥ invoice date)
+Disambiguation: fight common OCR confusions:
+O↔0, l/I↔1, S↔5, B↔8
+Fallback order for invoices:
+AnalyzeExpense
+AnalyzeDocument (FORMS+TABLES)
+DetectDocumentText + regex heuristics (as a last resort)
+Human-in-the-loop: flag low-confidence docs to a review queue (CSV row with a needs_review=1 flag).
+7) Permissions & security edge cases (most common causes of failure)
+S3: role needs s3:GetObject, s3:ListBucket, and if encrypted, kms:Decrypt on the CMK.
+KMS key policy: include the calling role principal (not just IAM permissions).
+Cross-account: use bucket policy + role assumption; ensure KMS allows the assumable role’s principal.
+Private networking: if using VPC-only compute, add VPC endpoints for Textract/S3/STS/Logs.
+8) Scaling, throughput, and cost control
+Batching: drive Textract from a queue (SQS) or Step Functions; cap concurrency to avoid throttling.
+Retries: exponential backoff on ThrottlingException and transient network errors.
+De-dup: check if a doc was already processed (S3 metadata) before calling Textract again.
+Specialization saves money: AnalyzeExpense or QUERIES can reduce post-processing and re-runs.
+9) Troubleshooting cheat-sheet
+Symptom
+Likely cause
+Fast fix
+AccessDenied on S3 or KMS
+Missing s3:GetObject / kms:Decrypt or KMS key policy excludes role
+Add actions to role and role principal to KMS key policy
+Job stuck “IN_PROGRESS” forever
+Not polling pages / ignoring NextToken
+Implement full pagination loop until NextToken is empty
+Empty or low-quality text
+Bad scans (blur, skew), wrong rotation, low contrast
+Preprocess image: deskew, increase contrast, convert to PNG, rotate correctly
+Fields missing on invoices
+Using generic forms instead of expense API
+Switch to AnalyzeExpense or add QUERIES
+Dates/amounts parsed wrong
+Locale/regex issues or OCR confusions
+Normalize formats (ISO-8601), add currency/number regex, apply character-swap heuristics
+QuickSight can’t see outputs
+Using KMS + missing QS access
+Add QS role to bucket policy and KMS key policy
+10) Console workflow (great for validation)
+Upload a sample to S3 → Textract Console → Analyze.
+Toggle Forms + Tables, confirm highlights match expectations.
+For invoices, test Expense analysis and compare field names (often cleaner).
+Save the result JSON and move on to parsing (Step 3).
+✏️ Step 3: Convert Textract Output to Structured Data (CSV or JSON)
+1) Clean & normalize the extracted data
+Keep originals: store the raw Textract JSON (read-only) so you can re-parse later without re-running Textract.
+Whitespace & casing: trim, collapse double spaces; keep a _raw copy for each value if you’ll audit later.
+Key normalization (FORMS/QUERIES): map variants to canonical keys:
+invoice no, inv #, invoice number → invoice_number
+total, grand total, amount due → total
+supplier, vendor, billed by → vendor_name
+invoice date, date → invoice_date; due date → due_date
+Dates: convert to ISO-8601 (YYYY-MM-DD). If ambiguous/parsing fails, leave blank and flag needs_review.
+Numbers & currency: strip thousands separators, unify decimals (.), extract currency symbol/code ($→USD, €→EUR, £→GBP, ₨→PKR, ₹→INR). If none, set a default and flag for review.
+Confidence tracking: carry Textract confidence (0–100). Anything below your threshold (e.g., 80) sets needs_review = 1.
+OCR confusions: apply gentle corrections when context demands numeric values (O↔0, I/l↔1, S↔5, B↔8) but still keep needs_review if confidence was low.
+2) Choose your outputs
+CSV (analytics-ready):
+KV (long format): doc_id, page, key_norm, value, confidence, needs_review
+Tables (per page/table): doc_id, page, row, col, text, confidence, is_header
+Invoice summary (if using Expense API): one row per document with normalized fields
+JSON (traceability): keep structured JSON when you need bounding boxes/page indices for audits.
+(Optional) Parquet: for Athena/QuickSight at scale.
+3) Dump key–value pairs to CSV
+What to capture: each detected pair as one row in a long table:
+doc_id, page, key_raw, key_norm, value, conf_key, conf_val, needs_review
+Duplicates: keep all candidates. Later, pick the highest confidence (ties → closest to the label “Total”, latest on the page, or appears in a summary box).
+Missing values: if a KEY has no VALUE, record value = "" and set needs_review = 1.
+Multi-line values: join lines with a single space; preserve original in value_raw if you keep audits.
+4) Convert tables from JSON to CSV
+Reconstruct using cells: one row per cell with indexes:
+doc_id, page, row, col, text, confidence, span_rows, span_cols, is_header
+Headers: default to row 1 = header; mark is_header = 1. If row 1 has poor confidence but contains many alphabetic tokens vs numeric rows below, still treat as header.
+Merged cells: repeat the merged text in the spanned area and record span_rows/span_cols for fidelity.
+Multi-page tables: keep separate by page; your business logic decides whether to stitch them later.
+5) Build the simple “wide” table for your dashboard
+Target columns from your outline:
+Invoice No (invoice_number)
+Date (invoice_date)
+Vendor (vendor_name)
+Amount (total)
+Due Date (due_date)
+INV-123
+2025-08-03
+Alpha Supplies
+423.90
+2025-09-02
+Population priority:
+Expense API (if used): INVOICE_RECEIPT_ID, INVOICE_RECEIPT_DATE, VENDOR_NAME, TOTAL, DUE_DATE.
+FORMS/QUERIES: after key normalization and numeric/date parsing.
+TABLES/OCR fallback: totals row or summary box heuristics (e.g., last column named Amount, Total, Balance).
+Also add helpful derived fields:
+currency, source (expense/forms/ocr), needs_review, month, year.
+6) Quality & integrity checks
+Arithmetic sanity: if you have subtotal and tax, verify subtotal + tax ≈ total (small tolerance for rounding). If not, needs_review = 1.
+Date logic: due_date ≥ invoice_date; otherwise needs_review = 1.
+Negatives & zeros: total must be > 0 for invoices; credits/notes may be negative tag with doc_type = credit_note.
+Duplicates: same invoice_number appearing across different doc_ids → keep the one with higher composite score (weighted confidence of critical fields) and mark others as superseded.
+Two documents in one file: if you detect two distinct vendors or invoice numbers in one doc_id, set multi_doc_suspected = 1 and route to review.
+Locale drift: month names/currency symbols outside your default locale → still parse but set locale_detected and needs_review if parsing relied on heuristics.
+Handwritten/low DPI scans: values may be fragmented; prefer QUERIES for targeted fields and flag low confidence.
+7) Foldering
+textract-json/
+# raw API outputs (never edited)
+extracted/
+kv/
+# <doc_id>_kv.csv
+tables/
+# <doc_id>_table_<page>.csv
+expense/
+# <doc_id>_summary.csv, <doc_id>_line_items.csv (if used)
+processed/
+invoices_wide.csv
+# your dashboard input (or Parquet partitioned by year/month)
+Enter fullscreen mode
+Exit fullscreen mode
+🧠 Step 4: Summarise the Document Using Bedrock
+1) What you’ll summarise
+Feed Bedrock only what it needs:
+Facts you already extracted in Step 3 (invoice_number, vendor_name, total, due_date, currency, etc.).
+Top signal text: page headers, totals area, vendor/address block, and (for invoices) the line-items table flattened to a few lines (don’t paste thousands of rows).
+Optional full text: chunked by page if you need narrative context.
+Redact or truncate PII that isn’t needed (addresses beyond city/country, phone, full account numbers). Keep the doc_id so you can trace back.
+2) Output format
+Ask Bedrock for structured JSON + a short narrative. Example JSON schema:
+{
+"doc_id": "string",
+"summary": "1–3 sentence human summary",
+"key_fields": {
+"vendor_name": "string|null",
+"invoice_number": "string|null",
+"invoice_date": "YYYY-MM-DD|null",
+"due_date": "YYYY-MM-DD|null",
+"currency": "string|null",
+"total_amount": "number|null"
+},
+"observations": [
+"string"
+// anomalies, discounts, late fees, notes
+],
+"data_quality": {
+"missing_fields": ["string"],
+"suspected_errors": ["string"],
+"confidence_note": "string"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This slots straight into your processed/ layer or QuickSight as a secondary dataset.
+3) Prompting
+Use a system + user style prompt; instruct the model not to invent data.
+System
+You are a careful financial document assistant. Use ONLY the supplied text and fields.
+If a field is missing or unclear, return null and add a helpful note in data_quality.
+Output must be valid JSON matching the provided schema. Do not include any other text.
+User
+DOC_ID: {{doc_id}}
+FACTS (from extraction):
+- vendor_name: {{vendor_name}}
+- invoice_number: {{invoice_number}}
+- invoice_date: {{invoice_date}}
+- due_date: {{due_date}}
+- currency: {{currency}}
+- total_amount: {{total}}
+EXCERPTS (trimmed; page-tagged):
+[PAGE 1]
+{{top_of_page_text}}
+[PAGE 2 - totals box]
+{{totals_area_text}}
+[OPTIONAL line items]
+{{few_key_lines}}
+TASK:
+1) Produce a JSON object exactly matching this schema:
+{{paste schema}}
+2) Base fields on FACTS when available; only use EXCERPTS to confirm or fill blanks.
+3) If numbers disagree, prefer FACTS but note the discrepancy in `data_quality.suspected_errors`.
+4) Do not guess. Use `null` for unknowns.
+Enter fullscreen mode
+Exit fullscreen mode
+Why this works
+It anchors the model to your extracted fields (reduces hallucinations).
+It forces a predictable JSON payload for downstream use.
+It adds a quality channel for “known unknowns”.
+4) Model choice & params
+Claude (Anthropic): strong on instruction following & JSON fidelity.
+Mistral: concise, fast; good when payloads are small and schema is simple.
+Parameters: keep temperature low (≈0.0–0.2) for factual stability; set max tokens tight (e.g., 600–900) for cost control.
+Tip: If JSON validation fails sometimes, wrap with a “fix to valid JSON” pass (or enable JSON mode where available).
+5) Long documents or Map/Reduce
+For multi-page or very verbose docs:
+Map step: summarize each page (fixed schema, plus page-level anomalies).
+Reduce step: feed all page summaries (+ your Step-3 facts) into a second prompt that merges into a single final JSON, breaking ties in favor of Step-3 facts.
+This avoids token limits and preserves page context.
+6) Robust invocation
+Use bedrock-runtime with the model you enabled (ids vary by region/provider). Two common patterns:
+Non-streaming (simple)
+import json, boto3, time
+brt = boto3.client("bedrock-runtime", region_name="YOUR_REGION")
+def invoke_bedrock(model_id, system_prompt, user_prompt, max_tokens=800, temperature=0.1):
+body = {
+"anthropic_version": "bedrock-2023-05-31",
+"messages": [
+{"role": "system", "content": system_prompt},
+{"role": "user", "content": user_prompt}
+],
+"max_tokens": max_tokens,
+"temperature": temperature
+}
+resp = brt.invoke_model(modelId=model_id, body=json.dumps(body))
+out = json.loads(resp["body"].read())
+# Extract the text depending on provider; for Claude:
+text = "".join([c.get("text","") for m in out.get("content",[]) for c in [m]])
+return text
+Enter fullscreen mode
+Exit fullscreen mode
+Streaming
+Stream when you want low latency for UI, otherwise skip (adds complexity).
+Note: Exact request/response shapes differ by model family. Keep the modelId and payload format configurable and test in the Bedrock console first.
+7) Validation & safety rails
+JSON validation: run a quick schema check (pydantic/jsonschema). If invalid, re-prompt the model with: “Return only valid JSON conforming to this schema. Do not add commentary.”
+No-invention rule: instruct “If unsure, use null and add a data_quality note.” Penalize hallucinations by rejecting outputs that add fields you didn’t request.
+Discrepancy handling: when EXCERPTS disagree with FACTS, keep FACTS and add a note like:
+“Totals area shows 432.90 but extracted total is 423.90 (difference 9.00).”
+PII minimization: don’t pass line-item text unless needed; mask account numbers (e.g., ****1234).
+Cost control: truncate excerpts, avoid full dumps; cap max_tokens; batch summarize.
+8) Edge cases
+Edge case
+What to do in prompt / output
+Missing total or due date
+Return "total_amount": null / "due_date": null; add a data_quality.missing_fields entry.
+Multiple totals (invoice vs balance)
+Prefer FACTS; if absent, pick the one labeled “Total” near summary; note the alternative.
+Conflicting currency symbols vs codes
+Prefer the currency from FACTS; if excerpt differs, note discrepancy.
+Handwritten / low DPI
+Expect nulls and notes; don’t interpolate from context.
+Multi-currency line items
+Set currency to document currency; add observation like “Line items include mixed currency not used for total.”
+Multi-doc PDF
+If two vendors or two invoice numbers appear, say so in observations and add suspected_errors.
+Non-English docs
+Add “Output in English.” Keep dates numeric (YYYY-MM-DD).
+Extremely long inputs
+Use Map/Reduce; only pass per-page top areas and final consolidation.
+9) Example “good” output
+{
+"doc_id": "INV-2025-0045",
+"summary": "Invoice 0045 from Beta Traders for 89.50 EUR, due on 2025-08-28.",
+"key_fields": {
+"vendor_name": "Beta Traders",
+"invoice_number": "0045",
+"invoice_date": "2025-08-14",
+"due_date": "2025-08-28",
+"currency": "EUR",
+"total_amount": 89.50
+},
+"observations": [
+"Early-payment discount mentioned (2%)."
+],
+"data_quality": {
+"missing_fields": [],
+"suspected_errors": [],
+"confidence_note": "All fields aligned with extracted facts."
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+10) Where to store results
+Write JSON summaries to summaries/ and (optionally) a compact CSV view processed/invoice_summaries.csv with doc_id, vendor_name, total_amount, due_date, needs_review, source='bedrock'.
+Join this dataset with invoices_wide.csv for dashboard overlays (e.g., a tooltip with the narrative summary).
+🗂️ Step 5: Store Final Data Back in S3
+1) Folder layout
+Use a layout that separates raw vs extracted vs consumable and supports BI tools:
+s3://doc-insights-bucket/
+processed/
+wide/
+# final, dashboard-ready “wide” tables (CSV/Parquet)
+kv/
+# merged KV outputs across docs
+tables/
+# flattened tables across docs
+expense/
+# invoice summaries & line items (if using AnalyzeExpense)
+summaries/
+# Bedrock JSON summaries
+parquet/
+# same datasets in Parquet (for Athena/QuickSight at scale)
+_staging/
+# temp writes (see atomic pattern)
+manifests/
+# optional manifest/index files
+Enter fullscreen mode
+Exit fullscreen mode
+Partitioning (for Athena/scale):
+Prefer hive-style partitions for Parquet:
+processed/parquet/invoices_wide/year=2025/month=09/day=12/part-0001.parquet
+Keep CSVs unpartitioned or lightly partitioned by month to avoid too many small files.
+2) Naming strategy
+Document-scoped files:
+processed/expense/summary/<doc_id>.csv
+processed/summaries/<doc_id>.json
+Batch/append files:
+processed/wide/invoices_wide_YYYYMMDD.csv (or append into a single table and de-dupe by doc_id)
+Timestamped artifacts: add an ISO timestamp or a monotonically increasing batch id:
+.../2025-09-12T18-40-12Z_invoices_wide.csv
+Avoid collisions: include doc_id (or a UUID) in per-doc artifacts; never rely only on original filenames.
+3) Atomic write pattern
+S3 has strong read-after-write consistency, but clients can still read half-written objects if your writer crashes mid-upload.
+Pattern:
+Write to processed/_staging/<uuid>/<file.tmp> (or status=writing tag).
+Verify checksum/row count.
+Copy to final key (e.g., processed/wide/invoices_wide_20250912.csv).
+Optionally delete the staging file, or keep with tag status=archived.
+Edge cases:
+Large files (>5 GB): use multipart upload; always send Content-MD5 for integrity when feasible.
+Concurrent writers: add a lightweight lock (S3 object processed/_locks/invoices_wide.lock with short TTL) or write per-writer partitions then compact later.
+4) Metadata, tags, and headers
+Server-side encryption: SSE-KMS with your CMK (consistent with earlier steps).
+Content-Type: set correctly (text/csv, application/json, application/parquet).
+Cache-Control: not crucial for data lakes; you can omit or set no-cache for rapidly changing CSVs.
+Object tags (helpful for governance/search):
+dataset=invoices, stage=processed, doc_id=<id>, status=ready, source=expense/forms/ocr/bedrock.
+Custom metadata (e.g., x-amz-meta-rowcount, x-amz-meta-hash): useful for quick validation.
+5) Security & access
+Bucket policy: already denies insecure transport; also allow the QuickSight service role to ListBucket and GetObject on processed/*.
+KMS key policy: include the QuickSight role principal (not just IAM permissions) so it can decrypt.
+Cross-account reads (optional): prefer role assumption + bucket policy + KMS grants.
+VPC endpoints: if compute is private, ensure endpoints for S3/KMS are present.
+Edge cases:
+QuickSight can list but can’t read → key policy is missing the role principal.
+Using SPICE: watch dataset size limits; switch to Athena over Parquet when CSVs grow.
+6) Data integrity & quality gates
+Before moving from _staging → processed:
+Schema check: headers exist and match expected column set.
+Row count > 0 (or allow zero with a note=empty_batch tag).
+Type validation: dates parse (ISO-8601), amounts numeric, currency present.
+Sanity checks: if files include subtotal, tax, total, verify subtotal + tax ≈ total (tolerance).
+Checksum: compute SHA-256 of the file and store as sidecar:
+processed/wide/invoices_wide_20250912.csv.sha256
+7) Lifecycle & retention
+Versioning: keep enabled to roll back erroneous overwrites.
+Lifecycle rules:
+Transition processed/_staging/ to Expire after 7 days.
+Transition processed/*.csv to STANDARD_IA after 30 days.
+Keep Parquet in STANDARD (or GLACIER if archived) based on access.
+S3 Inventory (optional): enable for daily listings & encryption audit.
+8) Manifests & discovery (helps BI tools)
+Manifest file lists the latest batch outputs:
+{
+"dataset": "invoices_wide",
+"updated_at": "2025-09-12T18:40:12Z",
+"files": [
+"s3://.../processed/wide/invoices_wide_20250912.csv"
+],
+"row_count": 1243,
+"schema": ["doc_id","vendor_name","invoice_number","invoice_date","due_date","total","currency","needs_review","source","month","year"]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Save as processed/manifests/invoices_wide.latest.json.
+Glue Catalog (for Athena): create/update a table pointing to your Parquet path with partitions year, month, day.
+9) Eventing
+S3 → EventBridge rule on processed/ prefix:
+Trigger a Lambda to refresh QuickSight (or kick an ingestion SPICE refresh).
+Or publish a Slack/Email notification with the manifest summary.
+Idempotency: include run_id or batch_id in event detail; ignore duplicates in the consumer.
+📊 Step 6: Create a Dashboard in QuickSight
+1) Pick your connection path
+Path A | S3 CSV (fast start)
+Best for small/medium datasets (≤ a few million rows per file).
+In QuickSight: Datasets → New dataset → S3.
+Point to a single CSV or a manifest JSON (recommended if you have many files).
+Path B | Athena + Parquet (scales)
+Best for large data, partitions, or frequent refresh.
+Store Parquet at processed/parquet/invoices_wide/year=YYYY/month=MM/day=DD/...
+In QuickSight: Datasets → New dataset → Athena → select database & table (from Glue Catalog).
+Edge cases
+If QuickSight is in a different region than your S3 bucket, prefer Athena to avoid cross-region pain.
+Using SSE-KMS? Ensure the QuickSight service role is in your KMS key policy and bucket policy.
+2) Connect to your data
+A) S3 with a manifest (many files)
+Create processed/manifests/invoices_wide.latest.json:
+{
+"fileLocations": [
+{"URIPrefixes": ["s3://doc-insights-bucket/processed/wide/"]}
+],
+"globalUploadSettings": {
+"format": "CSV",
+"delimiter": ",",
+"textqualifier": "\"",
+"containsHeader": true
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Then in QuickSight S3 connector, paste this manifest file’s S3 URL.
+B) Athena (Parquet partitions)
+Make sure your Glue table points to processed/parquet/invoices_wide/ and has partitions year, month, day.
+In QuickSight, choose Direct Query (live) or Import to SPICE (in-memory; faster but size-limited).
+Edge cases
+“AccessDenied” when previewing = missing KMS permission or bucket grant.
+No new data after partition upload = run crawler/add partition OR enable partition projection.
+3) Prepare the dataset
+In the data prep screen:
+Map columns
+invoice_number → Text
+invoice_date, due_date → Date (format YYYY-MM-DD)
+total → Decimal
+vendor_name → Text
+currency → Text
+needs_review → Integer/Boolean
+(Optional) ingest_date or processed_at → Date/Time
+Create calculated fields (QuickSight expressions)
+Month (bucket)
+truncDate('MM', {invoice_date})
+Year
+extract('YYYY', {invoice_date})
+Overdue (flag)
+ifelse({due_date} < now(), 1, 0)
+Processing time (days) – pick the source you actually have:
+If you kept an ingest timestamp:
+dateDiff('DD', {invoice_date}, {ingest_date})
+Or from S3 key date (if you saved it):
+dateDiff('DD', {invoice_date}, {s3_ingest_date})
+Clean total (fallback) – if some totals are text:
+parseDecimal({total})
+Edge cases
+Mixed date formats? Normalize upstream; otherwise use a calculated field with parseDate() per pattern and coalesce.
+Multiple currencies? Keep a currency dimension; optional FX table join later.
+4) Build the visuals
+A) Total amount by vendor (Top-N bar)
+Visual: Horizontal bar
+X: sum({total})
+Y: vendor_name
+Sort: by sum(total) desc
+Filter: Top 10 vendors (add a Top N filter)
+Optional: color by needs_review to spot messy vendors
+B) Monthly invoice totals (trend)
+Visual: Line chart
+X: truncDate('MM', {invoice_date})
+Y: sum({total})
+Forecast (optional): enable forecast to project next months
+Tooltip: add countDistinct({invoice_number}) for volume context
+C) Average processing time (days)
+Visual: KPI or bar by vendor
+Field: avg(dateDiff('DD', {invoice_date}, {ingest_date}))
+Group by: vendor_name (or monthly bucket)
+Filter: exclude needs_review = 1 if you want only clean rows
+D) Bonus quick wins
+Overdue heatmap: vendor_name × month with color sum(ifelse({due_date} < now(), {total}, 0))
+Quality gate: table filtered to needs_review = 1 (your manual review queue)
+5) Filters, controls, and parameters
+Date range control: Filter on {invoice_date} with “Relative dates” (e.g., Last 12 months).
+Vendor control: Dropdown on vendor_name (multi-select).
+Confidence/quality toggle: needs_review = 0 by default (checkbox control).
+Currency control (if applicable): filter or parameter to select a single currency.
+Edge cases
+If your dataset mixes currencies, don’t sum across different codes in one visual unless you convert first.
+6) SPICE vs Direct Query
+SPICE (Import): fastest visuals, schedule refreshes (e.g., hourly). Watch capacity limits.
+Direct Query: always live; best with Athena/Parquet; slightly slower per query.
+Recommended
+Start with SPICE for S3 CSVs; switch to Athena + SPICE as you scale.
+7) Refresh strategy
+S3 CSV path
+If you overwrite one key (e.g., invoices_wide_latest.csv), set a refresh schedule (hourly/daily).
+If you append new files, use a manifest and schedule refresh.
+Athena path
+After adding partitions, either run a crawler or use partition projection.
+In QuickSight, schedule SPICE refresh or stay on Direct Query.
+Edge cases
+Refresh fails with KMS errors → add QuickSight role to CMK key policy.
+Stale data → you’re writing to new paths; either point QS at a stable key or use manifests.
+8) Sharing, RLS, and governance
+Share analysis → Publish dashboard; grant users/groups access.
+Row-Level Security (RLS): upload an RLS mapping dataset (user, vendor_name) to restrict rows per viewer.
+Data dictionary tab: add field descriptions so the team knows what “processing time” means.
+10) Minimal recipe
+Connect
+S3: dataset → S3 → manifest → validate preview.
+Athena: dataset → Athena → select table.
+Model
+Types: map date/number fields.
+Calcs: month = truncDate('MM', {invoice_date}), processing_days = dateDiff('DD', {invoice_date}, {ingest_date}).
+Visualize
+Bar: sum(total) by vendor_name (Top 10).
+Line: sum(total) by month.
+KPI/Bar: avg(processing_days) by vendor.
+Control
+Date range (last 12 months).
+Vendor multi-select.
+needs_review toggle (default 0).
+Operationalize
+SPICE refresh schedule (hourly/daily).
+If Athena: ensure partitions & permissions.
+💭 Conclusion
+This was honestly a fun little fortnight project.
+It saved me hours of manual work and gave me clean, visual summaries of everything I needed. By combining S3, Textract, Bedrock, and QuickSight, you can turn unstructured, scanned documents into analysis-ready data and clear dashboards. This pipeline handles extraction, normalisation, summarisation, governed storage, and visualisation, built with security (SSE-KMS), least-privilege IAM, and scalable patterns (async Textract, Parquet/Athena). It replaces manual review with consistent, auditable automation and surfaces vendor spend, monthly trends, and processing KPIs in minutes. From here, you can harden orchestration with Step Functions, add Row-Level Security in QuickSight, and extend the same approach to receipts, contracts, or reports. Small lift-big leverage.
+You could easily apply this to:
+Legal contracts
+Academic papers
+Medical prescriptions
+Tax docs
+If you try it out and get stuck, drop a comment, and I'd be happy to help.
+HappyHacking 👋
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Azog Xis
+Azog Xis
+Azog Xis
+Follow
+You can call me Kunal!
+Joined
+Jul 16, 2024
+•
+Sep 13
+Dropdown menu
+Copy link
+Hide
+Read the whole post 2 times & "S3, Textract, Bedrock, and QuickSight, security (SSE-KMS), least-privilege IAM, and scalable patterns (async Textract, Parquet/Athena)" never heard these technical terms. As a 3rd year undergrad I've a genuine doubt, so like you created this project for fun, did u first learned these tools/skills & then applied or like you just went lets build a project , you build that. If yes from where to get roadmap of project & how to know what tools, libs, frameworks or what all will be used in project , how to get that bigger picture?
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Community Builders
+Follow
+Build On!
+Would you like to become an AWS Community Builder? Learn more about the program and apply to join when applications are open next.
+Learn more
+More from AWS Community Builders
+Turn log lines into alerts (without building a whole observability stack)
+#cloudwatch
+#observability
+#monitoring
+#aws
+🛡️ Beyond the Model: How Amazon Bedrock Guardrails Protect Your Users and Data
+#aws
+#bedrock
+#guardrails
+#awsgenai
+AI-Powered Cloud Cost Management: Architect’s Guide to AWS Billing MCP Server
+#aws
+#ai
+#agentaichallenge
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

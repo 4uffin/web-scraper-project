@@ -1,0 +1,442 @@
+react native - useEffect not triggering on web with Expo Router + Zustand (works on Android) - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+useEffect not triggering on web with Expo Router + Zustand (works on Android)
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+21 times
+0
+I’m using React Native with Expo Router and Zustand to handle authentication-based redirection. The logic works correctly on Android, but on Web the useEffect is not triggered, which prevents the user from being redirected when their authentication state changes.
+Steps to reproduce:
+Set up Expo Router with Zustand for global state management.
+Add useEffect to check authentication state and redirect accordingly.
+Run on Android → works as expected (redirects when auth state changes).
+Run on Web → useEffect does not trigger, so no redirection happens.
+Root Layout file:
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useFonts } from "expo-font";
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import "react-native-reanimated";
+// import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import { useColorScheme } from "@/hooks/useColorScheme";
+export default function RootLayout() {
+// Initializing queryClient
+const queryClient = new QueryClient();
+const colorScheme = useColorScheme();
+const [loaded] = useFonts({
+SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
+});
+if (!loaded) {
+return null;
+}
+return (
+<QueryClientProvider client={queryClient}>
+<ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+<Stack>
+<Stack.Screen name="auth" options={{ headerShown: false }} />
+<Stack.Screen name="+not-found" />
+</Stack>
+<StatusBar style="auto" animated={true} />
+</ThemeProvider>
+</QueryClientProvider>
+);
+}
+index.tsx file:
+import { useRouter } from 'expo-router';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+export default function IndexScreen() {
+const router = useRouter();
+const isAuthenticated = useAuthStore(authSelectors.isAuthenticated);
+const isLoading = useAuthStore(authSelectors.isLoading);
+const token = useAuthStore(authSelectors.token);
+useEffect(() => {
+if (isLoading) {
+console.log('Auth state loading, waiting...');
+return;
+}
+if (!isAuthenticated || !token) {
+console.log('User not authenticated, redirecting to login');
+router.replace('/auth/login');
+} else {
+console.log('User authenticated, redirecting to main app');
+}
+}, [isAuthenticated, isLoading, token, router]);
+if (isLoading) {
+return (
+<View style={styles.container}>
+<ActivityIndicator size="large" color="#007AFF" />
+<Text style={styles.loadingText}>Checking authentication...</Text>
+</View>
+);
+}
+// Show temporary content for authenticated users (until you create main app routes)
+if (isAuthenticated && token) {
+return (
+<View style={styles.container}>
+<Text style={styles.title}>Welcome Back!</Text>
+<Text style={styles.subtitle}>You are successfully authenticated</Text>
+<Text style={styles.note}>
+TODO: This will redirect to your main app once you create those routes
+</Text>
+</View>
+);
+}
+return (
+<View style={styles.container}>
+<Text style={styles.title}>Welcome to Your App</Text>
+<Text style={styles.subtitle}>Loading...</Text>
+</View>
+);
+}
+const styles = StyleSheet.create({
+container: {
+flex: 1,
+justifyContent: 'center',
+alignItems: 'center',
+backgroundColor: '#fff',
+},
+title: {
+fontSize: 24,
+fontWeight: 'bold',
+marginBottom: 16,
+},
+subtitle: {
+fontSize: 16,
+color: '#666',
+marginBottom: 8,
+},
+loadingText: {
+fontSize: 16,
+color: '#666',
+marginTop: 16,
+},
+note: {
+fontSize: 14,
+color: '#888',
+fontStyle: 'italic',
+textAlign: 'center',
+paddingHorizontal: 32,
+marginTop: 16,
+},
+});
+authStore:
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { logger } from "../utils/logger";
+export interface User {
+id: string;
+email: string;
+name?: string;
+avatar?: string;
+role?: string;
+}
+type AuthState = {
+// State properties
+token: string | null;
+user: User | null;
+isAuthenticated: boolean;
+isLoading: boolean;
+error: string | null;
+// Actions - Command Pattern implementation
+setToken: (token: string) => void;
+setUser: (user: User) => void;
+setError: (error: string | null) => void;
+setLoading: (loading: boolean) => void;
+clearAuth: () => void;
+// Computed getters
+getAuthHeader: () => string | null;
+};
+export const useAuthStore = create<AuthState>()(
+persist(
+(set, get) => ({
+// Initial state
+token: null,
+user: null,
+isAuthenticated: false,
+isLoading: false,
+error: null,
+// Actions
+setToken: (token: string) => {
+logger.info("Setting authentication token");
+set({
+token,
+isAuthenticated: true,
+error: null,
+});
+},
+setUser: (user: User) => {
+logger.info("Setting user data", {
+userId: user.id,
+email: user.email,
+});
+set({ user });
+},
+setError: (error: string | null) => {
+logger.info("Setting auth error", { error });
+set({ error, isLoading: false });
+},
+setLoading: (isLoading: boolean) => {
+set({ isLoading });
+},
+clearAuth: () => {
+logger.info("Clearing authentication data");
+set({
+token: null,
+user: null,
+isAuthenticated: false,
+isLoading: false,
+error: null,
+});
+},
+getAuthHeader: () => {
+const { token } = get();
+return token ? `Bearer ${token}` : null;
+},
+}),
+{
+name: "auth-storage", // Storage key
+storage: createJSONStorage(() => AsyncStorage),
+partialize: (state) => ({
+token: state.token,
+user: state.user,
+isAuthenticated: state.isAuthenticated,
+}),
+onRehydrateStorage: () => (state) => {
+if (state) {
+logger.info("Auth state rehydrated from storage");
+// Validate token on rehydration if needed
+if (state.token && !state.isAuthenticated) {
+state.isAuthenticated = true;
+}
+}
+},
+},
+),
+);
+export const authSelectors = {
+// Authentication status selectors
+isAuthenticated: (state: AuthState) => state.isAuthenticated,
+isLoading: (state: AuthState) => state.isLoading,
+hasError: (state: AuthState) => !!state.error,
+// Data selectors
+token: (state: AuthState) => state.token,
+user: (state: AuthState) => state.user,
+error: (state: AuthState) => state.error,
+// Computed selectors
+userDisplayName: (state: AuthState) =>
+state.user?.name || state.user?.email?.split("@")[0] || "User",
+authHeader: (state: AuthState) => state.getAuthHeader(),
+};
+Expected behavior:
+useEffect should trigger on Web the same way it does on Android, ensuring that users are redirected based on their authentication state.
+No logs are visible on web.
+Environment:
+Expo SDK: "~53.0.22"
+React Native: "0.79.6"
+Expo Router: "~5.1.5"
+Zustand: "^5.0.8"
+Platforms tested: Android , Web
+I have tried multiple approaches, including updating the state with the spread operator, using localStorage specifically for Web, and even replacing Zustand with Redux. However, the problem persists — useEffect still does not trigger on Web.
+react-nativecross-platformzustand
+Share
+Improve this question
+Follow
+edited 19 hours ago
+VLAZ
+29.6k99 gold badges6565 silver badges8787 bronze badges
+asked yesterday
+Nikhil SoroutNikhil Sorout
+1
+New contributor
+Nikhil Sorout is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+Add a comment
+|
+Related questions
+2
+Authentication in react with react-router-v6 and zustand
+1
+linkToken Issue with react_native/TinyQuickstartReactNative
+0
+Cannot render content after loading variables into hooks from AsyncStorage (react-native/expo)
+Related questions
+2
+Authentication in react with react-router-v6 and zustand
+1
+linkToken Issue with react_native/TinyQuickstartReactNative
+0
+Cannot render content after loading variables into hooks from AsyncStorage (react-native/expo)
+2
+Expo Router navigation does not prevent useEffect from re-triggering
+22
+Zustand fetch with API call useEffect best practice
+Load 2 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+react-nativecross-platformzustand
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Hot Network Questions
+How far should I go when phonetically transcribing an Irish accent?
+How do I get rid of this Adobe Acrobat “Make Adobe Acrobat your default PDF app” notification?
+Liaison after verbs in the third person plural
+PC used in movie "Ghosthouse" (1988)
+Why no proposals I’ve seen for in transit greenhouse modules
+Why is the phonemic transcription of "the" /ði/ or /ðiː/ not /ðɪj/ although it's pronounced as [ðɪj] and there are phonemes /ɪ/ and /j/ in English?
+What is the purpose of this opening in the airplane interior?
+"Fine knacks for ladies" by John Dowland
+Malicious tampering of trusted libraries
+How to derive the Schrodinger equation with potential from Maxwell's equations?
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
+2008 Toyota Tacoma Rust Recall Expired
+Loopy (Slitherlink)
+Reusing BH-90 barb insert?
+Why don't military fighter jets have static wicks?
+Best bike for ultra steep climbs in the forest? (Mountain)
+What are these angled things on the Saab 340 tail?
+Ubuntu Server can't change timezone
+Why, when the thickness-to-chord ratio (t/c) of a 6-series laminar airfoil increases, the laminar bucket extends to higher values of Cl?
+How many of each type of dice could you possibly need?
+In the novel Dune, why were atomics banned but shield + lasgun explosions weren't?
+Regression model with a band of zeros
+Change some file names during a backup with rsync
+What is the purpose of the neutral line in unbalanced three-phase systems?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

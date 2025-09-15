@@ -1,0 +1,730 @@
+Custom OpenTelemetry Collectors: Build, Run, and Manage at Scale - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Adnan Rahić
+Posted on Sep 11
+• Originally published at bindplane.com
+Custom OpenTelemetry Collectors: Build, Run, and Manage at Scale
+#webdev
+#programming
+#opentelemetry
+#devops
+I tried thinking back to when the last time I read an actual tutorial that did not include a bunch of em (—) dashes, semicolons, normal dashes, and an unnervingly large quantity of the phrases like “XYZ-thing Alert 🚨” and “Exciting News!”.
+Well, hold on to your suspenders folks, here we go again. Part 2 is up and it’s a controversial one. 👇
+Have you tried building your own, custom, OpenTelemetry Collector distribution? Did you like it? 😂
+I bet you’re NOT smiling. Let alone laughing out loud at that statement like I am right now! I tried, and boy did I have a hard time.
+I do have a nice solution to the current norm of building custom OpenTelemetry Collectors, if you have the patience to stick around and read for the next 4 minutes. I’ll do my best to be respectful of your time and cut it down to the bare bones you need to be successful yourself. 🤝
+As a normal human I find this hard…
+There are a few missing steps in the existing resources and docs around using the OpenTelemetry Collector Builder (OCB). I felt like stumbling through a dark forest and barely making it out the other side. The OCB is an amazing tool for Go developers. That’s the kicker though. A lot of us are not seasoned engineers, let alone experienced Go developers.
+That’s why I wanted to write this tutorial. I’ll show you a hands-on guide with the open-source OpenTelemetry Distribution Builder (ODB) from Bindplane. You’ll learn how to build a custom, OpAMP-enabled collector using a manifest.yaml file and GitHub Actions.
+Building custom OpenTelemetry collectors is a real need
+Custom OpenTelemetry Collectors are no longer a niche thing. As more devs run collectors in intricate Kubernetes environments, or in containers in general, even in the edge, trimming down the binary is becoming standard practice.
+Why build a custom collector?
+The upstream OpenTelemetry Collector Contrib ships with a lot of components. That’s great for getting started, but in production you don’t need all of them. Simply put, more components equals bigger binaries and more attack surface.
+A custom built collector solves that. You define exactly what is needed:
+Only receivers, processors, exporters, and extensions you use
+Minimal footprint
+No unnecessary dependencies
+The OpenTelemetry Distribution Builder (ODB)
+ODB is Bindplane’s open-source builder for creating custom collectors.
+You feed it a manifest.yaml and it gives you binaries and packages for every platform you need.
+What you get:
+Multi-platform builds: Linux, Windows, macOS, AMD64, ARM64
+Multiple formats: .tar.gz, .zip, .deb, .rpm
+No Go coding, no manual dependency resolution
+OpAMP support (Bindplane-compatible out-of-the-box)
+Step 1 — Create a GitHub repo
+Start by creating a blank GitHub repo to store the manifest.yaml and run GitHub Action Workflows.
+Next, create a new repo in your local env.
+echo "# otel-distro-builder-github-action" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin git@github.com:<YOUR_ACCOUNT_NAME>/otel-distro-builder-github-action.git
+git push -u origin main
+Enter fullscreen mode
+Exit fullscreen mode
+The repo is now ready to add a manifest.yaml.
+Step 2 — Write a manifest.yaml
+The manifest.yaml is where you define what goes in your collector.
+Here’s a suggested example that I’ve vetted with my colleagues at Bindplane that contribute to the OpenTelemetry project. It’s minimal, but still includes quality-of-life modules like OpAMP support and common processors.
+dist:
+module: github.com/<YOUR-USERNAME>/my-custom-opentelemetry-distro
+name: my-custom-opentelemetry-distro
+description: Custom-built OpenTelemetry Collector.
+output_path: ./_build
+version: v0.0.1
+conf_resolver:
+default_uri_scheme: "env"
+receivers:
+- gomod: go.opentelemetry.io/collector/receiver/nopreceiver v0.128.0
+- gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.128.0
+- gomod: github.com/observiq/bindplane-otel-collector/receiver/telemetrygeneratorreceiver v1.79.0
+exporters:
+- gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.128.0
+- gomod: go.opentelemetry.io/collector/exporter/nopexporter v0.128.0
+- gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.128.0
+- gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/datadogexporter v0.128.0
+- gomod: github.com/observiq/bindplane-otel-collector/exporter/googlecloudstorageexporter v1.79.0
+extensions:
+- gomod: go.opentelemetry.io/collector/extension/zpagesextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/ackextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/asapauthextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/awsproxy v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/basicauthextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/jaegerencodingextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/otlpencodingextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/zipkinencodingextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/headerssetterextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/httpforwarderextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/jaegerremotesampling v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/oauth2clientauthextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/dockerobserver v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/ecsobserver v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/ecstaskobserver v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/hostobserver v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/k8sobserver v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/oidcauthextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/pprofextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/sigv4authextension v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/dbstorage v0.128.0
+- gomod: github.com/observiq/bindplane-otel-collector/extension/bindplaneextension v1.79.0
+processors:
+- gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.128.0
+- gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/attributesprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatorateprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/filterprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/groupbyattrsprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/groupbytraceprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/k8sattributesprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/logdedupprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/metricsgenerationprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/metricstransformprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/probabilisticsamplerprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/redactionprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/remotetapprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/routingprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/sumologicprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.128.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/datapointcountprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/logcountprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/lookupprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/maskprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/metricextractprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/metricstatsprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/removeemptyvaluesprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/resourceattributetransposerprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/samplingprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/snapshotprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/spancountprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/throughputmeasurementprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/topologyprocessor v1.79.0
+- gomod: github.com/observiq/bindplane-otel-collector/processor/unrollprocessor v1.79.0
+connectors:
+- gomod: go.opentelemetry.io/collector/connector/forwardconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/countconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/datadogconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/exceptionsconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/failoverconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/grafanacloudconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/roundrobinconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/routingconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/servicegraphconnector v0.128.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/spanmetricsconnector v0.128.0
+providers:
+- gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.34.0
+- gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.34.0
+- gomod: go.opentelemetry.io/collector/confmap/provider/httpprovider v1.34.0
+- gomod: go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.34.0
+- gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.34.0
+# When adding a replace, add a comment before it to document why it's needed and when it can be removed
+replaces:
+# See https://github.com/google/gnostic/issues/262
+- github.com/googleapis/gnostic v0.5.6 => github.com/googleapis/gnostic v0.5.5
+# See https://github.com/open-telemetry/opentelemetry-collector-contrib/pull/12322#issuecomment-1185029670
+- github.com/docker/go-connections v0.4.1-0.20210727194412-58542c764a11 => github.com/docker/go-connections v0.4.0
+# see https://github.com/mattn/go-ieproxy/issues/45
+- github.com/mattn/go-ieproxy => github.com/mattn/go-ieproxy v0.0.1
+# see https://github.com/openshift/api/pull/1515
+- github.com/openshift/api => github.com/openshift/api v0.0.0-20230726162818-81f778f3b3ec
+- github.com/observiq/bindplane-otel-collector/internal/version => github.com/observiq/bindplane-otel-collector/internal/version v0.0.0-20250306153219-6fe3f849c29f
+Enter fullscreen mode
+Exit fullscreen mode
+💡 The opampextension is the key — it’s what lets Bindplane discover and manage your collector.
+Step 3 — Automate the build with GitHub Actions
+Use the **OpenTelemetry Distribution Builder GitHub Action** to do the heavy lifting.
+Here’s a .github/workflows/multi.yaml you can drop in:
+name: Matrixed OpenTelemetry Distribution Build
+on:
+push:
+tags:
+- "v*" # Runs when a version tag is pushed (e.g., v1.0.0)
+workflow_dispatch: # Enables manual triggering from the GitHub UI
+permissions:
+contents: write # This is required for creating/modifying releases
+jobs:
+build:
+# Configure build matrix to run multiple platform builds in parallel
+strategy:
+matrix:
+# Define the platforms we want to build for
+platform: [linux/amd64, linux/arm64, darwin/arm64, windows/amd64]
+# Map platform identifiers to simpler names for artifact handling
+include:
+- platform: linux/amd64
+os: linux
+arch: amd64
+artifact_name: linux-amd64
+- platform: linux/arm64
+os: linux
+arch: arm64
+artifact_name: linux-arm64
+- platform: darwin/arm64
+os: darwin
+arch: arm64
+artifact_name: darwin-arm64
+- platform: windows/amd64
+os: windows
+arch: amd64
+artifact_name: windows-amd64
+runs-on: ubuntu-latest
+steps:
+- uses: actions/checkout@v4
+# Build the OpenTelemetry distribution for each platform
+- name: Build and Package
+uses: observiq/otel-distro-builder@main
+with:
+os: ${{ matrix.os }}
+arch: ${{ matrix.arch }}
+# Upload platform-specific artifacts with a unique name
+# These artifacts are available for download in the GitHub Actions UI
+- name: Upload Artifacts
+uses: actions/upload-artifact@v4
+with:
+name: distribution-artifacts-${{ matrix.artifact_name }}
+path: |
+${{ startsWith(matrix.platform, 'linux') && format('{0}/artifacts/*.deb', github.workspace) || '' }}
+${{ startsWith(matrix.platform, 'linux') && format('{0}/artifacts/*.rpm', github.workspace) || '' }}
+${{ startsWith(matrix.platform, 'linux') && format('{0}/artifacts/*.apk', github.workspace) || '' }}
+${{ startsWith(matrix.platform, 'windows') && format('{0}/artifacts/*.zip', github.workspace) || '' }}
+${{ (startsWith(matrix.platform, 'linux') || startsWith(matrix.platform, 'darwin')) && format('{0}/artifacts/*.tar.gz', github.workspace) || '' }}
+${{ format('{0}/artifacts/*.sbom.json', github.workspace) || '' }}
+${{ format('{0}/artifacts/*_checksums.txt', github.workspace) || '' }}
+retention-days: 5 # Artifacts are kept for 5 days then automatically deleted
+# Create a single release containing all platform artifacts
+release:
+needs: build # Wait for all platform builds to complete
+runs-on: ubuntu-latest
+permissions:
+contents: write # Required permission for creating releases
+steps:
+# Download all platform-specific artifacts into a single directory
+- name: Download All Artifacts
+uses: actions/download-artifact@v4
+with:
+path: all-artifacts
+pattern: distribution-artifacts-* # Match all our platform-specific artifacts
+merge-multiple: true # Combine all artifacts into a single directory
+# Create a GitHub Release and attach all platform artifacts
+# This makes all platform builds available for download from the Releases page
+- name: Create Release
+uses: softprops/action-gh-release@v2
+with:
+files: all-artifacts/**/*
+Enter fullscreen mode
+Exit fullscreen mode
+Every new version release will:
+Build your custom collector for all platforms
+Package it into .tar.gz, .zip, .deb, and .rpm
+Store them as GitHub Actions artifacts
+You should have two files created and ready to add to Git.
+git status
+[Output]
+On branch main
+Your branch is up to date with 'origin/main'.
+Untracked files:
+(use "git add <file>..." to include in what will be committed)
+.github/
+manifest.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Commit these changes and push them to your repo.
+git add .github manifest.yaml
+git commit -m "add a manifest and workflow"
+git push origin main
+Enter fullscreen mode
+Exit fullscreen mode
+Create a new release. Make sure to use the same release tag as you specified in your manifest.yaml. In the sample manifest.yaml above I used v0.0.1 which means I need to set the same tag in the release.
+Once the release is created, you’ll see it’s initially empty.
+Opening the Actions will show the build running.
+Give it about 5 minutes to complete. Go get a coffee. ☕
+Once the builds are done, you’ll see artifacts saved and added to the release.
+Step 4 — Download and run your collector
+Let me show you how to run your custom collector in a Linux VM. Grab an artifact from the Release and extract it.
+wget https://github.com/adnanrahic/otel-distro-builder-github-action/releases/download/v0.0.1/my-custom-opentelemetry-distro_otelcol_v0.0.1_linux_amd64.tar.gz
+tar -xvzf my-custom-opentelemetry-distro_otelcol_v0.0.1_linux_amd64.tar.gz
+Enter fullscreen mode
+Exit fullscreen mode
+You’ll also get a skeleton collector_config.yaml for the custom collector bundled in the tar as well.
+ls -l
+[Condensed Output]
+-rw-r--r-- collector_config.yaml
+-rwxr-xr-x my-custom-opentelemetry-distro
+-rw-r--r-- my-custom-opentelemetry-distro_otelcol_v0.0.1_linux_amd64.tar.gz
+drwxr-xr-x service
+Enter fullscreen mode
+Exit fullscreen mode
+Let’s edit it slightly, and also add Bindplane’s OpAMP configuration by following this guide. Paste this into the config file.
+# To limit exposure to denial of service attacks, change the host in endpoints below from 0.0.0.0 to a specific network interface.
+# See https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/security-best-practices.md#safeguards-against-denial-of-service-attacks
+extensions:
+health_check:
+pprof:
+endpoint: 0.0.0.0:1777
+zpages:
+endpoint: 0.0.0.0:55679
+# Add an OpAMP connection to Bindplane.
+# Use the credentials from your account, and
+# follow the guide from the screenshot below.
+opamp:
+instance_uid: 01K42T4MGFFDZMXBY7C5C2APX9 # Generated ULID
+capabilities:
+reports_effective_config: true
+server:
+ws:
+# Bindplane Cloud OpAMP Endpoint
+endpoint: wss://app.bindplane.com/v1/opamp
+headers:
+Authorization: Secret-Key <YOUR_SECRET_KEY>
+X-Bindplane-Labels: <YOUR_LABEL=YOUR_VALUE>
+tls:
+insecure: false
+receivers:
+telemetrygeneratorreceiver/logs:
+generators:
+- additional_config:
+body: 'foo: bar'
+severity: 9
+type: logs
+payloads_per_second: 1
+otlp:
+protocols:
+grpc:
+endpoint: 0.0.0.0:4317
+http:
+endpoint: 0.0.0.0:4318
+processors:
+batch:
+exporters:
+debug:
+verbosity: detailed
+nop: null
+service:
+pipelines:
+traces:
+receivers: [otlp]
+processors: [batch]
+exporters: [debug, nop]
+metrics:
+receivers: [otlp]
+processors: [batch]
+exporters: [debug, nop]
+logs:
+receivers: [telemetrygeneratorreceiver/logs, otlp]
+processors: [batch]
+exporters: [debug, nop]
+extensions: [health_check, pprof, zpages, opamp]
+Enter fullscreen mode
+Exit fullscreen mode
+**Note:* If you’re on the Growth or Enterprise plans of Bindplane, and want to connect the collector Bindplane, use the secret key after the -s and the labels after the -k. The collector will work as expected with or without connecting to Bindplane. But, you will not get the management capabilities and benefits of OpAMP.*
+Now, go ahead and run the collector binary.
+./my-custom-opentelemetry-distro --config collector_config.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+You’ll see logs like this show as the terminal output confirming the telemetrygeneratorreceiver is creating some dummy logs to validate your config is working.
+2025-09-02T08:44:44.255Z
+info
+service@v0.128.0/service.go:282 Everything is ready. Begin running and processing data. {"resource": {"service.instance.id": "8c4d008a-700d-49d6-b6ed-41cd1e03cf18", "service.name": "my-custom-opentelemetry-distro", "service.version": "v0.0.1"}}
+2025-09-02T08:44:44.454Z
+info
+Logs
+{"resource": {"service.instance.id": "8c4d008a-700d-49d6-b6ed-41cd1e03cf18", "service.name": "my-custom-opentelemetry-distro", "service.version": "v0.0.1"}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "logs", "resource logs": 1, "log records": 1}
+2025-09-02T08:44:44.455Z
+info
+ResourceLog #0
+Resource SchemaURL:
+ScopeLogs #0
+ScopeLogs SchemaURL:
+InstrumentationScope
+LogRecord #0
+ObservedTimestamp: 2025-09-02 08:44:44.253813518 +0000 UTC
+Timestamp: 2025-09-02 08:44:44.253813518 +0000 UTC
+SeverityText:
+SeverityNumber: Info(9)
+Body: Str(foo: bar)
+Trace ID:
+Span ID:
+Flags: 0
+Enter fullscreen mode
+Exit fullscreen mode
+Within seconds, your custom collector will appear in Bindplane’s Agents list.
+You can open the collector config as well.
+Bindplane is picking up the collector metadata and the config you added as well. The OpAMP Extension currently doesn't support remote configuration, which means you cannot modify the Collector configuration through the Bindplane UI. You can still view the current Collector configuration as YAML on the Collector page, but the "Choose Another Configuration" button will not be available.
+Let me walk you through adding your custom collector to Bindplane and enabling remote configurations.
+Step 5 — Remotely manage your custom collector with OpAMP
+You can enable remote collector management by adding your custom collector as an Agent Type in Bindplane as outlined in this docs guide. Let me walk you through it step-by-step. 🚶‍♀️
+1. Install the Bindplane CLI
+The Bindplane CLI lets you manage Bindplane resources including Agent Types. Follow the OS-specific installation steps here.
+2. Create an API Key & set a default profile
+Create an API Key to access resources in Bindplane with the CLI. Follow the steps here.
+3. Create an Agent Type in Bindplane
+In Bindplane, an Agent Type represents an OpenTelemetry Collector Distribution. For example, the BDOT v1 and v2 collectors are both Agent Types.
+apiVersion: bindplane.observiq.com/v1
+kind: AgentType
+metadata:
+name: my-custom-opentelemetry-distro
+displayName: My Custom OpenTelemetry Distro
+description: My custom OpenTelemetry collector distro.
+spec:
+repositoryLink: https://github.com/<YOUR_GITHUB_USERNAME>/<YOUR_REPO_NAME>
+platformArchSet:
+- platform: darwin
+arch: arm64
+- platform: linux
+arch: amd64
+- platform: linux
+arch: arm64
+- platform: windows
+arch: amd64
+Enter fullscreen mode
+Exit fullscreen mode
+This is where you need to be careful. The repositoryLink needs to match the link of the repo where you ran the GitHub action. In my example it was:
+https://github.com/adnanrahic/otel-distro-builder-github-action
+Enter fullscreen mode
+Exit fullscreen mode
+The metadata.name value also needs to match the value of dist.name in your manifest.yaml.
+Apply the custom Agent Type.
+bindplane apply -f /path/to/agent/type/file.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Finally, sync the Agent Type to load it into Bindplane.
+bindplane sync agent-versions --agent-type my-custom-opentelemetry-distro --version v0.0.1
+Enter fullscreen mode
+Exit fullscreen mode
+Note that the version matches the release.
+5. Install your custom collector from the Bindplane UI
+Now since you’ve added a custom Agent Type and synced a version, you can choose to install it from the Bindplane UI.
+Since you built it for Mac, Windows, and Linux, you’ll see all three options when selecting platform.
+I want to install it in my Linux VM, so I’ll select Linux and click next.
+I’ll get this generic install single-command. Running this in my VM will start my custom collector and hook it up to Bindplane via OpAMP.
+sudo sh -c "$(curl -fsSlL 'https://raw.githubusercontent.com/observIQ/bindplane-otel-collector/refs/heads/main/scripts/generic-install/install_unix.sh')" install_unix.sh -d 'my-custom-opentelemetry-distro' -u 'https://github.com/adnanrahic/otel-distro-builder-github-action' -e 'wss://app.bindplane.com/v1/opamp' -s '01J06XSD7FVM3CHCQA3823AC2X' -v '0.0.1' -l 'install_id=937a3445-8962-441a-90f0-ee120c67edb7'
+[Output]
+Using repository URL: https://github.com/adnanrahic/otel-distro-builder-github-action
+Auto-detected package type: deb
+Downloading: https://github.com/adnanrahic/otel-distro-builder-github-action/releases/download/v0.0.1/my-custom-opentelemetry-distro_v0.0.1_linux_amd64.deb
+% Total
+% Received % Xferd
+Average Speed
+Time
+Time
+Time
+Current
+Dload
+Upload
+Total
+Spent
+Left
+Speed
+0
+0
+0
+0
+0
+0
+0
+0 --:--:-- --:--:-- --:--:--
+0
+100 46.9M
+100 46.9M
+0
+0
+38.4M
+0
+0:00:01
+0:00:01 --:--:-- 98.4M
+Selecting previously unselected package my-custom-opentelemetry-distro.
+(Reading database ... 76875 files and directories currently installed.)
+Preparing to unpack .../my-custom-opentelemetry-distro_0.0.1.deb ...
+Unpacking my-custom-opentelemetry-distro (0.0.1) ...
+Setting up my-custom-opentelemetry-distro (0.0.1) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/my-custom-opentelemetry-distro.service → /lib/systemd/system/my-custom-opentelemetry-distro.service.
+Creating supervisor config...
+Managing service state...
+Starting my-custom-opentelemetry-distro service...
+Service is running
+Installation complete!
+Installation directory: /opt/my-custom-opentelemetry-distro
+Supervisor config: /opt/my-custom-opentelemetry-distro/supervisor_config.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+This will start the collector as a systemd service.
+sudo systemctl status my-custom-opentelemetry-distro
+[Output]
+● my-custom-opentelemetry-distro.service - An OpenTelemetry Collector service named 'my-custom-opentelemetry-distro'.
+Loaded: loaded (/lib/systemd/system/my-custom-opentelemetry-distro.service; enabled; preset: enabled)
+Active: active (running) since Tue 2025-09-02 12:36:56 UTC; 2min 51s ago
+Main PID: 17005 (supervisor)
+Tasks: 7 (limit: 4681)
+Memory: 8.5M
+CPU: 249ms
+CGroup: /system.slice/my-custom-opentelemetry-distro.service
+└─17005 /opt/my-custom-opentelemetry-distro/supervisor --config=/opt/my-custom-opentelemetry-distro/supervisor_config.yaml
+Sep 02 12:36:56 my-custom-opentelemetry-distro systemd[1]: Started my-custom-opentelemetry-distro.service - An OpenTelemetry Collector service named 'my-opentelemetry-distro.service - An OpenTelemetry Collector service named 'my-custom-opentelemetry-distro'.
+Enter fullscreen mode
+Exit fullscreen mode
+Because the OpAMP connection works via websockets, it’ll update the UI right away and show you the collector running.
+6. Configure and manage your custom collector from the Bindplane UI
+You can now create a configuration for the collector and remote push it down.
+Click the Create Configuration button to create and manage a config in Bindplane and apply it remotely.
+Give it a name, select the Agent Type for your custom collector, and select the platform where your custom collector is running. For my example, it’s Linux. Add a Telemetry Generator source.
+And, a Dev Null destination.
+This will finalize your config creation. You still need to connect it to your custom collector.
+Click the Add Agents button. Select your custom collector, and hit save.
+Now, you can start a rollout to apply the config remotely.
+What’s awesome here is that Bindplane reads the collector’s capabilities directly from the build, so you only see the components you actually included in the manifest.
+Let me show you by adding a new source.
+You’ll see which sources are incompatible are which you can use. This is a huge quality-of-life improvement and convenience across your entire team when creating and managing collector configs.
+Step 6 — Iterate with confidence
+With this setup you can:
+Update the manifest.yaml to add or remove modules
+Create a new release
+GitHub Actions builds a new version
+Deploy or upgrade in your environment
+Bindplane instantly manages the updated agent
+You now have a BYOC (Bring Your Own Collector) workflow — fully automated, versioned, and controlled by you.
+Why this works so well
+Feature
+Value
+OpAMP out-of-the-box
+Full Bindplane remote config and monitoring
+Declarative manifest
+No Go code, no manual dependency resolution
+GitHub-native CI/CD
+Push → Build → Package → Manage
+Multi-platform packaging
+Build once, run anywhere
+UI-aware Bindplane integration
+Only shows supported components
+Future goals
+Moving forward I would love to abstract away the manifest.yaml as well. In an ideal world I would want to give the OpenTelemetry Distro Builder a sample collector config file. It should then be able to create a manifest.yaml from my config. This process would abstract away everything except for the specific receivers, exporters, extensions, and processors I really need.
+More on this by the end of the year. 😉
+Final thoughts
+Custom collectors aren’t just for power users anymore. With ODB and GitHub Actions, you can build exactly what you need, package it for every platform, and manage it at scale with Bindplane. All without touching a Go compiler. 🔥
+It’s clean. It’s fast. And it’s production-ready.
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Roshan Sharma
+Roshan Sharma
+Roshan Sharma
+Follow
+💻 Tech Enthusiast | Linux & Open Source Explorer
+🔧 Sharing insights on Ubuntu, Debian, Docker, and DevOps tools
+🐍 Passionate about Python, SQL & MySQL
+✍️ Writing tutorials, guides, and answers to m
+Joined
+Aug 19, 2025
+•
+Sep 11
+Dropdown menu
+Copy link
+Hide
+Very useful tutorial
+I really like how you explain trimming the collector binary, using manifest.yaml, and integrating with GitHub Actions + Bindplane.
+what’s been your experience around versioning/upgrading safely
+how do you ensure backward compatibility when removing or swapping out receivers/exporters in a custom build?
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Adnan Rahić
+Adnan Rahić
+Adnan Rahić
+Follow
+Head of DevRel at Bindplane. Author, failed startup founder, and ex-freeCodeCamp local leader.
+Location
+Sarajevo
+Work
+Head of DevRel @ Bindplane
+Joined
+Mar 14, 2017
+•
+Sep 12
+Dropdown menu
+Copy link
+Hide
+Thanks! Glad you liked it.
+I'm not sure backward compatibility is possible if you remove modules or swap them out for versions with breaking changes. You're the last line of defense there IMHO.
+I'd say the Git history (+GitHub Releases) is your lifeline for versioning and upgrading. Building a new collector with a new version and release will give it the tar bundle a new name. You can then stop the existing collector, start the new one and validate functionality. If you need to roll back you still have the old bundle with a different version name.
+Or, with Bindplane, you get module compatibility in the UI, if you choose to go that route.
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Adnan Rahić
+Follow
+Head of DevRel at Bindplane. Author, failed startup founder, and ex-freeCodeCamp local leader.
+Location
+Sarajevo
+Work
+Head of DevRel @ Bindplane
+Joined
+Mar 14, 2017
+More from Adnan Rahić
+How to Build Resilient Telemetry Pipelines with the OpenTelemetry Collector: High Availability and Gateway Architecture
+#opentelemetry
+#kubernetes
+#docker
+#observability
+Bindplane Launch Week 1: The Daily Releases Begin June 2 🪂
+#news
+#showdev
+#opentelemetry
+#observability
+End-to-End Observability with Grafana LGTM Stack
+#webdev
+#observability
+#monitoring
+#traces
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

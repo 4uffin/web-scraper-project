@@ -1,0 +1,806 @@
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 1 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Dimension AI Technologies
+Posted on Sep 13
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 1
+#architecture
+#csharp
+#designpatterns
+Introduction
+In our previous article MVC vs MVVM: what's the difference? (C# example), we introduced the ICMV and IVVMM mnemonics—mental models that reframe MVC and MVVM in terms of data flow rather than components.
+While these simplified representations help illustrate the fundamental works of and differences between Model-View-Controller and Model-View-ViewModel patterns, they only scratch the surface of what happens in production applications.
+If you've ever debugged a complex web application at 2 AM, wrestled with race conditions in a data-bound UI, or tried to explain to a stakeholder why "the data should just flow through," you know that real-world architectures are far more intricate than Input → Controller → Model → View.
+In this 5-Part series, we will explore deeper how data flows around MVC and MVVM architectures:
+Part 1 - Introduction and MVC Flow Patterns in Detail
+Part 2 - MVVM Flow Patterns in Detail
+Part 3 - MVC vs MVVM Flow Patterns: Comparative Analysis and Performance Implications
+Part 4 - Hybrid Patterns and Modern Frameworks: How MVC and MVVM Converge
+Part 5 - MVC vs MVVM: The Decision Framework - Choosing the Right Architecture
+Why Flow Patterns Matter
+Understanding flow patterns isn't academic exercise; it directly impacts:
+Debugging Efficiency: When you understand how data flows through your application, you can pinpoint issues faster. Is the problem in the validation pipeline? The binding layer? The service aggregation? Knowing your flows means knowing where to look.
+Performance Optimization: Different flows have different performance characteristics. A synchronous request-response flow has different bottlenecks than an asynchronous event-driven flow. Understanding these patterns helps you optimize the right parts of your system.
+Architectural Decisions: Should you use MVC or MVVM? The answer often lies in analyzing which flow patterns your application needs. A real-time trading dashboard has fundamentally different flow requirements than a content management system.
+Team Communication: When your team shares a vocabulary for flow patterns, architectural discussions become more precise. "We need a service-mediated flow with caching" conveys more information than "we need to make it faster."
+What This Article Covers
+This deep dive explores the full spectrum of flow patterns in both MVC and MVVM architectures. We'll examine:
+Sequential flows that power millions of web requests daily
+Reactive flows that keep complex UIs synchronized
+Asynchronous patterns that prevent UI freezing and server blocking
+Hybrid approaches that modern frameworks use to get the best of both worlds
+Each pattern will be illustrated with production-ready code examples, performance considerations, and guidance on when to use (or avoid) it.
+Setting Expectations
+This article assumes you're comfortable with basic MVC and MVVM concepts. We won't rehash what a Controller or ViewModel is—instead, we'll explore how they orchestrate complex data flows in real applications.
+We'll use C#/.NET for most examples to maintain consistency, but the patterns apply across languages and frameworks. Whether you're building with Java Spring, Ruby on Rails, WPF, or React, these flow patterns remain relevant.
+Be prepared for complexity. Production applications don't follow textbook patterns—they adapt, combine, and sometimes subvert traditional flows to meet real-world requirements. We'll explore not just the "happy path" but also edge cases, error flows, and the messy realities of enterprise software.
+A Living Architecture
+Perhaps most importantly, remember that flow patterns aren't static. As your application grows, its flows evolve.
+What starts as a simple
+Request → Controller → Model → View
+might evolve into
+Request → Middleware → Controller → Service → Cache → Model → Transformer → View → Filter → Response.
+This evolution is not how a symptom of poor architecture.
+This progression is a sign of a living system adapting to real requirements. The patterns in this article are therefore not prescriptions but rather tools. Understanding them deeply allows you to adopt, combine and evolve them as your application demands.
+Let's begin by examining how MVC patterns handle the complexity of modern web applications, starting with the request-response pipeline that processes billions of HTTP requests every day.
+Part 1: MVC Flow Patterns in Detail
+While the ICMV mnemonic suggests a simple linear flow, production MVC applications orchestrate multiple sophisticated patterns. Each pattern emerged to solve specific problems—understanding them helps you recognize which to apply when.
+1.1 Web MVC Flows
+The Request-Response Pipeline
+The fundamental web MVC flow appears straightforward, but modern frameworks layer multiple concerns into the pipeline:
+// The visible flow: Request → Router → Controller → Model → View → Response
+// The actual flow includes middleware, filters, and model binding
+public class Startup
+{
+public void Configure(IApplicationBuilder app)
+{
+app.UseExceptionHandler("/Error");
+// Exception middleware
+app.UseAuthentication();
+// Auth middleware
+app.UseRateLimiting();
+// Rate limit middleware
+app.UseRequestLogging();
+// Logging middleware
+app.UseResponseCompression();
+// Compression middleware
+app.UseMvc();
+// MVC middleware
+}
+}
+[Authorize]
+[ResponseCache(Duration = 300)]
+public class ProductController : Controller
+{
+private readonly IProductService _service;
+[HttpGet("products/{id}")]
+[ValidateProductExists]
+// Action filter
+public async Task<IActionResult> Details(int id)
+{
+// Actual flow by this point:
+// 1. Request received
+// 2. Exception handler wrapped
+// 3. Authentication verified
+// 4. Rate limit checked
+// 5. Request logged
+// 6. Route matched
+// 7. Model binding occurred
+// 8. Authorization checked
+// 9. Action filter executed
+// 10. NOW we're in the controller
+var product = await _service.GetProductAsync(id);
+return View(product);
+// 11. View rendered
+// 12. Response cache headers set
+// 13. Response compressed
+// 14. Response logged
+// 15. Response sent
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Each middleware component can short-circuit the pipeline, transform the request/response, or add cross-cutting concerns. This layered approach provides flexibility but requires understanding the complete flow for effective debugging.
+Service Layer Integration
+Real applications rarely have controllers directly manipulate models. The service layer pattern introduces business logic separation:
+public class OrderController : Controller
+{
+private readonly IOrderService _orderService;
+private readonly IInventoryService _inventoryService;
+private readonly IPaymentService _paymentService;
+private readonly INotificationService _notificationService;
+[HttpPost("orders")]
+public async Task<IActionResult> CreateOrder(OrderDto orderDto)
+{
+// Flow: Controller → Multiple Services → Database → Model → Controller → View
+// Validate inventory across multiple warehouses
+var inventoryCheck = await _inventoryService
+.CheckAvailabilityAsync(orderDto.Items);
+if (!inventoryCheck.IsAvailable)
+return View("OutOfStock", inventoryCheck);
+// Begin distributed transaction
+using var transaction = await _orderService.BeginTransactionAsync();
+try
+{
+// Reserve inventory
+var reservation = await _inventoryService
+.ReserveItemsAsync(orderDto.Items, transaction);
+// Process payment through external gateway
+var payment = await _paymentService
+.ProcessPaymentAsync(orderDto.Payment, transaction);
+// Create order with reserved items and payment
+var order = await _orderService.CreateOrderAsync(
+orderDto,
+reservation,
+payment,
+transaction
+);
+await transaction.CommitAsync();
+// Post-commit actions (can't be rolled back)
+await _notificationService.SendOrderConfirmationAsync(order);
+return View("OrderConfirmation", order);
+}
+catch (Exception ex)
+{
+await transaction.RollbackAsync();
+return View("OrderError", new ErrorViewModel(ex));
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This flow demonstrates how service layer integration transforms the simple Controller → Model pattern into a complex orchestration of business operations, external services, and transaction management.
+Multiple Model Aggregation
+Dashboard and reporting scenarios require aggregating data from multiple sources:
+public class DashboardController : Controller
+{
+private readonly IDashboardAggregator _aggregator;
+[HttpGet("dashboard")]
+[OutputCache(Duration = 60, VaryByParam = "userId")]
+public async Task<IActionResult> Index(string userId)
+{
+// Parallel aggregation from multiple models
+var aggregationTasks = new[]
+{
+_aggregator.GetUserMetricsAsync(userId),
+_aggregator.GetRecentActivityAsync(userId),
+_aggregator.GetPerformanceDataAsync(userId),
+_aggregator.GetNotificationsAsync(userId),
+_aggregator.GetRecommendationsAsync(userId)
+};
+await Task.WhenAll(aggregationTasks);
+// Transform to view model
+var dashboardVm = new DashboardViewModel
+{
+Metrics = aggregationTasks[0].Result,
+Activities = aggregationTasks[1].Result,
+Performance = aggregationTasks[2].Result,
+Notifications = aggregationTasks[3].Result,
+Recommendations = aggregationTasks[4].Result,
+GeneratedAt = DateTime.UtcNow
+};
+// Add real-time connection info for live updates
+dashboardVm.SignalRConnectionId = await _aggregator
+.EstablishRealtimeConnectionAsync(userId);
+return View(dashboardVm);
+}
+}
+// Aggregator implementation shows the actual flow complexity
+public class DashboardAggregator : IDashboardAggregator
+{
+public async Task<UserMetrics> GetUserMetricsAsync(string userId)
+{
+// Each method might have its own complex flow:
+// 1. Check cache
+// 2. If miss, query multiple databases
+// 3. Apply business rules
+// 4. Transform data
+// 5. Update cache
+// 6. Return aggregated result
+var cached = await _cache.GetAsync<UserMetrics>($"metrics:{userId}");
+if (cached != null) return cached;
+// Parallel queries to different data sources
+var dbTask = _metricsDb.GetMetricsAsync(userId);
+var analyticsTask = _analyticsService.GetUserAnalyticsAsync(userId);
+var calculatedTask = _calculationEngine.ComputeDerivedMetricsAsync(userId);
+await Task.WhenAll(dbTask, analyticsTask, calculatedTask);
+var metrics = MergeMetrics(dbTask.Result, analyticsTask.Result, calculatedTask.Result);
+await _cache.SetAsync($"metrics:{userId}", metrics, TimeSpan.FromMinutes(5));
+return metrics;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Middleware and Filters
+The middleware pipeline and action filters create a bidirectional flow where each component can process both requests and responses:
+public class TimingMiddleware
+{
+private readonly RequestDelegate _next;
+public async Task InvokeAsync(HttpContext context)
+{
+// Pre-processing (request flow)
+var stopwatch = Stopwatch.StartNew();
+context.Items["RequestStartTime"] = DateTime.UtcNow;
+try
+{
+// Continue pipeline
+await _next(context);
+}
+finally
+{
+// Post-processing (response flow)
+stopwatch.Stop();
+context.Response.Headers.Add("X-Processing-Time",
+stopwatch.ElapsedMilliseconds.ToString());
+}
+}
+}
+public class ValidationActionFilter : ActionFilterAttribute
+{
+public override async Task OnActionExecutionAsync(
+ActionExecutingContext context,
+ActionExecutionDelegate next)
+{
+// Pre-action (request flow)
+if (!context.ModelState.IsValid)
+{
+context.Result = new BadRequestObjectResult(context.ModelState);
+return; // Short-circuit
+}
+// Execute action
+var resultContext = await next();
+// Post-action (response flow)
+if (resultContext.Exception == null && resultContext.Result is ObjectResult result)
+{
+// Add metadata to successful responses
+result.Value = new
+{
+Data = result.Value,
+Timestamp = DateTime.UtcNow,
+Version = "1.0"
+};
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Validation Flows
+Validation in MVC can occur at multiple points, creating complex error flows:
+public class RegistrationController : Controller
+{
+[HttpPost("register")]
+public async Task<IActionResult> Register(
+[FromBody] RegistrationModel model,
+// Model binding validation
+[FromServices] IValidator<RegistrationModel> validator)
+{
+// Level 1: Model binding validation (automatic)
+if (!ModelState.IsValid)
+return BadRequest(ModelState);
+// Level 2: Business validation
+var validationResult = await validator.ValidateAsync(model);
+if (!validationResult.IsValid)
+{
+foreach (var error in validationResult.Errors)
+ModelState.AddModelError(error.PropertyName, error.ErrorMessage);
+return View(model); // Return to form with errors
+}
+try
+{
+// Level 3: Domain validation (in service/model)
+var user = await _userService.CreateUserAsync(model);
+return RedirectToAction("Welcome", new { userId = user.Id });
+}
+catch (DomainValidationException ex)
+{
+// Domain rules failed (e.g., duplicate email)
+ModelState.AddModelError(ex.Field, ex.Message);
+return View(model);
+}
+catch (ExternalServiceException ex)
+{
+// Level 4: External service validation failed
+// (e.g., email verification service)
+ModelState.AddModelError("",
+"Unable to verify email address. Please try again.");
+return View(model);
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+1.2 Desktop/Classic MVC Flows
+Observer Pattern Implementation
+Desktop MVC often implements true observer pattern where models notify views directly:
+// Classic MVC with observer pattern (WinForms/Java Swing style)
+public class StockModel : INotifyPropertyChanged
+{
+private decimal _price;
+private List<IStockObserver> _observers = new();
+public decimal Price
+{
+get => _price;
+set
+{
+if (_price != value)
+{
+var oldPrice = _price;
+_price = value;
+// Notify all observers (views)
+foreach (var observer in _observers)
+{
+observer.PriceChanged(oldPrice, value);
+}
+PropertyChanged?.Invoke(this,
+new PropertyChangedEventArgs(nameof(Price)));
+}
+}
+}
+public void Subscribe(IStockObserver observer) => _observers.Add(observer);
+public void Unsubscribe(IStockObserver observer) => _observers.Remove(observer);
+public event PropertyChangedEventHandler PropertyChanged;
+}
+public class StockController
+{
+private readonly StockModel _model;
+private readonly IStockService _service;
+public StockController(StockModel model, IStockService service)
+{
+_model = model;
+_service = service;
+// Controller initiates real-time updates
+_service.PriceUpdated += OnPriceUpdated;
+}
+private void OnPriceUpdated(object sender, PriceUpdateEventArgs e)
+{
+// Flow: External Event → Controller → Model → Observer Pattern → Multiple Views
+_model.Price = e.NewPrice;
+// Views automatically update via observer pattern
+}
+public async Task RefreshPrice(string symbol)
+{
+// Flow: User Input → Controller → Service → Model → Views
+var price = await _service.GetCurrentPriceAsync(symbol);
+_model.Price = price;
+}
+}
+public class StockPriceView : Form, IStockObserver
+{
+private readonly Label _priceLabel;
+private readonly StockModel _model;
+public StockPriceView(StockModel model)
+{
+_model = model;
+_model.Subscribe(this);
+}
+public void PriceChanged(decimal oldPrice, decimal newPrice)
+{
+// View updates based on model notification
+BeginInvoke(() =>
+{
+_priceLabel.Text = newPrice.ToString("C");
+_priceLabel.ForeColor = newPrice > oldPrice ? Color.Green : Color.Red;
+FlashAnimation();
+});
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+View-First Interaction
+Sometimes views handle initial input before involving controllers:
+public class SearchView : UserControl
+{
+private readonly SearchController _controller;
+private readonly TextBox _searchBox;
+private readonly Timer _debounceTimer;
+public SearchView(SearchController controller)
+{
+_controller = controller;
+_debounceTimer = new Timer { Interval = 300 };
+_debounceTimer.Tick += ExecuteSearch;
+_searchBox.TextChanged += OnSearchTextChanged;
+}
+private void OnSearchTextChanged(object sender, EventArgs e)
+{
+// View handles input debouncing before controller
+_debounceTimer.Stop();
+if (string.IsNullOrWhiteSpace(_searchBox.Text))
+{
+ClearResults();
+return;
+}
+ShowSearchingIndicator();
+_debounceTimer.Start();
+}
+private async void ExecuteSearch(object sender, EventArgs e)
+{
+_debounceTimer.Stop();
+// Now flow goes: View → Controller → Model → View
+var results = await _controller.SearchAsync(_searchBox.Text);
+DisplayResults(results);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Command Pattern Integration
+Desktop applications often use command pattern for undo/redo functionality:
+public interface ICommand
+{
+void Execute();
+void Undo();
+string Description { get; }
+}
+public class UpdatePriceCommand : ICommand
+{
+private readonly ProductModel _model;
+private readonly decimal _oldPrice;
+private readonly decimal _newPrice;
+public UpdatePriceCommand(ProductModel model, decimal newPrice)
+{
+_model = model;
+_oldPrice = model.Price;
+_newPrice = newPrice;
+}
+public void Execute() => _model.Price = _newPrice;
+public void Undo() => _model.Price = _oldPrice;
+public string Description => $"Update price to {_newPrice:C}";
+}
+public class ProductController
+{
+private readonly Stack<ICommand> _undoStack = new();
+private readonly Stack<ICommand> _redoStack = new();
+private readonly ProductModel _model;
+public void UpdatePrice(decimal newPrice)
+{
+// Flow: Input → Controller → Command → Model → Multiple Views
+var command = new UpdatePriceCommand(_model, newPrice);
+command.Execute();
+_undoStack.Push(command);
+_redoStack.Clear(); // Clear redo stack on new action
+// Notify all views through model's observer pattern
+_model.NotifyObservers();
+}
+public void Undo()
+{
+if (_undoStack.Count == 0) return;
+var command = _undoStack.Pop();
+command.Undo();
+_redoStack.Push(command);
+_model.NotifyObservers();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+1.3 API MVC Flows
+RESTful Response Generation
+API controllers transform models into various representations:
+public class ProductApiController : ControllerBase
+{
+[HttpGet("products/{id}")]
+[Produces("application/json", "application/xml", "application/hal+json")]
+public async Task<IActionResult> Get(
+int id,
+[FromHeader(Name = "Accept")] string acceptHeader,
+[FromQuery] string fields = null)
+{
+// Flow: Request → Controller → Service → Model → Serializer → Response
+var product = await _productService.GetAsync(id);
+if (product == null)
+return NotFound();
+// Content negotiation flow
+return acceptHeader switch
+{
+var h when h.Contains("hal+json") => Ok(ToHal(product)),
+var h when h.Contains("xml") => Ok(ToXml(product)),
+_ => Ok(fields != null ? ToPartialJson(product, fields) : product)
+};
+}
+private object ToHal(Product product)
+{
+// HAL+JSON transformation
+return new
+{
+_links = new
+{
+self = new { href = $"/products/{product.Id}" },
+category = new { href = $"/categories/{product.CategoryId}" },
+reviews = new { href = $"/products/{product.Id}/reviews" }
+},
+id = product.Id,
+name = product.Name,
+price = product.Price,
+_embedded = new
+{
+manufacturer = new
+{
+name = product.Manufacturer.Name,
+_links = new
+{
+self = new { href = $"/manufacturers/{product.ManufacturerId}" }
+}
+}
+}
+};
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Service Layer with Aggregation
+APIs often aggregate data from multiple services:
+public class OrderApiController : ControllerBase
+{
+[HttpGet("orders/{id}/complete")]
+public async Task<IActionResult> GetCompleteOrder(int id)
+{
+// Parallel service calls for aggregation
+var orderTask = _orderService.GetOrderAsync(id);
+var customerTask = _customerService.GetCustomerAsync(id);
+var shipmentsTask = _shippingService.GetShipmentsAsync(id);
+var invoicesTask = _billingService.GetInvoicesAsync(id);
+try
+{
+await Task.WhenAll(orderTask, customerTask, shipmentsTask, invoicesTask);
+}
+catch (Exception ex)
+{
+return StatusCode(503, new { error = "Service unavailable", details = ex.Message });
+}
+// Build aggregated response
+var response = new CompleteOrderDto
+{
+Order = orderTask.Result,
+Customer = customerTask.Result,
+Shipments = shipmentsTask.Result,
+Invoices = invoicesTask.Result,
+ComputedMetrics = ComputeMetrics(orderTask.Result, shipmentsTask.Result)
+};
+// Add caching headers for expensive aggregation
+Response.Headers.Add("Cache-Control", "private, max-age=300");
+Response.Headers.Add("ETag", ComputeETag(response));
+return Ok(response);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+1.4 Asynchronous MVC Flows
+Task-Based Async Pattern
+Modern MVC heavily relies on async/await for non-blocking operations:
+public class ReportController : Controller
+{
+[HttpPost("reports/generate")]
+public async Task<IActionResult> GenerateReport(ReportRequest request)
+{
+// Initiate long-running async operation
+var reportId = Guid.NewGuid();
+// Start background task (fire and forget)
+_ = Task.Run(async () =>
+{
+try
+{
+// Flow: Controller → Background Task → Service → Model → Notification
+await _reportService.GenerateReportAsync(reportId, request);
+await _notificationService.NotifyReportReadyAsync(reportId, request.UserId);
+}
+catch (Exception ex)
+{
+await _notificationService.NotifyReportFailedAsync(reportId, request.UserId, ex);
+}
+});
+// Return immediately with tracking ID
+return Accepted(new { reportId, statusUrl = $"/reports/{reportId}/status" });
+}
+[HttpGet("reports/{reportId}/status")]
+public async Task<IActionResult> GetReportStatus(Guid reportId)
+{
+var status = await _reportService.GetStatusAsync(reportId);
+return status.State switch
+{
+ReportState.Pending => Ok(new { state = "pending", progress = status.Progress }),
+ReportState.Processing => Ok(new { state = "processing", progress = status.Progress }),
+ReportState.Complete => Ok(new { state = "complete", downloadUrl = $"/reports/{reportId}/download" }),
+ReportState.Failed => Ok(new { state = "failed", error = status.Error }),
+_ => NotFound()
+};
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+WebSocket Integration
+Real-time updates through WebSocket create persistent bidirectional flows:
+public class TradingController : Controller
+{
+private readonly IHubContext<TradingHub> _hubContext;
+[HttpPost("trades/execute")]
+public async Task<IActionResult> ExecuteTrade(TradeRequest request)
+{
+// Traditional request/response flow
+var trade = await _tradingService.ExecuteTradeAsync(request);
+// Trigger WebSocket flow to all connected clients
+await _hubContext.Clients.Group($"symbol:{request.Symbol}")
+.SendAsync("TradeExecuted", new
+{
+TradeId = trade.Id,
+Symbol = request.Symbol,
+Price = trade.ExecutionPrice,
+Volume = trade.Volume,
+Timestamp = trade.ExecutedAt
+});
+// Also send to user's private channel
+await _hubContext.Clients.User(request.UserId)
+.SendAsync("YourTradeExecuted", trade);
+return Ok(trade);
+}
+}
+// SignalR Hub for WebSocket communication
+public class TradingHub : Hub
+{
+public override async Task OnConnectedAsync()
+{
+var userId = Context.UserIdentifier;
+// Subscribe to user's symbols
+var symbols = await _userService.GetWatchlistAsync(userId);
+foreach (var symbol in symbols)
+{
+await Groups.AddToGroupAsync(Context.ConnectionId, $"symbol:{symbol}");
+}
+// Start streaming prices for connected user
+_ = StreamPricesAsync(Context.ConnectionId, symbols);
+}
+private async Task StreamPricesAsync(string connectionId, List<string> symbols)
+{
+// Flow: External Feed → Hub → WebSocket → Multiple Clients
+await foreach (var priceUpdate in _priceFeed.StreamAsync(symbols))
+{
+await Clients.Client(connectionId)
+.SendAsync("PriceUpdate", priceUpdate);
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Key Insights from MVC Flow Patterns
+After examining these patterns, several insights emerge:
+Layered Complexity: What appears as a simple Controller → Model → View flow actually involves multiple layers of middleware, filters, services, and transformations.
+Bidirectional Processing: Many MVC components (middleware, filters) process both requests and responses, creating bidirectional flows within an overall unidirectional pattern.
+Parallel Flows: Modern MVC frequently uses parallel processing for aggregation and performance, requiring careful coordination of concurrent operations.
+Event-Driven Elements: Even in request-driven MVC, event-driven patterns (WebSockets, observer pattern) are increasingly common for real-time features.
+Transaction Boundaries: Service layer integration introduces complex transaction management that spans multiple models and external services.
+Understanding these patterns helps explain why MVC remains dominant for web applications—its sequential, request-driven nature maps naturally to HTTP while providing hooks for more complex flows when needed. The next section will explore how MVVM approaches these same challenges with its reactive, binding-based architecture.
+In Part 2, we will consider MVVM flow in detail: Part 2 - MVVM Flow Patterns in Detail.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Dimension AI Technologies
+Follow
+Adventures in AI startups.
+Location
+Cambridge, UK
+Joined
+Apr 18, 2025
+More from Dimension AI Technologies
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 5
+#architecture
+#mvc
+#mvvm
+#ui
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 4
+#architecture
+#mvc
+#mvvm
+#ui
+MVC vs MVVM: Deep Dive into Real-World Flow Patterns - Part 2
+#architecture
+#mvc
+#mvvm
+#ui
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,452 @@
+Engineer's Guide to Local LLMs with LLaMA.cpp on Linux - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Aslan Vatsaev
+Posted on Sep 15
+Engineer's Guide to Local LLMs with LLaMA.cpp on Linux
+#ai
+#llamacpp
+#tutorial
+#llm
+Introduction
+In this write up I will share my local AI setup on Ubuntu that I use for my personal projects as well as professional workflows (local chat, agentic workflows, coding agents, data analysis, synthetic dataset generation, etc).
+This setup is particularly useful when I want to generate large amounts of synthetic datasets locally, process large amounts of sensitive data with LLMs in a safe way, use local agents without sending my private data to third party LLM providers, or just use chat/RAGs in complete privacy.
+What you'll learn
+Compile LlamaCPP on your machine, set it up in your PATH, keep it up to date (compiling from source allows to use the bleeding edge version of llamacpp so you can always get latest features as soon as they are merged into the master branch)
+Use llama-server to serve local models with very fast inference speeds
+Setup llama-swap to automate model swapping on the fly and use as your OpenAI compatible proxy endpoint.
+Use systemd to setup llama-swap as a service that boots with your system and automatically restarts when the server config file changes
+Integrate local AI in Agent Mode into your terminal with QwenCode/OpenCode
+Test some local agentic workflows in Python with CrewAI (Part II)
+I will share what models I use for different types of workflows and show different advanced configurations for each model (context expansion, parallel batch inference, and more.
+This will be a technical write up, and I will skip some things like installing and configuring basic build tools, CUDA toolkit installation, git, etc, if I do miss some steps that where not obvious to setup, or something doesn't work from your end, please let me know in the comments, I will gladly help you out, and progressively update the article with new information and more details as more people complain about specific aspects of the setup process.
+Hardware
+RTX3090 Founders Edition 24GB VRAM
+The more VRAM you have the larger models you can load, but if you don't have the same GPU as long at it's an NVIDIA GPU it's fine, you can still load smaller models, just don't expect good agentic and tool usage results from smaller LLMs.
+RTX3090 can load a Q5 quantized 30B Qwen3 model entirely into VRAM, with up to 140t/s as inference speed and 24k tokens context window (or up 110K tokens with some flash attention magic)
+Prerequisites
+Experience with working on a Linux Dev Box
+Ubuntu 24 or 25
+NVIDIA proprietary drivers installed (version 580 at the time of writing)
+CUDA toolking installed
+Linux build tools + Git installed and configured
+Architecture
+Here is a rough overview of the architecture we will be setting up:
+Installing and setting up Llamacpp
+LlamaCpp is a very fast and flexible inference engine, it will allow us to run LLMs in GGUF format locally.
+Clone the repo:
+git clone git@github.com:ggml-org/llama.cpp.git
+Enter fullscreen mode
+Exit fullscreen mode
+cd into the repo:
+cd llama.cpp
+Enter fullscreen mode
+Exit fullscreen mode
+compile llamacpp for CUDA:
+cmake -B build -DGGML_CUDA=ON -DBUILD_SHARED_LIBS=OFF -DLLAMA_CURL=ON -DGGML_CUDA_FA_ALL_QUANTS=ON
+Enter fullscreen mode
+Exit fullscreen mode
+If you have a different GPU, checkout the build guide here
+cmake --build build --config Release -j --clean-first
+Enter fullscreen mode
+Exit fullscreen mode
+This will create llama.cpp binaries in build/bin folder.
+To update llamacpp to bleeding edge just pull the lastes changes from the master branch with git pull origin master and run the same commands to recompile
+Add llamacpp to PATH
+Depending on your shell, add the following to you bashrc or zshrc config file so we can execute llamacpp binaries in the terminal
+export LLAMACPP=[PATH TO CLONED LLAMACPP FOLDER]
+export PATH=$LLAMACPP/build/bin:$PATH
+Enter fullscreen mode
+Exit fullscreen mode
+Test that everything works correctly:
+llama-server --help
+Enter fullscreen mode
+Exit fullscreen mode
+The output should look like this:
+Test that inference is working correctly:
+llama-cli -hf ggml-org/gemma-3-1b-it-GGUF
+Enter fullscreen mode
+Exit fullscreen mode
+Great! now that we can do inference, let move on to setting up llama swap
+Installing and setting up llama swap
+llama-swap
+is a light weight, proxy server that provides automatic model swapping to llama.cpp's server. It will automate the model loading and unloading through a special configuration file and provide us with an openai compatible REST API endpoint.
+Download and install
+Download the latest version from the releases page:
+https://github.com/mostlygeek/llama-swap/releases
+(look for
+llama-swap_159_linux_amd64.tar.gz )
+Unzip the downloaded archive and put the llama-swap executable somewhere in your home folder (eg: ~/llama-swap/bin/llama-swap)
+Add it to your path :
+export PATH=$HOME/llama-swap/bin:$PATH
+Enter fullscreen mode
+Exit fullscreen mode
+create an empty (for now) config file file in ~/llama-swap/config.yaml
+test the executable
+llama-swap --help
+Before setting up llama-swap configuration we first need to download a few GGUF models .
+To get started, let's download qwen3-4b and gemma gemma3-4b
+https://huggingface.co/ggml-org/Qwen3-4B-GGUF/blob/main/Qwen3-4B-Q8_0.gguf
+https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/blob/main/gemma-3-4b-it-Q8_0.gguf
+Download and put the GGUF files in the following folder structure
+~/models
+├── google
+│   └── Gemma3-4B
+│
+└── Qwen3-4B-Q8_0.gguf
+└── qwen
+└── Qwen3-4B
+└── gemma-3-4b-it-Q8_0.gguf
+Enter fullscreen mode
+Exit fullscreen mode
+Now that we have some ggufs, let's create a llama-swap config file.
+Llama Swap config file
+Our llama swap config located in ~/llama-swap/config.yaml will look like this:
+macros:
+"Qwen3-4b-macro": >
+llama-server \
+--port ${PORT} \
+-ngl 80 \
+--ctx-size 8000 \
+--temp 0.7 \
+--top-p 0.8 \
+--top-k 20 \
+--min-p 0 \
+--repeat-penalty 1.05 \
+--no-webui \
+--timeout 300 \
+--flash-attn on \
+--jinja \
+--alias Qwen3-4b \
+-m /home/[YOUR HOME FOLDER]/models/qwen/Qwen3-4B/Qwen3-4B-Q8_0.gguf
+"Gemma-3-4b-macro": >
+llama-server \
+--port ${PORT} \
+-ngl 80 \
+--top-p 0.95 \
+--top-k 64 \
+--no-webui \
+--timeout 300 \
+--flash-attn on \
+-m /home/[YOUR HOME FOLDER]/models/google/Gemma3-4B/gemma-3-4b-it-Q8_0.gguf
+models:
+"Qwen3-4b": # <-- this is your model ID when calling the REST API
+cmd: |
+${Qwen3-4b-macro}
+ttl: 3600
+"Gemma3-4b":
+cmd: |
+${Gemma-3-4b-macro}
+ttl: 3600
+Enter fullscreen mode
+Exit fullscreen mode
+Start llama-swap
+Now we can start llama-swap with the following command:
+llama-swap --listen 0.0.0.0:8083 --config ~/llama-swap/config.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+You can access llama-swap UI at: http://localhost:8083
+Here you can see all configured models, you can also load or unload them manually.
+Inference
+Let's do some inference via llama-swap REST API completions endpoint
+Calling Qwen3:
+curl -X POST http://localhost:8083/v1/chat/completions \
+-H "Content-Type: application/json" \
+-d '{
+"messages": [
+{
+"role": "user",
+"content": "hello"
+}
+],
+"stream": false,
+"model": "Qwen3-4b"
+}' | jq
+Enter fullscreen mode
+Exit fullscreen mode
+Calling Gemma3:
+curl -X POST http://localhost:8083/v1/chat/completions \
+-H "Content-Type: application/json" \
+-d '{
+"messages": [
+{
+"role": "user",
+"content": "hello"
+}
+],
+"stream": false,
+"model": "Gemma3-4b"
+}' | jq
+Enter fullscreen mode
+Exit fullscreen mode
+You should see a response from the server that looks something like this, and llamaswap will automatically load the correct model into the memory with each request:
+"choices": [
+{
+"finish_reason": "stop",
+"index": 0,
+"message": {
+"role": "assistant",
+"content": "Hello! How can I assist you today? 😊"
+}
+}
+],
+"created": 1757877832,
+"model": "Qwen3-4b",
+"system_fingerprint": "b6471-261e6a20",
+"object": "chat.completion",
+"usage": {
+"completion_tokens": 12,
+"prompt_tokens": 9,
+"total_tokens": 21
+},
+"id": "chatcmpl-JgolLnFcqEEYmMOu18y8dDgQCEx9PAVl",
+"timings": {
+"cache_n": 8,
+"prompt_n": 1,
+"prompt_ms": 26.072,
+"prompt_per_token_ms": 26.072,
+"prompt_per_second": 38.35532371893219,
+"predicted_n": 12,
+"predicted_ms": 80.737,
+"predicted_per_token_ms": 6.728083333333333,
+"predicted_per_second": 148.63073931406916
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Optional: Adding llamaswap as systemd service and setup auto restart when config file changes
+If you don't want to manually run the llama-swap command everytime you turn on your workstation or manually reload the llama-swap server when you change your config you can leverage systemd to automate that away, create the following files:
+Llamaswap service unit (if you are not using zsh adapt the ExecStart accordingly)
+~/.config/systemd/user/llama-swap.service:
+[Unit]
+Description=Llama Swap Server
+After=multi-user.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/zsh -l -c "source ~/.zshrc && llama-swap --listen 0.0.0.0:8083 --config ~/llama-swap/config.yaml"
+WorkingDirectory=%h
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+Enter fullscreen mode
+Exit fullscreen mode
+Llamaswap restart service unit
+~/.config/systemd/user/llama-swap-restart.service:
+[Unit]
+Description=Restart llama-swap service
+After=llama-swap.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user restart llama-swap.service
+Enter fullscreen mode
+Exit fullscreen mode
+Llamaswap path unit (will allow to monitor changes in the llama-swap config file and call the restart service whenever the changes are detected):
+~/.config/systemd/user/llama-swap-config.path
+[Unit]
+Description=Monitor llamaswap config file for changes
+After=multi-user.target
+[Path]
+# Monitor the specific file for modifications
+PathModified=%h/llama-swap/config.yaml
+Unit=llama-swap-restart.service
+[Install]
+WantedBy=default.target
+Enter fullscreen mode
+Exit fullscreen mode
+Enable and start the units:
+sudo systemctl daemon-reload
+Enter fullscreen mode
+Exit fullscreen mode
+systemctl --user enable llama-swap-restart.service llama-swap.service llama-swap-config.path
+Enter fullscreen mode
+Exit fullscreen mode
+systemctl --user start llama-swap.service
+Enter fullscreen mode
+Exit fullscreen mode
+Check that the service is running correctly:
+systemctl --user status llama-swap.service
+Enter fullscreen mode
+Exit fullscreen mode
+Monitor llamaswap server logs:
+journalctl --user -u llama-swap.service -f
+Enter fullscreen mode
+Exit fullscreen mode
+Whenever the llama swap config is updated, the llamawap proxy server will automatically restart, you can verify it by monitoring the logs and making an update to the config file.
+If were able to get this far, congrats, you can start downloading and configuring your own models and setting up your own config, you can draw some inspiration from my config available here: https://gist.github.com/avatsaev/dc302228e6628b3099cbafab80ec8998
+It contains some advanced configurations, like multi-modal inference, parallel inference on the same model, extending context length with flash attention and more
+Connecting QwenCode to local models
+Install QwenCode
+And let's use it with Qwen3 Coder 30B Instruct locally (I recommend having 24GB of VRAM for this one 😅)
+Here is my llama swap config:
+macros:
+"Qwen3-Coder-30B-A3B-Instruct": >
+llama-server \
+--api-key qwen \
+--port ${PORT} \
+-ngl 80 \
+--ctx-size 110000 \
+--temp 0.7 \
+--top-p 0.8 \
+--top-k 20 \
+--min-p 0 \
+--repeat-penalty 1.05 \
+--cache-type-k q8_0 \
+--cache-type-v q8_0 \
+--no-webui \
+--timeout 300 \
+--flash-attn on \
+--alias Qwen3-coder-instruct \
+--jinja \
+-m /home/avatsaev/models/qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf
+models:
+"Qwen3-coder":
+cmd: |
+${Qwen3-Coder-30B-A3B-Instruct}
+ttl: 3600
+Enter fullscreen mode
+Exit fullscreen mode
+I'm using Unsloth's Dynamic quants at Q4 with flash attention and extending the context window to 100k tokens (with --cache-type-k and --cache-type-v flags), this is right at the edge of 24GBs of vram of my RTX3090.
+You can download qwen coder ggufs here
+For a test scenario let's create a very simple react app in typescript
+Create an empty project folder ~/qwen-code-test
+Inside this folder create an .env file with the following contents:
+OPENAI_API_KEY="qwen"
+OPENAI_BASE_URL="http://localhost:8083/v1"
+OPENAI_MODEL="Qwen3-coder"
+Enter fullscreen mode
+Exit fullscreen mode
+I've installed Qwen Code Copmanion extenstion in VS Code for seamless integration with Qwen Code, and here are the results, a fully local coding agent running in VS Code 😁
+Follow for more, like, and let me know how you will use this setup in your workflows in the comments.
+And if you have any questions, feel free to ask.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Aslan Vatsaev
+Follow
+AI Software Engineer
+Education
+Software engineering, computer science
+Work
+AI Software Engineer at Edenred
+Joined
+Nov 13, 2018
+More from Aslan Vatsaev
+Local Intelligence: How to set up a local GPT Chat for secure & private document analysis workflow
+#ai
+#llm
+#chat
+#rag
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

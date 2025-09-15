@@ -1,0 +1,219 @@
+Default styles for h1 elements are changing
+Skip to main content
+Skip to search
+MDN
+HTML
+HTML: Markup language
+HTML reference
+Elements
+Global attributes
+Attributes
+See allâ¦
+HTML guides
+Responsive images
+HTML cheatsheet
+Date & time formats
+See allâ¦
+Markup languages
+SVG
+MathML
+XML
+CSS
+CSS: Styling language
+CSS reference
+Properties
+Selectors
+At-rules
+Values & units
+See allâ¦
+CSS guides
+Box model
+Animations
+Flexbox
+Colors
+See allâ¦
+Layout cookbook
+Column layouts
+Centering an element
+Card component
+See allâ¦
+JavaScript
+JS
+JavaScript: Scripting language
+JS reference
+Standard built-in objects
+Expressions & operators
+Statements & declarations
+Functions
+See allâ¦
+JS guides
+Control flow & error handing
+Loops and iteration
+Working with objects
+Using classes
+See allâ¦
+Web APIs
+Web APIs: Programming interfaces
+Web API reference
+File system API
+Fetch API
+Geolocation API
+HTML DOM API
+Push API
+Service worker API
+See allâ¦
+Web API guides
+Using the Web animation API
+Using the Fetch API
+Working with the History API
+Using the Web speech API
+Using web workers
+All
+All web technology
+Technologies
+Accessibility
+HTTP
+URI
+Web extensions
+WebAssembly
+WebDriver
+See allâ¦
+Topics
+Media
+Performance
+Privacy
+Security
+Progressive web apps
+Learn
+Learn web development
+Frontend developer course
+Getting started
+Common questions
+Curriculum
+Learn HTML
+Introduction to HTML
+Getting started with HTML
+Learn CSS
+What is CSS
+Getting started with CSS
+Learn JavaScript
+How to use data attributes
+Add JavaScript to your web page
+Tools
+Discover our tools
+Playground
+HTTP Observatory
+Color picker
+Box-shadow generator
+Border-image generator
+Border-radius generator
+About
+Get to know MDN better
+About MDN
+Advertise with us
+Community
+MDN on GitHub
+Blog
+MDN Blog
+Default styles for h1 elements are changing
+In this article
+What's changingWhat to expect and whenFixing the Lighthouse warningSummarySee also
+Default styles for h1 elements are changing
+Simon Pieters
+April 11, 2025
+â¨4â© minutes read
+Browsers are starting to roll out changes in default UA styles for nested section headings. Developers should check that their sites don't rely on UA styles for certain cases to avoid unexpected results and failing Lighthouse checks. In this post, we'll have a look at what the incoming changes are, how to identify if it's an issue on your pages, and some hints for conformant and better-structured websites.
+What's changing
+The HTML spec used to define an outline algorithm that gave <h1> elements an implicit semantic heading level based on how many sectioning elements (<section>, <aside>, <nav>, and <article>) it was nested inside.
+The browser rendering was such that section > h1 would have the same font-size and margin as <h2>. The section > section > h1 would be represented as <h3>, and so on. The default rendering was implemented in browsers in their UA styles, but not the heading level in the accessibility tree (what screen readers use). Websites started to use sectioning elements, but didn't expect to see the automatic heading levels from the outline algorithm.
+In general, this created confusion about where developers could use <h1> elements, tools handled the HTML differently, and the outline algorithm was considered problematic. The outline algorithm was removed from the HTML spec in 2022, but the UA stylesheet rules still remain. The rules in the default styles are what browser vendors are starting to remove now.
+css/* where x is :is(article, aside, nav, section) */
+x h1 { margin-block: 0.83em; font-size: 1.50em; }
+x x h1 { margin-block: 1.00em; font-size: 1.17em; }
+x x x h1 { margin-block: 1.33em; font-size: 1.00em; }
+x x x x h1 { margin-block: 1.67em; font-size: 0.83em; }
+x x x x x h1 { margin-block: 2.33em; font-size: 0.67em; }
+For example:
+html<body>
+<h1>Level 1</h1>
+<section>
+<h1>Level 2</h1>
+<section>
+<h1>Level 3</h1>
+<section>
+<h1>Level 4</h1>
+</section>
+</section>
+</section>
+</body>
+This looks as follows in the old UA styles:
+The new UA styles will have this appearance:
+And here's the HTML example above with your browser's default styles:
+What to expect and when
+Alongside the changes in browser styles, page auditing tools like Lighthouse now flag cases of <h1>s without defined font-size as bad practice. Here's the gist of what to expect:
+<h1> will no longer adapt its style based on surrounding sectioning elements like <section>, <article>, <nav>, and <aside>. UA stylesheet will apply the same style to <h1> with no implicit styles that demote <h1> to match <h2>, <h3>, etc.
+Lighthouse will flag a warning if <h1> is used without a specified font-size and is nested in <section>, <article>, <nav>, or <aside>. The Lighthouse deprecation warning to look out for is H1UserAgentFontSizeInSection. Hints for dealing with this are described in the next section.
+In terms of when this is happening, changes are rolling out in the following browsers in this timeline:
+Firefox
+From March 31, 2025, Firefox is rolling out changes to 50% of Beta 138 users to remove UA styles for h1 in article, aside, nav, or section on desktop, then 100% of Beta 138 starting April 14. The plan is to roll out to 5% of users on the Firefox 138 stable release, ramp up to 10% of users, then ship on all platforms in Firefox 140. bug 1885509.
+Since Firefox 136, developers will see a console warning for h1s in article/aside/nav/section without author-defined font-size or margins: bug 1937568.
+To test in Firefox with the new behavior, set layout.css.h1-in-section-ua-styles.enabled to false in about:config.
+Chrome
+Since version 136, Chrome shows deprecation warnings for <h1> inside the 4 elements, when the <h1> uses the default smaller font size. Marking something deprecated in Chromium will lower Lighthouse scores for "Best Practices": issue 394111284
+Safari
+The implementation bug to track for Safari is bug 292765.
+Fixing the Lighthouse warning
+Lighthouse has recently inherited a check based on Chromium's DevTools warnings for sites that don't specify a font-size for <h1> elements in <section>, <article>, <nav>, or <aside>. The new rule is called H1UserAgentFontSizeInSection and shows up since March following the addition of deprecation warnings. If you see the <h1> warning, make sure you're applying an explicit <h1> font-size and margins. Here's some recommended styles to use:
+cssh1 {
+margin-block: 0.67em;
+font-size: 2em;
+}
+To avoid overwriting other style rules that target <h1> you can use :where(), which has zero specificity:
+css:where(h1) {
+margin-block: 0.67em;
+font-size: 2em;
+}
+The MDN page for heading elements now contains the usage notes listed above so there is a visible place for developers to see this information.
+Summary
+Here's some things to keep in mind:
+Do not rely on default browser styles for conveying a heading hierarchy. Explicitly define your document hierarchy using <h2> for second-level headings, <h3> for third-level, etc.
+Always define your own font-size and margin for <h1> elements.
+Consider updating your CSS resets to account for the change.
+Audit your site using Lighthouse and browser DevTools to check for deprecated usage.
+Check the usage notes on the MDN documentation for HTML section headings.
+See also
+Firefox: Intent to unship UA styles for h1 in article, aside, nav, section
+HTML issue: Remove UA style for h1-h6 in section (et. al.) and hgroup
+HTML pull request: Remove UA styles for h1 in article, aside, nav, section
+Firefox beta 138 changes announcement on Bluesky
+Previous post
+Implications of Global Privacy Control
+Next post
+Color models for humans and devices
+Your blueprint for a better internet.
+MDN
+About
+Blog
+Mozilla careers
+Advertise with us
+MDN Plus
+Product help
+Contribute
+MDN Community
+Community resources
+Writing guidelines
+MDN Discord
+MDN on GitHub
+Developers
+Web technologies
+Learn web development
+Guides
+Tutorials
+Glossary
+Hacks blog
+Website Privacy Notice
+Cookies
+Legal
+Community Participation Guidelines
+Visit Mozilla Corporationâs not-for-profit parent, the Mozilla Foundation.
+Portions of this content are Â©1998ââ¨2025â© by individual mozilla.org contributors. Content available under a Creative Commons license.

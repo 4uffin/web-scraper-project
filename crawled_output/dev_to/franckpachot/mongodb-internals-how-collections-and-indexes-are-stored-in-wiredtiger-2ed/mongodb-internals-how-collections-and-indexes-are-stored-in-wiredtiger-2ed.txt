@@ -1,0 +1,761 @@
+MongoDB Internals: How Collections and Indexes Are Stored in WiredTiger - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Franck Pachot
+Posted on Sep 14
+MongoDB Internals: How Collections and Indexes Are Stored in WiredTiger
+#mongodb
+#database
+#wiredtiger
+#internals
+WiredTiger (2 Part Series)
+1
+Resilience of MongoDB's WiredTiger Storage Engine to Disk Failure Compared to PostgreSQL and Oracle
+2
+MongoDB Internals: How Collections and Indexes Are Stored in WiredTiger
+WiredTiger is MongoDB’s default storage engine, but what really occurs behind the scenes when collections and indexes are saved to disk? In this short deep dive, we’ll explore the internals of WiredTiger data files, covering everything from _mdb_catalog metadata and B-Tree page layouts to BSON storage, primary and secondary indexes, and multi-key array handling. The goal is to introduce useful low-level tools like wt and other utilities.
+I ran this experiment in a Docker container, set up as described in a previous blog post:
+docker run --rm -it --cap-add=SYS_PTRACE mongo bash
+# install required packages
+apt-get update && apt-get install -y git xxd strace curl jq python3 python3-dev python3-pip python3-venv python3-pymongo python3-bson build-essential cmake gcc g++ libstdc++-12-dev libtool autoconf automake swig liblz4-dev zlib1g-dev libmemkind-dev libsnappy-dev libsodium-dev libzstd-dev
+# get WiredTiger main branch
+curl -L $(curl -s https://api.github.com/repos/wiredtiger/wiredtiger/releases/latest | jq -r '.tarball_url') -o wiredtiger.tar.gz
+git clone https://github.com/wiredtiger/wiredtiger.git
+cd wiredtiger
+# Compile
+mkdir build && cmake -S /wiredtiger -B /wiredtiger/build \
+-DCMAKE_C_FLAGS="-O0 -Wno-error -Wno-format-overflow -Wno-error=array-bounds -Wno-error=format-overflow -Wno-error=nonnull" \
+-DHAVE_BUILTIN_EXTENSION_SNAPPY=1 \
+-DCMAKE_BUILD_TYPE=Release
+cmake --build /wiredtiger/build
+# add `wt` binaries and other tools in the PATH
+export PATH=$PATH:/wiredtiger/build:/wiredtiger/tools
+# Start mongodb
+mongod &
+Enter fullscreen mode
+Exit fullscreen mode
+I use the mongo image, add the WiredTiger sources from the main branch, compile it to get wt, and start mongod.
+I create a small collection with three documents, and an index, and stop mongod:
+mongosh <<'JS'
+db.franck.insertMany([
+{_id:"aaa",val1:"xxx",val2:"yyy",val3:"zzz",msg:"hello world"},
+{_id:"bbb",val1:"xxx",val2:"yyy",val3:"zzz",msg:["hello","world"]},
+{_id:"ccc",val1:"xxx",val2:"yyy",val3:"zzz",msg:["hello","world","hello","again"]}
+]);
+db.franck.createIndex({_id:1,val1:1,val2:1,val3:1,msg:1});
+db.franck.find().showRecordId();
+use admin;
+db.shutdownServer();
+JS
+Enter fullscreen mode
+Exit fullscreen mode
+I stop MongoDB so that I can access the WiredTiger files with wt without them being opened and locked by another program. Before stopping, I displayed the documents:
+[
+{
+_id: 'aaa',
+val1: 'xxx',
+val2: 'yyy',
+val3: 'zzz',
+msg: 'hello world',
+'$recordId': Long('1')
+},
+{
+_id: 'bbb',
+val1: 'xxx',
+val2: 'yyy',
+val3: 'zzz',
+msg: [ 'hello', 'world' ],
+'$recordId': Long('2')
+},
+{
+_id: 'ccc',
+val1: 'xxx',
+val2: 'yyy',
+val3: 'zzz',
+msg: [ 'hello', 'world', 'hello', 'again' ],
+'$recordId': Long('3')
+}
+]
+Enter fullscreen mode
+Exit fullscreen mode
+The files are stored in the default WiredTiger directory /data/db
+MongoDB catalog, which maps the MongoDB collections to their storage attributes, is stored in a WiredTiger table _mdb_catalog. The default WiredTiger directory is /data/db:
+root@72cf410c04cb:/wiredtiger# ls -altU /data/db
+drwxr-xr-x. 4 root
+root
+32 Sep
+1 23:10 ..
+-rw-------. 1 root
+root
+0 Sep 13 20:33 mongod.lock
+drwx------. 2 root
+root
+74 Sep 13 20:29 journal
+-rw-------. 1 root
+root
+21 Sep 12 22:47 WiredTiger.lock
+-rw-------. 1 root
+root
+50 Sep 12 22:47 WiredTiger
+-rw-------. 1 root
+root
+73728 Sep 13 20:33 WiredTiger.wt
+-rw-r--r--. 1 root
+root
+1504 Sep 13 20:33 WiredTiger.turtle
+-rw-------. 1 root
+root
+4096 Sep 13 20:33 WiredTigerHS.wt
+-rw-------. 1 root
+root
+36864 Sep 13 20:33 sizeStorer.wt
+-rw-------. 1 root
+root
+36864 Sep 13 20:33 _mdb_catalog.wt
+-rw-------. 1 root
+root
+114 Sep 12 22:47 storage.bson
+-rw-------. 1 root
+root
+20480 Sep 13 20:33 collection-0-3767590060964183367.wt
+-rw-------. 1 root
+root
+20480 Sep 13 20:33 index-1-3767590060964183367.wt
+-rw-------. 1 root
+root
+36864 Sep 13 20:33 collection-2-3767590060964183367.wt
+-rw-------. 1 root
+root
+36864 Sep 13 20:33 index-3-3767590060964183367.wt
+-rw-------. 1 root
+root
+20480 Sep 13 20:20 collection-4-3767590060964183367.wt
+-rw-------. 1 root
+root
+20480 Sep 13 20:20 index-5-3767590060964183367.wt
+-rw-------. 1 root
+root
+20480 Sep 13 20:33 index-6-3767590060964183367.wt
+drwx------. 2 root
+root
+4096 Sep 13 20:33 diagnostic.data
+drwx------. 3 root
+root
+21 Sep 13 20:17 .mongodb
+-rw-------. 1 root
+root
+20480 Sep 13 20:33 collection-0-6917019827977430149.wt
+-rw-------. 1 root
+root
+20480 Sep 13 20:23 index-1-6917019827977430149.wt
+-rw-------. 1 root
+root
+20480 Sep 13 20:25 index-2-6917019827977430149.wt
+Enter fullscreen mode
+Exit fullscreen mode
+Catalog
+_mdb_catalog maps MongoDB names to WiredTiger table names. wt lists the key (recordId) and value (BSON):
+root@72cf410c04cb:~# wt -h /data/db dump table:_mdb_catalog
+WiredTiger Dump (WiredTiger Version 12.0.0)
+Format=print
+Header
+table:_mdb_catalog
+access_pattern_hint=none,allocation_size=4KB,app_metadata=(formatVersion=1),assert=(commit_timestamp=none,durable_timestamp=none,read_timestamp=none,write_timestamp=off),block_allocation=best,block_compressor=snappy,block_manager=default,cache_resident=false,checksum=on,colgroups=,collator=,columns=,dictionary=0,disaggregated=(page_log=),encryption=(keyid=,name=),exclusive=false,extractor=,format=btree,huffman_key=,huffman_value=,ignore_in_memory_cache_size=false,immutable=false,import=(compare_timestamp=oldest_timestamp,enabled=false,file_metadata=,metadata_file=,panic_corrupt=true,repair=false),in_memory=false,ingest=,internal_item_max=0,internal_key_max=0,internal_key_truncate=true,internal_page_max=4KB,key_format=q,key_gap=10,leaf_item_max=0,leaf_key_max=0,leaf_page_max=32KB,leaf_value_max=64MB,log=(enabled=true),lsm=(auto_throttle=,bloom=,bloom_bit_count=,bloom_config=,bloom_hash_count=,bloom_oldest=,chunk_count_limit=,chunk_max=,chunk_size=,merge_max=,merge_min=),memory_page_image_max=0,memory_page_max=10m,os_cache_dirty_max=0,os_cache_max=0,prefix_compression=false,prefix_compression_min=4,source="file:_mdb_catalog.wt",split_deepen_min_child=0,split_deepen_per_child=0,split_pct=90,stable=,tiered_storage=(auth_token=,bucket=,bucket_prefix=,cache_directory=,local_retention=300,name=,object_target_size=0),type=file,value_format=u,verbose=[],write_timestamp_usage=none
+Data
+\81
+r\01\00\00\03md\00\eb\00\00\00\02ns\00\15\00\00\00admin.system.version\00\03options\00 \00\00\00\05uuid\00\10\00\00\00\04\ba\fc\c2\a9;EC\94\9d\a1\df(\c9\87\eaW\00\04indexes\00\97\00\00\00\030\00\8f\00\00\00\03spec\00.\00\00\00\10v\00\02\00\00\00\03key\00\0e\00\00\00\10_id\00\01\00\00\00\00\02name\00\05\00\00\00_id_\00\00\08ready\00\01\08multikey\00\00\03multikeyPaths\00\10\00\00\00\05_id\00\01\00\00\00\00\00\00\12head\00\00\00\00\00\00\00\00\00\08backgroundSecondary\00\00\00\00\00\03idxIdent\00+\00\00\00\02_id_\00\1c\00\00\00index-1-3767590060964183367\00\00\02ns\00\15\00\00\00admin.system.version\00\02ident\00!\00\00\00collection-0-3767590060964183367\00\00
+\82
+\7f\01\00\00\03md\00\fb\00\00\00\02ns\00\12\00\00\00local.startup_log\00\03options\003\00\00\00\05uuid\00\10\00\00\00\042}_\a9\16,L\13\aa*\09\b5<\ea\aa\d6\08capped\00\01\10size\00\00\00\a0\00\00\04indexes\00\97\00\00\00\030\00\8f\00\00\00\03spec\00.\00\00\00\10v\00\02\00\00\00\03key\00\0e\00\00\00\10_id\00\01\00\00\00\00\02name\00\05\00\00\00_id_\00\00\08ready\00\01\08multikey\00\00\03multikeyPaths\00\10\00\00\00\05_id\00\01\00\00\00\00\00\00\12head\00\00\00\00\00\00\00\00\00\08backgroundSecondary\00\00\00\00\00\03idxIdent\00+\00\00\00\02_id_\00\1c\00\00\00index-3-3767590060964183367\00\00\02ns\00\12\00\00\00local.startup_log\00\02ident\00!\00\00\00collection-2-3767590060964183367\00\00
+\83
+^\02\00\00\03md\00\a7\01\00\00\02ns\00\17\00\00\00config.system.sessions\00\03options\00 \00\00\00\05uuid\00\10\00\00\00\04D\09],\c6\15FG\b6\e2m!\ba\c4j<\00\04indexes\00Q\01\00\00\030\00\8f\00\00\00\03spec\00.\00\00\00\10v\00\02\00\00\00\03key\00\0e\00\00\00\10_id\00\01\00\00\00\00\02name\00\05\00\00\00_id_\00\00\08ready\00\01\08multikey\00\00\03multikeyPaths\00\10\00\00\00\05_id\00\01\00\00\00\00\00\00\12head\00\00\00\00\00\00\00\00\00\08backgroundSecondary\00\00\00\031\00\b7\00\00\00\03spec\00R\00\00\00\10v\00\02\00\00\00\03key\00\12\00\00\00\10lastUse\00\01\00\00\00\00\02name\00\0d\00\00\00lsidTTLIndex\00\10expireAfterSeconds\00\08\07\00\00\00\08ready\00\01\08multikey\00\00\03multikeyPaths\00\14\00\00\00\05lastUse\00\01\00\00\00\00\00\00\12head\00\00\00\00\00\00\00\00\00\08backgroundSecondary\00\00\00\00\00\03idxIdent\00Y\00\00\00\02_id_\00\1c\00\00\00index-5-3767590060964183367\00\02lsidTTLIndex\00\1c\00\00\00index-6-3767590060964183367\00\00\02ns\00\17\00\00\00config.system.sessions\00\02ident\00!\00\00\00collection-4-3767590060964183367\00\00
+\84
+\a6\02\00\00\03md\00\e6\01\00\00\02ns\00\0c\00\00\00test.franck\00\03options\00 \00\00\00\05uuid\00\10\00\00\00\04>\04\ec\e2SUK\ca\98\e8\bf\fe\0eu\81L\00\04indexes\00\9b\01\00\00\030\00\8f\00\00\00\03spec\00.\00\00\00\10v\00\02\00\00\00\03key\00\0e\00\00\00\10_id\00\01\00\00\00\00\02name\00\05\00\00\00_id_\00\00\08ready\00\01\08multikey\00\00\03multikeyPaths\00\10\00\00\00\05_id\00\01\00\00\00\00\00\00\12head\00\00\00\00\00\00\00\00\00\08backgroundSecondary\00\00\00\031\00\01\01\00\00\03spec\00q\00\00\00\10v\00\02\00\00\00\03key\005\00\00\00\10_id\00\01\00\00\00\10val1\00\01\00\00\00\10val2\00\01\00\00\00\10val3\00\01\00\00\00\10msg\00\01\00\00\00\00\02name\00!\00\00\00_id_1_val1_1_val2_1_val3_1_msg_1\00\00\08ready\00\01\08multikey\00\01\03multikeyPaths\00?\00\00\00\05_id\00\01\00\00\00\00\00\05val1\00\01\00\00\00\00\00\05val2\00\01\00\00\00\00\00\05val3\00\01\00\00\00\00\00\05msg\00\01\00\00\00\00\01\00\12head\00\00\00\00\00\00\00\00\00\08backgroundSecondary\00\00\00\00\00\03idxIdent\00m\00\00\00\02_id_\00\1c\00\00\00index-1-6917019827977430149\00\02_id_1_val1_1_val2_1_val3_1_msg_1\00\1c\00\00\00index-2-6917019827977430149\00\00\02ns\00\0c\00\00\00test.franck\00\02ident\00!\00\00\00collection-0-6917019827977430149\00\00
+Enter fullscreen mode
+Exit fullscreen mode
+I can decode the BSON value with wt_to_mdb_bson.py to display it as JSON, and use jq to filter the file information about the collection I've created:
+wt -h /data/db dump -x table:_mdb_catalog |
+wt_to_mdb_bson.py -m dump -j |
+jq 'select(.value.ns == "test.franck") |
+{ns: .value.ns, ident: .value.ident, idxIdent: .value.idxIdent}
+'
+{
+"ns": "test.franck",
+"ident": "collection-0-6917019827977430149",
+"idxIdent": {
+"_id_": "index-1-6917019827977430149",
+"_id_1_val1_1_val2_1_val3_1_msg_1": "index-2-6917019827977430149"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+ident is the WiredTiger table name (collection-...) for the collection documents. All collections have a primary key index on "_id" and additional secondary indexes, stored in WiredTiger tables (index-...). These indexes are stored as .wt files in the data directory.
+Collection
+Using the WiredTiger table name for the collection, I dump the content, keys, and values, and decode it as JSON:
+wt -h /data/db dump -x table:collection-0-6917019827977430149 |
+wt_to_mdb_bson.py -m dump -j
+{"key": "81", "value": {"_id": "aaa", "val1": "xxx", "val2": "yyy", "val3": "zzz", "msg": "hello world"}}
+{"key": "82", "value": {"_id": "bbb", "val1": "xxx", "val2": "yyy", "val3": "zzz", "msg": ["hello", "world"]}}
+{"key": "83", "value": {"_id": "ccc", "val1": "xxx", "val2": "yyy", "val3": "zzz", "msg": ["hello", "world", "hello", "again"]}}
+Enter fullscreen mode
+Exit fullscreen mode
+The "key" here is the recordId — an internal, unsigned 64-bit integer MongoDB uses (when not using clustered collections) to order documents in the collection table. The 0x80 offset is because the storage key is stored as a signed 8‑bit integer, but encoded in an order-preserving way.
+I can also use wt_binary_decode.py to look at the file blocks. Here is the leaf page (page type: 7 (WT_PAGE_ROW_LEAF)) that contains my three documents as six key and value cells (cells (oflow len): 6) :
+wt_binary_decode.py --offset 4096 --page 1 --verbose --split --bson /data/db/collection-0-6917019827977430149.wt
+/data/db/collection-0-6917019827977430149.wt, position 0x1000/0x5000, pagelimit 1
+Decode at 4096 (0x1000)
+0: 00 00 00 00 00 00 00 00 1f 0f 00 00 00 00 00 00 5f 01 00 00
+06 00 00 00 07 04 00 01 00 10 00 00 64 0a ec 4b 01 00 00 00
+Page Header:
+recno: 0
+writegen: 3871
+memsize: 351
+ncells (oflow len): 6
+page type: 7 (WT_PAGE_ROW_LEAF)
+page flags: 0x4
+version: 1
+Block Header:
+disk_size: 4096
+checksum: 0x4bec0a64
+block flags: 0x1
+0:
+28: 05 81
+desc: 0x5 short key 1 bytes:
+<packed 1 (0x1)>
+1:
+2a: 80 91 51 00 00 00 02 5f 69 64 00 04 00 00 00 61 61 61 00 02
+76 61 6c 31 00 04 00 00 00 78 78 78 00 02 76 61 6c 32 00 04
+00 00 00 79 79 79 00 02 76 61 6c 33 00 04 00 00 00 7a 7a 7a
+00 02 6d 73 67 00 0c 00 00 00 68 65 6c 6c 6f 20 77 6f 72 6c
+64 00 00
+cell is valid BSON
+{ '_id': 'aaa',
+'msg': 'hello world',
+'val1': 'xxx',
+'val2': 'yyy',
+'val3': 'zzz'}
+2:
+7d: 05 82
+desc: 0x5 short key 1 bytes:
+<packed 2 (0x2)>
+3:
+7f: 80 a0 60 00 00 00 02 5f 69 64 00 04 00 00 00 62 62 62 00 02
+76 61 6c 31 00 04 00 00 00 78 78 78 00 02 76 61 6c 32 00 04
+00 00 00 79 79 79 00 02 76 61 6c 33 00 04 00 00 00 7a 7a 7a
+00 04 6d 73 67 00 1f 00 00 00 02 30 00 06 00 00 00 68 65 6c
+6c 6f 00 02 31 00 06 00 00 00 77 6f 72 6c 64 00 00 00
+cell is valid BSON
+{ '_id': 'bbb',
+'msg': ['hello', 'world'],
+'val1': 'xxx',
+'val2': 'yyy',
+'val3': 'zzz'}
+4:
+e1: 05 83
+desc: 0x5 short key 1 bytes:
+<packed 3 (0x3)>
+5:
+e3: 80 ba 7a 00 00 00 02 5f 69 64 00 04 00 00 00 63 63 63 00 02
+76 61 6c 31 00 04 00 00 00 78 78 78 00 02 76 61 6c 32 00 04
+00 00 00 79 79 79 00 02 76 61 6c 33 00 04 00 00 00 7a 7a 7a
+00 04 6d 73 67 00 39 00 00 00 02 30 00 06 00 00 00 68 65 6c
+6c 6f 00 02 31 00 06 00 00 00 77 6f 72 6c 64 00 02 32 00 06
+00 00 00 68 65 6c 6c 6f 00 02 33 00 06 00 00 00 61 67 61 69
+6e 00 00 00
+cell is valid BSON
+{ '_id': 'ccc',
+'msg': ['hello', 'world', 'hello', 'again'],
+'val1': 'xxx',
+'val2': 'yyy',
+'val3': 'zzz'}
+Enter fullscreen mode
+Exit fullscreen mode
+The script shows the raw hexadecimal bytes for the key, a description of the cell type, and the decoded logical value using WiredTiger’s order‑preserving integer encoding (packed int encoding). In this example, the raw byte 0x81 decodes to record ID 1:
+0:
+28: 05 81
+desc: 0x5 short key 1 bytes:
+<packed 1 (0x1)>
+Enter fullscreen mode
+Exit fullscreen mode
+Here is the branch page (page type: 6 (WT_PAGE_ROW_INT)) that references it:
+wt_binary_decode.py --offset 8192 --page 1 --verbose --split --bson /data/db/collection-0-6917019827977430149.wt
+/data/db/collection-0-6917019827977430149.wt, position 0x2000/0x5000, pagelimit 1
+Decode at 8192 (0x2000)
+0: 00 00 00 00 00 00 00 00 20 0f 00 00 00 00 00 00 34 00 00 00
+02 00 00 00 06 00 00 01 00 10 00 00 21 df 20 d6 01 00 00 00
+Page Header:
+recno: 0
+writegen: 3872
+memsize: 52
+ncells (oflow len): 2
+page type: 6 (WT_PAGE_ROW_INT)
+page flags: 0x0
+version: 1
+Block Header:
+disk_size: 4096
+checksum: 0xd620df21
+block flags: 0x1
+0:
+28: 05 00
+desc: 0x5 short key 1 bytes:
+""
+1:
+2a: 38 00 87 80 81 e4 4b eb ea 24
+desc: 0x38 addr (leaf no-overflow) 7 bytes:
+<packed 0 (0x0)> <packed 1 (0x1)> <packed 1273760356 (0x4bec0a64)>
+Enter fullscreen mode
+Exit fullscreen mode
+As we have seen in the previous blog post, the pointer includes the checksum of the page it references (0x4bec0a64) to detect disc corruption.
+Another utility, bsondump, can be used to display the output of wt dump -x as JSON, like wt_to_mdb_bson.py, but requires some filtering to get the BSON content:
+wt -h /data/db dump -x table:collection-0-6917019827977430149 | # dump in hexa
+egrep '025f696400' | # all documents have an "_id " field
+xxd -r -p | # gets the plain binary data
+bsondump --type=json
+# display BSON it as JSON
+{"_id":"aaa","val1":"xxx","val2":"yyy","val3":"zzz","msg":"hello world"}
+{"_id":"bbb","val1":"xxx","val2":"yyy","val3":"zzz","msg":["hello","world"]}
+{"_id":"ccc","val1":"xxx","val2":"yyy","val3":"zzz","msg":["hello","world","hello","again"]}
+2025-09-14T08:57:36.182+0000
+3 objects found
+Enter fullscreen mode
+Exit fullscreen mode
+It also provides a debug type output that gives more insights into how it is stored internally, especially for documents with arrays:
+wt -h /data/db dump -x table:collection-0-6917019827977430149 | # dump in hexa
+egrep '025f696400' | # all documents have an "_id " field
+xxd -r -p | # gets the plain binary data
+bsondump --type=debug
+# display BSON as it is stored
+--- new object ---
+size : 81
+_id
+type:
+2 size: 13
+val1
+type:
+2 size: 14
+val2
+type:
+2 size: 14
+val3
+type:
+2 size: 14
+msg
+type:
+2 size: 21
+--- new object ---
+size : 96
+_id
+type:
+2 size: 13
+val1
+type:
+2 size: 14
+val2
+type:
+2 size: 14
+val3
+type:
+2 size: 14
+msg
+type:
+4 size: 36
+--- new object ---
+size : 31
+0
+type:
+2 size: 13
+1
+type:
+2 size: 13
+--- new object ---
+size : 122
+_id
+type:
+2 size: 13
+val1
+type:
+2 size: 14
+val2
+type:
+2 size: 14
+val3
+type:
+2 size: 14
+msg
+type:
+4 size: 62
+--- new object ---
+size : 57
+0
+type:
+2 size: 13
+1
+type:
+2 size: 13
+2
+type:
+2 size: 13
+3
+type:
+2 size: 13
+2025-09-14T08:59:15.268+0000
+3 objects found
+Enter fullscreen mode
+Exit fullscreen mode
+Arrays in BSON are just sub-objects with the array position as a field name.
+Primary index
+RecordId is an internal, logical key used in the BTree to store the collection. It allows documents to be physically moved without fragmentation when they're updated. All indexes reference documents by recordId, not their physical location. Access by "_id" requires a unique index created automatically with the collection and stored as another WiredTiger table. Here is the content:
+wt -h /data/db dump -p table:index-1-6917019827977430149
+WiredTiger Dump (WiredTiger Version 12.0.0)
+Format=print
+Header
+table:index-1-6917019827977430149
+access_pattern_hint=none,allocation_size=4KB,app_metadata=(formatVersion=8),assert=(commit_timestamp=none,durable_timestamp=none,read_timestamp=none,write_timestamp=off),block_allocation=best,block_compressor=,block_manager=default,cache_resident=false,checksum=on,colgroups=,collator=,columns=,dictionary=0,disaggregated=(page_log=),encryption=(keyid=,name=),exclusive=false,extractor=,format=btree,huffman_key=,huffman_value=,ignore_in_memory_cache_size=false,immutable=false,import=(compare_timestamp=oldest_timestamp,enabled=false,file_metadata=,metadata_file=,panic_corrupt=true,repair=false),in_memory=false,ingest=,internal_item_max=0,internal_key_max=0,internal_key_truncate=true,internal_page_max=16k,key_format=u,key_gap=10,leaf_item_max=0,leaf_key_max=0,leaf_page_max=16k,leaf_value_max=0,log=(enabled=true),lsm=(auto_throttle=,bloom=,bloom_bit_count=,bloom_config=,bloom_hash_count=,bloom_oldest=,chunk_count_limit=,chunk_max=,chunk_size=,merge_max=,merge_min=),memory_page_image_max=0,memory_page_max=5MB,os_cache_dirty_max=0,os_cache_max=0,prefix_compression=true,prefix_compression_min=4,source="file:index-1-6917019827977430149.wt",split_deepen_min_child=0,split_deepen_per_child=0,split_pct=90,stable=,tiered_storage=(auth_token=,bucket=,bucket_prefix=,cache_directory=,local_retention=300,name=,object_target_size=0),type=file,value_format=u,verbose=[],write_timestamp_usage=none
+Data
+<aaa\00\04
+\00\08
+<bbb\00\04
+\00\10
+<ccc\00\04
+\00\18
+Enter fullscreen mode
+Exit fullscreen mode
+There are three entries, one for each document, with the "_id" value (aaa,bbb,ccc) as the key, and the recordId as the value. The values are packed (see documentation), for example < prefixes a little-endian value.
+In MongoDB’s KeyString format, the recordId is stored in a special packed encoding where three bits are added to the right of the big-endian value, to be able to store the length at the end of the key. The same is used when it is in the value part of the index entry, in a unique index. To decode it, you need to shift the last byte right by three bits. Here, 0x08 >> 3 = 1, 0x10 >> 3 = 2, and 0x18 >> 3 = 3, which are the recordId of my documents.
+I decode the page that contains those index entries:
+wt_binary_decode.py --offset 4096 --page 1 --verbose --split /data/db/index-1-6917019827977430149.wt
+/data/db/index-1-6917019827977430149.wt, position 0x1000/0x5000, pagelimit 1
+Decode at 4096 (0x1000)
+0: 00 00 00 00 00 00 00 00 1f 0f 00 00 00 00 00 00 46 00 00 00
+06 00 00 00 07 04 00 01 00 10 00 00 7c d3 87 60 01 00 00 00
+Page Header:
+recno: 0
+writegen: 3871
+memsize: 70
+ncells (oflow len): 6
+page type: 7 (WT_PAGE_ROW_LEAF)
+page flags: 0x4
+version: 1
+Block Header:
+disk_size: 4096
+checksum: 0x6087d37c
+block flags: 0x1
+0:
+28: 19 3c 61 61 61 00 04
+desc: 0x19 short key 6 bytes:
+"<aaa"
+1:
+2f: 0b 00 08
+desc: 0xb short val 2 bytes:
+"
+2:
+32: 19 3c 62 62 62 00 04
+desc: 0x19 short key 6 bytes:
+"<bbb"
+3:
+39: 0b 00 10
+desc: 0xb short val 2 bytes:
+""
+4:
+3c: 19 3c 63 63 63 00 04
+desc: 0x19 short key 6 bytes:
+"<ccc"
+5:
+43: 0b 00 18
+desc: 0xb short val 2 bytes:
+""
+Enter fullscreen mode
+Exit fullscreen mode
+This utility doesn't decode the recordId, we need to shift it. There's no BSON to decode in the indexes.
+Secondary index
+Secondary indexes are similar, except that they can be composed of multiple fields, and any indexed field can contain an array, which may result in multiple index entries for a single document, like an inverted index.
+MongoDB tracks which indexed fields contain arrays to improve query planning. A multikey index creates an entry for each array element, and if multiple fields are multikey, it stores entries for all combinations of their values. By knowing exactly which fields are multikey, the query planner can apply tighter index bounds when only one field is involved. This information is stored in the catalog as a "multikey" flag along with the specific "multikeyPaths":
+wt -h /data/db dump -x table:_mdb_catalog |
+wt_to_mdb_bson.py -m dump -j |
+jq 'select(.value.ns == "test.franck") |
+.value.md.indexes[] |
+{name: .spec.name, key: .spec.key, multikey: .multikey, multikeyPaths: .multikeyPaths | keys}
+'
+{
+"name": "_id_",
+"key": {
+"_id": { "$numberInt": "1" },
+},
+"multikey": false,
+"multikeyPaths": [
+"_id"
+]
+}
+{
+"name": "_id_1_val1_1_val2_1_val3_1_msg_1",
+"key": {
+"_id": { "$numberInt": "1" },
+"val1": { "$numberInt": "1" },
+"val2": { "$numberInt": "1" },
+"val3": { "$numberInt": "1" },
+"msg": { "$numberInt": "1" },
+},
+"multikey": true,
+"multikeyPaths": [
+"_id",
+"msg",
+"val1",
+"val2",
+"val3"
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Here is the dump of my index on {_id:1,val1:1,val2:1,val3:1,msg:1}:
+wt -h /data/db dump -p table:index-2-6917019827977430149
+WiredTiger Dump (WiredTiger Version 12.0.0)
+Format=print
+Header
+table:index-2-6917019827977430149
+access_pattern_hint=none,allocation_size=4KB,app_metadata=(formatVersion=8),assert=(commit_timestamp=none,durable_timestamp=none,read_timestamp=none,write_timestamp=off),block_allocation=best,block_compressor=,block_manager=default,cache_resident=false,checksum=on,colgroups=,collator=,columns=,dictionary=0,disaggregated=(page_log=),encryption=(keyid=,name=),exclusive=false,extractor=,format=btree,huffman_key=,huffman_value=,ignore_in_memory_cache_size=false,immutable=false,import=(compare_timestamp=oldest_timestamp,enabled=false,file_metadata=,metadata_file=,panic_corrupt=true,repair=false),in_memory=false,ingest=,internal_item_max=0,internal_key_max=0,internal_key_truncate=true,internal_page_max=16k,key_format=u,key_gap=10,leaf_item_max=0,leaf_key_max=0,leaf_page_max=16k,leaf_value_max=0,log=(enabled=true),lsm=(auto_throttle=,bloom=,bloom_bit_count=,bloom_config=,bloom_hash_count=,bloom_oldest=,chunk_count_limit=,chunk_max=,chunk_size=,merge_max=,merge_min=),memory_page_image_max=0,memory_page_max=5MB,os_cache_dirty_max=0,os_cache_max=0,prefix_compression=true,prefix_compression_min=4,source="file:index-2-6917019827977430149.wt",split_deepen_min_child=0,split_deepen_per_child=0,split_pct=90,stable=,tiered_storage=(auth_token=,bucket=,bucket_prefix=,cache_directory=,local_retention=300,name=,object_target_size=0),type=file,value_format=u,verbose=[],write_timestamp_usage=none
+Data
+<aaa\00<xxx\00<yyy\00<zzz\00<hello world\00\04\00\08
+(null)
+<bbb\00<xxx\00<yyy\00<zzz\00<hello\00\04\00\10
+(null)
+<bbb\00<xxx\00<yyy\00<zzz\00<world\00\04\00\10
+(null)
+<ccc\00<xxx\00<yyy\00<zzz\00<again\00\04\00\18
+(null)
+<ccc\00<xxx\00<yyy\00<zzz\00<hello\00\04\00\18
+(null)
+<ccc\00<xxx\00<yyy\00<zzz\00<world\00\04\00\18
+(null)
+Enter fullscreen mode
+Exit fullscreen mode
+Values are packed (as described earlier) and separated by 0x00. When an array is indexed, its items are stored as multiple entries (after deduplication only one value per document - visible in the entries for \00\04\00\18 where <hello\00 is onle once). The entries are not only deduplicated but also sorted in ascending/descending order to find quickly the minimum and maximum.
+The encoded recordId is similar to what was discussed before, but since this is not a unique index, it's placed at the end of the key, rather than as a value, to ensure each key remains unique.
+The recordId uses a special encoding that stores three “length” bits in the top three bits of the first byte and the bottom three bits of the last byte. These bits let MongoDB determine the length and decode the recordId from the end without reading the entire key.
+Additional metadata
+The MongoDB metadata is contained in _mdb_catalog.wt and maps to the WiredTiger files. The WiredTiger metadata is stored in WiredTiger.wt. For example, for my collection:
+wt -h /data/db dump file:WiredTiger.wt |
+grep -A1 collection-0-6917019827977430149
+colgroup:collection-0-6917019827977430149\00
+app_metadata=(formatVersion=1),assert=(commit_timestamp=none,durable_timestamp=none,read_timestamp=none,write_timestamp=off),collator=,columns=,source="file:collection-0-6917019827977430149.wt",type=file,verbose=[],write_timestamp_usage=none\00
+colgroup:collection-2-3767590060964183367\00
+--
+file:collection-0-6917019827977430149.wt\00
+access_pattern_hint=none,allocation_size=4KB,app_metadata=(formatVersion=1),assert=(commit_timestamp=none,durable_timestamp=none,read_timestamp=none,write_timestamp=off),block_allocation=best,block_compressor=snappy,cache_resident=false,checksum=on,collator=,columns=,dictionary=0,encryption=(keyid=,name=),format=btree,huffman_key=,huffman_value=,id=11,ignore_in_memory_cache_size=false,internal_item_max=0,internal_key_max=0,internal_key_truncate=true,internal_page_max=4KB,key_format=q,key_gap=10,leaf_item_max=0,leaf_key_max=0,leaf_page_max=32KB,leaf_value_max=64MB,log=(enabled=true),memory_page_image_max=0,memory_page_max=10m,os_cache_dirty_max=0,os_cache_max=0,prefix_compression=false,prefix_compression_min=4,readonly=false,split_deepen_min_child=0,split_deepen_per_child=0,split_pct=90,tiered_object=false,tiered_storage=(auth_token=,bucket=,bucket_prefix=,cache_directory=,local_retention=300,name=,object_target_size=0),value_format=u,verbose=[],version=(major=1,minor=1),write_timestamp_usage=none,checkpoint=(WiredTigerCheckpoint.1=(addr="018181e4d620bee18281e41546bd168381e4745f6da6808080e22fc0cfc0",order=1,time=1757794673,size=8192,newest_start_durable_ts=0,oldest_start_ts=0,newest_txn=0,newest_stop_durable_ts=0,newest_stop_ts=-1,newest_stop_txn=-11,prepare=0,write_gen=3872,run_write_gen=3870)),checkpoint_backup_info=,checkpoint_lsn=(2,19456)\00
+--
+table:collection-0-6917019827977430149\00
+app_metadata=(formatVersion=1),assert=(commit_timestamp=none,durable_timestamp=none,read_timestamp=none,write_timestamp=off),colgroups=,collator=,columns=,key_format=q,value_format=u,verbose=[],write_timestamp_usage=none\00
+Enter fullscreen mode
+Exit fullscreen mode
+The medatata for WiredTiger.wt is in WiredTiger.turtle as simple text:
+cat WiredTiger.turtle
+WiredTiger version string
+WiredTiger 12.0.0: (November 15, 2024)
+WiredTiger version
+major=12,minor=0,patch=0
+file:WiredTiger.wt
+access_pattern_hint=none,allocation_size=4KB,app_metadata=,assert=(commit_timestamp=none,durable_timestamp=none,read_timestamp=none,write_timestamp=off),block_allocation=best,block_compressor=,cache_resident=false,checksum=on,collator=,columns=,dictionary=0,encryption=(keyid=,name=),format=btree,huffman_key=,huffman_value=,id=0,ignore_in_memory_cache_size=false,internal_item_max=0,internal_key_max=0,internal_key_truncate=true,internal_page_max=4KB,key_format=S,key_gap=10,leaf_item_max=0,leaf_key_max=0,leaf_page_max=32KB,leaf_value_max=0,log=(enabled=true),memory_page_image_max=0,memory_page_max=5MB,os_cache_dirty_max=0,os_cache_max=0,prefix_compression=false,prefix_compression_min=4,readonly=false,split_deepen_min_child=0,split_deepen_per_child=0,split_pct=90,tiered_object=false,tiered_storage=(auth_token=,bucket=,bucket_prefix=,cache_directory=,local_retention=300,name=,object_target_size=0),value_format=S,verbose=[],version=(major=1,minor=1),write_timestamp_usage=none,checkpoint=(WiredTigerCheckpoint.1616=(addr="018081e49ce334508181e453b31e788281e4c5e974cf808080e3012fc0e24fc0",order=1616,time=1757864587,size=32768,newest_start_durable_ts=0,oldest_start_ts=0,newest_txn=2,newest_stop_durable_ts=0,newest_stop_ts=-1,newest_stop_txn=-11,prepare=0,write_gen=4742,run_write_gen=4736,next_page_id=0)),checkpoint_backup_info=,checkpoint_lsn=(4294967295,2147483647)
+Enter fullscreen mode
+Exit fullscreen mode
+In addition to _mdb_catalog.wt MongoDB tracks the size of collections in sizeStorer.wt:
+wt_binary_decode.py -v -o 4096 -p 1 --bson /data/db/sizeStorer.wt
+/data/db/sizeStorer.wt, position 0x1000/0x8000, pagelimit 1
+Decode at 4096 (0x1000)
+Page Header:
+recno: 0
+writegen: 4555
+memsize: 435
+ncells (oflow len): 10
+page type: 7 (WT_PAGE_ROW_LEAF)
+page flags: 0x4
+version: 1
+Block Header:
+disk_size: 4096
+checksum: 0x6447ad0c
+block flags: 0x1
+0: desc: 0x49 short key 18 bytes:
+"table:_mdb_catalog"
+1: cell is valid BSON
+{'dataSize': 2037, 'numRecords': 4}
+2: desc: 0x99 short key 38 bytes:
+"table:collection-0-3767590060964183367"
+3: cell is valid BSON
+{'dataSize': 59, 'numRecords': 1}
+4: desc: 0x99 short key 38 bytes:
+"table:collection-0-6917019827977430149"
+5: cell is valid BSON
+{'dataSize': 299, 'numRecords': 3}
+6: desc: 0x99 short key 38 bytes:
+"table:collection-2-3767590060964183367"
+7: cell is valid BSON
+{'dataSize': 25928, 'numRecords': 4}
+8: desc: 0x99 short key 38 bytes:
+"table:collection-4-3767590060964183367"
+9: cell is valid BSON
+{'dataSize': 0, 'numRecords': 0}
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+By exploring MongoDB’s WiredTiger files with low-level tools, we can see precisely how high‑level collections, documents, and indexes map down to on‑disk structures.
+At the core is the _mdb_catalog table — a WiredTiger BTree that acts as MongoDB’s internal namespace directory. It tells MongoDB which WiredTiger table holds the actual documents for each collection, and which tables hold the associated indexes.
+A collection’s data table is itself a BTree, where the key is the internal RecordId and the value is the document in BSON format. Leaf pages hold these (key, BSON) pairs, while branch pages store key ranges and child pointers with checksums to protect against corruption.
+Every collection has at least a primary "_id" index, stored in a separate BTree table. Here, the index key is the "_id" field value, and the value is the encoded RecordId pointing back to the collection’s document.
+Additional secondary indexes work the same way, with index keys built from one or more fields (in compound indexes) and, in the case of array fields, multiple index entries per document. For non‑unique indexes, the RecordId is appended to the key so that each entry remains unique.
+To explore the internals, I used:
+wt to dump the WiredTiger tables (keys/values, hex output). I compiled it from the WiredTiger sources.
+wt_to_mdb_bson.py to decode MongoDB BSON from wt dump -x output into JSON and wt_binary_decode.py to inspect WiredTiger BTree page internals. I got them from the WiredTiger repo.
+bsondump to display BSON as JSON or a detailed debug format.
+It is included in the MongoDB Database Tools
+Something that might surprise you if you're familiar with other databases is that MongoDB's on-disk storage only holds persistent data - the fields and their values in a clean state for future queries. Many relational databases also store transient metadata on disk, such as transaction information, locks, undo records, and dead tuples, which are used in ongoing transactions and need to be cleaned up later (through processes like garbage collection, vacuuming, delayed block cleaning, ghost cleanup, purging, and compaction). In contrast, MongoDB was designed for short transactions on modern infrastructure, so it keeps transient information in memory and stores durable data on disk to optimize performance and avoid resource intensive background tasks. This is known as "No-Steal / No-Force" cache management:
+Comparing RDBMS and MongoDB's transactional approaches | Franck Pachot posted on the topic | LinkedIn
+🔵🔴🟢 Traditional RDBMS uses the Steal / No-Force approach—can we do better on modern databases?
+🔵 No-Force: When committing, the system doesn't flush all dirty pages to disk (which would result in costly random writes). Instead, it writes only the sequential WAL. Later, during a checkpoint, dirty pages are flushed. If a crash occurs, the WAL is replayed to roll forward committed changes.
+🔴 Steal: For long transactions and limited server RAM, checkpoints can flush uncommitted changes to disk. To recover, both redo and undo are needed: redo to roll forward and undo to roll back uncommitted changes. Undo can be log records, rollback segments, or old MVCC tuples.
+🟢 MongoDB’s approach: No-Steal / No-Force
+MongoDB was designed for OLTP, short-lived transactions, and horizontal memory scaling. It doesn't write uncommitted changes to disk (no stealing). Only durable data goes to disk (no forcing - modern storage is not better at random writes). Transient information, such as locks or MVCC history, is not persisted. The benefits include faster recovery and eliminating the need for expensive tasks such as vacuuming, delayed block cleaning, compaction, or removing dead tuples. What hits the disk is always clean, committed, and ready to serve.
+🤔 Think about this: transient info used only by ongoing transactions, and unused after 15 minutes or in case of failure. Do you really want to write it to disk, replicate it to the standby, read it back from disk to vacuum it, rewrite it, and then replicate again? Or keep it in memory, as it'll only be needed for a short while? | 11 comments on LinkedIn
+linkedin.com
+WiredTiger (2 Part Series)
+1
+Resilience of MongoDB's WiredTiger Storage Engine to Disk Failure Compared to PostgreSQL and Oracle
+2
+MongoDB Internals: How Collections and Indexes Are Stored in WiredTiger
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Franck Pachot
+Follow
+🥑 Developer Advocate at 🍃 MongoDB, 🔶 AWS Data Hero, 🐘 PostgreSQL fan,▝▞ YugabyteDB expert, 🅾️ Oracle Certified Master, and 💚 loving all databases 🛢️
+Location
+Lausanne, Switzerland
+Education
+Master MIAGE, Université Paris-Sud, France
+Work
+Developer Advocate at MongoDB
+Joined
+Nov 12, 2018
+More from Franck Pachot
+Resilience of MongoDB's WiredTiger Storage Engine to Disk Failure Compared to PostgreSQL and Oracle
+#mongodb
+#wiredtiger
+#postgres
+#oracle
+DocumentDB: Comparing Emulation Internals with MongoDB
+#mongodb
+#postgres
+#documentdb
+#cloud
+Updates to the Same Value: MongoDB Optimization
+#mongodb
+#postgres
+#database
+#sql
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

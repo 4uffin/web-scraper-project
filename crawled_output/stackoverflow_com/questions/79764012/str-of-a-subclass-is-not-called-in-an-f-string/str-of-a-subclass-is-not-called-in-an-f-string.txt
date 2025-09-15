@@ -1,0 +1,334 @@
+python - `__str__` of a subclass is not called in an f-string - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+`__str__` of a subclass is not called in an f-string
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+92 times
+3
+I wrote a subclass of Decimal to represent an amount of money. I wrote a custom __str__ to display the currency along with a sign format. My method works when calling str() but in a f-string somehow my custom __str__ is not used. What is happening here?
+More than workarounds, I'm interested in understanding what is happening here. Something is going on that defies my current understanding of
+__str__, __format__ and inheritance. I thought the default behavior of format with no format specified was to delegate to str, but here it sends it to str of the parent class instead.
+Here is the minimal code to reproduce:
+from decimal import Decimal
+class Money(Decimal):
+CURRENCY = "€"
+def __new__(cls, number):
+return super().__new__(cls, Decimal(number).quantize(Decimal("0.01")))
+def __str__(self):
+return f"{self:+}{self.CURRENCY}"
+m = Money(10)
+print("Test 1 - str():", str(m))
+print("Test 2 - print():", m)
+print(f"Test 3 - f-string: {m}")
+print("Test 4 - f-string str():", f"{str(m)}")
+This results in
+Test 1 - str(): +10.00€
+Test 2 - print(): +10.00€
+Test 3 - f-string: 10.00 # only here is my custom str not called
+Test 4 - f-string str(): +10.00€
+Python version is 3.13.7.
+pythonf-string
+Share
+Improve this question
+Follow
+edited 22 hours ago
+Anerdw
+2,69833 gold badges1818 silver badges4444 bronze badges
+asked yesterday
+Antoine GallixAntoine Gallix
+86622 gold badges1212 silver badges3232 bronze badges
+1
+Side note, you probably want to use composition over inheritance. Any method that you do not explicitly override will return a Decimal object rather than a Money object. This can be a pernicious source of bugs, as you might forget to override a less well known method of Decimal. Even operations as simple as +Money(0) will result in a Decimal object. See also methods (eg. Money(0).quantize(Money(0))), and implied operations (eg. round(Money(0), 3)) as well.
+Dunes
+–
+Dunes
+2025-09-14 09:55:21 +00:00
+Commented
+16 hours ago
+Add a comment
+|
+3 Answers
+3
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+7
+f-strings in Python prioritize __format__ over __str__. Since Money inherits from Decimal, you need to add __format__ to your class for expected behavior.
+from decimal import Decimal
+class Money(Decimal):
+CURRENCY = "€"
+def __new__(cls, number):
+return super().__new__(cls, Decimal(number).quantize(Decimal("0.01")))
+def __format__(self, format_spec: str) -> str:
+if not format_spec:
+format_spec = "+.2f"
+formatted_number = super().__format__(format_spec)
+return f"{formatted_number}{self.CURRENCY}"
+def __str__(self) -> str:
+formatted_number = super().__format__("+.2f")
+return f"{formatted_number}{self.CURRENCY}"
+Share
+Improve this answer
+Follow
+edited yesterday
+answered yesterday
+pixel-processpixel-process
+17955 bronze badges
+New contributor
+pixel-process is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+0
+Add a comment
+|
+0
+The __format__ method is not meant to be called explicitly as pointed out in this post
+I would suggest:
+from decimal import Decimal
+class Money(Decimal):
+QUANT = Decimal("0.01")
+FORMAT = "+.2f"
+def __new__(cls, number):
+return super().__new__(cls, Decimal(number).quantize(Money.QUANT))
+def __format__(self, format_spec):
+return super().__format__(format_spec or Money.FORMAT) + "€"
+def __str__(self):
+return f"{self:{Money.FORMAT}}"
+money = Money("1.123")
+print(f"{money}")
+print(f"{money:+.4f}")
+print(money)
+Output:
++1.12€
++1.1200€
++1.12€
+Share
+Improve this answer
+Follow
+answered 17 hours ago
+RamrabRamrab
+28.8k33 gold badges99 silver badges2626 bronze badges
+0
+Add a comment
+|
+0
+First, you should know the whole process
+F-strings use __format__() method, not directly __str__()
+When __format__() is not defined, Python falls back to str()
+If a parent class defines __format__(), it takes precedence over the subclass's __str__()
+Use !s specifier to force string conversion: f"{obj!s}"
+The most robust solution is to override __format__() in your subclass
+So you can use these solutions to fix your problem
+Override __format__ method
+class Parent:
+def __str__(self):
+return "Parent string"
+def __format__(self, format_spec):
+return str(self)
+class Child(Parent):
+def __str__(self):
+return "Child string"
+def __format__(self, format_spec):
+return str(self)
+# This ensures __str__ is called
+# Test
+child = Child()
+print(f"{child}")
+# Output: Child string
+Share
+Improve this answer
+Follow
+edited 17 hours ago
+Serge Ballesta
+150k1313 gold badges136136 silver badges267267 bronze badges
+answered 20 hours ago
+Marc StevenMarc Steven
+55255 silver badges1717 bronze badges
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+pythonf-string
+See similar questions with these tags.
+The Overflow Blog
+AI vs Gen Z: How AI has changed the career pathway for junior developers
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New and improved coding challenges
+New comment UI experiment graduation
+Linked
+1
+Is there a way to override __format__ method
+Related
+3813
+What is the difference between __str__ and __repr__?
+3874
+Convert bytes to a string in Python 3
+3586
+Does Python have a string 'contains' substring method?
+1468
+String formatting: % vs. .format vs. f-string literal
+3000
+Convert string "Jun 1 2005 1:33PM" into datetime
+2578
+How do I lowercase a string in Python?
+2773
+How do I parse a string to a float or int?
+2491
+Calling a function of a module by using its name (a string)
+2244
+How do I pad a string with zeros?
+2705
+How do I escape curly-brace ({}) characters characters in a string while using .format?
+Hot Network Questions
+Adventure B-movie from the 70s involving three white people in a tribal country and a medallion the tribe uses in rituals
+Why does truth seem to lack compelling power? Why can we rarely convince anyone to change their mind?
+What is the purpose of the neutral line in unbalanced three-phase systems?
+How many of each type of dice could you possibly need?
+How do I get rid of this Adobe Acrobat “Make Adobe Acrobat your default PDF app” notification?
+How can I find all simple cycles in a multigraph with edge tags?
+The pattern { Main verb} + not to [infinitive 1] AND (to) [infinitive 2]} | He decided not to go to the beach and (to) swim for an hour
+Mickey Mouse Polygon - Regular Polygons forming Mysterious Angle
+For an electric pump rocket engine like the rutherford engine, is it possible to place the main valve upstream of the pump?
+Why does the do-while loop in C-like languages require the curly brackets `{` and `}`? Wouldn't the grammar be perfectly parsable without them?
+Automorphism of the Category of Vector Spaces
+What is the purpose of this opening in the airplane interior?
+Reusing BH-90 barb insert?
+Who were the members of Beit Hillel
+How to describe this kind of scene?
+How to remove parts of all file paths in a .m3u playlist with Notepad++?
+What resources are available for identifying a particular Space Shuttle launch?
+Does the train between Sofia, Bucharest and Varna have Wi-Fi?
+Are Lands' Activated Abilities colored?
+Best bike for ultra steep climbs in the forest? (Mountain)
+Why proving the well-definedness for the quotient map is different here?
+Conjunctive adverbs vs. transitional devices
+When will be the next version of ConTeXt if any? Why?
+At which point was Ars Magica turned to its own thing as opposed to being how magick worked in the past?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-py
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.12.33943

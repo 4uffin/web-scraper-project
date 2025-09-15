@@ -1,0 +1,277 @@
+👩‍🔧 How to Check License Compatibility in GHA - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Peter H. Boling
+Posted on Sep 13
+• Edited on Sep 14
+👩‍🔧 How to Check License Compatibility in GHA
+#programming
+#opensource
+#githubactions
+#howto
+You have a project made out of code, sprinkles, and spice, and you want to validate compatibility between your project's license and the licenses of its dependencies, as defined by:
+Apache Software Foundation (ASF) Categorizations via apache.org
+Free Software Foundation's (FSF) Free/Libre designations via spdx.org
+Open Source Initiative (OSI) Approved designations via spdx.org
+Any of the above
+What is Compatible?
+Apache Software Foundation
+IANAL, but Apache Software Foundation has resolved many legal issues between licenses and determined their compatibility to my satisfaction. Take it up with them if your fractious children want to quarrel about it.
+Category A licenses are compatible with each other and with Apache Software Foundation projects generally.
+Category B licenses are compatible with each other, and with Apache Software Foundation projects when included as binary code.
+Other licenses need manual validation, and compatibility can be configured and documented per project.
+These categorizations are the backbone of the license checker, see further down for a configuration example.
+FSF Free/Libre
+Supported. In your licenserc.yaml:
+dependency:
+require_fsf_free: true # will only consider compatible if license is FSF Free/Libre; default false
+Enter fullscreen mode
+Exit fullscreen mode
+OSI Approved
+Supported. In your licenserc.yaml:
+dependency:
+require_osi_approved: true # will only consider compatible if license is OSI Approved; default false
+Enter fullscreen mode
+Exit fullscreen mode
+How can we check compatibility?
+I've now pushed many PRs to a project called Apache SkyWalking Eyes (#205, #207, #208, #209, ... #247, #248, #249, #250). And now it is ready to write about.
+It works for a basic use case of a project with MIT and Ruby licensed dependencies, such as oauth2:
+https://github.com/ruby-oauth/oauth2/pull/676
+It also works for more complex use cases with many dependencies across a broad set of open source licenses.
+Project Setup
+This example will use a Ruby project as an example, but there is support for Create two files:
+# .licenserc.yaml
+header:
+license:
+spdx-id: MIT # The license of your project!
+dependency:
+require_fsf_free: false # if "FSF Free/Libre" is required, set to true
+require_osi_approved: false # if "OSI Approved" is required, set to true
+files:
+- Gemfile.lock
+# If this is a Ruby project (Bundler). Ensure Gemfile.lock is committed.
+# - pom.xml
+# If this is a maven project.
+# - Cargo.toml
+# If this is a rust project.
+# - package.json
+# If this is a npm project.
+# - go.mod
+# If this is a Go project.
+Enter fullscreen mode
+Exit fullscreen mode
+and
+# .github/workflows/license-eye.yml
+name: Apache SkyWalking Eyes
+permissions:
+contents: read
+on:
+push:
+branches:
+- 'main'
+- '*-stable'
+tags:
+- '!*' # Do not execute on tags
+pull_request:
+branches:
+- '*'
+# Allow manually triggering the workflow.
+workflow_dispatch:
+# Cancels all previous workflow runs for the same branch that have not yet completed.
+concurrency:
+# The concurrency group contains the workflow name and the branch name.
+group: "${{ github.workflow }}-${{ github.ref }}"
+cancel-in-progress: true
+jobs:
+license-check:
+if: "!contains(github.event.commits[0].message, '[ci skip]') && !contains(github.event.commits[0].message, '[skip ci]')"
+runs-on: ubuntu-latest
+steps:
+- name: Checkout
+uses: actions/checkout@v5
+- name: Check Dependencies' License
+uses: apache/skywalking-eyes/dependency@main
+with:
+config: .licenserc.yaml
+# Ruby packages declared as dependencies in gemspecs or Gemfiles are
+#
+typically consumed as binaries; enable weak-compatibility
+#
+so permissive and weak-copyleft combinations are treated as compatible.
+flags: --weak-compatible
+Enter fullscreen mode
+Exit fullscreen mode
+Result
+End result workflow runs look like:
+https://github.com/ruby-oauth/oauth2/actions/workflows/license-eye.yml
+Experiment: if we mark the Ruby license (which is category B) as incompatible in our MIT (category A) projects, this is what would happen:
+Cool, right?
+I'm not suggesting you do that, since in Ruby dependencies are normally included as binaries, so Category B is generally compatible with Category A licenses in Ruby projects...
+Projects that declare no license are problematic and will fail in this same way, alerting you to the problem.
+You'll also get notified if downstream dependencies change their licenses to something incompatible.
+Spread Awareness
+Because licenses matter...
+Now is a good time to make your community of users aware of your shiny license compliance via README.md badges...
+[![Apache SkyWalking Eyes License Compatibility Check][🚎15-🪪-wfi]][🚎15-🪪-wf]
+[![Compatible with Apache Software Projects: Verified by SkyWalking Eyes][📄license-compat-img]][📄license-compat]
+[🚎15-🪪-wf]: https://github.com/ruby-oauth/oauth2/actions/workflows/license-eye.yml
+[🚎15-🪪-wfi]: https://github.com/ruby-oauth/oauth2/actions/workflows/license-eye.yml/badge.svg
+[📄license-compat]: https://www.apache.org/legal/resolved.html#category-a
+[📄license-compat-img]: https://img.shields.io/badge/Apache_Compatible:_Category_A-✓-259D6C.svg?style=flat&logo=Apache
+[📄license-compat-img-raster]: https://raster.shields.io/badge/Apache_Compatible:_Category_A-✓-259D6C.png?style=flat&logo=Apache
+# note: dev.to will only render the PNG rasterized version;
+#
+in READMEs you should use the SVG for better image clarity.
+Enter fullscreen mode
+Exit fullscreen mode
+Support & Funding Info
+I am a full-time FLOSS maintainer. If you find my work valuable, I ask that you become a sponsor. Every dollar helps!
+🥰 Support FLOSS work 🥰
+Get access
+"Sponsors" channel
+on Galtzo FLOSS
+Discord 👇️
+Photo (cropped) by Zoha Gohar on Unsplash
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Peter H. Boling
+Follow
+Human of Earth, maker of code, director, team leader, mentor, linux system admin, FLOSS advocate, barista, student, and builder of web applications great and small for 25 years.
+Location
+Detroi, MI
+Education
+Ball State University, Purdue University
+Pronouns
+he/him/his
+Work
+You should hire me
+Joined
+Jan 17, 2021
+More from Peter H. Boling
+💲ANN: awesome-sponsorships
+#opensource
+#webmonetization
+#sponsorships
+#programming
+💎 ANN: oauth2 v2.0.13
+#webdev
+#ruby
+#oauth
+#opensource
+💎 ANN: stone_checksums v1.0.2
+#programming
+#ruby
+#rubygems
+#security
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
