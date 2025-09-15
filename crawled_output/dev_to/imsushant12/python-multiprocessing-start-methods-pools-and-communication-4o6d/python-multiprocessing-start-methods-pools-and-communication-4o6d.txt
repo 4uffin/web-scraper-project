@@ -1,0 +1,686 @@
+Python Multiprocessing: Start Methods, Pools, and Communication - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Sushant Gaurav
+Posted on Sep 15
+Python Multiprocessing: Start Methods, Pools, and Communication
+#programming
+#beginners
+#python
+#tutorial
+Programming and General (8 Part Series)
+1
+C++ Strings
+2
+Understanding Python Bytecode and the Virtual Machine for Better Development
+...
+4 more parts...
+3
+Tree vs Trie: Understanding the Differences and Use Cases
+4
+What is the GIL in Python and Why Should You Care?
+5
+Python Concurrency: Processes, Threads, and Coroutines Explained
+6
+Multithreading in Python: Lifecycle, Locks, and Thread Pools
+7
+Multithreading: Interview Questions and Practice Problems
+8
+Python Multiprocessing: Start Methods, Pools, and Communication
+Processes vs Threads
+Memory model and isolation
+Threads live inside a single process and share the same address space. Any mutable object (lists, dicts, classes) is visible to every thread unless protected with synchronization primitives. Threads provide easy data sharing, but it is easy to corrupt shared state (race conditions).
+Processes have separate address spaces. A child process cannot directly see the parent’s Python objects. Data must be transferred via inter-process communication (IPC), which involves serialization (pickle) unless using specialized shared memory. It provides safer isolation and robustness (a crash in one process usually does not corrupt others), but passing data has overhead.
+Example: (updates a global in threads vs processes).
+from threading import Thread
+from multiprocessing import Process
+counter_thread = 0
+counter_process = 0
+def bump_thread(n):
+global counter_thread
+for _ in range(n):
+counter_thread += 1
+print("Thread's counter value:", counter_thread)
+def bump_process(n):
+global counter_process
+for _ in range(n):
+counter_process += 1
+print("Process's counter value:", counter_process)
+if __name__ == "__main__":
+t1 = Thread(target=bump_thread, args=(100_000,))
+t2 = Thread(target=bump_thread, args=(100_000,))
+t1.start(); t2.start()
+t1.join(); t2.join()
+p1 = Process(target=bump_process, args=(100_000,))
+p2 = Process(target=bump_process, args=(100_000,))
+p1.start(); p2.start()
+p1.join(); p2.join()
+print("Process does not see counter in same memory:", counter_process)
+print("Threads see counter in same memory:", counter_thread)
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+Thread's counter value: 100000
+Thread's counter value: 200000
+Process's counter value: 100000
+Process's counter value: 100000
+Process does not see counter in same memory: 0
+Threads see counter in same memory: 200000
+Enter fullscreen mode
+Exit fullscreen mode
+Overhead and scheduling
+Threads are lightweight to create and context switch, but in CPython only one thread executes Python bytecode at a time (GIL). It is ideal for I/O, not for CPU-bound parallel work.
+Processes are heavier in terms of start-up time, separate memory, and IPC costs. But each process has its own interpreter and GIL, so CPU-bound work can run truly in parallel across cores.
+Communication
+Threads
+All threads within a process share the same memory space (global variables, heap, etc.). Communication is implicit in threads; so, if one thread modifies a variable, other threads can immediately see it.
+Pros:
+Very fast, no serialization needed.
+Easy to share complex Python objects.
+Cons:
+Risk of race conditions if multiple threads read/write the same variable at the same time.
+Need explicit synchronization (Lock, RLock, Semaphore, Condition, etc.) to avoid data corruption.
+Process
+Isolated memory model i.e. each process has its own memory space. Communication requires Inter-Process Communication (IPC), usually:
+multiprocessing.Queue (safe FIFO pipe).
+multiprocessing.Pipe (two-way communication channel).
+multiprocessing.Manager (shared dict/list across processes).
+multiprocessing.shared_memory (fast, large data arrays).
+Pros:
+No accidental race conditions (since memory is isolated).
+Fault isolation (a crash in one process does not corrupt others).
+Cons:
+Communication is slower due to serialization (pickling/unpickling).
+Extra overhead for large or frequent data transfers.
+Creating Processes and Managing its Lifecycle
+Note: Always protect the entry point with if __name__ == "__main__": on Windows/macOS (spawn/forkserver). It prevents recursive child creation when the module is imported by the new interpreter.
+multiprocessing.Process
+Example:
+from multiprocessing import Process, current_process
+import os, time
+def work(n):
+print(f"[{current_process().name}] PID={os.getpid()} start with n={n}")
+time.sleep(1)
+print(f"[{current_process().name}] done")
+if __name__ == "__main__":
+p1 = Process(target=work, name="Worker-1", args=(10,))
+p2 = Process(target=work, name="Worker-2", args=(20,))
+p1.start(); p2.start()
+print("Alive?", p1.is_alive(), p2.is_alive())
+p1.join(); p2.join()
+print("Exit codes:", p1.exitcode, p2.exitcode)
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+Alive? True True
+[Worker-2] PID=56571 start with n=20
+[Worker-1] PID=56570 start with n=10
+[Worker-2] done
+[Worker-1] done
+Exit codes: 0 0
+Enter fullscreen mode
+Exit fullscreen mode
+Important functions
+p.start(): Launches the process in a new Python interpreter.
+p.join(timeout=None): Waits for the process to finish (optional timeout).
+p.terminate(): Forcefully stops the process (unsafe, no cleanup).
+p.is_alive(): A boolean attribute that checks whether the process is still running (True) or not (False).
+p.pid: The OS process ID of the child process.
+p.name: Name of the process (default: Process-N, customizable).
+p.exitcode: Exit status (0 means success, nonzero means error, None means still running).
+p.daemon: A boolean attribute that tells whether a process is daemon or non-daemon.
+Start Methods - spawn, fork, forkserver
+Python provides three start methods for processes: spawn, fork, and forkserver.
+spawn
+It is default on Windows and macOS. It starts a fresh Python interpreter process. It is safer and more predictable because nothing is shared accidentally. It is slower to start than fork (since it loads everything fresh).
+Use case: Cross-platform code, or when safety is more important than startup speed.
+Note: In case of spawn, only picklable objects can be passed to child processes.
+Example:
+from multiprocessing import Process, set_start_method
+def worker(x):
+print(f"Worker received {x}")
+if __name__ == "__main__":
+set_start_method("spawn")
+p = Process(target=worker, args=(42,))
+p.start()
+p.join()
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+Worker received 42
+Enter fullscreen mode
+Exit fullscreen mode
+fork
+It is default on Linux/Unix. Child process is created by forking the parent (copy-on-write memory). It provides very fast startup because the child inherits the parent’s memory. It is unsafe with threads or some C extensions (like NumPy, TensorFlow, or database connectors) because they may not expect to be copied.
+Use case: High-performance parallel tasks where there is no need to rely on complex C extensions or threading.
+Example:
+from multiprocessing import Process, set_start_method
+def worker(x):
+print(f"Worker received {x}")
+if __name__ == "__main__":
+set_start_method("fork")
+p = Process(target=worker, args=(99,))
+p.start()
+p.join()
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+Worker received 99
+Enter fullscreen mode
+Exit fullscreen mode
+forkserver
+It starts a dedicated fork server process. Every new process is forked from that clean server, not from the potentially complex parent. It avoids some of the unsafe state inheritance problems of fork. So, it is safer than fork, but still faster than spawn.
+Use case: When there is a need of speed of fork but with more safety in complex apps (web servers, ML frameworks).
+Example:
+from multiprocessing import Process, set_start_method
+def worker(x):
+print(f"Worker received {x}")
+if __name__ == "__main__":
+set_start_method("forkserver")
+p = Process(target=worker, args=(123,))
+p.start()
+p.join()
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+Worker received 123
+Enter fullscreen mode
+Exit fullscreen mode
+Summary table
+Method
+Default OS
+Speed
+Safety
+Restrictions
+spawn
+Windows/macOS
+Slow
+Very Safe
+Only picklable objects
+fork
+Linux/Unix
+Fast
+Risky
+Unsafe with threads/C-extensions
+forkserver
+None (must set)
+Medium
+Safer than fork
+Requires starting fork server
+A good rule of thumb
+Use spawn in case of portable and safe code.
+Use fork on Linux and the need is fast startup, and the environment is thread-safe.
+Use forkserver if need is balance between performance and safety.
+Process Pools (Pool, map, imap, imap_unordered, apply, and apply_async)
+Pool
+When there are many tasks that can run in parallel, instead of manually creating dozens of Process objects, process pool can be used.
+A Pool manages a fixed number of worker processes:
+Submit tasks (functions + arguments).
+The pool distributes tasks to workers.
+Get results back (synchronously or asynchronously).
+Note: This is perfect for CPU-bound work like prime testing, image processing, or simulations.
+Example (Basic Pool Setup):
+from multiprocessing import Pool, cpu_count
+def square(x):
+return x * x
+if __name__ == "__main__":
+# create pool with N workers
+with Pool(processes=cpu_count()) as pool:
+numbers = [1, 2, 3, 4, 5]
+results = pool.map(square, numbers)
+print(results)
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+[1, 4, 9, 16, 25]
+Enter fullscreen mode
+Exit fullscreen mode
+In the above example,
+cpu_count() defines the number of CPU cores.
+The line with Pool(processes=cpu_count()) as pool:
+Creates a process pool with as many worker processes as there are CPU cores on the machine.
+For example, if computer has 8 cores, then 8 worker processes are started.
+Each worker is a separate Python process that can run tasks in parallel (true parallelism, not blocked by the GIL).
+Pool.map (Blocking Batch Processing)
+It can be treated as parallel version of map(). It requires a function and a list of inputs. It waits until all results are ready.
+It is ideal for:
+A small list of tasks.
+When all results at required together.
+It has some downside:
+It blocks until the whole batch is done.
+Since there are large iterables so there is high memory use.
+Example:
+from multiprocessing import Pool, cpu_count
+import math, time
+def is_prime(n: int) -> bool:
+# Check if n is prime (naive method).
+if n < 2: return False
+if n % 2 == 0: return n == 2
+r = int(math.isqrt(n))
+for f in range(3, r+1, 2):
+if n % f == 0:
+return False
+return True
+if __name__ == "__main__":
+numbers = [10_000_019, 10_000_079, 10_000_091, 10_000_099]
+with Pool(cpu_count()) as pool:
+start = time.perf_counter()
+# waits for all results
+results = pool.map(is_prime, numbers)
+finish = time.perf_counter()
+total = finish - start
+print(list(zip(numbers, results)))
+print(f"Time elapsed: {total:.2f}s with {cpu_count()} workers")
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+[(10000019, True), (10000079, True), (10000091, False), (10000099, False)]
+Time elapsed: 0.06s with 8 workers
+Enter fullscreen mode
+Exit fullscreen mode
+Pool.imap and Pool.imap_unordered (Streaming Results)
+Unlike map, results are streamed back one at a time. It is useful when tasks are long-running or numerous.
+.imap
+imap returns results in the same order as the input. It is a generator so results are streamed one by one, not all at once (like map). It is useful when order matters (for example, processing a sequence of tasks and later logic depends on that order).
+.imap_unordered
+.imap_unordered as the name suggests, returns results as soon as they are ready (order is not guaranteed). It is also a generator which streams results as they complete. It is useful when order does not matter, and the need is faster throughput.
+Example:
+from multiprocessing import Pool
+import time, random
+def slow_square(n):
+# Simulate a task with random delay.
+delay = random.uniform(0.5, 2.0)
+# 0.5–2 seconds
+time.sleep(delay)
+result = n * n
+print(f"Task {n} finished in {delay:.2f}s → {result}")
+return result
+def demo_imap():
+print("--- Using imap (ordered results) ---")
+items = [1, 2, 3, 4, 5]
+with Pool(3) as pool:
+# 3 workers
+for res in pool.imap(slow_square, items, chunksize=1):
+print("Got result (ordered):", res)
+def demo_imap_unordered():
+print("--- Using imap_unordered (unordered results) ---")
+items = [1, 2, 3, 4, 5]
+with Pool(3) as pool:
+for res in pool.imap_unordered(slow_square, items, chunksize=1):
+print("Got result (unordered):", res)
+if __name__ == "__main__":
+demo_imap()
+demo_imap_unordered()
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+--- Using imap (ordered results) ---
+Task 1 finished in 1.53s → 1
+Got result (ordered): 1
+Task 2 finished in 1.61s → 4
+Got result (ordered): 4
+Task 3 finished in 1.89s → 9
+Got result (ordered): 9
+Task 4 finished in 1.41s → 16
+Got result (ordered): 16
+Task 5 finished in 1.57s → 25
+Got result (ordered): 25
+--- Using imap_unordered (unordered results) ---
+Task 2 finished in 1.29s → 4
+Got result (unordered): 4
+Task 3 finished in 1.35s → 9
+Got result (unordered): 9
+Task 1 finished in 1.49s → 1
+Got result (unordered): 1
+Task 5 finished in 0.60s → 25
+Got result (unordered): 25
+Task 4 finished in 1.07s → 16
+Got result (unordered): 16
+Enter fullscreen mode
+Exit fullscreen mode
+Note: chunksize in multiprocessing.Pool controls how many tasks each worker process gets at once.
+chunksize=1 send tasks one by one; more responsive, less efficient.
+Larger chunksize send tasks in batches; less communication overhead, faster for uniform tasks.
+Pool.apply (Blocking, one task at a time)
+It blocks the main process until the task finishes. It returns the direct result, just like calling the function normally.
+Execution flow:
+Main process → give task to worker → wait until done → print result → continue
+Enter fullscreen mode
+Exit fullscreen mode
+Useful if:
+Want to test multiprocessing with one task.
+Need the result immediately before moving on.
+Example:
+from multiprocessing import Pool
+def cube(x):
+return x**3
+if __name__ == "__main__":
+with Pool(3) as pool:
+print("Sending task...")
+result = pool.apply(cube, (5,))
+# BLOCKS until done
+print("Got result:", result)
+# Prints 125
+print("Main continues AFTER task is done.")
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+Sending task...
+Got result: 125
+Main continues AFTER task is done.
+Enter fullscreen mode
+Exit fullscreen mode
+Pool.apply_async (Non-blocking, many tasks at once)
+It does not block the main process, can keep doing other work while workers run. Instead of the result directly, it returns a AsyncResult object (a "future").
+Can call:
+.get(): Fetches the result (blocking). If the worker has finished, it returns the value. If it is still running, the program will wait until it is done.
+Example:
+from multiprocessing import Pool
+import time
+def square(x):
+time.sleep(2)
+return x * x
+if __name__ == "__main__":
+with Pool(2) as pool:
+async_res = pool.apply_async(square, (5,))
+print("Main keeps running...")
+result = async_res.get()
+# Waits here until worker finishes
+print("Result:", result)
+# OUTPUT:
+# Main keeps running...
+# Result: 25
+.ready(): Fetches the result (blocking). If the worker has finished, it returns the value. If it is still running, the program will wait until it is done.
+Example:
+from multiprocessing import Pool
+import time
+def square(x):
+time.sleep(2)
+return x * x
+if __name__ == "__main__":
+with Pool(2) as pool:
+async_res = pool.apply_async(square, (5,))
+while not async_res.ready():
+print("Still working...")
+time.sleep(0.5)
+print("Done:", async_res.get())
+# OUTPUT:
+# Main keeps running...
+# Result: 25
+.wait(): Blocked until finished, no result. It just pauses until the worker is done, but does not return the result (can call .get() later).
+Example:
+from multiprocessing import Pool
+import time
+def square(x):
+time.sleep(2)
+return x * x
+if __name__ == "__main__":
+with Pool(2) as pool:
+async_res = pool.apply_async(square, (5,))
+async_res.wait()
+# Just wait until it’s finished
+print("Now safe to get:", async_res.get())
+# OUTPUT:
+# Now safe to get: 25
+Supports callbacks:
+callback: It runs when task succeeds.
+error_callback: It runs if task fails.
+Execution flow:
+Main process → fire tasks → workers crunch numbers → results/errors handled via callbacks → main waits at the end (if needed)
+Enter fullscreen mode
+Exit fullscreen mode
+Example (with callbacks):
+from multiprocessing import Pool
+import time
+def work(x):
+time.sleep(1)
+# pretend it's slow
+if x == 5:
+raise ValueError("boom")
+return x * x
+def on_ok(result):
+print("Result ready:", result)
+def on_err(err):
+print("Error:", err)
+if __name__ == "__main__":
+with Pool(3) as pool:
+futures = [
+pool.apply_async(work, (i,), callback=on_ok, error_callback=on_err)
+for i in range(8)
+]
+print("Main can do other stuff while workers run...")
+# Wait for all tasks
+for f in futures:
+f.wait()
+print("All tasks completed")
+Enter fullscreen mode
+Exit fullscreen mode
+Output:
+Main can do other stuff while workers run...
+Result ready: 1
+Result ready: 0
+Result ready: 4
+Result ready: 9
+Result ready: 16
+Error: boom
+Result ready: 49
+Result ready: 36
+All tasks completed
+Enter fullscreen mode
+Exit fullscreen mode
+Quick between apply and apply_async
+Feature
+apply (Blocking)
+apply_async (Non-blocking)
+Blocking?
+Yes (main waits)
+No (main continues)
+Return value
+Direct result
+AsyncResult object
+Suitable for
+One task, need result now
+Many tasks, async workflow
+Callbacks
+Not supported
+Supported (success & error)
+Typical use
+Simple testing/debugging
+Real-world workloads, batch jobs
+Comparison
+Method
+Blocking?
+Input Size Suitability
+Order Preserved?
+Best for
+map
+Yes
+Small–medium lists
+Yes
+Simple batch jobs
+imap
+No
+Large streams
+Yes
+Stream results in order
+imap_unordered
+No
+Large streams
+No
+Faster feedback
+apply
+Yes
+Single task
+Yes
+One-off process run
+apply_async
+No
+Many tasks
+Optional via callback
+Async workflows
+Rule of thumb
+map: easiest for small datasets.
+imap/imap_unordered: best for big datasets.
+apply/apply_async: for one-off or async job scheduling.
+Programming and General (8 Part Series)
+1
+C++ Strings
+2
+Understanding Python Bytecode and the Virtual Machine for Better Development
+...
+4 more parts...
+3
+Tree vs Trie: Understanding the Differences and Use Cases
+4
+What is the GIL in Python and Why Should You Care?
+5
+Python Concurrency: Processes, Threads, and Coroutines Explained
+6
+Multithreading in Python: Lifecycle, Locks, and Thread Pools
+7
+Multithreading: Interview Questions and Practice Problems
+8
+Python Multiprocessing: Start Methods, Pools, and Communication
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Sushant Gaurav
+Follow
+Technical Engineer - SUSE | Ex-Associate Engineer (IA) - PwC | Backend | Data Engineering, Analytics & Visualization | Python | AWS | Cloud & Automation | Technical Writing | Ex-Microsoft Ambassador
+Location
+Delhi, India
+Education
+LNCT, Bhopal
+Pronouns
+He/Him
+Work
+SUSE
+Joined
+Oct 18, 2021
+More from Sushant Gaurav
+Multithreading: Interview Questions and Practice Problems
+#programming
+#python
+#interview
+#beginners
+Multithreading in Python: Lifecycle, Locks, and Thread Pools
+#python
+#programming
+#beginners
+#tutorial
+Python Concurrency: Processes, Threads, and Coroutines Explained
+#programming
+#python
+#beginners
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -155,13 +155,15 @@ However, PgBouncer in transaction pooling mode breaks this.
 Server-side cursors depend on the connection being pinned to the same backend for the lifetime of the cursor.
 Transaction pooling reuses connections between queries, so as soon as the transaction ends, the cursor is lost.
 In practice, this results in errors like cursor does not exist when iterating, or worse, inconsistent data reads.
-For example, we periodically saw this exception when browsing the Django admin panel
+For example, we periodically saw this exception when browsing the Django admin panel:
 InvalidCursorName: cursor "_django_curs_140116399986368_sync_1" does not exist
 To avoid this, Django has a built-in option for the database connection:
-"OPTIONS": {
+DATABASES = {
 "DISABLE_SERVER_SIDE_CURSORS": True,
 }
-With this setting enabled, Django’s .iterator() will fetch the entire result set into backend memory. That means your memory usage can grow significantly when iterating over large querysets, which may affect your application performance
+With this setting enabled, Django’s .iterator() will fetch the entire result set into backend memory. That means your memory usage can grow significantly when iterating over large querysets, which may affect your application performance.
+You could use an extra direct connection to the database if you need server side cursors benefits and then use the direct connection for those queries:
+YourModel.objects.using('direct_db_connection').filter().iterator()
 Reliability: Fallback from PgBouncer to Postgres
 We also added a simple reliability check in our settings to make sure the application can still connect even if PgBouncer is down or misconfigured.
 try:
@@ -184,7 +186,7 @@ DB_HOST = POSTGRES_HOST
 DB_PORT = POSTGRES_PORT
 Enter fullscreen mode
 Exit fullscreen mode
-This provides a graceful degradation path: the app may lose PgBouncer’s pooling benefits temporarily, but it will stay online and functional
+This provides a graceful degradation path: the app may lose PgBouncer’s pooling benefits temporarily, but it will stay online and functional.
 I think that was a lot, right? Do you still want to connect PgBouncer to your Django application or CONN_MAX_AGE saves the day?
 Conclusion
 PgBouncer is the right tool to help scale your Postgres app when the number of database connections becomes an issue. Keep in mind that while adding PgBouncer introduces additional complexity for your team, careful setup, monitoring, and tuning should improve your app’s performance.
