@@ -83,7 +83,8 @@ Personally, I have have found it to be a better development experience compared 
 I've had success validating message-based services by creating local integration tests using Testcontainers, where we can quickly verify the workflows and asynchronous interactions inside our service without requiring a full-blown deployment or relying upon setting up complex external dependencies during development.
 Wolverine has rich support for Azure Service Bus, and Microsoft has released the Azure Service Bus Emulator which, as we will see, combined with Testcontainers makes configuring and running these types of tests relatively trivial.
 We'll also be using XUnit as our testing framework.
-So enough of me babbling, let's get into it!
+Okay.
+Let's go!
 Wolverine Configuration
 Let's start with building a very simple .NET 8 Wolverine application that subscribes to an Azure Service Bus topic.
 public class Program
@@ -96,11 +97,11 @@ await host.RunAsync();
 public static WebApplication CreateApp(string[] args)
 {
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddEnvironmentVariables();
 builder.UseWolverine(opts =>
 {
-// Get the ASB connection string from environment variable or configuration
 // This will be set as an environment variable in our test host
-var connectionString = Environment.GetEnvironmentVariable("AzureServiceBusConnectionString");
+var connectionString = builder.Configuration.GetValue<string>("AzureServiceBusConnectionString")
 var azureServiceBus = opts.UseAzureServiceBus(connectionString);
 azureServiceBus
 .ListenToAzureServiceBusSubscription("my-subscription")
@@ -198,7 +199,7 @@ ServiceBusContainer = new ServiceBusBuilder()
 .WithAcceptLicenseAgreement(true)
 .WithName("my-azure-service-bus-container")
 .WithConfig(configPath)
-.WithPortBinding(5672, false);
+.WithPortBinding(5672, false)
 .Build();
 ServiceBusContainer.StartAsync().Wait();
 AppFactory = new TestAppFactory
@@ -231,9 +232,13 @@ var message = new MyMessage();
 // Act
 // Publish the message and wait for it to be processed
 await _app.Host
+// Tell Wolverine to start tracking message handling so we can evaluate it
 .TrackActivity()
-.Timeout(5.Seconds()) // or whatever you think is reasonable
+// Set a timeout period to whatever you think is reasonable to wait for conditions defined below
+.Timeout(5.Seconds())
+// Tell Wolverine to wait for our message to be received and handled
 .WaitForMessageToBeReceivedAt<MyMessage>(_app.Host)
+// Finally, actually publish the message
 .PublishMessageAndWaitAsync(message);
 // Assert
 // Some other verification logic here

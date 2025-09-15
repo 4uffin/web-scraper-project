@@ -1,0 +1,387 @@
+How I Combined Strands Agents, Bedrock AgentCore Runtime, and AgentCore Browser to Automate AWS Docs - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Atsushi Suzuki
+for AWS Community Builders
+Posted on Sep 15
+How I Combined Strands Agents, Bedrock AgentCore Runtime, and AgentCore Browser to Automate AWS Docs
+#aws
+#ai
+#python
+#webdev
+This summer, I barely had any time or energy to explore new technologies due to internal troubles at work and a family member being hospitalized. But by mid-September, I finally got some breathing room—so I decided to dive into Amazon Bedrock AgentCore, which had been generating buzz since July.
+AgentCore is a suite of services designed for production-grade AI agent operations. Its core execution platform, AgentCore Runtime, quickly caught attention for being extremely easy to deploy.
+Introducing Amazon Bedrock AgentCore: Securely deploy and operate AI agents at any scale (preview)
+Since I had the chance, I also tried combining the AgentCore Browser, a managed browser for agents, to experiment with browser automation.
+Amazon Bedrock AgentCore Browser Tool
+What I Built
+I created an agent with Strands Agents, deployed it on AgentCore Runtime, and connected it to the AgentCore Browser through Browser Use.
+The goal: when asked something like
+“How can I create a lifecycle policy for an S3 bucket?”,
+the agent should navigate through official Amazon S3 documentation pages, extract key information, and generate an answer.
+Prerequisites
+Python 3.11+
+AWS account with configured credentials
+Region: us-west-2
+Unfortunately, AgentCore is not yet available in ap-northeast-1
+Access to the Claude Sonnet 4 base model
+I used us.anthropic.claude-sonnet-4-20250514-v1:0
+Code Overview
+Here are the main points of the implementation.
+The full source code is available on GitHub:
+strands-agentcore-browseruse
+Project Structure
+Since there’s only one browser tool, I kept it simple:
+src/
+├── agents/
+│
+└── main_agent.py
+# Main agent
+├── runtime/
+│
+└── agentcore_app.py
+# Integration with AgentCore Runtime
+└── tools/
+└── browser_tool.py
+# Browser automation logic
+Enter fullscreen mode
+Exit fullscreen mode
+Implementing the Main Agent
+The agent is built using Strands Agents.
+It uses Claude Sonnet 4 as the model and the browse_url_tool for browser interaction.
+def create_agent():
+"""Create AWS Docs search agent"""
+model = BedrockModel(
+model_id='us.anthropic.claude-sonnet-4-20250514-v1:0',
+params={
+"max_tokens": 2048,
+"temperature": 0.3,
+"top_p": 0.8
+},
+region='us-west-2',
+read_timeout=600,
+)
+agent = Agent(
+name="aws_docs_agent",
+model=model,
+tools=[browse_url_tool],
+system_prompt=SYSTEM_PROMPT
+)
+return agent
+Enter fullscreen mode
+Exit fullscreen mode
+Connecting to AgentCore Runtime
+Integrating with AgentCore Runtime is surprisingly simple.
+Just use the @app.entrypoint decorator to expose an endpoint that accepts requests.
+app = BedrockAgentCoreApp()
+@app.entrypoint
+async def invoke(payload: Dict[str, Any], context) -> Dict[str, Any]:
+try:
+prompt = payload.get("prompt", "")
+agent = create_agent()
+result = agent(prompt)
+return {
+"result": str(result),
+"status": "success"
+}
+except Exception as e:
+return {
+"error": f"Error: {str(e)}",
+"status": "error"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Browser Automation Logic
+This is the key part.
+It launches AgentCore Browser and controls it from Browser Use via Chrome DevTools Protocol (CDP).
+Start an AgentCore Browser session
+Get the CDP WebSocket URL
+Pass it to Browser Use
+Provide proper authentication headers
+async def execute_browser_task(instruction: str, starting_url: str = "https://docs.aws.amazon.com") -> str:
+client = BrowserClient(region=region)
+try:
+client.start()
+ws_url, headers = client.generate_ws_headers()
+browser_profile = BrowserProfile(
+headers=headers,
+timeout=180000,
+)
+browser_session = BrowserSession(
+cdp_url=ws_url,
+browser_profile=browser_profile,
+keep_alive=True
+)
+await browser_session.start()
+browser_use_agent = BrowserUseAgent(
+task=instruction,
+llm=bedrock_chat,
+browser_session=browser_session,
+)
+result = await browser_use_agent.run()
+return result
+finally:
+if browser_session:
+await browser_session.close()
+client.stop()
+Enter fullscreen mode
+Exit fullscreen mode
+Important
+Without pinning the version of browser-use, I ran into WebSocket 403 errors.
+Be sure to specify it in your requirements.txt:
+browser-use<0.3.3
+Deploying to AgentCore Runtime
+Create a virtual environment:
+python -m venv venv
+source venv/bin/activate
+Enter fullscreen mode
+Exit fullscreen mode
+Run the initial setup (this creates IAM roles, an Amazon Elastic Container Registry repo, etc.):
+agentcore configure --entrypoint src/runtime/agentcore_app.py --region us-west-2
+Enter fullscreen mode
+Exit fullscreen mode
+You’ll need to manually attach this policy to the AmazonBedrockAgentCoreSDKRuntime-us-west-2-~ IAM role created by agentcore configure so it can use AgentCore Browser:
+{
+"Version": "2012-10-17",
+"Statement": [
+{
+"Sid": "BrowserAccess",
+"Effect": "Allow",
+"Action": [
+"bedrock-agentcore:StartBrowserSession",
+"bedrock-agentcore:StopBrowserSession",
+"bedrock-agentcore:ConnectBrowserAutomationStream",
+"bedrock-agentcore:ConnectBrowserLiveViewStream",
+"bedrock-agentcore:ListBrowserSessions",
+"bedrock-agentcore:GetBrowserSession",
+"bedrock-agentcore:ListBrowsers",
+"bedrock-agentcore:GetBrowser"
+],
+"Resource": "*"
+}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Then deploy:
+agentcore launch
+Enter fullscreen mode
+Exit fullscreen mode
+For redeployments:
+agentcore launch --auto-update-on-conflict
+Enter fullscreen mode
+Exit fullscreen mode
+Execution Result
+After deployment, I tested it locally:
+agentcore invoke '{"prompt": "How can I create a lifecycle policy for an S3 bucket?"}'
+Enter fullscreen mode
+Exit fullscreen mode
+It took about 10 minutes (long), but the response was a fully detailed explanation of how to set up Amazon S3 lifecycle policies—complete with CLI, Console, SDK, and XML/JSON examples.
+Response:
+{"result": "Based on my research of the official AWS documentation, here's a comprehensive guide on how to create an S3 bucket lifecycle policy:\n\n## How to Create an S3 Bucket
+Lifecycle Policy\n\nS3 lifecycle policies help you automatically manage your objects throughout their lifecycle, transitioning them between different storage classes and eventually
+expiring them to optimize costs. Here are the different methods to create them:\n\n### **1. Using AWS CLI**\n\nThe most direct programmatic approach:\n\n**Basic
+Command:**\n```
+bash\naws s3api put-bucket-lifecycle-configuration --bucket YOUR-BUCKET-NAME --lifecycle-configuration file://lifecycle.json\n
+```\n\n**Example JSON Configuration
+File (lifecycle.json):**\n```
+json\n{\n
+\"Rules\": [\n
+{\n
+\"ID\": \"ExampleRule\",\n
+\"Status\": \"Enabled\",\n
+\"Filter\": {\n
+\"Prefix\":
+\"documents/\"\n
+},\n
+\"Transitions\": [\n
+{\n
+\"Days\": 30,\n
+\"StorageClass\": \"STANDARD_IA\"\n
+},\n
+{\n
+\"Days\":
+90,\n
+\"StorageClass\": \"GLACIER\"\n
+}\n
+],\n
+\"Expiration\": {\n
+\"Days\": 365\n
+}\n
+}\n
+]\n}\n
+```\n\n**Additional CLI Commands:**\n-
+**View existing policy:** `aws s3api get-bucket-lifecycle-configuration --bucket YOUR-BUCKET-NAME`\n- **Delete policy:** `aws s3api delete-bucket-lifecycle --bucket
+YOUR-BUCKET-NAME`\n\n### **2. Using AWS Management Console**\n1. Navigate to the S3 console\n2. Select your bucket\n3. Go to the \"Management\" tab\n4. Click \"Create lifecycle
+rule\"\n5. Configure your rule settings (filters, transitions, expiration)\n6. Review and create the rule\n\n### **3. Using REST API**\nThe API operations available:\n-
+**PutBucketLifecycleConfiguration**\n- **GetBucketLifecycleConfiguration** \n- **DeleteBucketLifecycle**\n\n### **4. Using AWS SDKs**\nAvailable for Java, .NET, Ruby, Python, and
+other languages with complete lifecycle management capabilities.\n\n## **Key Configuration Elements**\n\n### **Basic XML Structure:**\n```
+xml\n<LifecycleConfiguration>\n
+<Rule>\n
+<ID>Unique-Rule-Name</ID>\n
+<Filter>\n
+<Prefix>folder/</Prefix>\n
+</Filter>\n
+<Status>Enabled</Status>\n
+<Transition>\n
+<Days>365</Days>\n
+<StorageClass>GLACIER</StorageClass>\n
+</Transition>\n
+<Expiration>\n
+<Days>3650</Days>\n
+</Expiration>\n
+</Rule>\n</LifecycleConfiguration>\n
+```\n\n### **Available
+Storage Classes (in transition order):**\n- **STANDARD** → **STANDARD_IA** → **GLACIER** → **DEEP_ARCHIVE**\n\n### **Filter Options:**\n- **Prefix**: Target objects with specific
+key prefixes\n- **Tags**: Apply rules based on object tags\n- **Size**: Filter by object size (ObjectSizeGreaterThan/LessThan)\n- **Combinations**: Use `<And>` to combine multiple
+filters\n\n## **Important Best Practices**\n\n1. **Configuration Replacement**: S3 replaces the entire lifecycle configuration when you add a new one. To update, retrieve existing
+config first, modify it, then reapply.\n\n2. **Propagation Delay**: Expect a few minutes delay before new configurations take full effect.\n\n3. **Small Objects**: Objects smaller
+than 128KB are prevented from transitioning by default (use size filters to override).\n\n4. **Testing**: Always verify your configuration after applying by checking rule counts
+and testing with sample objects.\n\n5. **Cost Optimization**: Design rules to tier down storage classes over object lifetime to minimize costs.\n\n6. **Versioning Support**: Use
+`NoncurrentVersionTransition` and `NoncurrentVersionExpiration` for versioning-enabled buckets.\n\n## **Common Use Cases**\n\n- **Log Archival**: Move application logs to cheaper
+storage after 30 days, archive after 90 days\n- **Backup Management**: Transition backups to Glacier, expire after retention period\n- **Document Management**: Move old documents
+through storage tiers based on access patterns\n- **Cleanup**: Remove incomplete multipart uploads and expired delete markers\n\nFor detailed examples, configuration samples, and
+troubleshooting guidance, refer to the AWS S3 User Guide on lifecycle configuration.\n\n**Documentation Links:**\n- [S3 Lifecycle Configuration
+Examples](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-configuration-examples.html)\n- [Setting S3 Lifecycle
+Configuration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/how-to-set-lifecycle-configuration-intro.html)\n", "status": "success"}
+Enter fullscreen mode
+Exit fullscreen mode
+I could also see the Live View of browser operations in the AgentCore Browser console:
+References
+amazon-bedrock-agentcore-samples
+Strands Agents
+5分で AI エージェントをデプロイ・ホスティングする – Amazon Bedrock AgentCore Runtime
+[Amazon Bedrock AgentCore] AgentCore Browser をAIエージェントで操作してみた
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Community Builders
+Follow
+Build On!
+Would you like to become an AWS Community Builder? Learn more about the program and apply to join when applications are open next.
+Learn more
+More from AWS Community Builders
+Using Amazon Textract to analyze and extract text from Documents Part 1
+#ai
+#aws
+New Relic Template for Strands
+#aws
+#newrelic
+#mcp
+#kubernetes
+Turn log lines into alerts (without building a whole observability stack)
+#cloudwatch
+#observability
+#monitoring
+#aws
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
