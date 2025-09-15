@@ -1,0 +1,416 @@
+Implemented User Auth, OTP verification, Audio Recording w BG, SMS, Cloud Integration. - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Sakib Shaikh
+Posted on Sep 15
+Implemented User Auth, OTP verification, Audio Recording w BG, SMS, Cloud Integration.
+#kiro
+NeedU — Silent SOS for Kiro Hackathon
+Hold. Record. Share. A fast, privacy‑minded silent SOS for forced abductions and violent situations. Built with Flutter + Firebase.
+NeedU is a lightweight silent SOS app: press-and-hold the SOS button for 3 seconds to silently start a 30s background audio recordingplus share your live location with up to three emergency contacts. Built to work when you can't speak or move the phone.
+What I built
+Hold-to-trigger SOS with animated countdown and particles.
+Haptic + snackbar confirmation on trigger.
+Background audio recording (iOS & Android considerations) — recording is broken into safe 5s chunks and uploaded immediately to Firebase Storage.
+Phone OTP onboarding and robust authentication (Email/Password, Google Sign-In, Apple Sign-In). Phone verification is required on sign-up so SOS alerts reach real phone numbers.
+Uses a design system: AppColors, AppTypography, AppTheme, and SizeConfig for consistent styling.
+Local persistence of user object in SharedPreferences and Firestore users/{uid} collection for cloud storage.
+The exact prompt / code snippets (kept unchanged)
+I asked an assistant to scaffold two files and to follow strict design constraints. The prompt (verbatim):
+{% embed I need you to generate 2 files for my Flutter project:
+1. `sos_page.dart`
+2. `audio_services.dart`
+Follow these rules strictly:
+- Use my existing **design system** (`AppColors`, `AppTypography`, `AppTheme`, and `SizeConfig`) for colors, text, paddings, spacings, and icons.
+- Do not add extra UI styles outside of these specs. Always refer to `SizeConfig` for dimensions and spacing.
+- `sos_page.dart` should:
+- Have an SOS button with the following flow:
+- User holds for 3 seconds → show animated countdown circle + particles.
+- After 3s → trigger SOS with haptic feedback + snackbar.
+- Start audio recording via `AudioServices`.
+- Record for 30s in safe 5s chunks, each uploaded to Firebase Storage.
+- Show snackbars for: service triggered, recording started, recording uploaded successfully, or failure.
+- Button must disable while processing (to prevent multiple triggers).
+- UI:
+- Center SOS button with shield icon + "SOS" text.
+- Background glow + particles (spread out 100–200px radius, animated).
+- Countdown number shown in the button during hold (before trigger).
+- Above button: Title (`Stay Safe`) and subtitle (`Hold 3 secs to trigger alert!`) using `AppTypography` and `AppColors`.
+- Below button: show emergency contacts card (`EmergencyContacts()` if logged in, else `guestEcCard(context)`).
+- Use `SizeConfig` for all heights, paddings, and text sizes.
+- `audio_services.dart` should:
+- Provide an `AudioServices` singleton class for:
+- Starting and stopping recordings.
+- Recording in safe chunks (5s each for total 30s).
+- Uploading to Firebase Storage under `sos_recordings/{uid}/Triggered_on_{date}/filename.m4a`.
+- Returning a list of URLs after uploads.
+- Playing last recorded file.
+- Handle microphone permission requests.
+- Support background recording on iOS with `_configureAudioSession`.
+- Use `recordInSafeChunks` for the SOSPage.
+- Constraints:
+- No unused states/variables in UI (recording handled in service).
+- Use `Utilis.showSnackBar` for user messages.
+- Use `Theme.of(context).colorScheme` for colors, combined with AppColors where needed.
+- File structure: keep each file self-contained and import only required dependencies.
+%}
+(yeah i polished my prompt with GPT🥲)
+Enter fullscreen mode
+Exit fullscreen mode
+Below is the implementation plan that the assistant generated for this feature (also verbatim):
+# Implementation Plan
+- [x] 1. Create AudioServices singleton class with core recording functionality
+- Implement singleton pattern with private constructor and static instance
+- Add AudioRecorder and AudioPlayer instances as private properties
+- Create hasPermission() method to check microphone permissions
+- Implement \_makeFileName() helper to generate unique recording filenames
+- Create \_recordingDir() method to get/create temporary recording directory
+- _Requirements: 2.1, 2.4, 4.6, 6.1_
+- [x] 2. Implement basic recording start/stop functionality in AudioServices
+- Create startRecording() method with backgroundMode parameter
+- Configure RecordConfig with AAC-LC encoding, 128kbps bitrate, 44.1kHz sample rate
+- Implement iOS background audio session configuration in \_configureAudioSession()
+- Create stopRecording() method that returns absolute file path
+- Add lastFilePath property to track most recent recording
+- _Requirements: 2.1, 4.6, 6.1, 6.2_
+- [x] 3. Add Firebase Storage upload functionality to AudioServices
+- Implement uploadRecording() method that takes local file path
+- Create Firebase Storage path structure: sos*recordings/{uid}/Triggered_on*{date}/filename.m4a
+- Add proper error handling for FirebaseException cases
+- Return download URL on successful upload, null on failure
+- Add debug logging for upload success/failure tracking
+- _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
+- [x] 4. Implement safe chunk recording system in AudioServices
+- Create recordInSafeChunks() method with configurable duration parameters
+- Implement loop to record 5-second chunks for total 30-second duration
+- Add immediate upload after each chunk completion
+- Return List<String> of successfully uploaded URLs
+- Add proper cleanup of temporary files after upload
+- _Requirements: 2.3, 2.4, 2.5, 4.1, 4.2_
+- [x] 5. Create SOSPage widget with basic structure and design system integration
+- Create StatefulWidget with TickerProviderStateMixin for animations
+- Add Scaffold with SingleChildScrollView and proper padding using SizeConfig
+- Implement page header with "Stay Safe" title using AppTypography.titleLarge
+- Add subtitle "Hold 3 secs to trigger alert!" with default text style
+- Create basic SOS button structure with shield icon and "SOS" text
+- _Requirements: 1.1, 3.1, 5.5, 7.1, 7.2, 7.3, 7.4, 7.5_
+- [x] 6. Implement SOS button state management and visual feedback
+- Add state variables: \_isPressed, \_sosTriggered, \_isProcessing
+- Create AnimationControllers for glow, particles, and timer
+- Implement GestureDetector with onTapDown, onTapUp, onTapCancel handlers
+- Add AnimatedScale for button press visual feedback (0.95x scale)
+- Implement button opacity dimming (0.7) during processing state
+- _Requirements: 1.3, 1.6, 3.3, 3.5, 7.6_
+- [x] 7. Create countdown timer animation and progress circle
+- Implement \_TimerPainter CustomPainter for progress circle animation
+- Add 3-second countdown with AnimationController
+- Display countdown numbers (3, 2, 1) in button center during hold
+- Create animated progress circle around button showing countdown progress
+- Add AnimationStatusListener to trigger SOS when countdown completes
+- _Requirements: 1.1, 1.2, 1.5, 3.4_
+- [x] 8. Implement particle effects and background glow animations
+- Create \_buildParticle() method to generate individual particle widgets
+- Implement 12 particles with animated position using trigonometry
+- Set particle spread radius to 100-200px from button center
+- Add particle visual properties: 12x12 size, 0.8+ opacity, glow shadow
+- Create continuous glow animation with ScaleTransition (0.8 to 1.1 scale)
+- _Requirements: 3.2, 3.6, 3.7_
+- [x] 9. Implement SOS trigger flow and AudioServices integration
+- Create \_startSOSTimer() method to begin countdown on button press
+- Implement \_cancelSOSTimer() method for early button release
+- Add \_onSOSTriggered() method with haptic feedback and state updates
+- Integrate AudioServices.recordInSafeChunks() call after trigger
+- Add proper error handling and user feedback via snackbars
+- _Requirements: 1.2, 1.4, 2.1, 2.2, 2.6_
+- [x] 10. Integrate emergency contacts display below SOS button
+- Add conditional rendering: EmergencyContacts() for logged-in users
+- Show guestEcCard(context) for guest users
+- Ensure proper spacing using SizeConfig.defaultHeight2
+- Maintain existing emergency contacts functionality without modification
+- Test integration with current user authentication state
+- _Requirements: 5.1, 5.2, 5.3, 5.4_
+- [x] 11. Add comprehensive error handling and edge cases
+- Handle microphone permission denial gracefully
+- Add network failure handling for Firebase uploads
+- Implement proper cleanup of animation controllers in dispose()
+- Add null safety checks for all file operations
+- Handle background recording interruptions (phone calls, etc.)
+- _Requirements: 4.4, 4.5, 6.3, 6.4_
+- [x] 12. Implement iOS-specific background recording support
+- Add platform-specific checks for iOS background recording
+- Implement proper audio session configuration for background mode
+- Add \_isBackgroundRecording state tracking
+- Handle app lifecycle changes during recording
+- Add proper cleanup when background recording completes
+- _Requirements: 6.1, 6.2, 6.3, 6.4_
+- [x] 13. Rename AudioServices2 class to AudioServices for consistency
+- Rename AudioServices2 class to AudioServices in audio_services.dart
+- Update all imports and references in SOSPage to use AudioServices
+- Ensure singleton instance is properly accessible as AudioServices.instance
+- Update any other files that reference AudioServices2
+- _Requirements: 2.1, 4.1_
+- [x] 14. Create unit tests for AudioServices functionality
+- Write tests for singleton pattern implementation
+- Test recording start/stop functionality with mocked dependencies
+- Add tests for Firebase upload success/failure scenarios
+- Test safe chunk recording with various duration parameters
+- Verify proper error handling for all edge cases
+- _Requirements: 2.1, 2.4, 4.1, 4.4_
+Enter fullscreen mode
+Exit fullscreen mode
+Project goal (verbatim)
+Project goal
+------------
+Make/update the app authentication flow so that:
+- First-time sign-up collects **name + phone** (profile & emergencyContacts may be null).
+- Phone number is verified by **Firebase Phone OTP**.
+- After successful verification, create a Firestore `users` document and **return** the map:
+{
+'uid': uid,
+'name': name,
+'profilePhotoUrl': profilePhotoUrl,
+'emergencyContacts': emergencyContacts.value,
+'phoneNumber': phoneNumber,
+'createdAt': createdAt,
+}
+(If profilePhotoUrl or emergencyContacts are not provided, store `null` or empty array).
+- On successful sign-up **save user locally** (persist the same map) and set the in-app global/current user.
+- On sign-in (email/password or phone OTP) also save user locally.
+- Use `go_router` for navigation states (signIn, signUp, accountSetup, sosPage) and update routes accordingly.
+- Follow existing UI/design tokens and `SizeConfig` sizing everywhere.
+Files to generate/modify
+------------------------
+1. `lib/features/auth/firebase_auth_services.dart` (or update existing)
+- Implements phone OTP flow using `FirebaseAuth.verifyPhoneNumber` + `PhoneAuthProvider.credential`.
+- Exposes:
+- `Future<void> requestPhoneOtp({required String phone, required Function(String verificationId) onCodeSent, required Function(String error) onError})`
+- `Future<Map<String, dynamic>?> verifyPhoneOtpAndSignUp({ required String verificationId, required String smsCode, required String name, String? profilePhotoUrl, List<Map<String,String>>? emergencyContacts })`
+- This function must:
+1. Verify OTP and sign in the phone user (or link with existing account if necessary).
+2. If this is first-time sign up (no existing user doc in Firestore), write a `users/{uid}` doc with fields:
+- `uid`, `name`, `profilePhotoUrl` (nullable), `emergencyContacts` (nullable/array), `phoneNumber`, `createdAt: FieldValue.serverTimestamp()`
+3. Read back the created/updated user doc and **return the exact map**:
+{
+'uid': uid,
+'name': name,
+'profilePhotoUrl': profilePhotoUrl,
+'emergencyContacts': emergencyContacts.value,
+'phoneNumber': phoneNumber,
+'createdAt': createdAt,
+}
+(Use `Timestamp` to store createdAt in Firestore, and return that field raw or converted to ISO string — prefer returning the server timestamp value).
+4. If user already exists, return the existing user map.
+5. Throw/return null on failure — but ensure UI receives clear error strings for snackbars.
+- `Future<Map<String,dynamic>?> signInWithPhoneOtp({required String verificationId, required String smsCode})` — for signing existing accounts.
+- `Future<void> signOut()` handling cleanup, and clearing local stored user.
+2. `lib/features/auth/auth_services.dart` (UI glue)
+- Update/replace the current AuthScreen, SignUp and Phone OTP widgets with a clear flow:
+- **SignUp**: collects `name` and `phoneNumber` (use `IntlPhoneField`), validate them, then call `requestPhoneOtp`.
+- On `codeSent`, navigate to an OTP screen (use `go_router` navigation: e.g., `context.go('/auth/verifyOtp', extra: { 'verificationId': vid, 'name': name, 'phone': phone })`).
+- **OTP Screen**: input field for code; on submit call `verifyPhoneOtpAndSignUp(verificationId, code, name, ...)`.
+- After successful return map from `verifyPhoneOtpAndSignUp`, save map locally and set global `currentUser` (persist to SharedPreferences as JSON string under key `currentUser`), then navigate to `/accountSetup` (or `/sosPage` if accountSetup not required).
+- **SignIn**: support both email/password and phone-sign-in (OTP). After successful sign-in, fetch Firestore user doc, persist locally and set global `currentUser`.
+3. Local storage
+- Use `shared_preferences` package to store `currentUser` JSON string.
+- Implement helper `LocalUserStore.saveUser(Map user)` and `LocalUserStore.getUser()` to read on app start and set `currentUser` global variable if present.
+4. Firestore structure & queries
+- Collection: `users`
+- Document ID: use `uid` from `FirebaseAuth.currentUser.uid`.
+- Required fields: `uid`, `name`, `profilePhotoUrl` (nullable), `emergencyContacts` (nullable or array), `phoneNumber`, `createdAt: FieldValue.serverTimestamp()`
+- When creating user, ensure **phone uniqueness** check before creation (query `users` for `phoneNumber` equals requested phone — if found, treat as existing account and return that user map instead of creating duplicate).
+5. go_router state & routes
+- Routes (example):
+- `/` → landing/login
+- `/auth/signUp` → SignUp page
+- `/auth/signIn` → SignIn page
+- `/auth/verifyOtp` → OTP verification page (expects `verificationId`, `name`, `phone`)
+- `/accountSetup` → post sign-up additional setup (optional)
+- `/sosPage` → main app page after login
+- Ensure navigation passes required args via `extra` and that the OTP page reads them.
+6. UI + design constraints
+- Use `AppTypography`, `AppColors`, `AppTheme`, and `SizeConfig` for sizes, paddings and fonts.
+- Phone & OTP input use `IntlPhoneField` and appropriate input types.
+- Use `Utilis.showSnackBar` for success/error messages.
+- Keep forms accessible, validate input, show loading indicators (disable buttons) during network ops.
+- Keep code modular and single-responsibility: UI in `auth_services.dart`, Firebase functions in `firebase_auth_services.dart`, local store in `local_user_store.dart` (or inside the firebase services if simpler).
+7. Implementation notes & platform setup (include as a checklist)
+- Add Firebase packages: `firebase_auth`, `cloud_firestore`, `firebase_core`, `shared_preferences`, `intl_phone_field`.
+- Android: Ensure `google-services.json` configured, `minSdkVersion` >= required, and `build.gradle` configured for phone auth.
+- iOS: enable Push/Phone capabilities if needed, add `GoogleService-Info.plist`.
+- Add SHA-1 & SHA-256 to Firebase console for phone auth on Android.
+- Secure rules: ensure `users` collection write is only possible for authenticated uid or from server functions.
+8. Return contract
+- The sign-up function **must return** the exact map:
+{
+'uid': uid,
+'name': name,
+'profilePhotoUrl': profilePhotoUrl,
+'emergencyContacts': emergencyContacts.value,
+'phoneNumber': phoneNumber,
+'createdAt': createdAt,
+}
+- After receiving this map in UI, the UI must save it locally and set `currentUser` global.
+9. Edge cases & UX details
+- If phone OTP times out or verification fails, show clear error and allow resend.
+- If user cancels during OTP, navigate back to signUp page.
+- If user profile or emergencyContacts are null, allow proceeding and provide UI to edit later (Account Setup).
+- Guest flow: retain `isGuest` behavior, but encourage sign-up.
+Deliverable
+-----------
+- Update/generate the files described (UI + firebase service + local store).
+- Keep code clean, commented and aligned with existing project style.
+- Return nothing else — just generate the code files and wire routing/state exactly as described.
+Enter fullscreen mode
+Exit fullscreen mode
+Section Breakdown & ProfilePage spec (verbatim)
+Section Breakdown
+Header (Back + Profile Picture + Edit)
+Back button → left aligned
+CircleAvatar: 100dp diameter
+Overlay edit button → small floating circular button bottom-right
+Profile Info
+Name → large bold text
+Plan → small muted text
+Emergency Contacts
+Section header → “Emergency Contacts”
+Show card list of contacts OR guest prompt card
+Permissions Card
+Title → “Permissions” with edit icon
+Two rows:
+🎤 Audio Access (subtitle: “Required for emergency audio services”)
+📍 Location Access (subtitle: “Required for emergency location services”)
+Pricing & Wallet
+Table-style card with two plans (Starter = free, Pro = $1)
+“Manage Wallet” outlined button below
+Key Features
+Title → “How this works?”
+Bullet list with dot indicators
+About Version
+Card with app shield icon + version label (e.g., RescueMe v1.0.0)
+Sign Out Button
+Outlined, red text & red border
+Centered, full-width
+🔑 Interaction Specs
+Profile picture → Tap to change via image picker
+Name + phone → Editable via “Edit Profile” page
+Emergency contacts → Tap to add/update (OTP verification for phone)
+Permissions → Tap “edit” to navigate to settings
+Wallet → Tap to open WalletScreen
+Sign out → Clears session & navigates to login
+Enter fullscreen mode
+Exit fullscreen mode
+Screenshots (development)
+Github Repo:
+https://github.com/code-sakib/NeedU.git
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Sakib Shaikh
+Follow
+🧑🏻‍💻🌏🏔️
+Joined
+Sep 11, 2025
+More from Sakib Shaikh
+Used to forget daily GitHub pushes — automated them with Kiro.
+#kiro
+#kirohooks
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

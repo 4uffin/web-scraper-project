@@ -1,0 +1,207 @@
+Scaling Carmen Cloud: From Containers to Lambda SnapStart - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+László Tóth
+Posted on Sep 15
+• Originally published at aws.plainenglish.io
+Scaling Carmen Cloud: From Containers to Lambda SnapStart
+#aws
+#lambda
+#snapstart
+#saas
+At Adaptive Recognition, we run Carmen Cloud for ANPR & MMR recognition. Our neural-network engines have been evolving for 30+ years – for us, "AI" is business as usual.
+The real challenge: scaling. On ECS Fargate + EC2, startup + engine init took ~60 seconds. Not acceptable.
+The Fargate/ECS Approach
+Our first deployment ran on ECS Fargate.
+For predictable workloads, this is often good enough. You can define scaling rules or even schedule tasks so that capacity matches traffic (e.g. higher during business hours, lower at night).
+But our workload is the opposite of predictable. Recognition requests come from many customers, across multiple regions, at almost random times. Bursts can hit at 2 a.m. from one continent and spike again an hour later from another.
+With that traffic pattern, Fargate's trade-offs became painful:
+Scale-up lag: EC2 boot + engine init ~60s.
+Idle cost: keeping containers pre-warmed all the time.
+Ops overhead: building/pushing images, patching, managing ECR.
+That's when we started looking for a new approach.
+Early Adoption of SnapStart
+When AWS Lambda SnapStart (Java 21) was released, we migrated immediately.
+That made us among the first to see just how well it scales – and how much money it saves.
+Years later, those benefits are still holding true.
+The Shift: API Gateway + Lambda SnapStart + CRaC
+Key trick: CRaC (Coordinated Restore at Checkpoint) pre-initializes our engines at checkpoint time.
+But SnapStart has a serious limitation: it doesn't support >512 MB of ephemeral storage, nor EFS. Our recognition engines for a single region (EUR, NAM) are much larger than that.
+So we built a staged engine loading mechanism:
+During handler initialization, we download a batch of engine data from S3.
+Engines are initialized into memory (via our VehicleHandler class).
+Temporary .dat files are deleted to free up space.
+The next batch is downloaded and initialized.
+This keeps us under the 512 MB limit while still giving us full coverage. Initialization is more complex, but the scalability and cost benefits make it well worth it.
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+public class VehicleHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent>, org.crac.Resource {
+static {
+// Load engines in batches at checkpoint time from S3
+}
+@Override
+public void beforeCheckpoint(org.crac.Context<? extends org.crac.Resource> ctx) throws Exception {
+// Close network connections – CRaC cannot persist them
+}
+@Override
+public void afterRestore(org.crac.Context<? extends org.crac.Resource> ctx) throws Exception {
+// Re-open connections on restore
+}
+@Override
+public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent input, Context context) {
+// Process image with the chosen engine
+return new APIGatewayProxyResponseEvent();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Supporting AWS Stack
+API Gateway – entry point
+Lambda (SnapStart) – recognition engines
+Cognito – user auth
+DynamoDB – API keys, billing records
+SNS/EventBridge – async billing + subscription events
+S3, SSM, CloudFront, WAF, Route53 – storage, config, delivery, security
+Takeaways
+Even heavy neural engines can scale serverless.
+CRaC makes SnapStart viable by restoring pre-initialized state.
+Closing & reopening network connections is essential.
+Staged loading solves ephemeral storage/EFS limits.
+Being an early adopter of SnapStart saved us both time and cost from day one.
+👉 More about Carmen Cloud: carmencloud.com
+👉 Corporate homepage: adaptiverecognition.com
+👉 My side project for WordPress + Cognito login: Gatey
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+László Tóth
+Follow
+Cloud Business Unit Lead @ Adaptive Recognition → building Carmen Cloud on AWS Lambda SnapStart. Founder of WP Suite / Gatey. Writing about AWS and WordPress.
+Location
+Hungary
+Joined
+Jul 25, 2025
+More from László Tóth
+Behind the Scenes: Building WordPress Static Site Guardian with Kiro
+#kirodotdev
+#kiro
+#aws
+#wordpress
+Static WordPress Authentication with Amazon Cognito and AWS SAR Template
+#aws
+#cognito
+#wordpress
+#cloudfront
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

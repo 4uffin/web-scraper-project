@@ -1,0 +1,237 @@
+Using BuildKit for Container Image Building in GitLab CI And Pushing To ECR - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Aron Schüler
+Posted on Sep 15
+• Originally published at aronschueler.de
+Using BuildKit for Container Image Building in GitLab CI And Pushing To ECR
+#docker
+#devops
+#aws
+#gitlab
+Intro
+If you're still using Kaniko for building container images in your GitLab CI pipelines, it's time to make a change. Kaniko has been deprecated, and BuildKit has emerged as the modern, efficient alternative for building container images in CI/CD environments. BuildKit offers superior caching capabilities, better performance, and enhanced security features compared to its predecessor. While Gitlab Docs offer examples, I had to spend some time getting our pipelines authenticated for AWS and allowing ECR pushes to work flawlessly.
+In this post, I'll walk you through migrating your GitLab pipelines from Kaniko to BuildKit, specifically focusing on building images, authenticating against AWS, and then pushing them to AWS Elastic Container Registry (ECR). The migration makes sure your pipelines stay up to date with industry standards. It should also bring improvements in build speed and reliability!
+Step-by-Step Guide
+1. Understanding the BuildKit Setup
+BuildKit runs in rootless mode for enhanced security, which means it doesn't require privileged access to build container images. The key components of our setup include:
+BuildKit rootless image: moby/buildkit:rootless
+ECR credential helper: For seamless authentication with AWS ECR
+BuildKit daemon: Running in daemonless mode for GitLab CI compatibility
+2. Setting Up the Base Job Configuration
+First, let's create a reusable job template that contains all the common configuration.
+You can reuse this later for different kind of build, e.g. production vs QA builds, or maybe E2E builds.
+.build backend:
+stage: build
+tags:
+- medium-runner
+variables:
+GIT_STRATEGY: fetch
+AWS_DEFAULT_REGION: eu-central-1
+ECR_REPOSITORY: $ECR_REPOSITORY
+ECR_REGISTRY: $ECR_REGISTRY
+AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+image:
+name: moby/buildkit:rootless
+entrypoint: [""]
+Enter fullscreen mode
+Exit fullscreen mode
+The BUILDKITD_FLAGS: --oci-worker-no-process-sandbox flag is necessary for running BuildKit in GitLab's shared runners without requiring additional privileges and something I had missing in my first jobs.
+3. Installing and Configuring ECR Authentication
+The before_script section handles the ECR authentication setup:
+before_script:
+# Install ecr login helper
+- mkdir credentials-binaries
+- wget -O credentials-binaries/docker-credential-ecr-login https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/0.10.0/linux-amd64/docker-credential-ecr-login
+- chmod +x credentials-binaries/docker-credential-ecr-login
+- chown 1000:1000 credentials-binaries/docker-credential-*
+- export PATH="${CI_PROJECT_DIR}/credentials-binaries:$PATH"
+# Create docker config for ECR authentication
+- mkdir -p ~/.docker
+- |
+cat << EOF > ~/.docker/config.json
+{
+"credHelpers": {
+"$ECR_REGISTRY": "ecr-login"
+}
+}
+EOF
+Enter fullscreen mode
+Exit fullscreen mode
+This setup downloads the ECR credential helper and configures Docker to use it for authentication, using your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY for that.
+The credential helper also handles token refresh, so you don't need manual docker login commands.
+4. Building and Pushing Images with BuildKit
+The main build logic uses buildctl-daemonless.sh, which is perfect for CI environments
+that don't have the docker service available:
+script:
+# Build and push image using BuildKit
+- |
+buildctl-daemonless.sh build \
+--frontend dockerfile.v0 \
+--local context=$CI_PROJECT_DIR/backend \
+--local dockerfile=$CI_PROJECT_DIR/backend \
+--export-cache type=registry,ref=$ECR_REPOSITORY:buildcache \
+--import-cache type=registry,ref=$ECR_REPOSITORY:buildcache \
+--output type=image,name=$ECR_REPOSITORY:$IMAGE_TAG,push=true
+Enter fullscreen mode
+Exit fullscreen mode
+The build uses registry-based caching for subsequent builds and builds+pushes to ECR in a single operation,
+based on the backend/ folder in this example and the backend/Dockerfile.
+Of course, this might need adaption in your usecase.
+5. Creating Environment-Specific Jobs
+Extend the base job for different environments:
+build backend test:
+extends:
+- .build backend
+environment:
+name: test
+variables:
+IMAGE_TAG: backend-latest
+rules:
+- if: $CI_COMMIT_BRANCH == "main"
+when: on_success
+- when: never
+Enter fullscreen mode
+Exit fullscreen mode
+This pattern allows you to create jobs for different environments (staging, production) or usecases by extending the base job and overriding necessary variables.
+6. Required GitLab CI Variables
+Ensure these variables are configured in your GitLab project settings:
+ECR_REGISTRY: ECR registry domain (e.g., 123456789.dkr.ecr.eu-central-1.amazonaws.com)
+ECR_REPOSITORY: Full ECR repository URI (e.g., 123456789.dkr.ecr.eu-central-1.amazonaws.com/my-app) (could reuse $ECR_REGISTRY lol)
+AWS_ACCESS_KEY_ID: AWS credentials with ECR push permissions
+AWS_SECRET_ACCESS_KEY: Corresponding AWS secret key
+Conclusion
+The setup shown here provides a solid foundation that you can customize for your specific needs. Migrating from Kaniko is pretty straightforward with this.
+BuildKit brings your CI/CD pipeline up to date with current best practices. It also brings benefits like improved build speeds through better caching, enhanced security with rootless builds, and more reliable image building.
+The ECR integration step is something that I needed to pierce together from different sources, but I'm very happy with the setup and the speed.
+As you implement this in your own projects, you might want to explore additional BuildKit features like multi-platform builds or custom frontend implementations.
+As always, feel free to share your experiences or ask questions about this migration approach down below :-)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Aron Schüler
+Follow
+Fullstack Dev @ ambient.digital
+Location
+Cologne, Germany
+Joined
+Nov 24, 2021
+More from Aron Schüler
+Publish Playwright Test Reports with GitLab CI/CD Artifacts
+#gitlab
+#webdev
+#playwright
+#e2e
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

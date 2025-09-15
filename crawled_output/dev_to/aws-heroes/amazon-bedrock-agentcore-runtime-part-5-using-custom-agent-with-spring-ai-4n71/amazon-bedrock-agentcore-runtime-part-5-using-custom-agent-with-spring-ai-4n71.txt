@@ -1,0 +1,452 @@
+Amazon Bedrock AgentCore Runtime - Part 5 Using Custom Agent with Spring AI - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Vadym Kazulkin
+for AWS Heroes
+Posted on Sep 15
+Amazon Bedrock AgentCore Runtime - Part 5 Using Custom Agent with Spring AI
+#aws
+#agenticai
+#serverless
+#java
+Amazon Bedrock AgentCore Runtime (5 Part Series)
+1
+Amazon Bedrock AgentCore Runtime - Part 1 Introduction
+2
+Amazon Bedrock AgentCore Runtime - Part 2 Using Bedrock AgentCore Runtime Starter Toolkit with Strands Agents SDK
+3
+Amazon Bedrock AgentCore Runtime - Part 3 AgentCore Observability
+4
+Amazon Bedrock AgentCore Runtime - Part 4 Using Custom Agent with Strands Agents SDK
+5
+Amazon Bedrock AgentCore Runtime - Part 5 Using Custom Agent with Spring AI
+Introduction
+In the part 4 of this series, we explained how to implement the Custom Agent using Strands Agents SDK in Python. This agent used MCP tool which we exposed with Amazon Bedrock AgentCore Gateway. Please read my articles Exposing existing Amazon API Gateway REST API via MCP and Gateway endpoint and Exposing existing AWS Lambda function via MCP and Gateway endpoint where we step by step described these approaches. We then hosted this agent on the Amazon Bedrock AgentCore Runtime.
+Most examples use Strands Agents, LangChain and LangGraph which are all very popular Python frameworks or SDKs.
+The question I asked myself was: why do we focus on nearly all examples only on Python as a programming language and can I implement the same Custom Agent in Java (for example using Spring AI framework) and additionally host it the same way on AgentCore Runtime? I have a very strong background in Java and would like to see it as a valid option for implementing agentic applications. And it turns out that it works very well. As explained in part 4 to host our agent on the AgentCore Runtime we need to fulfill only the following few requirements:
+/invocations Endpoint: POST endpoint for agent interactions
+/ping Endpoint: GET endpoint for health checks
+Docker Container: ARM64 containerized deployment package
+Let's dive deep into that.
+Implementing Custom Agent in Java with Spring AI
+There are several preconditions to move forward:
+Having the application described in my article Serverless applications with Java and Aurora DSQL - Introduction and sample application setup and configuration already deployed. We expose its Open APIs provided by Amazon API Gateway and Lambda via MCP (see 2. below).
+Having the whole setup described in my article Exposing existing Amazon API Gateway REST API via MCP and Gateway endpoint or alternatively in my article Exposing existing AWS Lambda function via MCP and Gateway endpoint completed which includes creating Cogntio User Pool, Cognito Resource Server and Cognito User Pool Client and finally having AgentCore Gateway URL. Our deployed AgentCore Gateway exposes the following 2 tools getOrderById and getOrdersByCreatedDates via MCP HTTP Streamble transport protocol from application in point 1.
+above. Even if setup scripts are provided with Python AWS SDK, we can re-write them with AWS Java SDK or IaC frameworks which support AgentCore setup. Cognito-related IaC part should be supported by the majority of IaC frameworks.
+Basic understanding of Spring AI framework. In my Spring AI with Amazon Bedrock series' articles I introduced Spring AI and gave some examples of how to talk to the model, implement and expose our own tools (see part 1). I also explained how to implement MCP server and expose its tools using different transport protocols: STDIO, SSE and HTTP Streamable (see parts 2-4). We'll use this knowledge to implement Custom Agent with Spring AI.
+With the help of this article, we can implement Agents capable of talking to any MCP server and we can adapt the setup to our personal needs.
+Please find the whole application code in my spring-ai-agent-demo GitHub repository. Let's go through it step by step.
+As MCP Client Streamable HTTP transport protocol support is a part of upcoming Spring AI 1.1 release (deprecated Server-Sent Events transport protocol is supported in Spring AI version 1.0 though), its current preview is available in the 1.1-SNAPSHOT version. Snapshot releases are available on the Spring Snapshots portals. That's why needed to make some changes in the pom.xml. First, let's declare those snapshot repositories:
+<repositories>
+<repository>
+<id>spring-snapshots</id>
+<name>Spring Snapshots</name>
+<url>https://repo.spring.io/snapshot</url>
+<releases>
+<enabled>false</enabled>
+</releases>
+</repository>
+<repository>
+<name>Central Portal Snapshots</name>
+<id>central-portal-snapshots</id>
+<url>https://central.sonatype.com/repository/maven-snapshots/</url>
+<releases>
+<enabled>false</enabled>
+</releases>
+<snapshots>
+<enabled>true</enabled>
+</snapshots>
+</repository>
+</repositories>
+Enter fullscreen mode
+Exit fullscreen mode
+Later, when Spring AI 1.1 will be released, we can remove these snapshot repository declarations.
+The WebFlux starter provides similar functionality to the standard starter but uses a WebFlux-based Streamable-Http (which we use), Stateless Streamable-Http and SSE transport implementation:
+<dependency>
+<groupId>org.springframework.ai</groupId>
+<artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
+</dependency>
+Enter fullscreen mode
+Exit fullscreen mode
+Also, we need to set the Spring AI version to 1.1.0-SNAPSHOT in the pom.xml.
+<properties>
+<java.version>21</java.version>
+<spring-ai.version>1.1.0-SNAPSHOT</spring-ai.version>
+</properties>
+Enter fullscreen mode
+Exit fullscreen mode
+We need to provide some basic configuration in application.properties:
+cognito.user.pool.name=sample-agentcore-gateway-pool
+cognito.user.pool.client.name=sample-agentcore-gateway-client
+cognito.auth.token.resource.server.id=sample-agentcore-gateway-id
+amazon.bedrock.agentcore.gateway.url=https://demoamazonapigatewayorderapi-5hkl78n.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp
+Enter fullscreen mode
+Exit fullscreen mode
+When we did the setup described in point 2. above, we already have Cognito User Pool, Cognito Resource Server and Cognito User Pool Client created with exact these values (names or ids). In case other values were used, please provide the correct ones. AgentCore Gateway URL is unique for each setup, so we need to configure our own url.
+The whole Custom Agent implementation is in SpringAIAgentController.
+In the constructor of our Spring AI Agent Rest Controller we injected Spring AI ChatClient and provided some parameters like model, maximal number of tokens (he we override the values from application.properties). We also gave our chat client some memory. For the detailed information I refer to my article Spring AI with Amazon Bedrock - Introduction and the sample application.
+public SpringAIAgentController(ChatClient.Builder builder, ChatMemory chatMemory) {
+var options = ToolCallingChatOptions.builder().model("amazon.nova-lite-v1:0")
+// .model("amazon.nova-pro-v1:0")
+// .model("anthropic.claude-3-5-sonnet-20240620-v1:0")
+.maxTokens(2000).build();
+this.chatClient =
+builder.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+.defaultOptions(options)
+// .defaultSystem(SYSTEM_PROMPT)
+.build();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Next, according to the AgentCore Runtime specification we exposed 2 HTTP endpoints. The ping POST HTTP endpoint to check the health status of our application is very simple:
+@GetMapping("/ping")
+public String ping() {
+return "{\"status\": \"healthy\"}";
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The invocation POST endpoint is the heart of our Custom Agent implementation:
+@PostMapping(value = "/invocations", consumes = { "*/*" })
+public Flux<String> invocations(@RequestBody String prompt) {
+String token = getAuthToken();
+var client = McpClient.async(getMcpClientTransport(token)).build();
+client.initialize();
+var toolsResult = client.listTools();
+var asyncMcpToolCallbackProvider = new AsyncMcpToolCallbackProvider(client);
+var content = this.chatClient.prompt()
+.user(prompt)
+.toolCallbacks(asyncMcpToolCallbackProvider.getToolCallbacks())
+.stream()
+.content();
+client.close();
+return content;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Let's go step by step through this code:
+String token = getAuthToken();
+Enter fullscreen mode
+Exit fullscreen mode
+In the implementation of this method, we used Cognito Identity Provider Client retrieve already created Cognito User Pool and User Pool Client by its name, build the Cognito token endpoint URL and then make a POST request to this URL and retrieve the access token from its response:
+private String getAuthToken() {
+var userPool = getUserPool();
+var userPoolClient = getUserPoolClient(userPool);
+var userPoolClientType = describeUserPoolClient(userPoolClient);
+var userPoolId = userPool.id();
+userPoolId = userPoolId.replace("_", "");
+var url = "https://" + userPoolId + ".auth." + Region.US_EAST_1.id() + ".amazoncognito.com/oauth2/token";
+String SCOPE_STRING = RESOURCE_SERVER_ID + "/gateway:read " + RESOURCE_SERVER_ID + "/gateway:write";
+String entity = "grant_type=client_credentials&" + "client_id=" + userPoolClientType.clientId() + "&" + "client_secret=" + userPoolClientType.clientSecret() + "&" + "scope=" + SCOPE_STRING;
+try (var httpClient = HttpClients.createDefault()) {
+var httpPost = ClassicRequestBuilder.post(url)
+.setHeader("Content-Type", "application/x-www-form-urlencoded")
+.setEntity(entity).build();
+var response = httpClient.execute(httpPost);
+var inputStream = response.getEntity().getContent();
+var responseString = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+var responseMap = mapper.readValue(responseString,new TypeReference<Map<String, Object>>() {});
+var token = (String) responseMap.get("access_token");
+return token;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The next part of the implementation of the invocations endpoint is to build and initialize the MCP (asynchronous) client:
+var client = McpClient.async(getMcpClientTransport(token)).build();
+client.initialize();
+Enter fullscreen mode
+Exit fullscreen mode
+To do this, MCP client transport needs to be created like this:
+private McpClientTransport getMcpClientTransport(String token) {
+String headerValue = "Bearer " + token;
+var webClientBuilder = WebClient.builder().defaultHeader("Authorization", headerValue);
+return WebClientStreamableHttpTransport.builder(webClientBuilder)
+.endpoint(AGENTCORE_GATEWAY_URL).build();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Here we built Web Client with the HTTP Streamable transport protocol. It requires an MCP Server endpoint which is in our case exposed via AgentCore Gateway URL (which we configured in application.properties) to be passed as a parameter of endpoint method. It also requires a web client builder which we created to pass bearer access token which we retrieved in the previous step as a HTTP header with the name "Authorization" and the value Bearer + {token}.
+The same way we can create any MCP Client by providing its endpoint (in most cases it ends with /mcp as a default endpoint for the HTTP Streamable transport protocol) and authorization information. In most cases like this, this information contains a bearer token in the HTTP header.
+Now having a valid MCP Client we can list its available tools:
+var toolsResult = client.listTools();
+for (var tool : toolsResult.block().tools()) {
+logger.info("tool found " + tool);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+We'll see getOrderById and getOrdersByCreatedDates tools in the output.
+Now the last step is to use those tools to chat to the model:
+var asyncMcpToolCallbackProvider = new AsyncMcpToolCallbackProvider(client);
+var content = this.chatClient.prompt()
+.user(prompt)
+.toolCallbacks(asyncMcpToolCallbackProvider.getToolCallbacks())
+.stream()
+.content();
+client.close();
+Enter fullscreen mode
+Exit fullscreen mode
+For this we wrapped MCP client into the instance of AsyncMcpToolCallbackProvider and then passed the invocation of asyncMcpToolCallbackProvider.getToolCallbacks() as a parameter of the toolCallbacks method of the ChatClient so that it is aware of such tools.
+We are done with our implementation. Let's build our application with maven clean package and run it with java -jar target/spring-ai-agent-demo-0.0.1-SNAPSHOT.jar.
+Now we can test it locally with:
+curl -X POST http://localhost:8080/invocations \
+-H "Content-Type: application/json" \
+-d '{"prompt": "Give me the information about order with id 12345"}
+Enter fullscreen mode
+Exit fullscreen mode
+Windows users can alternatively use for example HTTPie and test locally with:
+http POST http://localhost:8080/invocations prompt="Give me the information about order with id 12345"
+Enter fullscreen mode
+Exit fullscreen mode
+In the article Amazon Bedrock AgentCore Gateway - Exposing existing Amazon API Gateway REST API via MCP and Gateway endpoint we can find more examples of prompts which our application (through tools exposed via MCP) can answer.
+Dockerizing the Custom Agent with Spring AI
+Now we need to build an ARM64 Docker image for our application. We can, for example, use ARM-based t4.small EC2 instance powered by AWS Graviton2 for it. Our Dockerfile is very simple and looks like this:
+FROM amazoncorretto:21
+COPY target/spring-ai-agent-demo-0.0.1-SNAPSHOT.jar app.jar
+ENTRYPOINT ["java","-jar","/app.jar"]
+Enter fullscreen mode
+Exit fullscreen mode
+It requires that our application is already built, and jar file of the application is in the /target sub-folder.
+Now we need to build the Docker image and upload it to the ECR repository with the name agentcore-runtime-spring-ai-demo which we create below:
+# build the Docker image
+sudo docker build --no-cache -t agentcore-runtime-spring-ai-demo:v1
+# Login to ECR
+aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin {account_id}.dkr.ecr.{region}.amazonaws.com
+# Create ECR repository
+aws ecr create-repository --repository-name agentcore-runtime-spring-ai-demo --image-scanning-configuration scanOnPush=true --region {region}
+# Tag the Docker image
+sudo docker tag agentcore-runtime-spring-ai-demo:v1 {account_id}.dkr.ecr.{region}.amazonaws.com/agentcore-runtime-spring-ai-demo:v1
+# Push the Docker Image to the ECR repository
+sudo docker push {account_id}.dkr.ecr.{region}.amazonaws.com/agentcore-runtime-spring-ai-demo:v1
+Enter fullscreen mode
+Exit fullscreen mode
+Please replace AWS {account_id} and {region} with our own values.
+Deploying Custom Agent with Spring AI
+Now we need to deploy our Custom Agent to AgentCore Runtime. For this purpose, I created DeployRuntimeAgent:
+public class DeployRuntimeAgent {
+private static final String IAM_ROLE_ARN="{IAM_ARN_ROLE}";
+private static final String CONTAINER_URI="{AWS_ACCOUNT_ID}.dkr.ecr.{AWS_REGION}.amazonaws.com/{ECR_REPO}";
+private static final String CREATE_AGENT_RUNTIME_CONTAINER_URI=CONTAINER_URI+":v1";
+//change to your version schema
+private static final String UPDATE_AGENT_RUNTIME_CONTAINER_URI=CONTAINER_URI+":v14"; //change to your version schema
+private static final BedrockAgentCoreControlClient bedrockAgentCoreControlClient = BedrockAgentCoreControlClient.builder()
+.region(Region.US_EAST_1)
+.build();
+private static void createAgentRuntime() {
+var request= CreateAgentRuntimeRequest.builder()
+.agentRuntimeName("agentcore_runtime_spring_ai_demo")
+.roleArn(IAM_ROLE_ARN)
+.networkConfiguration(NetworkConfiguration.builder()
+.networkMode(NetworkMode.PUBLIC).build())
+.agentRuntimeArtifact(AgentArtifact.fromContainerConfiguration(
+ContainerConfiguration.builder().containerUri(CREATE_AGENT_RUNTIME_CONTAINER_URI).build()))
+build();
+var response= bedrockAgentCoreControlClient.createAgentRuntime(request);
+System.out.println("Create Agent Runtime response: "+response);
+}
+private static void updateAgentRuntime() {
+var request= UpdateAgentRuntimeRequest.builder()
+.agentRuntimeId("agentcore_runtime_spring_ai_demo-tD7f1W6RGi")
+.roleArn(IAM_ROLE_ARN)
+.networkConfiguration(NetworkConfiguration.builder()
+.networkMode(NetworkMode.PUBLIC).build())
+.agentRuntimeArtifact(AgentArtifact.fromContainerConfiguration(
+ContainerConfiguration.builder().containerUri(CREATE_AGENT_RUNTIME_CONTAINER_URI).build()))
+build();
+var response= bedrockAgentCoreControlClient.updateAgentRuntime(request);
+System.out.println("Update Agent Runtime response: "+response);
+}
+public static void main(String[] args) throws Exception {
+//createAgentRuntime();
+updateAgentRuntime();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This DeployRuntimeAgent can create and update the existing AgentCore Runtime Agent. To execute it, we need to configure it properly. Please configure our CONTAINER_URI variable which is ECR repository URI we've got after this Custom Agent has been uploaded to ECR. Also pay attention to the configuration of the variables CREATE_AGENT_RUNTIME_CONTAINER_URI and UPDATE_AGENT_RUNTIME_CONTAINER_URI which extend CONTAINER_URI with the version schema we used when creating the initial Docker image (like :v1) or later updating the image to re-deploy AgentCore Runtime (like :v14).
+We also need to set the variable IAM_ROLE_ARN properly. In the part 2 I gave a full explanation and provided the code for such a IAM role and attached execution policy. In case we use the same ECR repository as in part 2 for it we can re-use the execution policy completely, otherwise we need to provide the correct ECR ARN there like this:
+{
+"Sid": "ECRImageAccess",
+"Effect": "Allow",
+"Action": [
+"ecr:BatchGetImage",
+"ecr:GetDownloadUrlForLayer"
+],
+"Resource": [
+"arn:aws:ecr: ${region}:${account_id}:repository/${agentcore-runtime-ecr-repo}"
+]
+},
+....
+Enter fullscreen mode
+Exit fullscreen mode
+Now we can run DeployRuntimeAgent to deploy our Custom Agent to AgentCore Runtime. As a result, AgentCore Runtime ARN will be provided in response.
+Invoking the Custom Agent with Spring AI
+Now let's invoke our Custom Agent deployed on AgentCore Runtime. For this purpose, I created InvokeRuntimeAgent :
+public class InvokeRuntimeAgent {
+private static final String AGENT_RUNTIME_ARN="{AGENTCORE_RUNTIME_ARN}";
+public static void main(String[] args) throws Exception {
+String payload = "{\"prompt\":\"Give me an overview of the order with the id equals 100\"}";
+BedrockAgentCoreClient bedrockAgentCoreClient = BedrockAgentCoreClient.builder()
+.region(Region.US_EAST_1)
+.build();
+var invokeAgentRuntimeRequest = InvokeAgentRuntimeRequest.builder()
+.agentRuntimeArn(AGENT_RUNTIME_ARN)
+.qualifier("DEFAULT")
+.contentType("applicationjson")
+.payload(SdkBytes.fromUtf8String(payload)).build();
+try (var responseStream = bedrockAgentCoreClient.invokeAgentRuntime(invokeAgentRuntimeRequest)) {
+var text = new String(responseStream.readAllBytes(), StandardCharsets.UTF_8);
+System.out.println(text);
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+To invoke our agent, we need to configure the value of the variable AGENT_RUNTIME_ARN properly which is the AgentCore Runtime ARN which we've got in the response of the previous step after our agent has been deployed. We can retrieve this URL from the AgentCore Runtime AWS console as well. See my article Amazon Bedrock AgentCore Runtime - Using Bedrock AgentCore Runtime Starter Toolkit with Strands Agents SDK for the examples how AgentCore Runtime looks in the AWS console after being deployed.
+We can also adjust prompt. I basically used the same one which I used for testing the agent locally. In the article Amazon Bedrock AgentCore Gateway - Exposing existing Amazon API Gateway REST API via MCP and Gateway endpoint we can find more examples of prompts which our application (through tools exposed via MCP) can answer.
+In one of the next parts of the series, we'll cover how to add the AWS Distro for Open Telemetry (ADOT) to our agent code the same way we did for our Python agent with Strands Agents SDK in parts 2 and 4 of this series to enable session and tracing metrics in the CloudWatch GenAI Observability. Model invocations and logging metrics are available there out-of-the-box. We covered AgentCore Observability in part 3 of this series.
+It would be nice if AgentCore Memory capabilities were added to the Spring AI framework as one of the ChatMemory implementations to have access to even more AgentCore features.
+Conclusion
+In this part of series, we showed how to implement Custom Agent written in Java with Spring AI and use its MCP Client based on HTTP Streamable transport protocol. We deployed our agent on AgentCore Runtime. Currently it requires using Spring AI 1.1-SNAPSHOT version which is subject to change. When Spring AI with version 1.1 is released, I'll review and adjust my sample application.
+With this we have a proof that we can use Java programming language and Agentic frameworks which run on the JVM like Spring AI, LangChain4j (which has a nice Quarkus integration), Embabel and others to implement custom agent that we can host on Amazon Bedrock AgentCore Runtime.
+Please also check out my Amazon Bedrock AgentCore Gateway article series.
+Amazon Bedrock AgentCore Runtime (5 Part Series)
+1
+Amazon Bedrock AgentCore Runtime - Part 1 Introduction
+2
+Amazon Bedrock AgentCore Runtime - Part 2 Using Bedrock AgentCore Runtime Starter Toolkit with Strands Agents SDK
+3
+Amazon Bedrock AgentCore Runtime - Part 3 AgentCore Observability
+4
+Amazon Bedrock AgentCore Runtime - Part 4 Using Custom Agent with Strands Agents SDK
+5
+Amazon Bedrock AgentCore Runtime - Part 5 Using Custom Agent with Spring AI
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Heroes
+Follow
+A vibrant, worldwide group of AWS experts.
+More from AWS Heroes
+Spring AI with Amazon Bedrock - Part 4 Exploring Model Context Protocol Streamable HTTP transport
+#aws
+#java
+#genai
+#mcp
+From SysOps to CloudOps : Breaking Down the New SOA-C03 Exam from AWS
+#aws
+#cloudcomputing
+#careerdevelopment
+Amazon Bedrock AgentCore Runtime - Part 4 Using Custom Agent with Strands Agents SDK
+#aws
+#agenticai
+#serverless
+#mcp
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

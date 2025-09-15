@@ -1,0 +1,228 @@
+Troubleshooting Claude’s Remote Connection to MCP Servers - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Kyle Czajkowski
+Posted on Sep 15
+Troubleshooting Claude’s Remote Connection to MCP Servers
+#webdev
+#mcp
+#ai
+#tutorial
+I was very excited to hear about Anthropic’s announcement in May, that we now have the ability to add integrations to Claude. Connecting to remote MCP (Model Context Protocol) servers and not just local ones is a major step forward. AI systems like Claude are no longer limited by the age of their training data. They can pull in up-to-date context and use tools provided by these integrations (MCP servers).
+Diagnosing the Initial Connection Failure
+Adding MCP servers to Claude desktop is relatively straightforward, so I jumped right in. I already have a remote MCP server running and a few examples from other companies I wanted to try. Since I’ve been exploring Cloudflare’s offerings lately, I decided to start with their documentation server. After restarting Claude, I saw error messages saying that it couldn’t connect to the Cloudflare server. I double checked my config, everything looked correct, so I went to the troubleshooting documentation.
+"cloudflare-docs": {
+"command": "npx",
+"args": [
+"mcp-remote",
+"https://docs.mcp.cloudflare.com/sse"
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Inspecting Claude Desktop Logs
+I walked through the debugging checklist in the MCP docs. The MCP inspector confirmed the Cloudflare server was up and running. Next I checked Claude’s logs:
+tail -n 20 -F ~/Library/Logs/Claude/mcp*.log
+Enter fullscreen mode
+Exit fullscreen mode
+I was able to quickly see that I was running into an issue importing something from node:fs/promises.
+file:///Users/kyle/.npm/_npx/705d23756ff7dacc/node_modules/open/index.js:7
+import fs, {constants as fsConstants} from 'node:fs/promises';
+^^^^^^^^^
+SyntaxError: The requested module 'node:fs/promises' does not provide an export named 'constants'
+Enter fullscreen mode
+Exit fullscreen mode
+I noticed that this was coming from my .npm/_npx directory, so I wondered about my Node version. I was already on the latest Node (22.15.0) and npm was up to date too, but I ran an upgrade anyway:
+npm install -g npm@latest
+Enter fullscreen mode
+Exit fullscreen mode
+Then cleaned the cache
+npm cache clean --force
+Enter fullscreen mode
+Exit fullscreen mode
+After reinstalling and cleaning, I restarted Claude Desktop and the server connected! Amazing! I could ask Claude about workers, durable objects, whatever I needed, and I would get the most up to date information.
+Encountering the TransformStream Error
+When I tried to add another server, the connection failed again. The logs showed a different error in the mcp-remote package:
+file:///Users/kyle/.npm/_npx/705d23756ff7dacc/node_modules/mcp-remote/dist/chunk-YJSTSVFG.js:6264
+var EventSourceParserStream = class extends TransformStream {
+^
+ReferenceError: TransformStream is not defined
+Enter fullscreen mode
+Exit fullscreen mode
+This was odd because the mcp-remote package doesn’t using the TransformStream functionality. It’s a browser standard not implemented in Node.js. I double checked, and saw that my node and npm versions were still up to date. So this made me think that Claude was somehow invoking a version of node that I hadn’t used in a while.
+Ensuring Claude Uses the Right Node Binary
+Checking around the internet I found a GitHub Issue thread that confirmed my suspicions. Apparently nvm does not always play nicely with host apps like Claude Desktop. The thread offered several workarounds.
+One reliable fix was to point directly to the Node binary instead of using npx:
+{
+"mcpServers": {
+"YOUR SERVER NAME": {
+"command": "/Users/username/.nvm/versions/node/v22.15.0/bin/node",
+"args": [
+"mcp-remote",
+"PATH TO THE MCP SERVER YOUR'E USING"
+]
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+You can also keep npx as the command and set the PATH explicitly:
+{
+"mcpServers": {
+"YOUR SERVER NAME": {
+"command": "npx"
+"args": [
+"mcp-remote",
+"PATH TO THE MCP SERVER YOUR'E USING"
+],
+"env": {
+"PATH": "/Users/username/.nvm/versions/node/v20.15.0/bin:/bin"
+}
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Another option is to remove older Node versions below 18.20.4 from your system. That may not suit everyone but it ensures Claude Desktop always uses a compatible Node version.
+I hope this post offers a bit more insight into debugging remote MCP servers with Claude Desktop. My issues were resolved by ensuring Claude always runs the correct Node binary. These tips should help you avoid version mismatches and get your integrations up and running more smoothly. If you’d like to explore more MCP server examples, check out Cloudflare’s Demo Day write-up and 13 servers you can use today.
+Cross-posted from my blog. Have you run into similar MCP server issues? I'd love to hear about your experiences in the comments!
+For more content like this, visit kyle.czajkowski.tech.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Kyle Czajkowski
+Follow
+I'm an outdoor enthusiast with a unique combination of backcountry experience, technical skills, and a deep commitment to conservation.
+Location
+San Francisco, California
+Pronouns
+he/him
+Joined
+Sep 12, 2025
+Trending on DEV Community
+Hot
+Meme Monday
+#discuss
+#watercooler
+#jokes
+Laravel to n8n: A Developer’s Guide to Smarter Workflow Automation
+#laravel
+#n8n
+#webdev
+#programming
+How We Built An AI-Assisted Dependency Vulnerability Scanner
+#kiro
+#kirohackathon
+#productivity
+#kirodotdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

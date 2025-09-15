@@ -1,0 +1,279 @@
+📊 Other Dashboard Tools: Streamlit, Dash, and Bokeh (with deploy and CI/CD) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Walter Emmanuel Salas Jimenez
+Posted on Sep 15
+📊 Other Dashboard Tools: Streamlit, Dash, and Bokeh (with deploy and CI/CD)
+#programming
+#beginners
+#devops
+#discuss
+Quick Summary: In this practical article in Spanish, you'll see three popular alternatives for creating dashboards and reports in Python — Streamlit, Dash y Bokeh — with ready-to-run code examples, step-by-step deployment instructions (including CI/CD with GitHub Actions), a short guide for publishing on Dev.to, and an English script for your presentation video (≤5 min). 🚀
+🧭 Índice
+Why use these tools?
+Streamlit — mini example + simple deploy
+Dash (Plotly) — example, Docker and CI/CD to Cloud Run
+Bokeh — example and deployment notes (websockets)
+Repo structure and requirements.txt
+GitHub Actions: pipeline (tests → build → deploy)
+1) Why use these tools? 🤔
+Streamlit: ultra-fast for interactive prototypes and demos. Ideal for data scientists. ✅
+Dash: powerful when you need complex components and fine control (Plotly + Flask). 👍
+Bokeh: very good for interactive visualizations and apps that require a server (Bokeh Server). 🏗️
+Each tool has trade-offs in ease vs control vs scalability — in this article you'll see minimal examples and how to get them to the cloud.
+2) Streamlit — minimal example
+Archivo: streamlit_app.py
+# streamlit_app.py
+import streamlit as st
+import pandas as pd
+import altair as alt
+st.title('Demo: Streamlit - Sales')
+df = pd.DataFrame({
+'category': ['A', 'B', 'C', 'A', 'B', 'C'],
+'sales': [10, 15, 7, 12, 9, 20]
+})
+sel = st.selectbox('Select category', ['All'] + df['category'].unique().tolist())
+if sel != 'All':
+df = df[df['category'] == sel]
+chart = alt.Chart(df).mark_bar().encode(
+x='category',
+y='sales'
+)
+st.altair_chart(chart, use_container_width=True)
+Enter fullscreen mode
+Exit fullscreen mode
+Run locally:
+pip install streamlit pandas altair
+streamlit run streamlit_app.py
+Enter fullscreen mode
+Exit fullscreen mode
+Deployment tip: The fastest way is to use Streamlit Community Cloud (direct connection with GitHub: you upload your repo and deploy it from share.streamlit.io).
+3) Dash (Plotly) — example + Docker + CI/CD (Cloud Run)
+File: app.py
+# app.py
+import os
+from dash import Dash, html, dcc
+import plotly.express as px
+import pandas as pd
+# Example data
+df = pd.DataFrame({'x': [1, 2, 3, 4], 'y': [10, 5, 8, 12]})
+fig = px.line(df, x='x', y='y', title='Dash Example')
+app = Dash(__name__)
+server = app.server
+# exposes the WSGI app for Gunicorn
+app.layout = html.Div([
+html.H1('Dash - Demo'),
+dcc.Graph(figure=fig)
+])
+if __name__ == '__main__':
+app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8050)))
+Enter fullscreen mode
+Exit fullscreen mode
+requirements.txt (example):
+dash
+pandas
+plotly
+gunicorn
+Enter fullscreen mode
+Exit fullscreen mode
+Dockerfile (para Cloud Run u otros servicios)
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+# Gunicorn runs the WSGI server exposed in `server`
+CMD ["gunicorn", "--bind", ":$PORT", "--workers", "1", "--threads", "8", "--timeout", "0", "app:server"]
+Enter fullscreen mode
+Exit fullscreen mode
+GitHub Actions → Build & Deploy to Google Cloud Run
+Save this workflow to .github/workflows/deploy-cloudrun.yml:
+name: CI/CD - Cloud Run
+on:
+push:
+branches: [ main ]
+jobs:
+build-and-deploy:
+runs-on: ubuntu-latest
+steps:
+- uses: actions/checkout@v3
+- name: Configure GCloud
+uses: google-github-actions/setup-gcloud@v1
+with:
+service_account_key: ${{ secrets.GCP_SA_KEY }}
+project_id: ${{ secrets.GCP_PROJECT_ID }}
+- name: Build and push image (Cloud Build)
+run: |
+gcloud builds submit --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/dash-app:$GITHUB_SHA
+- name: Deploy to Cloud Run
+uses: google-github-actions/deploy-cloudrun@v1
+with:
+service: dash-app
+image: gcr.io/${{ secrets.GCP_PROJECT_ID }}/dash-app:$GITHUB_SHA
+region: us-central1
+Enter fullscreen mode
+Exit fullscreen mode
+✅ What it does: On every push to main, the workflow builds the image, uploads it to Google Container Registry, and deploys a new revision to Cloud Run.
+4) Bokeh — minimal example and deployment notes
+File: main.py (Bokeh server)
+# main.py
+from bokeh.plotting import figure
+from bokeh.io import curdoc
+p = figure(title='Bokeh demo')
+p.line([1, 2, 3, 4], [3, 7, 8, 5])
+curdoc().add_root(p)
+Enter fullscreen mode
+Exit fullscreen mode
+Run locally (Bokeh server):
+pip install bokeh
+bokeh serve --show main.py
+Enter fullscreen mode
+Exit fullscreen mode
+Deployment notes:
+Bokeh uses websockets (Bokeh Server). When deploying, ensure your service supports timeouts and websocket connections.
+Typical strategy: create a Dockerfile with bokeh serve --port $PORT --allow-websocket-origin='*' main.py and deploy to Cloud Run (or similar).
+If using Cloud Run, configure a higher timeout for long connections.
+5) Recommended structure
+my-dashboard/
+├─ streamlit_app.py
+├─ app.py
+# dash
+├─ main.py
+# bokeh
+├─ requirements.txt
+├─ Dockerfile
+# for dash/bokeh if using container
+└─ .github/
+└─ workflows/
+└─ deploy-cloudrun.yml
+Enter fullscreen mode
+Exit fullscreen mode
+6) GitHub Actions: suggested pipeline (details)
+Test → Run pytest or quick checks (flake8, mypy).
+Build → Build Docker image or run gcloud builds submit.
+Deploy → gcloud run deploy or use google-github-actions/deploy-cloudrun.
+🔗 GitHub Repository
+The full code with Streamlit, Dash, and Bokeh examples, along with the Dockerfile and CI/CD workflows with GitHub Actions, is available in the following repository:
+👉 GitHub Repository: my-dashboard
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Walter Emmanuel Salas Jimenez
+Follow
+Joined
+Apr 19, 2025
+Trending on DEV Community
+Hot
+What was your win this week?
+#weeklyretro
+#discuss
+Postman vs Insomnia: Which API Testing Tool Reigns Supreme?
+#webdev
+#programming
+#beginners
+#tutorial
+How I Use AI to Build Real Business Models (Not Just Content)
+#ai
+#discuss
+#automation
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,141 @@
+I'm using my home's Unbound DNS to block trackers no matter where I am, here's how
+Menu
+Sign in now
+Close
+News
+PC Hardware
+Submenu
+CPU
+GPU
+Storage
+Monitors
+Keyboards & Mice
+Software
+Submenu
+Productivity
+Other Software
+Operating Systems
+Submenu
+Windows
+Linux
+macOS
+Devices
+Submenu
+Single-Board Computers
+Laptops
+Gaming Handheld
+Prebuilt PC
+Home
+Submenu
+Networking
+Smart Home
+Gaming
+Submenu
+Game Reviews
+Sign in
+Newsletter
+Switch 2
+RTX 5060
+Windows 11
+Gaming
+Forums
+Close
+I'm using my home's Unbound DNS to block trackers no matter where I am, here's how
+By
+Adam Conway
+Published 6 hours ago
+Follow
+Followed
+Like
+Thread
+Link copied to clipboard
+Sign in to your XDA account
+I recently got around to setting up
+Unbound DNS in OPNsense, after getting incredibly frustrated with Pi-hole. I had been running it in a Proxmox Linux container (LXC) for the longest time, after it had lived in a TrueNAS container for even longer. Once I migrated to Proxmox, Pi-hole was one of the first services I moved to an LXC and stopped using on TrueNAS, and it worked well... at first.
+I later discovered that with Pi-hole v6, it appears to be a somewhat common problem that on some configurations, CPU usage can randomly spike to 100% and stick there, causing the Pi-hole to become unresponsive. This means no more DNS, and devices can no longer resolve domain names to IP addresses. I originally got around this by deploying a second Pi-hole for redundancy on my network. This tended to work: when one became unresponsive, devices would just use the other, and I kept both instances on the same page by using Nebula Sync. However, when both went down at once, I decided to just kill the entire setup and finally make the move to Unbound.
+Unbound certainly has its quirks, and it's not a perfect one-to-one replacement. However, for blocking trackers across the web, it's just as good. It has more detailed reporting and it runs as part of my OPNsense installation. Consolidation of services isn't always a good thing, but if my OPNsense installation randomly stops working, that means my internet isn't working anyway, so DNS isn't exactly an issue either. One other benefit is that I can now use my Unbound DNS resolver no matter where I am, and here's how I've set it up.
+Why use Unbound DNS?
+It's an extra barrier of protection
+Unbound DNS is what's known as a recursive DNS server, validating and caching results as devices on your network make them. Rather than using an upstream resolver such as Quad9, Google, or Cloudflare, Unbound DNS, Unbound goes out and finds the address for you. Rather than my Pi-hole asking an upstream server (hey, where is "xda-developers.com"?), here's what happens with Unbound DNS instead:
+The client device asks: "Where is xda-developers.com?"
+Unbound asks one of the root servers: "Who handles .com?"
+The root server replies with a referral to the .com TLD servers
+Unbound asks a TLD server: "Who handles xda-developers.com?"
+The TLD server replies with a referral to the authoritative name servers for xda-developers.com
+Unbound asks an authoritative name server: "What's the IP address of xda-developers.com?"
+The authoritive name server responds with the IP address
+Unbound passes that answer back to the client (and caches it for next time)
+For a site you visit for the first time, this process can take a bit longer, but the delay is tiny, usually just a handful of milliseconds (maybe a few hundred at most), and you're unlikely to notice. Once cached, subsequent lookups are nearly instantaneous. Another big advantage is privacy and independence. If you use Google DNS, Google can see every domain you query. If you use your ISP's DNS, they can see it too. With a recursive resolver like Unbound, your queries are split across different parts of the DNS hierarchy rather than funneled to a single company. Your ISP can still see which IP addresses you connect to, and in many cases that still reveals the service you’re using, but in an age of CDNs it doesn't always map neatly to a single website.
+It basically means that your ISP, if they wanted to track you, has to put in work to actually do that. The most secure way would be to use DNS over HTTPS/DNS over TLS to an upstream resolver that supports it, like Quad9, but recursive resolving in this way creates noise and makes it harder to track for an ISP, while also ensuring that your requests aren't centralized in one place. It shifts where tracking can occur, but doesn't mitigate it entirely.
+Using Unbound DNS even when I'm away
+It's all thanks to Tailscale
+If you want to use Unbound DNS even when out and about, it's actually quite easy to do that. All you need is a way to phone back home and set your device DNS to OPNsense, or wherever Unbound lives in your home network. I personally use Tailscale, and the way I make it work is quite simple. Tailscale has a feature called "Magic DNS", which automatically registers DNS addresses for the devices on your network. However, you can enable Magic DNS with your DNS server, either connected to your Tailnet or on a publicly resolvable IP address. I have Tailscale configured on OPNsense (so that I can use it as an exit node and a reverse proxy), so I can just put my OPNsense Tailscale IP address here. With this configuration, devices connected to my Tailnet will use OPNsense for DNS, which means they use Unbound DNS for resolving. WIth blocklists enabled, that means I have on-the-go blocking using my Unbound DNS for everything. What's especially interesting about this is that you can now browse the internet as if you were at home. By using Unbound DNS in this way, and then using OPNsense as an exit node, websites simply can't tell the difference
+from a network lookup alone as to your true whereabouts. There's no DNS leakage going out that reveals your true location, so websites, as far as they're concerned, won't be able to even guess that you're in a different location.
+If you use Unbound DNS, take a look at a DNS leak test. The DNS server that resolves will be your home IP address, and with this configuration, you'll see the same results. I recently took a trip to the U.K, and when I ran a DNS leak test, it showed my home IP address as the DNS resolver that was detected. This is because my home IP address is what does the querying.
+If you wanted maximum privacy, you can set up a
+VPN network interface in OPNsense, then route Unbound DNS queries through the VPN. This way, your DNS requests are made inside of a tunnel that not even your ISP can see, and the IP address making the query isn't yours, either. It's overkill for a lot of people, but it's the best way to make your DNS queries in a way that they're encrypted in transit so that your ISP can't see your requests.
+The only downside I've identified is that when I'm not using my home address as an exit node, but I'm still connected to Tailscale, my Unbound DNS overrides that I use for
+split-horizon DNS to resolve connections locally resolve to my internal subnet. This means it can't be routed without advertising subnets. Be sure to advertise the addresses that you host your reverse proxy or other services on if configuring it like this, as otherwise, you won't be able to access many of your different services.
+Unbound DNS finally solved a lot of my Raspberry Pi woes, and it's been massively worth it to set it up. If you've been on the fence, I recommend giving it a try. It was a lot shorter of a setup than I expected it to be, and I'm so glad that I did it. As a bonus, you can tack on a firewall rule to redirect all DNS traffic on your LAN to Unbound DNS by creating a rule targeting port 53, so even devices that don't support changing their DNS server will still use Unbound, too.
+Networking
+Follow
+Followed
+Like
+Share
+Facebook
+X
+LinkedIn
+Reddit
+Flipboard
+Copy link
+Email
+Close
+Thread
+Sign in to your XDA account
+We want to hear from you! Share your opinions in the thread below and remember to keep it respectful.
+Be the first to post
+Images
+Attachment(s)
+Please respect our community guidelines. No links, inappropriate language, or spam.
+Your comment has not been saved
+Send confirmation email
+This thread is open for discussion.
+Be the first to post your thoughts.
+Terms
+Privacy
+Feedback
+Recommended
+1 day ago
+This mini PC with an Intel Core i7 is going to blow you away, and it's now $200 off
+1 day ago
+4 reasons a SATA SSD still belongs in your gaming rig
+20 hours ago
+This free tool might finally tell you why your PC is suddenly slowing down
+2 days ago
+I moved away from Windows 11, but I didn't go to Linux
+Today's best deals
+This powerful 16-port PoE+ switch could be a game-changer for your home network
+9 hours ago
+This comedic puzzle game is free on Steam for a limited time
+16 hours ago
+This top-rated Logitech mouse is perfect for travel, and now only $15
+1 day ago
+See More
+Trending Now
+SMART data might make you misdiagnose a drive, sanity check these 6 parameters first
+I use these Docker containers to manage my entire business
+This free writing app is still in beta but it's already replacing Google Docs for me
+Join Our Team
+Our Audience
+About Us
+Press & Events
+Contact Us
+Follow Us
+Advertising
+Careers
+Terms
+Privacy
+Policies
+XDA is part of the
+Valnet Publishing Group
+Copyright © 2025 Valnet Inc.

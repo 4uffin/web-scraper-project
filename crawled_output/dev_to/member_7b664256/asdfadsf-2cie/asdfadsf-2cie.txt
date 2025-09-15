@@ -1,0 +1,229 @@
+Kiro Agent Orchestration Patterns - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+member_7b664256
+Posted on Sep 15
+Kiro Agent Orchestration Patterns
+#kiro
+Building Event-Driven Multi-Agent Systems (or: How I Built 4 Apps Instead of 1 for a Hackathon)
+So here's the thing - everyone builds one app for hackathons, right? I built four. Not because I'm trying to show off but because... well, actually maybe a little bit of showing off, but mostly because exploring Kiro meant building multiple things and I wanted to really push what's possible with event-driven architectures.
+You can't vibe code this kind of magic.
+The Problem with Traditional Multi-Agent Systems
+Look, I've been in the trenches. Seen teams of 10+ engineers with 10+ million in funding build these monolithic agent systems that basically... don't work. They couple everything together, agents stepping on each other's toes, no clear orchestration pattern. It's a mess. And then they wonder why their funded startup dies without finding product-market fit.
+The traditional approach? You've got your agents all talking directly to each other, sharing state, blocking on responses... it's basically spaghetti code but with AI. No wonder these systems fall apart under load.
+Enter Event-Driven Architecture (The Good Stuff)
+So for FinAgent2 (yeah, creative naming, I know), I went full event-driven with the Motia framework. This is where it gets interesting...
+Instead of agents calling each other directly, everything flows through events. Market data comes in? That's an event. User asks a question? Event. Agent finishes analysis? You guessed it - event.
+// This is how we used to do it (gross)
+const result = await marketAgent.analyze(data);
+const enriched = await sentimentAgent.enrich(result);
+const final = await portfolioAgent.optimize(enriched);
+// vs event-driven (chef's kiss)
+emit('market.data.received', data);
+// agents just listen and react independently
+Enter fullscreen mode
+Exit fullscreen mode
+The beauty is each agent just listens for events it cares about. No direct dependencies. No blocking. Just pure, beautiful decoupling.
+The Multi-Agent Orchestra
+Here's where Mastra comes in - and honestly, this framework is underrated. While everyone's building custom agent orchestration (guilty as charged in FinAgent1), Mastra gives you this out of the box:
+MarketAnalyst Agent: Listens for market events, emits analysis events
+Risk Manager: Subscribes to portfolio changes, publishes risk assessments
+Sentiment Tracker: Monitors news events, broadcasts sentiment scores
+Portfolio Optimizer: Reacts to all the above, suggests rebalancing
+Research Agent: Deep dives on demand, async results
+Options Strategist: Complex derivatives stuff that honestly most users won't use but looks impressive in demos
+The kicker? Each agent has its own memory through Mem0 integration. So your sentiment agent remembers what it analyzed yesterday without polluting the portfolio agent's context. Clean separation of concerns.
+Why Event-Driven Beats Microservices (Fight Me)
+OK so I also built a microservices version (FinAgent1) with 8+ containers because... well, because I could. But here's the dirty secret nobody talks about:
+Microservices are often overkill. There, I said it.
+The event-driven version with Motia? Two containers. TWO. vs eight. Same functionality, 75% less operational complexity. Azure bills are basically nothing comparatively.
+# Microservices approach (why did we do this to ourselves?)
+services:
+api-gateway: ...
+market-service: ...
+sentiment-service: ...
+portfolio-service: ...
+research-service: ...
+oracle-service: ...
+# ... and on and on
+# Event-driven (this is the way)
+services:
+app:
+- All agents in one process
+- Event bus handles orchestration
+redis:
+- Events, caching, pub/sub
+Enter fullscreen mode
+Exit fullscreen mode
+The Real Implementation Details
+So Motia gives you these "steps" - think of them like workflow stages but async and event-triggered. Each step can spawn multiple agent actions:
+const analyzeTrade = step({
+trigger: 'trade.requested',
+agents: [marketAnalyst, riskManager, sentimentTracker],
+aggregate: results => {
+// combine all agent outputs
+return consensus(results);
+}
+});
+Enter fullscreen mode
+Exit fullscreen mode
+The agents don't know about each other. They just know about events. marketAnalyst sees "trade.requested" and starts analyzing. Risk manager does its thing. Sentiment tracker checks the vibes. All in parallel, all independent.
+And here's the thing that really makes this work - event replay. System crashes? Replay the events. Need to debug? Replay with logging. Want to backtest? Just replay historical events through the same system. It's basically event sourcing but without the enterprise Java nightmares.
+Challenges (Because Nothing Ever Just Works)
+Azure App Service doesn't like WebSockets. Or rather, it does, but only sometimes, and never when you're demoing. So we built this hybrid streaming thing:
+// Had to get creative here
+const stream = isAzureBeingDifficult()
+? new PollingFallback('/api/events', 1000)
+: new EventSource('/api/stream');
+Enter fullscreen mode
+Exit fullscreen mode
+Also, Motia's documentation is... let's call it "emerging". Spent a lot of time reading source code. Actually contributed some fixes back because opensource karma and all that.
+Memory management with multiple agents gets weird. Each agent maintaining context means memory usage can spiral. Implemented aggressive cleanup:
+// Learned this the hard way at 3am
+afterEach(event => {
+if (context.memoryUsage > threshold) {
+context.trimOldestEvents();
+}
+});
+Enter fullscreen mode
+Exit fullscreen mode
+What Actually Shipped
+Both systems are live on Azure right now. The event-driven one is handling real market data from Alpaca, processing complex multi-agent workflows, and actually providing useful analysis. Response times under 200ms for most queries, scaling horizontally when needed.
+The UI doesn't look like every other Bootstrap financial app (you know the ones). TradingView charts for the professionals, clean interfaces that actually make sense. Though honestly, the second version lets users build their own UI entirely because... composability over features.
+Lessons Learned (The Real Ones)
+Event-driven > microservices for 90% of use cases - Unless you're Netflix, you probably don't need 50 microservices
+Frameworks matter - Motia and Mastra saved literally months of work. Don't rebuild what's been solved.
+Cloud credits drive architecture - We're on Azure because they gave us thousands in credits. AWS gave us like $200. Architecture follows incentives.
+Multi-agent orchestration is about coordination, not control - Let agents be autonomous, coordinate through events, not commands
+Memory persistence is crucial - Agents without memory are just stateless functions. Mem0 integration was a game-changer.
+What's Next
+Honestly? Open-sourcing the whole thing. Too many closed-source "revolutionary" fintech platforms that die in obscurity. Let the community build on this.
+Want to add more event types - market crashes, regulatory changes, whale movements. The architecture supports it, just need to implement the handlers.
+Backtesting through event replay is basically already there, just needs a UI. Imagine replaying 2008 through your agent system... actually, that might be depressing.
+The Bottom Line
+Built four production apps for a hackathon because one felt boring. The event-driven multi-agent system with Motia/Mastra is legitimately better than what I've seen funded teams produce. It's running, it's scaling, and it actually works.
+The vibes? They're event-driven, asynchronously processed, and horizontally scalable.
+P.S. - If you're still building synchronous agent systems in 2025, we need to talk. Seriously.
+P.P.S. - Yes, I know microservices have their place. But that place is not your MVP.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+member_7b664256
+Follow
+Joined
+May 30, 2025
+Trending on DEV Community
+Hot
+How We Built An AI-Assisted Dependency Vulnerability Scanner
+#kiro
+#kirohackathon
+#productivity
+#kirodotdev
+How We Built An AI-Assisted Dependency Vulnerability Scanner
+#kiro
+#kirohackathon
+#productivity
+#kirodotdev
+What was your win this week?
+#weeklyretro
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
