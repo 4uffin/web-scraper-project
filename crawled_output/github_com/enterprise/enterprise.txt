@@ -40,6 +40,7 @@ GitHub Skills
 Blog
 Integrations
 GitHub Marketplace
+MCP Registry
 View all features
 Solutions
 By company size
