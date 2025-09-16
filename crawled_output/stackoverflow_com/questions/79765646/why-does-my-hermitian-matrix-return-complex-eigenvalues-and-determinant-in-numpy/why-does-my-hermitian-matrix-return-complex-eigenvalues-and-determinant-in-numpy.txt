@@ -1,0 +1,369 @@
+python - Why does my Hermitian Covariance matrix can't be invertible? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Why does my Hermitian Covariance matrix can't be invertible?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+69 times
+0
+I am following a paper that uses a Hermitian covariance matrix
+and inverts it to produce a Fisher matrix. I construct my covariance as Gamma[i,m,n], stored inside a larger array of shape (n_z, n_k, n_mu, 3, 3), where n_z, n_k and n_mu are numbers of data points in z, k, and mu. Each inner 3×3 block should be Hermitian and invertible.
+I verified Hermiticity with:
+for i in range(n_z):
+for m in range(n_k):
+for n in range(n_mu):
+print(np.allclose(Gamma[i, m, n], Gamma[i, m, n].conj().T, atol=1e-10, rtol=0))
+This prints True for all indices. I also symmetrized explicitly:
+A = np.zeros_like(Gamma)
+for i in range(n_z):
+for m in range(n_k):
+for n in range(n_mu):
+A[i, m, n] = 0.5*(Gamma[i, m, n] + Gamma[i, m, n].T.conj())
+print(np.allclose(A[i, m, n], Gamma[i, m, n], atol=1e-10))
+Again True for all. The diagonal entries are real (+0j) and off-diagonals are mutual conjugates as expected.
+However, when I attempt to invert each 3×3 block I sometimes get LinAlgError: Singular matrix. Example output from:
+for l in range(n_z):
+for m in range(n_k):
+for n in range(n_mu):
+g = Gamma[l, m, n]
+try:
+invg = np.linalg.inv(g)
+except np.linalg.LinAlgError:
+print(f"Matrix not invertible at (l={l}, m={m}, n={n})")
+print("det:", np.linalg.det(g))
+prints for example:
+Matrix not invertible at (l=1, m=3, n=7)
+0j
+Matrix not invertible at (l=1, m=5, n=3)
+0j
+So for those indices det(g) == 0 (within floating point), hence singular. This happens for 23 out of 900 total blocks — not all — which is unexpected because each block is supposed to be a valid covariance (semi-)positive definite matrix.
+I inspected eigenvalues with:
+for i in range(n_z):
+for m in range(n_k):
+for n in range(n_mu):
+print(np.linalg.eigvals(Gamma[i, m, n]))
+For example, at (0,0,0) I get:
+[ 1.70674158e+09-3.5e-09j,
+2.29744006e+01-8.1e-09j,
+-1.01287448e-08+1.2e-08j ]
+Small imaginary parts look like numeric noise, and the small negative real on the third eigenvalue is also consistent with rounding to zero. But the determinant for (0,0,0) is:
+(4783.194482059961+83.43640215104267j)
+which has a noticeable imaginary part. However such determinants still allow me to invert it, only when I get determinant equal to 0 that it's make non-invertible.
+The code that builds Gamma (most constants fixed; CAMB is an astronomy library) is:
+import camb
+from camb import model
+import numpy as np
+from scipy.integrate import quad
+# --- Constants and conversions ---
+c_light = 2.998e5
+# km/s
+h0 = 0.6774
+Om = 0.31
+Ob = 0.05
+H0 = h0 * 100
+ns = 0.967
+As = 2.142e-9
+# --- Cosmology functions (H, chi, Vsur, Nk, Pkm) ---
+# (definitions omitted here for brevity; full code used in my script)
+# --- CAMB setup ---
+pars = camb.CAMBparams()
+pars.set_cosmology(H0=H0, ombh2=Ob*h0**2, omch2=(Om-Ob)*h0**2, omk=0, mnu=0)
+pars.InitPower.set_params(ns=ns, r=0, As=As)
+pars.set_matter_power(redshifts=[0.133, 0.3, 0.467], kmax=0.2)
+pars.NonLinear = model.NonLinear_none
+results = camb.get_results(pars)
+# --- Arrays ---
+S_area = 10000
+omega = S_area*(np.pi/180)**2
+z = np.array([0.133, 0.3, 0.467])
+Dz = 0.111
+deltak = [kmin(zi, Dz, omega) for zi in z]
+k = [np.logspace(np.log10(dk), np.log10(0.2), num=30) for dk in deltak]
+k = np.array(k)
+# -> shape (n_z, n_kpoints)
+mu = np.array([np.linspace(-1, 1, num=10) for _ in z])
+Deltamu = 2
+n_z = 3
+n_k = 30
+n_mu = 10
+pk = np.array([Pkm(ki, zi) for zi in z for ki in k])
+# ensure pk[i,m] is scalar in my loop
+# ... compute f, h, biases, alphas, n_g arrays ...
+Gamma = np.zeros((n_z, n_k, n_mu, 3, 3), dtype=complex)
+def P_auto_tilde(mui, hi, ki, alpha, b, fi, ng, pki):
+return ((b + fi*mui**2)**2 + (hi/ki)**2 * alpha**2 * fi**2 * mui**2) * pki + ng
+def Pxy(mui, hi, ki, a1, a2, b1, b2, fi):
+return (
+(b1 + fi*mui**2)*(b2 + fi*mui**2)
++ (hi/ki)**2 * a1*a2 * fi**2 * mui**2
+- 1j * (fi*hi*mui*(a1*(b2+fi*mui**2) - a2*(b1+fi*mui**2)) / ki)
+)
+for i in range(n_z):
+for m in range(n_k):
+for n in range(n_mu):
+mu_val = mu[i, n]
+h_val
+= h[i]
+k_val
+= k[i, m]
+f_val
+= f[i]
+pk_val = pk[i, m]
+Pxx = P_auto_tilde(mu_val, h_val, k_val, a1_val, b1_val, f_val, ng1_val, pk_val)
+Pyy = P_auto_tilde(mu_val, h_val, k_val, a2_val, b2_val, f_val, ng2_val, pk_val)
+Pxy_val = Pxy(mu_val, h_val, k_val, a1_val, a2_val, b1_val, b2_val, f_val) * pk_val
+Pyx_val = Pxy_val.conj()
+pref = 2.0 / Nk(z[i], k_val, deltak[i], Deltamu, Dz, omega)
+M = np.zeros((3, 3), dtype=complex)
+M[0, 0] = Pxx**2
+M[0, 1] = Pxx * Pxy_val
+M[0, 2] = Pxy_val**2
+M[1, 0] = M[0, 1].conj()
+M[1, 1] = 0.5 * (Pxx*Pyy + Pxy_val*Pyx_val)
+M[1, 2] = Pxy_val * Pyy
+M[2, 0] = M[0, 2].conj()
+M[2, 1] = M[1, 2].conj()
+M[2, 2] = Pyy**2
+Gamma[i, m, n] = M * pref
+Why are some 3×3 blocks singular (determinant zero) even though they look Hermitian, and how can I fix or diagnose this issue? What are robust ways to ensure invertibility regularization?
+Edit: thanks to the hint from @NickODell, it seems likely that some rows/columns are numerically linearly dependent for the problematic data points as they are "approximately a linear scaling". How would you recommend resolving that without using pinv()?
+pythonnumpymatrixlinear-algebracomplex-numbers
+Share
+Improve this question
+Follow
+edited 2 hours ago
+MiguelMiguel
+asked 16 hours ago
+MiguelMiguel
+13399 bronze badges
+8
+1
+Please make sure you minimal reproducible example has all necessary info, e.g. currently missing n_z, n_k, n_mu, mu, pref... and so on
+Julien
+–
+Julien
+2025-09-15 23:50:29 +00:00
+Commented
+14 hours ago
+Also "Gamma shape (3,3)" doesn't match Gamma = np.zeros((n_z, n_k, n_mu, 3, 3), dtype=complex)...
+Julien
+–
+Julien
+2025-09-15 23:52:08 +00:00
+Commented
+14 hours ago
+"One might think this is just numerical noise" Note that the complex part of each eigenvalue is approximately 10**17 times smaller than the real part of the largest eigenvalue. NumPy is computing an approximation of an eigenvalue with a limited number of bits of precision, and it is not clear to me that being approximately Hermetian guarantees either an approximately real determinant or approximately real eigenvalue. It is not clear to me that you can rely on this complex value being zero, even if the algebra guarantees it.
+Nick ODell
+–
+Nick ODell
+2025-09-16 00:30:12 +00:00
+Commented
+13 hours ago
+Also, can you be more specific about how you are finding the eigenvalues and determinant? Are you running np.linalg.det() over a (3, 3) array, or are you using broadcasting to run np.linalg.det() over a (n_z, n_k, n_mu, 3, 3) array? They should give the same result, but occasionally this kind of thing gives a different result in NumPy. Same question for eigenvalues.
+Nick ODell
+–
+Nick ODell
+2025-09-16 00:38:33 +00:00
+Commented
+13 hours ago
+1
+@NickODell I have already made an edit that hopefully addresses your questions. My main concern is not simply that the eigenvalues or determinant are complex, since that could be attributed to numerical error. The real issue arises when I try to invert the matrix: the small imaginary parts are large enough to prevent the inversion, which doesn’t happen when it is only numerical error, from what I have observed.
+Miguel
+–
+Miguel
+2025-09-16 01:44:25 +00:00
+Commented
+12 hours ago
+|
+Show 3 more comments
+Related questions
+940
+Why does Python code run faster in a function?
+794
+Why does python use 'else' after for and while loops?
+625
+Why does Python's "is" operator behave unexpectedly with integers?
+Related questions
+940
+Why does Python code run faster in a function?
+794
+Why does python use 'else' after for and while loops?
+625
+Why does Python's "is" operator behave unexpectedly with integers?
+15
+scipy.stats.multivariate_normal raising `LinAlgError: singular matrix` even though my covariance matrix is invertible
+3
+logm function of hermitian matrix returns non-hermitian matrix
+492
+Why does datetime.datetime.utcnow() not contain timezone information?
+3
+Numpy Hermitian Matrix class
+Load 4 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+pythonnumpymatrixlinear-algebracomplex-numbers
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+Voltage across Vce in a common emitter BJT
+Are there any missable endings?
+Why is the Bonferroni needed?
+How to disable all the AI features in Firefox to increase performance?
+Where is the upercase option in Kate Editor Version 25?
+How do I use SearchKit to produce a list of Contacts that is filtered by different Membership Status values
+What is the probability of coming out ahead in the iterated alternating St. Petersburg gamble?
+What is a "mob" character in the context of Isekai works?
+Will gases contained inside a box eventually reach zero temperature?
+Asymptotics in case of non-identifiability
+Truth value of a sentence giving permission?
+Find the first relabeling
+tikz plot missing half of the graph
+Get coordinates of a voltage label (circuitikz)
+Loopy (Slitherlink)
+Open pdf files in the background with fzf
+Finitely Generated Group with Compatible Surjections to Finite Dihedral Groups Surjects onto Infinite Dihedral Group
+Fundamental group of a solid torus with a point removed
+Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure aluminum?
+distribution on accumulation points using Cesaro sum
+Is it okay to add run capacitor on wire?
+where and when to put a good olive oil in focaccia?
+Be supposed to and its meanings
+What are the balance implications of allowing players to have more than two loresheets?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-py
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

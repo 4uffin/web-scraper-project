@@ -1,0 +1,274 @@
+c++ - How do you know if non-atomic writes to variables will be observable cross-core after atomic operations? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How do you know if non-atomic writes to variables will be observable cross-core after atomic operations?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+99 times
+0
+I have work that must be done on a specific core. To do this, I've created a thread and assigned it to that core. Now, I'm trying to figure out a generic way to give it work to do, and receive the results of that work.
+If I pass work to the thread through a function queue, I can have the functions write to variables to store the results:
+// Imagine SPSCQueue is a thread-safe SPSC queue that uses atomics to
+// synchronize its internals, such as moodycamel::ReaderWriterQueue
+SPSCQueue<std::function<void(void)>> workQueue{};
+SPSCQueue<bool> resultQueue{};
+void thread1() {
+int myInt1{3};
+int myInt2{7};
+while(1) {
+// Queue a function to modify the variables.
+workQueue.enqueue([&]() {
+myInt1 += myInt2;
+myInt2 += myInt1;
+});
+// Wait for the work to be done on the other core.
+bool result{};
+resultQueue.wait_dequeue(result);
+if (result) {
+// Question: Are the writes observable here?
+std::cout << "myInt1: " << myInt1 << ", myInt2: " << myInt2 << std::endl;
+}
+}
+}
+void thread2() {
+while(1) {
+// Wait for a function to be queued, then call it.
+std::function<void(void)> work{};
+workQueue.wait_dequeue(work);
+work();
+// Queue the result.
+resultQueue.enqueue(true);
+}
+}
+Given this sort of setup, I would of course have to look into the queue's internals and see what it's using in enqueue/wait_dequeue. My question is: what atomic operations would make the non-atomic writes observable after thread1 performs the wait_dequeue()? In other words, what should I be looking for to see if this is safe?
+c++concurrencyc++17
+Share
+Improve this question
+Follow
+asked 16 hours ago
+ArchdukeArchduke
+35722 silver badges1515 bronze badges
+3
+Verify that your SPSC queues implement release on publish and acquire on consume (or stronger). If they do, your std::cout after resultQueue.wait_dequeue will reliably see the updates made by the lambda on the other core.
+0___________
+–
+0___________
+2025-09-16 00:41:31 +00:00
+Commented
+13 hours ago
+Unless there is some connection between atomic and non-atomic operations (e.g. a non-atomic variable is assigned the value of an atomic variable, or vice versa) there is no guarantee of ordering, or of when reads and writes will occur relative to each other.
+You're then in the realm of implementation-specific behaviour.
+If you want to reliably log changes (in a way that an implementation is not permitted to reorder effects) you need to explicitly ensure the changes are visible.
+Peter
+–
+Peter
+2025-09-16 01:02:08 +00:00
+Commented
+13 hours ago
+1
+It should be sufficient to look at the documentation of wait_dequeue. It is thinkable that it says "The return of wait_dequeue synchronizes with the return of the dequeued work item function." This expresses that sufficient synchronization is in place that the results of the work item function are visible after wait_dequeue.
+j6t
+–
+j6t
+2025-09-16 06:46:27 +00:00
+Commented
+7 hours ago
+Add a comment
+|
+Related questions
+25
+What is the performance of std::atomic vs non-atomic variables?
+33
+C++ std::atomic vs. Boost atomic
+6
+std::list threading push_back, front, pop_front
+Related questions
+25
+What is the performance of std::atomic vs non-atomic variables?
+33
+C++ std::atomic vs. Boost atomic
+6
+std::list threading push_back, front, pop_front
+1
+C++11 condition variable semantics
+7
+How does warp work with atomic operation?
+2
+C++ std::function is null for all instances of class exept first (only Visual2019 compiler problem)
+2
+STL container for a single produceer single consumer FIFO?
+9
+C++11 safely join a thread without using a try / catch block
+17
+Writing a thread safe modular counter in Java
+2
+C++ mutex locking error
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++concurrencyc++17
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+Sorting a dynamic array in Excel
+Where is the upercase option in Kate Editor Version 25?
+Visiting US after Green Card Revocation?
+movie of space travelers landing on a planet where people live inside a mountain or underground and eat mushrooms as their staple
+Why are my fluorescent light fixtures and LED replacements turning on intermittently?
+Plugins for exploding map in QGIS
+What does the SH pin on HDMI do?
+How to save and reuse a calculated distance
+where and when to put a good olive oil in focaccia?
+How to describe an artist painting a picture?
+Should beginner writers publish short story science fiction on Amazon short reads to get experience?
+Do most people not have a stringent moral system?
+Find the first relabeling
+How to publish PhD work after a fractured relationship with primary supervisor?
+High Pressure Fuel Pump failure-BMW 535d
+Is it OK to pray at breakneck speed?
+Compute the integer hull of a polyhedral set in Mathematica
+Truth value of a sentence giving permission?
+Explanation of Rebbe (R Yehuda HaNasi) making kiddish after his passing
+What happens if I ignore a game on Steam?
+Does systemd-cryptenroll encryption with a TPM bind decryption to that TPM?
+Did Trump say "smart people don't like me"?
+distribution on accumulation points using Cesaro sum
+Malicious tampering of trusted libraries
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

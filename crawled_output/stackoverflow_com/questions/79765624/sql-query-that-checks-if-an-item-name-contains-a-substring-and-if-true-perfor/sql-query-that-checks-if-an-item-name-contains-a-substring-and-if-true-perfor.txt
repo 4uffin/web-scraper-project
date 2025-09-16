@@ -1,0 +1,365 @@
+sql - Query that checks if an item name contains a substring, and if true, perform a second query that grabs an image with a specific name - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Query that checks if an item name contains a substring, and if true, perform a second query that grabs an image with a specific name
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+86 times
+1
+I have this simple query that makes an image appear in a report based on its name
+SELECT image_data
+FROM image
+WHERE ((image_name='logo'));
+I was able to modify this query so that if the name of the image exactly matches the item number listed on the report, the image will appear. This way I'm not limited to one specific image.
+SELECT image_data
+FROM image
+WHERE (image_name = (SELECT item_number FROM wo
+JOIN itemsite ON wo_itemsite_id=itemsite_id
+JOIN item ON itemsite_item_id=item_id
+WHERE wo_id=<? value("wo_id") ?>));
+Now I'm trying to figure out how to modify it further so that the image name doesn't have to be a one to one match.
+I'm imagining a case expression like this
+SELECT image_data
+FROM image
+WHERE (image_name = (
+SELECT item_number,
+CASE
+WHEN item_number LIKE 'ITEM_A%' THEN 'ITEM A IMAGE'
+WHEN item_number LIKE 'ITEM_B%' THEN 'ITEM B IMAGE'
+ELSE ''
+END
+FROM wo
+JOIN itemsite ON wo_itemsite_id=itemsite_id
+JOIN item ON itemsite_item_id=item_id
+WHERE wo_id=<? value("wo_id") ?>
+));
+Unfortunately this doesn't seem to work. I've tried putting the case expression inside "WHERE", "FROM", and "SELECT", but no success. I even tried making two separate queries but that didn't work either. What am I doing wrong?
+9/16/25 EDIT:
+I think Zegarek's solution is what I'm looking for but I still can't get it to work. It might just be a syntax error on my end though.
+my original modified query had some other JOINs that I initially cut out of my question for readability. I'm VERY new to SQL so I thought showing those JOINs might make things more confusing. I added them back in up above.
+Here's how I tried to implement Zegarek's solution
+SELECT a.image_data,
+CASE WHEN b.item_number LIKE 'PRODUCT-ANLG%' THEN 'PRODUCT ANALOG DATASHEET PAGE 1'
+WHEN b.item_number LIKE 'PRODUCT 21%' THEN 'PRODUCT 21 DATASHEET'
+ELSE ''
+END AS image_label
+FROM image AS a JOIN wo AS b ON a.image_name=b.item_number
+JOIN itemsite ON wo_itemsite_id=itemsite_id
+JOIN item ON itemsite_item_id=item_id
+WHERE (b.wo_id = <? value("wo_id") ?>);
+I then named the query "DataSheetImage" and then called the image_data column on the report.
+Unfortunately this still didn't work. I tried calling image_data, image_label,
+a.image_data, and a.image_label, but the image won't appear.
+I'm thinking the problem is either
+A. a syntax issue with the JOINs.
+or
+B. me not understanding how the "image_label" alias works and how to properly call it.
+Where am I going wrong? What am I misunderstanding here?
+sqlpostgresqlxtuple
+Share
+Improve this question
+Follow
+edited 8 mins ago
+GaahrmGaahrm
+asked 16 hours ago
+GaahrmGaahrm
+1122 bronze badges
+New contributor
+Gaahrm is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+3
+2
+select a.image_data, b.item_number from image as a join wo as b on a.image_name=b.item_number where b.wo_id=<? value("wo_id") ?>;
+Zegarek
+–
+Zegarek
+2025-09-15 22:04:52 +00:00
+Commented
+15 hours ago
+1
+I don't understand. So far the image_name equals an item_number. And you look up one wo row to get the desired item number. What exactly is it that you want different? Do you want to select multiple wo rows along with their images? Or do you want one item number to match multiple images? Or what else? Please show sample table data and the expected result, so we get an idea of what you are after.
+Thorsten Kettner
+–
+Thorsten Kettner
+2025-09-16 07:40:23 +00:00
+Commented
+6 hours ago
+A minimal reproducible example is a great start when asking for SQL assistance.
+jarlh
+–
+jarlh
+2025-09-16 08:36:44 +00:00
+Commented
+5 hours ago
+Add a comment
+|
+2 Answers
+2
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+2
+I think you want a simple inner join: demo at db<>fiddle
+select a.image_data
+, b.item_number
+from image as a
+inner join wo as b
+on a.image_name=b.item_number
+where b.wo_id = <? value("wo_id") ?>;
+This part won't work for a few reasons:
+WHERE (image_name = (
+SELECT item_number,
+CASE
+WHEN item_number LIKE 'ITEM_A%' THEN 'ITEM A IMAGE'
+WHEN item_number LIKE 'ITEM_B%' THEN 'ITEM B IMAGE'
+ELSE ''
+END
+FROM wo
+WHERE wo_id=<? value("wo_id") ?>
+));
+If your wo_id matches multiple rows, it'd try to return multiple values from a scalar subquery, which isn't allowed. The results are meant to be compared to a single image_name so the parenthesised subquery is supposed to be scalar, return one row/value.
+Even if you returned just one row, you're trying to compare a row with two columns to a single image_name. It's not impossible but you'd have to define a custom equality operator item_name = (item_number,text) row/tuple/record/composite which is impractical, because you're clearly trying to only compare item_name = item_number.
+It's a common mistake to use _ in LIKE patterns - if that was meant as a literal underscore, you need to escape it: ITEM\_A%, otherwise it'll match things like ITEMXA.
+You can still use case to replace the returned item_number with a custom label:
+select a.image_data
+, case when b.item_number like 'ITEM_A%' then 'ITEM A IMAGE'
+when b.item_number like 'ITEM_B%' then 'ITEM B IMAGE'
+else ''
+end as image_label
+from image as a
+inner join wo as b
+on a.image_name=b.item_number
+where b.wo_id = <? value("wo_id") ?>;
+Share
+Improve this answer
+Follow
+edited 29 mins ago
+answered 9 hours ago
+ZegarekZegarek
+28.9k55 gold badges2727 silver badges3232 bronze badges
+3 Comments
+Add a comment
+Gaahrm Gaahrm 45 mins ago
+I think this is what I want but I still can't get it to work. It might just be a syntax error though. I'll update my question with more details. 2025-09-16T13:18:51.447Z+00:00
+0
+Reply
+Copy link
+Zegarek Zegarek 27 mins ago
+It's syntactically correct, I've added a db<>fiddle link where you can try it out. Make sure to edit the question and add the error messages you're getting and an MRE - without table definitions and examples it's hard to navigate your problem. 2025-09-16T13:36:48.06Z+00:00
+0
+Reply
+Copy link
+Gaahrm Gaahrm 1 min ago
+Thanks! I'll try experiment with the link and see where I'm going wrong. 2025-09-16T14:02:41.677Z+00:00
+0
+Copy link
+0
+How about something like
+select
+image.image_data
+from
+image,
+wo
+where
+substr(image.image_name,6,1) = substr(wo.item_number,6,1)
+and wo.wo_id
+...
+or whatever string relationship applies to between image_name and item_number and the string functions available in PostgreSQL.
+If something like this works, I'm not sure how it impacts the query plan's use of indexes on the columns in the substr unless you, perhaps, build an index on that portion of the strings.
+Share
+Improve this answer
+Follow
+edited 15 hours ago
+Dale K
+28.1k1515 gold badges5959 silver badges8585 bronze badges
+answered 15 hours ago
+GaryGary
+3,22422 gold badges1818 silver badges4848 bronze badges
+1 Comment
+Add a comment
+MatBailie MatBailie 15 hours ago
+ANSI92's JOIN syntax is over Three Decades Old. Why are you still suggesting people use implicit joins using commas??? 2025-09-15T22:47:41.463Z+00:00
+4
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+sqlpostgresqlxtuple
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Related
+365
+What is the difference between LATERAL JOIN and a subquery in PostgreSQL?
+279
+JOIN two SELECT statement results
+191
+SQL join on multiple columns in same tables
+122
+Using row_to_json() with nested joins
+241
+How to Select Every Row Where Column Value is NOT Distinct
+101
+PostgreSQL JOIN data from 3 tables
+0
+query that will get me the item name and item category name for all in orderID 12345
+0
+Top N products type in every month - BIGQUERY
+0
+2 different joins through 2 different columns
+Hot Network Questions
+Given two normal distributions X and Y with fixed Spearman Correlation, do they have a well-defined Pearson Correlation (and vice-versa)?
+How to clear specific byte values inside a 64-bit value without looping
+How to tell author that post hoc data manipulation is not okay
+Open pdf files in the background with fzf
+Making sure a smartphone is off
+Energy Conservation for Quantum Systems
+Fundamental group of a solid torus with a point removed
+What is the least conspicuous way to bring a hidden junction box with MWBC junction to code compliance?
+How to double chapter numbers and let hyperref do its work correctly
+Did Trump say "smart people don't like me"?
+How to disable all the AI features in Firefox to increase performance?
+Do most people not have a stringent moral system?
+What happens if I ignore a game on Steam?
+Practical limit on number of serial splices in 20A household circuit (USA NEC)?
+High Pressure Fuel Pump failure-BMW 535d
+What is a "mob" character in the context of Isekai works?
+movie of space travelers landing on a planet where people live inside a mountain or underground and eat mushrooms as their staple
+List<T>.ForEach does not invoke the action HashCode.Add<T>
+where and when to put a good olive oil in focaccia?
+What is the probability of coming out ahead in the iterated alternating St. Petersburg gamble?
+Why is the Bonferroni needed?
+Get coordinates of a voltage label (circuitikz)
+How do I use SearchKit to produce a list of Contacts that is filtered by different Membership Status values
+What resources are available for identifying a particular Space Shuttle launch?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-sql
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996
