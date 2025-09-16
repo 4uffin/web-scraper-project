@@ -1,0 +1,333 @@
+c++ - ranges::view::transform produces an InputIterator preventing the use of std::prev - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+ranges::view::transform produces an InputIterator preventing the use of std::prev
+Ask Question
+Asked
+4 years, 2 months ago
+Modified
+4 years, 2 months ago
+Viewed
+3k times
+13
+Consider the following code, which uses the Ranges library from C++20:
+#include <vector>
+#include <ranges>
+#include <iostream>
+int main()
+{
+std::vector<int> v{0,1,2,3,4,5,6,7};
+auto transformed = std::ranges::views::transform(v, [](int i){ return i * i; });
+std::cout << *std::prev(std::end(transformed));
+}
+I was quite surprised to learn that (at least under GCC-10.3.0 and GCC-12.0.0) this code gets stuck in std::prev.
+What happens is that since the lambda doesn't return an lvalue reference, the transformed range iterators are classified as input iterators (see the rules for iterator_category selection for views::transform). However, std::prev requires the iterator to be at least a bidirectional iterator, so I guess this code is actually UB. In libstdc++ applying std::prev to an input iterator leads to this function
+template<typename _InputIterator, typename _Distance>
+__advance(_InputIterator& __i, _Distance __n, input_iterator_tag)
+{
+// concept requirements
+__glibcxx_function_requires(_InputIteratorConcept<_InputIterator>)
+__glibcxx_assert(__n >= 0);
+while (__n--)
+++__i;
+}
+being called with __n == -1, which explains the observed behavior.
+If we replace std::prev with manual iterator decrement, everything works fine. Switching to std::ranges::prev works, too.
+Now, it is clearly nonsensical that I can't do std::prev on what is just a view over an std::vector. While a simple solution exists, I feel extremely worried about this unexpected interplay between old and new range manipulation parts of the standard library. So, my question is: is this a known problem, and should I really forget everything not in the std::ranges namespace when working with the new ranges, and rewrite all the existing code to make sure they work with the new ranges?
+c++iteratorc++20std-ranges
+Share
+Improve this question
+Follow
+edited Jul 14, 2021 at 3:38
+cpplearner
+18k33 gold badges5757 silver badges8686 bronze badges
+asked Jun 23, 2021 at 13:29
+lisyaruslisyarus
+15.7k44 gold badges4848 silver badges7171 bronze badges
+5
+It's not actually clear whether std::prev requires a bidirectional iterator or not: cplusplus.github.io/LWG/issue3197
+Jonathan Wakely
+–
+Jonathan Wakely
+2025-07-12 08:57:40 +00:00
+Commented
+Jul 12 at 8:57
+@JonathanWakely Oh my.
+lisyarus
+–
+lisyarus
+2025-07-14 15:12:28 +00:00
+Commented
+Jul 14 at 15:12
+1
+I actually have good reasons to not enforce that it only works with Cpp17BidirectionalIterator types. I want std::prev to work with C++20 bidirectional iterators which don't meet Cpp17BidirectionalIterator reqs. The prototype patch at gcc.gnu.org/pipermail/gcc-patches/2025-July/689975.html fixes your transform example so it works.
+Jonathan Wakely
+–
+Jonathan Wakely
+2025-07-18 18:15:13 +00:00
+Commented
+Jul 18 at 18:15
+1
+With GCC trunk the example now runs and gives the expected results: wandbox.org/permlink/vCJTK1hJExegX0Kc
+Jonathan Wakely
+–
+Jonathan Wakely
+2025-08-19 09:13:24 +00:00
+Commented
+Aug 19 at 9:13
+@JonathanWakely Incredible, thank you!
+lisyarus
+–
+lisyarus
+2025-08-19 12:14:56 +00:00
+Commented
+Aug 19 at 12:14
+Add a comment
+|
+2 Answers
+2
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+14
+It is not a random-access-iterator by C++17's reckoning. transform must return a value rather than a reference, and C++17's iterator categories don't allow that for anything above an InputIterator.
+But this type is a std::random_access_iterator by C++20's rules, which allow proxy-like iterators on any iterator/range below contiguous.
+std::prev is a pre-C++20 tool, so it works by pre-C++20 rules. If you need to work with C++20 rules, you have to use the C++20 equivalent: std::ranges::prev.
+Now, it is clearly nonsensical that I can't do std::prev on what is just a view over an std::vector.
+No, it is necessary. C++20's conceptualized iterator categories are less restrictive than those from previous C++ versions. This means that there are iterators that cannot be used in pre-C++20 code which can be used in C++20 ranges-based code.
+This is why we have new functions for these things in the ranges namespace.
+Share
+Improve this answer
+Follow
+edited Jul 17, 2021 at 13:30
+answered Jun 23, 2021 at 13:46
+Nicol BolasNicol Bolas
+480k6666 gold badges857857 silver badges1.1k1.1k bronze badges
+4
+1
+Do you, by any chance, know of a resource that summarizes the differences between the concepts and the old requirements? Maybe also with a rationale behind the changes.
+Timo
+–
+Timo
+2021-06-23 14:09:13 +00:00
+Commented
+Jun 23, 2021 at 14:09
+@Timo Very interested in this as well, I'm a little worried about blindly changing all std::X to std::ranges::X in my codebase.
+lisyarus
+–
+lisyarus
+2021-06-23 14:21:10 +00:00
+Commented
+Jun 23, 2021 at 14:21
+1
+@lisyarus: You shouldn't "blindly" do anything. You should do what makes sense for your code. If you're using C++20 ranges/iterators in some piece of code, then that code needs to use C++20 algorithms with them, as C++20 ranges/iterators may not work in older pre-C++20 code.
+Nicol Bolas
+–
+Nicol Bolas
+2021-06-23 15:00:04 +00:00
+Commented
+Jun 23, 2021 at 15:00
+@NicolBolas Of course, this was an exaggeration. What I'm saying is that I didn't know about this incompatibilities between pre-C++20 iterators & C++20 ranges, and would like to see some comprehensive differences overview / migration guide (as opposed to, say, reading through the entire corresponding standard sections).
+lisyarus
+–
+lisyarus
+2021-06-23 15:03:58 +00:00
+Commented
+Jun 23, 2021 at 15:03
+Add a comment
+|
+4
+Your transform returns a prvalue, so it can't be anything other than a InputIterator. That's one of the main reasons that the iterator categories have been changed in C++20.
+If the return value of your operation is a reference, then you can.
+Share
+Improve this answer
+Follow
+answered Jun 23, 2021 at 13:44
+CalethCaleth
+65.6k22 gold badges5252 silver badges9898 bronze badges
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++iteratorc++20std-ranges
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Visit chat
+Linked
+1
+What is the category of transform view based on vector?
+2
+The problem of the definition of transform_view​::iterator's iterator_category?
+Related
+8
+Can can I make `std::ranges::views::elements` work with a range of my type
+0
+Make iterator work with std::ranges functions
+2
+The problem of the definition of transform_view​::iterator's iterator_category?
+8
+Undefined behaviour on std::prev for transform-view
+4
+Convert borrowed_iterator<reverse_view<T>> to borrowed_iterator<T>
+0
+std::ranges::take_while_view cannot pipe
+18
+What am I missing in my custom std::ranges iterator?
+11
+How to use std::views::transform on a vector?
+19
+Passing std::ranges::views as parameters in C++20
+0
+Workaround to decrement iterator from views::transform?
+Hot Network Questions
+What happens if I ignore a game on Steam?
+What is the purpose of this opening in the airplane interior?
+How to disable all the AI features in Firefox to increase performance?
+Visiting US after Green Card Revocation?
+Can Boo steal partially used items in Mario Kart World?
+Come vs go in this situation
+How to double chapter numbers and let hyperref do its work correctly
+Are Lands' Activated Abilities colored?
+Why are my fluorescent light fixtures and LED replacements turning on intermittently?
+How can one deal with the case of someone misrepresenting his academic job title?
+What is this book about researchers in boats being chased on an alien planet by humanoid aliens?
+Custom PCB shorts at 3.3-gnd and miso-sck pins only after soldering MCU chip
+Who is the model on this Cathy's Curse movie poster / DVD cover?
+Line Art strokes render on top of Grease Pencil objects
+What is the least conspicuous way to bring a hidden junction box with MWBC junction to code compliance?
+Insurance company want me to either surrender my totaled car or pay off the negative equity
+Propeller design in XROTOR
+tikz plot missing half of the graph
+Given two normal distributions X and Y with fixed Spearman Correlation, do they have a well-defined Pearson Correlation (and vice-versa)?
+Statistics on list of industry areas that pure math academics transition to
+What is the purpose of the neutral line in unbalanced three-phase systems?
+How to tell author that post hoc data manipulation is not okay
+Hat puzzle with rock, paper, scissors
+Are there any missable endings?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

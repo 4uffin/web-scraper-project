@@ -1,0 +1,862 @@
+javascript - await is only valid in async function - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+await is only valid in async function
+Ask Question
+Asked
+7 years, 5 months ago
+Modified
+1 year ago
+Viewed
+859k times
+376
+I wrote this code in lib/helper.js:
+var myfunction = async function(x,y) {
+....
+return [variableA, variableB]
+}
+exports.myfunction = myfunction;
+Then I tried to use it in another file:
+var helper = require('./helper.js');
+var start = function(a,b){
+....
+const result = await helper.myfunction('test','test');
+}
+exports.start = start;
+I got an error:
+await is only valid in async function
+What is the issue?
+javascriptnode.js
+Share
+Improve this question
+Follow
+edited Jun 5, 2023 at 5:26
+MeSo2
+46411 gold badge77 silver badges2020 bronze badges
+asked Mar 22, 2018 at 15:29
+j.doej.doe
+4,91966 gold badges2424 silver badges3131 bronze badges
+6
+10
+Well, the issue is that await can only be used inside an async function.
+That is, await makes a function asynchronous, so it must be declared as such.
+Pointy
+–
+Pointy
+2018-03-22 15:30:18 +00:00
+Commented
+Mar 22, 2018 at 15:30
+What is the current error?
+acdcjunior
+–
+acdcjunior
+2018-03-22 15:43:50 +00:00
+Commented
+Mar 22, 2018 at 15:43
+1
+still the same, SyntaxError: await is only valid in async function
+j.doe
+–
+j.doe
+2018-03-22 15:45:52 +00:00
+Commented
+Mar 22, 2018 at 15:45
+You need to share more context about your code.
+Ele
+–
+Ele
+2018-03-22 15:54:09 +00:00
+Commented
+Mar 22, 2018 at 15:54
+2
+Possible duplicate of How do I return the response from an asynchronous call?
+Liam
+–
+Liam
+2018-03-22 16:02:01 +00:00
+Commented
+Mar 22, 2018 at 16:02
+|
+Show 1 more comment
+15 Answers
+15
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+430
+The error is not refering to myfunction but to start.
+async function start() {
+....
+const result = await helper.myfunction('test', 'test');
+}
+// My function
+const myfunction = async function(x, y) {
+return [
+x,
+y,
+];
+}
+// Start function
+const start = async function(a, b) {
+const result = await myfunction('test', 'test');
+console.log(result);
+}
+// Call start
+start();
+I use the opportunity of this question to advise you about an known anti pattern using await which is : return await.
+WRONG
+async function myfunction() {
+console.log('Inside of myfunction');
+}
+// Here we wait for the myfunction to finish
+// and then returns a promise that'll be waited for as well
+// It's useless to wait the myfunction to finish before to return
+// we can simply returns a promise that will be resolved later
+// useless async here
+async function start() {
+// useless await here
+return await myfunction();
+}
+// Call start
+(async() => {
+console.log('before start');
+await start();
+console.log('after start');
+})();
+CORRECT
+async function myfunction() {
+console.log('Inside of myfunction');
+}
+// Here we wait for the myfunction to finish
+// and then returns a promise that'll be waited for as well
+// It's useless to wait the myfunction to finish before to return
+// we can simply returns a promise that will be resolved later
+// Also point that we don't use async keyword on the function because
+// we can simply returns the promise returned by myfunction
+function start() {
+return myfunction();
+}
+// Call start
+(async() => {
+console.log('before start');
+await start();
+console.log('after start');
+})();
+Also, know that there is a special case where return await is correct and important : (using try/catch)
+Are there performance concerns with `return await`?
+Share
+Improve this answer
+Follow
+edited Sep 9, 2024 at 20:08
+Lee Taylor
+7,9941616 gold badges3838 silver badges5353 bronze badges
+answered Mar 22, 2018 at 15:29
+OrelsanplsOrelsanpls
+23.7k77 gold badges4646 silver badges7373 bronze badges
+6
+But this is not working, I updated my code. I still get the same error
+j.doe
+–
+j.doe
+2018-03-22 15:35:29 +00:00
+Commented
+Mar 22, 2018 at 15:35
+@j.doe I've added a snippet
+Orelsanpls
+–
+Orelsanpls
+2018-03-22 15:53:16 +00:00
+Commented
+Mar 22, 2018 at 15:53
+2
+Thanks, I found my problem. I was trying to do it inside a callback is the start() function. The solution was : const start = async function(a, b) {
+task.get(options, async function (error, result1) {
+const result = await myfunction('test', 'test');
+j.doe
+–
+j.doe
+2018-03-22 16:00:00 +00:00
+Commented
+Mar 22, 2018 at 16:00
+Considering that Node is a single threaded. Doesn't it decreases the request per minutes and also increases the delay in between fullfilling requests.
+Rishabh Dhiman
+–
+Rishabh Dhiman
+2019-09-08 15:40:00 +00:00
+Commented
+Sep 8, 2019 at 15:40
+1
+It's worth mentioning that in the "CORRECT" example, it isn't necessary to declare start as an async function (although some will chose to do so anyways, in order to be more explicit)
+Gershom Maes
+–
+Gershom Maes
+2020-01-07 20:02:59 +00:00
+Commented
+Jan 7, 2020 at 20:02
+|
+Show 1 more comment
+42
+To use await, its executing context needs to be async in nature
+As it said, you need to define the nature of your executing context where you are willing to await a task before anything.
+Just put async before the fn declaration in which your async task will execute.
+var start = async function(a, b) {
+// Your async task will execute with await
+await foo()
+console.log('I will execute after foo get either resolved/rejected')
+}
+Explanation:
+var helper = require('./helper.js');
+var start = async function(a,b){
+....
+const result = await helper.myfunction('test','test');
+}
+exports.start = start;
+Wondering what's going under the hood
+await consumes promise/future / task-returning methods/functions and async marks a method/function as capable of using await.
+Also if you are familiar with promises, await is actually doing the same process of promise/resolve. Creating a chain of promise and executes your next task in resolve callback.
+For more info you can refer to MDN DOCS.
+Share
+Improve this answer
+Follow
+edited May 15, 2023 at 9:02
+answered Mar 22, 2018 at 15:43
+Satyam PathakSatyam Pathak
+6,95033 gold badges2828 silver badges5252 bronze badges
+3
+2
+Even with async in the start function I am getting the error
+j.doe
+–
+j.doe
+2018-03-22 15:49:08 +00:00
+Commented
+Mar 22, 2018 at 15:49
+I am not sure where you are missing and getting this error, there is no such complex explanation to resolve this error.
+Satyam Pathak
+–
+Satyam Pathak
+2018-03-22 15:58:44 +00:00
+Commented
+Mar 22, 2018 at 15:58
+this is a proper answer and actually explained the underline reason. up voted.
+linehrr
+–
+linehrr
+2019-10-10 19:54:03 +00:00
+Commented
+Oct 10, 2019 at 19:54
+Add a comment
+|
+17
+When I got this error, it turned out I had a call to the map function inside my "async" function, so this error message was actually referring to the map function not being marked as "async".
+I got around this issue by taking the "await" call out of the map function and coming up with some other way of getting the expected behavior.
+var myfunction = async function(x,y) {
+....
+someArray.map(someVariable => { // <- This was the function giving the error
+return await someFunction(someVariable);
+});
+}
+Share
+Improve this answer
+Follow
+answered Aug 15, 2018 at 22:05
+John LangfordJohn Langford
+1,46133 gold badges1616 silver badges1818 bronze badges
+3
+4
+This was the problem for me. I replaced the map function with a for loop, which was an easy solution for me. However, this solution might not work for you depending on your code.
+Thomas
+–
+Thomas
+2019-03-13 20:26:13 +00:00
+Commented
+Mar 13, 2019 at 20:26
+7
+FYI you can also do someArray.map(async (someVariable) => { return await someFunction(someVariable)})
+ptim
+–
+ptim
+2019-04-10 13:02:56 +00:00
+Commented
+Apr 10, 2019 at 13:02
+1
+The await in your code is misleading, because Array.map will not handle the function as an asynchronous function. To be perfectly clear, after the map function is finished, the someFunction will all be pending. If you want to really wait the functions to finish you have to write : await Promise.all(someArray.map(someVariable => someFunction(someVariable))) or await Promise.all(someArray.map(someFunction))).
+Orelsanpls
+–
+Orelsanpls
+2020-01-08 17:04:05 +00:00
+Commented
+Jan 8, 2020 at 17:04
+Add a comment
+|
+17
+I had the same problem and the following block of code was giving the same error message:
+repositories.forEach( repo => {
+const commits = await getCommits(repo);
+displayCommit(commits);
+});
+The problem is that the method getCommits() was async but I was passing it the argument repo which was also produced by a Promise. So, I had to add the word async to it like this: async(repo) and it started working:
+repositories.forEach( async(repo) => {
+const commits = await getCommits(repo);
+displayCommit(commits);
+});
+Share
+Improve this answer
+Follow
+answered Jan 8, 2020 at 15:57
+EmilEmil
+20422 silver badges1111 bronze badges
+2
+Thanks a lot! I read this answer after two hours XD
+Eder Armando Anillo Lora
+–
+Eder Armando Anillo Lora
+2021-02-24 18:35:46 +00:00
+Commented
+Feb 24, 2021 at 18:35
+Do note that async and .forEach() usually don't work very well together. For instance, the code after the .forEach() will run before the code after the first await inside of your loop. And there is also no guarantee that (in this example) displayCommit() is invoked in the same order as the elements are looped over. See Using async/await with a forEach loop
+Ivar
+–
+Ivar
+2022-11-26 17:42:27 +00:00
+Commented
+Nov 26, 2022 at 17:42
+Add a comment
+|
+15
+If you are writing a Chrome Extension and you get this error for your code at root, you can fix it using the following "workaround":
+async function run() {
+// Your async code here
+const beers = await fetch("https://api.punkapi.com/v2/beers");
+}
+run();
+Basically you have to wrap your async code in an async function and then call the function without awaiting it.
+Share
+Improve this answer
+Follow
+answered Sep 18, 2020 at 5:24
+gianlucaparadisegianlucaparadise
+1,7732222 silver badges3434 bronze badges
+1
+Would you know why this happens in chrome?
+user2268997
+–
+user2268997
+2021-03-17 19:43:26 +00:00
+Commented
+Mar 17, 2021 at 19:43
+Add a comment
+|
+13
+In later nodejs (>=14), top await is allowed with { "type": "module" } specified in package.json or with file extension .mjs.
+https://www.stefanjudis.com/today-i-learned/top-level-await-is-available-in-node-js-modules/
+Share
+Improve this answer
+Follow
+edited Jan 12, 2023 at 5:43
+answered Jan 10, 2023 at 6:22
+aGueguaGuegu
+2,36111 gold badge2727 silver badges2525 bronze badges
+Add a comment
+|
+4
+async/await is the mechanism of handling promise, two ways we can do it
+functionWhichReturnsPromise()
+.then(result => {
+console.log(result);
+})
+.cathc(err => {
+console.log(result);
+});
+or we can use await to wait for the promise to full-filed it first, which means either it is rejected or resolved.
+Now if we want to use await (waiting for a promise to fulfil) inside a function, it's mandatory that the container function must be an async function because we are waiting for a promise to fulfiled asynchronously || make sense right?.
+async function getRecipesAw(){
+const IDs = await getIds; // returns promise
+const recipe = await getRecipe(IDs[2]); // returns promise
+return recipe; // returning a promise
+}
+getRecipesAw().then(result=>{
+console.log(result);
+}).catch(error=>{
+console.log(error);
+});
+Share
+Improve this answer
+Follow
+answered Jun 19, 2020 at 16:02
+RafiqRafiq
+11.8k55 gold badges4444 silver badges4646 bronze badges
+1
+Yes, it does.
+And in order to call the async function, you will need to use await in the caller, and because you need await there, that function mist also be async.
+Basically, if you want to use async/await at all, you are going to have to use it on ALL of your functions across your entire app.
+Rodney P. Barbati
+–
+Rodney P. Barbati
+2020-09-12 16:43:15 +00:00
+Commented
+Sep 12, 2020 at 16:43
+Add a comment
+|
+3
+The current implementation of async / await only supports the await keyword inside of async functions Change your start function signature so you can use await inside start.
+var start = async function(a, b) {
+}
+For those interested, the proposal for top-level await is currently in Stage 2: https://github.com/tc39/proposal-top-level-await
+Share
+Improve this answer
+Follow
+answered Jan 3, 2019 at 14:24
+user835611user835611
+2,51122 gold badges2424 silver badges3131 bronze badges
+3
+4
+Unfortunately, what this basically means is that you are going to have to make ALL of your functions async, across your entire code base.
+Because if you want to use await, you must do it in an async function, which means that you must await the response of that function in the function calling it - again, it means that ALL of your functions will need to become async.
+To me this means that await async is not ready for use.
+When you can use await to call an async method, regardless of whether the current function is synchronous or asynchronous, then it will be ready for prime time.
+Rodney P. Barbati
+–
+Rodney P. Barbati
+2020-01-07 19:16:58 +00:00
+Commented
+Jan 7, 2020 at 19:16
+1
+Every function which is through any level of indirection dependent on the results of an external process must, and ought to be defined with async - that's the entire point of async.
+Gershom Maes
+–
+Gershom Maes
+2020-01-07 20:16:34 +00:00
+Commented
+Jan 7, 2020 at 20:16
+You can currently use it in node repl using --experimental-repl-await option.
+lodz
+–
+lodz
+2020-05-21 12:00:52 +00:00
+Commented
+May 21, 2020 at 12:00
+Add a comment
+|
+2
+If you have called async function inside foreach update it to for loop
+Share
+Improve this answer
+Follow
+answered Sep 2, 2021 at 20:31
+Lahiru PintoLahiru Pinto
+1,6812121 silver badges2121 bronze badges
+Add a comment
+|
+2
+Found the code below in this nice article: HTTP requests in Node using Axios
+const axios = require('axios')
+const getBreeds = async () => {
+try {
+return await axios.get('https://dog.ceo/api/breeds/list/all')
+} catch (error) {
+console.error(error)
+}
+}
+const countBreeds = async () => {
+const breeds = await getBreeds()
+if (breeds.data.message) {
+console.log(`Got ${Object.entries(breeds.data.message).length} breeds`)
+}
+}
+countBreeds()
+Or using Promise:
+const axios = require('axios')
+const getBreeds = () => {
+try {
+return axios.get('https://dog.ceo/api/breeds/list/all')
+} catch (error) {
+console.error(error)
+}
+}
+const countBreeds = async () => {
+const breeds = getBreeds()
+.then(response => {
+if (response.data.message) {
+console.log(
+`Got ${Object.entries(response.data.message).length} breeds`
+)
+}
+})
+.catch(error => {
+console.log(error)
+})
+}
+countBreeds()
+Share
+Improve this answer
+Follow
+answered Jan 15, 2022 at 23:11
+YMHYMH
+3,16533 gold badges3232 silver badges2626 bronze badges
+Add a comment
+|
+1
+A common problem in Express:
+The warning can refer to the function, or where you call it.
+Express items tend to look like this:
+app.post('/foo', ensureLoggedIn("/join"), (req, res) => {
+const facts = await db.lookup(something)
+res.redirect('/')
+})
+Notice the => arrow function syntax for the function.
+The problem is NOT actually in the db.lookup call, but right here in the Express item.
+Needs to be:
+app.post('/foo', ensureLoggedIn("/join"), async function (req, res) {
+const facts = await db.lookup(something)
+res.redirect('/')
+})
+Basically, nix the => and add async function .
+Share
+Improve this answer
+Follow
+answered Aug 7, 2022 at 0:38
+FattieFattie
+9,6837575 gold badges454454 silver badges767767 bronze badges
+Add a comment
+|
+0
+This in one file works..
+Looks like await only is applied to the local function which has to be async..
+I also am struggling now with a more complex structure and in between different files. That's why I made this small test code.
+edit: i forgot to say that I'm working with node.js.. sry. I don't have a clear question. Just thought it could be helpful with the discussion..
+function helper(callback){
+function doA(){
+var array = ["a ","b ","c "];
+var alphabet = "";
+return new Promise(function (resolve, reject) {
+array.forEach(function(key,index){
+alphabet += key;
+if (index == array.length - 1){
+resolve(alphabet);
+};
+});
+});
+};
+function doB(){
+var a = "well done!";
+return a;
+};
+async function make() {
+var alphabet = await doA();
+var appreciate = doB();
+callback(alphabet+appreciate);
+};
+make();
+};
+helper(function(message){
+console.log(message);
+});
+Share
+Improve this answer
+Follow
+edited Apr 18, 2021 at 19:42
+answered Apr 18, 2021 at 11:35
+AmebaAmeba
+122 bronze badges
+1
+1
+There is a problem with your question, namely.... it is not a question. You say you are struggling, so tell us why you are struggling and ask a to-the-point question...
+Klaassiek
+–
+Klaassiek
+2021-04-18 12:36:24 +00:00
+Commented
+Apr 18, 2021 at 12:36
+Add a comment
+|
+0
+I encounter this problem when I'm using TypeScript.
+finally I figured out that I should set target: "ES2017" in tsconfig.json so that the transpiled javascript code keep the async function literals instead of __await ... code under ES6 behavior.
+Share
+Improve this answer
+Follow
+answered Jan 25, 2024 at 10:14
+hx_hxlhx_hxl
+10922 silver badges22 bronze badges
+Add a comment
+|
+-3
+Yes, await / async was a great concept, but the implementation is completely broken.
+For whatever reason, the await keyword has been implemented such that it can only be used within an async method.
+This is in fact a bug, though you will not see it referred to as such anywhere but right here.
+The fix for this bug would be to implement the await keyword such that it can only be used TO CALL an async function, regardless of whether the calling function is itself synchronous or asynchronous.
+Due to this bug, if you use await to call a real asynchronous function somewhere in your code, then ALL of your functions must be marked as async and ALL of your function calls must use await.
+This essentially means that you must add the overhead of promises to all of the functions in your entire application, most of which are not and never will be asynchronous.
+If you actually think about it, using await in a function should require the function containing the await keyword TO NOT BE ASYNC - this is because the await keyword is going to pause processing in the function where the await keyword is found.
+If processing in that function is paused, then it is definitely NOT asynchronous.
+So, to the developers of javascript and ECMAScript - please fix the await/async implementation as follows...
+await can only be used to CALL async functions.
+await can appear in any kind of function, synchronous or asynchronous.
+Change the error message from "await is only valid in async function" to "await can only be used to call async functions".
+Share
+Improve this answer
+Follow
+edited Jan 7, 2020 at 19:55
+answered Jan 7, 2020 at 19:46
+Rodney P. BarbatiRodney P. Barbati
+2,1102626 silver badges2020 bronze badges
+11
+You can call it a bug if you like, but I disagree. There is no such thing as code which "pauses" - rather, there is code which cannot complete without the results of some external process (usually io). Such code should be called "asynchronous" as many external processes should be able to run at the same time (non-synchronously), in contrast to the javascript VM which is single-threaded. If you have many functions which need to be refactored to async that reflects the fact that many of your functions require the results of external processes. That is completely canonical in my opinion.
+Gershom Maes
+–
+Gershom Maes
+2020-01-07 20:09:33 +00:00
+Commented
+Jan 7, 2020 at 20:09
+It's also worth mentioning a terrible drawback of restricting await to only be usable with function calls: for a single external process, only a single point in javascript code could be notified when that process completes. For example if the content of a file is needed for 3 independent purposes each purpose would need to independently do let content = await readTheFile(); - this is because the "promise of the file's content" cannot be awaited, only "the act of reading the file and resuming once it's been read".
+Gershom Maes
+–
+Gershom Maes
+2020-01-07 20:14:22 +00:00
+Commented
+Jan 7, 2020 at 20:14
+Ok, let's not call it code that pauses, or code which cannot complete, but how about blocked waiting.
+Here's the rub - the function that is blocked waiting or that cannot complete is the function that contains the await keyword.
+It is not the async function that is being called with the await keyword.
+Hence, the function containing the await keyword should definitely NOT have to be marked as async - it is blocked waiting, which is the opposite of asynchronous.
+Rodney P. Barbati
+–
+Rodney P. Barbati
+2020-01-07 20:30:30 +00:00
+Commented
+Jan 7, 2020 at 20:30
+To make this utterly clear, consider the following - await is intended to simplify the use of asynchronous functions by making them appear to be synchronous
+(i.e. it allows me to do things in a specific order).
+Forcing the function containing the await to be async is a complete misnomer - you used await so that it becomes synchronous.
+A function containing an await is absolutely, in every conceivable manner, NOT an async function!!!
+Rodney P. Barbati
+–
+Rodney P. Barbati
+2020-01-07 20:40:50 +00:00
+Commented
+Jan 7, 2020 at 20:40
+1
+@Gershom - that sounds reasonable.
+Thanks!
+Rodney P. Barbati
+–
+Rodney P. Barbati
+2020-02-21 19:59:12 +00:00
+Commented
+Feb 21, 2020 at 19:59
+|
+Show 6 more comments
+-3
+"await is only valid in async function"
+But why? 'await' explicitly turns an async call into a synchronous call, and therefore the caller cannot be async (or asyncable) - at least, not because of the call being made at 'await'.
+Share
+Improve this answer
+Follow
+answered Feb 12, 2020 at 21:54
+mn_test347mn_test347
+46844 silver badges1010 bronze badges
+2
+1
+Actually, await does not wait for results - it immediately returns a promise.
+This is exactly what I was attempting to convey.
+If await actually waited and did not return control to the caller, then any function that contained an await keyword would literally not be able to be marked async.
+But instead of that, we have any function that contains await or calls a function that eventually calls a function containing await must be async.
+Basically, if you call await even one time - all of your functions must be marked async.
+Rodney P. Barbati
+–
+Rodney P. Barbati
+2020-02-20 20:08:42 +00:00
+Commented
+Feb 20, 2020 at 20:08
+Nope. It does not 'turn an async call into a synchronous call'. Async/await is still asynchronous - it just looks synchronous. That's my big problem with it, tbh...it's "too clever" and pretends to be something it is not, just inviting users to trip up. Checkout generator functions and 'yield' to get a glimpse of what is really happening, though I find that to be even more of a headache.
+Max Waterman
+–
+Max Waterman
+2021-03-16 06:24:18 +00:00
+Commented
+Mar 16, 2021 at 6:24
+Add a comment
+|
+Protected question. To answer this question, you need to have at least 10 reputation on this site (not counting the association bonus). The reputation requirement helps protect this question from spam and non-answer activity.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+javascriptnode.js
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+6
+Node.js module: export async function
+2
+Uncaught SyntaxError with "await import(...)"
+-2
+Async/Await is only valid async func while reading a file
+2
+await is only valid in async function error for a async function
+0
+How to use async/await inside promise - Vue
+1
+NodeJs await is only valid in async function
+1
+await always thows SyntaxError: await is only valid in async function in sequelize
+-2
+Await is only on async fucntion
+-2
+How to resolve await issue in nodejs
+0
+Promise not returning error - returning Syntax error
+See more linked questions
+Related
+131
+Using await outside of an async function
+0
+'await' is not working in async function
+1
+why is await not working even when used in async function
+1
+Resolve await in function
+12
+How to resolve the Syntax error : await is only valid in async function?
+0
+How to fix "await is only valid in async function" even when await is in an async function in Node.js?
+0
+Calling await on an async function throws an error
+2
+Await is only valid in async function with nodejs
+0
+async function doesn't wait of inside await in nodejs
+1
+await is only valid in async function error
+Hot Network Questions
+How to cut a tetrahedron in half using only a pencil and a knife?
+Line Art strokes render on top of Grease Pencil objects
+What is the rationale behind the WebAssembly `if` statements behaving like `block` when it comes to breaking (`br`), rather than being transparent?
+How to Calculate Habitable Area of an Infinite Plane
+Where is the upercase option in Kate Editor Version 25?
+Ephemeris Time/Second Tracking
+Who is the model on this Cathy's Curse movie poster / DVD cover?
+In GIMP, how do I crop the "invisible" content outside an image's rectange?
+Python implementation of core fundamentals to calculate math arithmetic
+Is it normal for postdoc to write grant proposals for PI, but then is denied the opportunity to work on the projects later on?
+How can St. Peter write 2nd Peter if he copies off Jude? Who was dead when Jude was written?
+Is there a deeper meaning behind the gesture of the statue here?
+tikz plot missing half of the graph
+Why the density function in microcanonical ensemble is not constant?
+Hat puzzle with rock, paper, scissors
+Truth value of a sentence giving permission?
+Does Reaper ability affect touch/self range cantrips?
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
+Is it normal for an elevated system process (like DismHost.exe) to be ran in the context of my user?
+How can one deal with the case of someone misrepresenting his academic job title?
+How do I open my Ability tree page?
+mate-panel not visible after ugprade, but process is started
+Will gases contained inside a box eventually reach zero temperature?
+What could be the meaning of the word "far" in "One far fierce hour and sweet"?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-js
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996
