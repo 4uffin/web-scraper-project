@@ -1,0 +1,430 @@
+Angular Signals Form: Validation and Logic - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Nicolas Frizzarin
+for This is Angular
+Posted on Sep 15
+Angular Signals Form: Validation and Logic
+#angular
+#web
+#typescript
+Signal Form (2 Part Series)
+1
+Signals Form: Introduction
+2
+Angular Signals Form: Validation and Logic
+Introduction
+In the previous article, we explored how to create a form based entirely on signals. However, that was a simple form with no business logic and, most importantly, no validation.
+This article aims to detail how we can write our business logic simply and in a scalable way.
+Just a reminder
+Just a reminder, the form we created is as follows:
+interface Assigned {
+name: string;
+firstname: string;
+}
+interface Todo {
+title: string;
+description: string;
+status: TodoStatus;
+assigned: Assigned[]
+}
+@Component({
+selector: 'app-form',
+templateUrl: './app-form.html',
+imports: [Control]
+})
+export class AppForm {
+todoModel = signal<Todo>({
+title: '',
+description: '',
+status: 'not_begin',
+assigned: []
+}); // We create the model that will be the source of truth for the form and it's tree field
+todoForm = form(this.todoModel); // we create the form which is linked to the model
+}
+Enter fullscreen mode
+Exit fullscreen mode
+As shown in the previous article, a FieldState instance exposes a signal (and therefore a reactive state) like valid or disabled. However, this state isn't defined directly. In reality, it's a derived state (technically, it's a computed). This derived state comes directly from the field logic part of the form.
+Adding Field Logic
+One of the key aspects of signals-based forms in Angular is the very definition of business logic and validation. This definition is done declaratively in TypeScript when the form is defined. This implies two important things:
+There are no imperative commands to modify a field's state later on; in other words, there are no methods like disable.
+A field can be required or disabled based on other signals or static conditions.
+Essentially, the business and validation logic is represented by a schema. A schema can be considered as a blueprint containing all our business rules for:
+The entire form
+A specific Field
+schema is defined using the schema function. This function is generically typed and takes:
+The FieldPath interface as a generic type.
+A function that takes the FieldPath as an input and defines its business logic.
+The generic type here is of utmost importance because it's what dictates the rule's definition:
+a Todo type schema defines the rules for a Todo type field
+a Boolean type schema defines the rules for a Boolean type field
+Type and rule definition are extremely linked. This link ensures that the field's logic is perfectly aligned with the form's structure.
+A Schema can be created by calling schema() and passing it a schema function, or just passing a schema function directly to form() or other methods that expect a Schema.
+Once you have defined a schema, you associate it with your Field structure by passing it as the second argument to the form() function
+let's have some code
+interface Assigned {
+name: string;
+firstname: string;
+}
+interface Todo {
+title: string;
+description: string;
+status: TodoStatus;
+assigned: Assigned[]
+}
+@Component({
+selector: 'app-form',
+templateUrl: './app-form.html',
+imports: [Control]
+})
+export class AppForm {
+todoModel = signal<Todo>({
+title: '',
+description: '',
+status: 'not_begin',
+assigned: []
+}); // We create the model that will be the source of truth for the form and it's tree field
+todoForm = form(this.todoModel, (path: FieldPath<Todo>) => {}); // we create the form which is linked to the model
+}
+Enter fullscreen mode
+Exit fullscreen mode
+In this example, we've defined a schema by its function. The main drawback of this solution is that it's not scalable. The schema here can't be exported by a library or reused across an application.
+let' rework a little bit the previous code
+interface Assigned {
+name: string;
+firstname: string;
+}
+interface Todo {
+title: string;
+description: string;
+status: TodoStatus;
+assigned: Assigned[]
+}
+/**
+* Define a schema exportable:
+* - let you to create some library that export your custom schema
+* - could be used later in an other place of your application
+*/
+export const TodoSchema = schema<Todo>(path => {});
+@Component({
+selector: 'app-form',
+templateUrl: './app-form.html',
+imports: [Control]
+})
+export class AppForm {
+todoModel = signal<Todo>({
+title: '',
+description: '',
+status: 'not_begin',
+assigned: []
+});
+todoForm = form(this.todoModel, TodoSchema);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Right now, our schema doesn't do... anything. Let's see how we can add some functionality to it.
+Let's have some logic
+Just like with Reactive Forms, there are built-in validations. You'll find the classic validation types:
+required
+email
+For a complete list of existing validators, please go here
+Let's add some validation to our form.
+interface Assigned {
+name: string;
+firstname: string;
+}
+interface Todo {
+title: string;
+description: string;
+status: TodoStatus;
+assigned: Assigned[]
+}
+/**
+* Define a schema exportable:
+* - let you to create some library that export your custom schema
+* - could be used later in an other place of your application
+*/
+export const TodoSchema = schema<Todo>(path => {
+required(path.title);
+required(path.description);
+minLength(path.description, 10);
+});
+@Component({
+selector: 'app-form',
+templateUrl: './app-form.html',
+imports: [Control]
+})
+export class AppForm {
+todoModel = signal<Todo>({
+title: '',
+description: '',
+status: 'not_begin',
+assigned: []
+});
+todoForm = form(this.todoModel, TodoSchema);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+If you want to use your own validation logic instead of the built-in validators, two new functions are available to us:
+validate
+error
+The validate function
+The validate function is used to add custom validation to a field. A single field can have multiple validation rules, and all validation rule errors can be found in the FieldState.
+Example:
+const emailSchema = schema<string>(path => {
+validate(path, (value) => {
+const email = value();
+const sfeirPattern = /^\w+\.\w@sfeir.com$/;
+return sfeirPattern.test(email) ?
+[] : [{ kind: 'sfeir-mail-incorrect', message: 'Required format: x.x@sfeir.com'}]
+});
+})
+Enter fullscreen mode
+Exit fullscreen mode
+This function can be much more powerful than a simple email validator. Since the function takes a FieldPath as its first parameter, it can validate a single field but also an entire form :). For the die-hard fans of Zod, it becomes very easy to link the form's validation with Zod's validation.
+const UserSchema = z.object({
+name: z.string().min(1, 'Name is required'),
+email: z.string().email('Invalid email'),
+age: z.number().min(18, 'Must be 18 or older'),
+});
+const userFormSchema = schema<User>(path => {
+validate(path, ({ value }) => {
+const validation = UserSchema.safeParse(value());
+return validation.success ?
+[] :
+validation.error!.issues.map(issue => ({
+kind: `${issue.path[0]_${issue.expected}`
+message: issue.message
+}))
+});
+/**
+* Focus of ({ value }) => {}
+* This function is called an helper fonction
+* Helper function take an object with three properties
+* - value: signal that return the value of the `FieldPath`
+* - valueOf: function that take a `FieldPath` and return the associate value
+* - stateOf: function that take a `FieldPath` and return the `FieldState` of this `FieldPath`
+* - fieldOf: function that take a `FieldPath` and return the `Field` of this `FieldPath`
+*/
+});
+Enter fullscreen mode
+Exit fullscreen mode
+The error function
+The error function is a simplified version of the validate function due to its return type. Unlike the validate function, error function returns a boolean, optionally with a message that's properly formatted for the user experience.
+true if the validation is successful
+false if the validation fails
+const emailSchema = schema<string>(path => {
+error(path, (value) => {
+const email = value();
+const sfeirPattern = /^\w+\.\w@sfeir.com$/;
+return sfeirPattern.test(email)
+}, 'Required format: x.x@sfeir.com');
+})
+Enter fullscreen mode
+Exit fullscreen mode
+Composition built-in
+As the examples above show, validation with form signals is very powerful, but it can get quite verbose and quickly complicate our form.
+This is where schema composition and flexibility become very useful.
+Let's go back to the example above.
+export const TodoSchema = schema<Todo>(path => {
+required(path.title);
+required(path.description);
+minLength(path.description, 10);
+maxLength(path.description, 150);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+We're adding three validations to the description field. When the model is small, the impact is minimal, but as it grows, poor structuring and business logic management become a nightmare.
+This is where the composition pattern truly makes sense.
+The composition pattern is a simple pattern based on the act of composing. You compose smaller things to solve a complex problem.
+With Signals Form, it's entirely possible to compose with schemas. This composition happens around the simple apply function.
+The apply function lets you assign a schema to a FieldPath. This function, therefore, allows for two things.
+To break down our form validation into smaller schemas
+To share generic schemas throughout our application, or even better, across an multiple application if we create a schema library.
+const descriptionSchema = schema<string>(path => {
+required(path);
+minLength(path.description, 10);
+maxLength(path.description, 150);
+});
+export const TodoSchema = schema<Todo>(path => {
+required(path.title);
+apply(path.description, descriptionSchema);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+The apply function has some new companions.
+applyEach allows you to apply a schema to each element of an array. This function therefore takes an Array-type FieldPath and a schema
+applyWhen which allows a schema to be applied conditionally. This function therefore takes the fieldPath on which to apply the validation, the condition to apply the validation, and finally the schema.
+interface User {
+email: string;
+password: string;
+confirmPassword: string;
+}
+const UserSchema = schema<User>(path => {
+required(path.email);
+applyWhen(
+path.confirmPassword,
+({ valueOf }) => Boolean(valueOf(path).password),
+(confirmPasswordPath) => {
+required(confirmPassword)
+}
+)
+});
+@Component({
+selector: 'app-user',
+templateUrl: './user-form.html',
+imports: [Control]
+})
+export class AppForm {
+usersModel = signal<User[]>([]);
+usersForm = form(this.usersModel, (path => {
+applyEach(path);
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+The business logic of a form is defined using a schema, which can be thought of as a blueprint.
+The signal form package provides numerous helpers, including built-in validators and tools that allow for the use of the composition pattern within forms.
+What previously required a lot of code and extensive thought about form structure can now be accomplished with just a few simple lines of code.
+This really shows a strong desire to improve the developer experience and abstract away the complexity of form creation, allowing developers to focus on their business logic.
+Signal Form (2 Part Series)
+1
+Signals Form: Introduction
+2
+Angular Signals Form: Validation and Logic
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+This is Angular
+Follow
+Free, open and honest Angular education.
+Read our welcome letter which is an open invitation for you to join.
+Join us as a writer
+More from This is Angular
+Ng-News 25/36: Q&A with Angular Team, Mutations in ngrx-toolkit
+#webdev
+#programming
+#angular
+#javascript
+Signals Form: Introduction
+#angular
+#news
+#typescript
+#webdev
+Ng-News 25/35: @for tracking strategies, Future of Angular at Angular Space
+#angular
+#webdev
+#programming
+#javascript
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

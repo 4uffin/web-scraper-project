@@ -1,0 +1,419 @@
+A Last Mile Optimizer that Outperforms Amazon’s Routes on a Laptop - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+martin vizzolini
+Posted on Sep 15
+A Last Mile Optimizer that Outperforms Amazon’s Routes on a Laptop
+#python
+#programming
+#algorithms
+#awschallenge
+TL;DR — Massive-Scale Last-Mile Routing on a Laptop
+What it is: a last-mile route optimizer that runs entirely on a single laptop — no cloud, GPUs, or enterprise servers —
+Impact (global): achieves ~15–20% less total distance, ~10–15% fewer routes, and ~10–20% higher average vehicle utilization, while still meeting vehicle capacity and time-window constraints.
+How it’s measured: all metrics are against Amazon’s baselines from the official Last Mile Routing Research Challenge dataset, recomputed with the same per-leg, multi-engine pipeline and reported as a blended average across engines for fair comparison.
+The optimizer uses the same fleet composition, vehicle capacities, and volumes as Amazon’s plans.
+Scaling behavior: efficiently handles massive datasets without theoretical limits by splitting workloads into configurable batches that fit the available hardware. By decomposing the exponential VRP into parallelizable atomic tasks, the system achieves near-linear runtime growth on the same machine.
+What you can control: Fleet load targets (e.g., ~80% average capacity), fleet size and types, per-vehicle limits (stops/volume/weight), and time-window mode with estimated start times.
+New paradigm: No pre-defined zones. Stops are grouped dynamically by true geographic proximity and density, creating natural and efficient routes without depending on arbitrary areas.
+Business takeaway: predictable runtimes, lower infrastructure cost, and clear reductions in kilometers traveled and fleet size — without compromising operational constraints.
+Background & Motivation
+Some time ago, I developed a route optimizer for a small client. The goal was simple: organize delivery orders, assign them to vehicles, and minimize travel distance and time. At that stage, the scale was modest — around 15 vehicles and fewer than 12 stops per route. Using standard optimization techniques, I built a solution that performed well and produced results in an acceptable time.
+Later, I decided to test how far my solution could scale. I added more vehicles and more stops. At a certain point, my laptop could no longer finish runs within a reasonable time or memory limits. The approach worked for small cases, but it wasn’t scalable.
+I introduced concurrency, caching, and other optimizations, yet I still couldn’t handle more than ~10,000 stops without exhausting resources. While searching for benchmarks, I discovered the Amazon Last Mile Routing Research Challenge (2021), which features real-world datasets of an entirely different magnitude, where a single depot could manage 1,100+ routes and ~174,000 stops. A scale that presents a challenge, far beyond what conventional algorithms (or standard hardware) can handle.
+That became the new target: to take my initial prototype and make it powerful enough to solve Amazon’s challenge, but on consumer hardware only (my personal MacBook Pro M1 — 16 GB RAM).
+Over time, I built a solution that not only processed the massive dataset but also outperformed Amazon’s reported routes — reducing distance and increasing vehicle utilization — while respecting real-world constraints.
+1. Part I — Problem & Data Foundations
+1.1 The Problem: Last-Mile Delivery Complexity
+Last-mile delivery — the final stretch from warehouse (depot/station) to customer — accounts for up to 50% of total logistics costs.
+The core challenge is solving the Vehicle Routing Problem (VRP) with vehicle capacity constraints and delivery time windows, while avoiding typical solutions where processing times grow exponentially with the number of stops.
+This variant is technically called CVRPTW (Capacitated Vehicle Routing Problem with Time Windows).
+1.2 Why Last-Mile Delivery Is So Challenging
+At city scale, last-mile routing fails not because the goal is unclear, but because the search space and the operational constraints explode together: the combinatorial number of ways to order stops, and real-world constraints.
+1.2.1 Exponential Complexity.
+Even in the simplified single-vehicle case, the number of possible tours for n stops is (n-1)!/2
+That means a small increase in stops multiplies the search space enormously. Even with aggressive parallelism and optimistic per-route cost, exhaustive search becomes impossible after a few dozen stops.
+Figure 1. Exponential explosion of brute-force solution space
+To put this in perspective: A brute-force solution for 100 stops would take over 10¹²⁹ times longer than the universe has existed — a number so large it defies practical comprehension.
+1.2.2 Scale and Infrastructure Challenges: Why Route Optimization Breaks at Scale
+Hardware Limitations
+Distance matrices grow quadratically (n² entries: 1,000 stops = 1M distance calculations). Full city-scale distance matrices exceed memory limits.
+Processing time grows exponentially with problem size.
+Traditional algorithms collapse at large scales on consumer hardware. VRP requires high-end infrastructure (64+ CPU cores, GPU acceleration, or distributed computing)
+The Limits of Today’s Routing Solutions
+Last-mile large-scale route optimization faces a dual challenge: the combinatorial explosion of NP-hard complexity and the practical limits of existing solvers.
+Specialized tools like Google’s OR-Tools face significant limitations: While excellent for moderate-scale solutions (hundreds of stops), problems requiring multiple vehicle assignments for high-demand locations can result in exponential solve times or no solution at all.
+Advanced routing solutions remain typically proprietary, developed and maintained by large companies with dedicated infrastructure. Industry leaders like Amazon rely on massive distributed systems running on hundreds of CPU cores in cloud infrastructure.
+Commercial SaaS services impose strict operational limits: most cap requests at 1,000–5,000 stops per optimization run, making them unsuitable for true city-scale logistics (100,000+ stops).
+Workarounds and Their Trade-Offs
+Many operators try to “patch” these limitations with shortcuts, but each comes with trade-offs that degrade solution quality.
+Splitting stops into smaller groups breaks route continuity, often resulting in disconnected or inefficient overall solutions.
+Standard clustering techniques ignore real-world vehicle constraints such as package volumes and weight limits.
+Artificial stop caps (e.g., 1,000 per run) force pre-zoning, simplifying computation but distorting results by fixing zones in advance rather than emerging from optimization. These approaches make the problem easier to compute, but at the cost of efficiency and realism.
+1.3 The Amazon Challenge Context
+To benchmark at a realistic scale, this work uses the Amazon Last Mile Routing Research Challenge (2021) dataset and compares against Amazon’s own reported routes. Evaluations focus on: total kilometers traveled, number of routes (fleet efficiency), compliance with delivery time windows, and computational efficiency on consumer hardware.
+To compare fairly, I first needed to reconstruct Amazon’s actual routes from the raw files before measuring distances and times.
+1.4 Route Reconstruction Methodology: From Raw Amazon Data to Visualized Routes
+1.4.1 Data Integration
+The original dataset comes as multiple disconnected JSON files (route_data.json, actual_sequences.json, package_data.json, travel_times.json). All files are merged by their shared identifiers (route_id, stop_id) to create a unified view of each route.
+The complete dataset contains 6,112 historical routes with 543,485 unique locations (totaling 1,048,575 stops) across five major US metropolitan areas:
+Los Angeles: 2,888 routes, 6 depots
+Seattle: 1,079 routes, 3 depots
+Chicago: 1,002 routes, 4 depots
+Boston: 929 routes, 3 depots
+Austin: 214 routes, 1 depot
+Routes are organized by 17 depot stations distributed across these cities.
+On average, routes in the Amazon dataset contain around ~148 stops and ~240–250 packages.
+1.4.2 Building the Route JSON
+The integrated data is transformed into a single structured JSON for each route, preserving the station code, ordered sequence of stops, and packages assigned to each stop. This allows exact replication of the driver’s actual path:
+Route -> Ordered Sequence of Stops -> Packages per Stop.
+{
+"route\_id": "RouteID\_04189f85-13a6-47b8-a78e-ec5688be0819",
+"station\_code": "DLA9", // Depot identifier for route origin and return point
+"executor\_capacity\_cm3": 4247527, // Vehicle cargo capacity in cubic centimeters
+"addresses": \[
+{
+"stop\_id": "CR",
+"zone\_id": "A-8.3C", // Original Amazon zone encoding for reference (Region-Area.Zone format)
+"lat": 42.34873,
+"lng": \-71.074241,
+"packages": \[
+{
+"package\_id": "c1ee7bdc-5846-4931-b8cd-60541780fc94",
+"dimensions": { "length": 30.2, "width": 17.5, "height": 5.3 }, // Package size constraints affecting vehicle loading
+"time\_window": { "start": "2018-08-04 05:00", "end": "2018-08-05 04:59", "time\_zone": "UTC" } // Customer delivery preferences with timezone data
+}
+// ... more packages
+\]
+}
+// ... more stops in sequence
+\]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+1.4.3 Visualization & Analysis
+The unified JSON structure enables direct mapping and route visualization, allowing a clear comparison between optimized routes and Amazon’s actual delivery strategies.
+Figure 2. Actual Amazon delivery routes from the smallest depot (DBO1) in the dataset, containing 60 routes with 8,205 stops.
+2. Part II — Solution (Techniques & Architecture)
+2.1 The Solution Approach
+Instead of chasing mathematically perfect routes, the Optimizer uses intelligent heuristics and parallelism to reach near-optimal solutions in minutes.
+The key is not a single algorithm, but an architecture that runs efficiently on consumer hardware. All computation runs fully offline (no third-party APIs or external services for the optimization itself). External engines may be used later for benchmarking/validation, but they do not participate in the optimization process.
+2.2 The Core Insight: Divide and Conquer
+The breakthrough comes from recognizing that you don’t need to solve the entire VRP at once. Instead:
+Cluster addresses into manageable groups based on proximity and capacity
+Solve smaller VRPs within each custom cluster using efficient algorithms
+Parallelize processing across multiple CPU cores
+Cache intermediate results to avoid redundant calculations
+Aggregate solutions into a coherent global optimization
+2.3 Key Principles That Guide the Solution
+Based on extensive testing against real-world datasets, these principles form the foundation:
+2.3.1 Reduce Overlap via Clean, Separated Clusters
+Street overlap between vehicles equals wasted resources. The algorithm optimizes route distribution to minimize redundant street usage, reducing fuel costs, travel time, and unnecessary traffic while maximizing coverage efficiency.
+Below, we compare clustering strategies. Each color represents the route of a single vehicle. While I don’t have specific knowledge of Amazon’s exact algorithmic approach, it is evident that Amazon’s routes exhibit significant overlap, with multiple vehicles traversing the same paths and areas.
+Figure 3. Amazon baseline routes (overlap) — depot DLA9 in the Los Angeles metropolitan area.
+In contrast, I employ a different strategy focused on creating well-defined, separated clusters. This approach aims to atomize each cluster by maintaining clear boundaries between service areas, thereby minimizing route overlaps and reducing redundancy in vehicle paths.
+Figure 4. Optimizer routes (overlap minimized). Same area clustered and sequenced by the algorithm — depot DLA9 in the Los Angeles metropolitan area
+2.3.2 Optimize Load Without Sacrificing Performance
+The system lets you set minimum and maximum load targets (e.g., 70–90% vehicle capacity). While higher utilization looks efficient on paper, pushing fleets near 100% often backfires: routes become longer, delivery times increase, and time-window violations become more frequent.
+The sweet spot is ~75–85%, which balances efficiency with operational flexibility. In some cases, allowing a few extra routes can actually improve on-time performance without significantly increasing total kilometers.
+2.3.3 Quality Clusters Beat Perfect Paths
+A slightly suboptimal path within a high-quality cluster is better than a “perfect” path in a poorly formed cluster. Good clustering eliminates zigzags by design.
+2.3.4 Density-Driven Consolidation Logic
+The optimizer dynamically adjusts its parameters based on addresses, packages, and geographic density. Consolidation refers to how many deliveries are grouped into a single route or vehicle:
+• High density → more consolidation: fewer routes, fuller vehicles, higher efficiency.
+• Low density → less consolidation: more routes, lighter loads, greater flexibility.
+Efficiency targets can be tuned: conservative ratios (e.g., 70%) leave slack, while aggressive ones (e.g., 90%) push for maximum consolidation. This density-aware logic allocates resources according to real geography and package distribution, not static parameters.
+Although the optimizer can start from a user-defined fleet size, it calculates the optimal distribution of routes and vehicles based on stops, density, packages per stop, and fleet availability.
+2.4 How It Works: The Technical Flow
+The system transforms raw address data into optimized routes through five efficient steps:
+Step 1: Data Ingestion, Validation, and Preprocessing
+Large-scale requests (100k+ addresses) are loaded and validated early. To stay memory-efficient, the data is batched into subsets, geocoded, and paired with fast initial distance estimates (via haversine or cached OSM legs). Distance matrices are cached on demand, cutting recomputation by ~90%. At this stage, the system also detects geographic density patterns, an early hint of how stops will later be grouped into clusters.
+Step 2: Intelligent Clustering
+Delivery stops are clustered based on proximity and density, but also guided by package volumes and vehicle capacity. This creates balanced, ready-to-route groups that are both spatially coherent and logistically feasible, with sizes aligned to vehicle capacity and efficiency targets.
+Figure 5. Each circle represents a delivery stop requiring service. All stops must be distributed among three vehicles, with the initial clustering to create a preliminary route assignment.
+Figure 6. Initial clustering results show delivery points organized into three zones, utilizing geographic proximity and enhanced with package volume estimates.
+Step 3: Rebalancing
+Clusters are iteratively adjusted by redistributing stops to smooth out imbalances. Each cluster maintains awareness of neighboring clusters and can negotiate package transfers with adjacent zones, ensuring that no vehicle is overloaded or underutilized. This adjustment respects capacity, volume, and stop limits while producing a more balanced workload across the fleet and higher overall route efficiency.
+Figure 7. The initial clustering results show unbalanced workload distribution. Arrows indicate delivery stops that need to be redistributed from overloaded clusters to achieve better balance.
+Figure 8. After rebalancing, the clusters achieve a more > balanced distribution. The algorithm has successfully redistributed delivery stops between neighboring clusters, improving workload balance while maintaining geographic coherence and satisfying vehicle capacity constraints
+Step 4: Atomic Route Processing
+The system breaks down clusters into independent tasks and pulls them one by one into isolated CPU processes. At this stage, each cluster of delivery points is converted into a true delivery route: a sequential, ordered path that a driver could follow.
+Routes are optimized independently, without shared state or dependencies. When a process finishes, it pulls the next task, keeping all cores busy and enabling true parallel optimization.
+Figure 9. Clusters are decomposed into independent tasks placed in a central queue. Each CPU core pulls the next available task, ensuring full parallelization and continuous workload utilization.
+Step 5: Route Integration and Metrics Calculation
+All independently processed routes are merged into a unified solution. Metrics such as total distance, delivery time efficiency, vehicle utilization, and constraint compliance are then aggregated to provide a complete picture of network performance. This final step transforms route-level outputs into actionable, system-wide insights.
+2.5 Key Techniques That Enable Linear Scale
+Parallel Atomic Tasks
+Break computations into small, independent tasks, enabling concurrency without shared state. The pipeline is divided into ingest → cluster → rebalance → route → aggregate (see 2.4).
+This architectural approach enables near-linear scaling: more routes create more atomic tasks, and processing time increases proportionally on the same hardware. While additional CPUs or memory can accelerate performance, it isn’t mandatory, since workloads are automatically batched to fit available resources regardless of dataset size.
+Figure 10. The plot compares how processing time increases as the number of delivery stops grows. It highlights how scaling to > tens of thousands of stops drives computation time upwards, but still within feasible ranges
+Figure 11. The plot compares how execution time scales with the number of optimized routes. The runtime grows linearly with the number of routes
+Key advantages
+Hardware-adaptive batching: Large datasets are divided into batches that adapt to CPU and RAM limits (Full utilization without overload).
+Memory-efficient processing: Technically, it can handle unlimited stop counts by processing data in optimized chunks.
+In practice: whether routing 100 or 100K delivery points, the same hardware can handle both — the only difference is processing time.
+2.6 Intelligent Caching
+To eliminate redundant calculations, the system implements multi-level caching:
+In-Memory Graph & Matrix Caching: Optimized graphs, distance matrices, and precalculated files are loaded directly into memory, avoiding repeated recomputation (typically a few MB per graph). This lets the Optimizer reuse results instantly instead of rebuilding them every time, making them lightweight enough to cache efficiently.
+Distance Query Caching: Frequently used distance queries are cached, cutting computation overhead dramatically.
+Route-Specific Graph Creation: Instead of loading one massive graph for an entire region (which could consume GBs of memory), the system generates small, focused mini-graphs (25–50 MB each) around the active service area. These localized files become the inputs later cached in memory, ensuring that ~70–90% of route calculations can reuse existing graphs while minimizing memory use and maintaining full routing accuracy.
+Figure 12. Relationship between calculated routes (red rectangles) and cached graphs (blue rectangles). On average, each cached graph handles approximately 10x individual routes.
+These mini-graphs also follow a dynamic lifecycle: created on demand for each route request, stored in memory with a location-based key, reused when areas overlap, and cleaned up once inactive. This guarantees bounded memory usage, faster startup (no need to preload entire regions), and scalability that grows with active routes rather than with the total dataset size.
+2.7 Complete System Parameterization
+The system is highly configurable, and outcomes can vary significantly depending on the chosen setup. For example:
+Prioritizing time windows may require adding extra routes to guarantee punctuality. Pushing for maximum vehicle load reduces fleet size but can increase travel inefficiency.
+By default, the Optimizer pursues a balanced objective targeting high fleet utilization, minimal kilometers, and on-time service. When required, the system can be configured to enforce specific strategies (maximizing fleet load) even at the expense of other metrics.
+2.7.1 Smart Load Balancing
+Per-vehicle: minimum/maximum load percentages to prevent both underfilled and overloaded trips (e.g., 60–85%).
+System-wide: a global load target (e.g., ~80%) toward which average utilization converges across routes and batches.
+2.7.2 Routing & Time Windows
+Optimization criteria: length vs. travel time vs. balanced approach
+Time window handling: enable/disable time window optimization
+Increasing load targets typically reduces route count but tends to lengthen routes and increase time-window pressure. Prioritizing time over distance protects punctuality at the cost of a few additional routes. In dense areas, consolidation can be more aggressive; in sparse regions, prefer smaller routes and slightly lower load targets to avoid zigzags.
+2.8 On-Demand Routing
+Beyond static planning, the optimizer also supports inserting new stops on demand into an already optimized solution. When extra stops appear after the initial plan is set, the system evaluates each new stop and assigns it to the most suitable route, respecting vehicle capacities, time-window constraints, and existing workloads. This allows the solution to reorganize routes in real time, ensuring late-arriving orders can still be delivered efficiently.
+While today this runs as a service that accepts new stops and rebalances them within existing routes, the design is forward-looking: it lays the foundation for a future dynamic routing system capable of continuous adjustments during the delivery day, reacting to traffic, cancellations, urgent new requests, or mixed delivery and pickup operations.
+3. Part III — Results & Performance Analysis
+3.1 Evaluation Methodology
+To ensure fair evaluation, both Amazon’s original routes and the optimized ones are analyzed with the same multi-engine pipeline.
+3.1.1 Multi-Engine Distance Calculation:
+Distances are calculated with multiple engines, then averaged into a blended metric for fair comparison:
+Local Graph (OpenStreetMap-based): A local road graph from OpenStreetMaps (OSMnx library), producing consistent estimates based on static road layouts. Here, the distances reported are strictly those computed by the service’s own logic.
+Local OSRM (OpenStreetMap-based): A self-hosted routing engine serving a preprocessed OSM road graph.
+OpenRouteService (hosted API): A public routing service powered by OpenStreetMap, returning real-world road distances and times (api.openrouteservice.org).
+Google Directions API: A commercial, industry-standard routing engine that factors in real-time traffic and dynamic road conditions.
+3.1.2 Distance Calculation Workflow
+Most routing engines limit the number of waypoints per request (typically 25–50). Longer routes are automatically split into smaller segments, processed sequentially, and recombined into route totals, which are then aggregated at the depot level.
+[segment totals → route totals → depot totals]
+3.1.3 Operational Metrics
+Beyond distance, performance is measured by route count, stops per route, vehicle utilization, and load efficiency — capturing how effectively the fleet is balanced.
+The dataset also includes time windows (TW) for ~7–8% of stops. Amazon’s original plans missed ~1.8% of these, a baseline for comparing optimizer performance.
+3.2 Depots and Scale Classes
+To contextualize the performance results, depots in the dataset can be grouped into three operational scales based on their stop counts:
+Small (5K–30K): DBO1 (8,205), DSE2 (12,962), DLA3 (29,497)
+Medium (30K–80K): DAU1 (31,060), DSE5 (78,039), DSE4 (63,701)
+Large (80K–175K+): DLA7 (173,738), DBO3 (90,362), DLA9 (98,181)
+3.3 Real-World Performance Validation
+To validate the route optimization algorithm’s effectiveness, I analyzed two depots of very different scales, demonstrating consistent performance improvements across varying operational complexities.
+3.3.1 Study Design & Methodology
+Both case studies follow the same comparative framework:
+Comparison between Amazon’s baseline routes and the optimizer’s solution on the same stop data.
+Metrics: Route count, vehicle utilization, stops per route, and total distance across multiple routing engines
+3.3.2 Case Study 1: Small-Scale Operations (DSE2, 125 routes)
+Scenario Overview
+Location: DSE2 Depot, Seattle metropolitan area
+Total stops: 12,962 (1,230 time-window constraints)
+Total packages: 27,022 (2.08 packages per stop)
+Amazon baseline fleet: 125 routes, 80 V2 + 45 V3 vehicles
+3.3.3 Performance Results (DSE2)
+Amazon used 80 V2 + 45 V3 vehicles. The optimizer achieved the same demand with only 51/80 V2 and all 45 V3 vehicles, cutting distance by ~31% while reducing the active fleet. This was achieved by increasing load density per vehicle, resulting in higher utilization and fewer routes overall.
+Figure 13 DSE2 Results: Fewer routes, higher utilization, and ~31% less distance compared to Amazon’s baseline.
+Time-Window Compliance (DSE2)
+In addition to distance and utilization, I also measured time-window (TW) compliance. Out of 1,230 stops with time-window constraints (covering a total of 2,497 packages), the optimizer successfully placed 1,225 stops within their assigned windows.
+Only 5 stops fell outside, representing a violation rate of just 0.41% — both when measured by stops and by packages. For comparison, Amazon’s original plans in the dataset show an average violation rate of ~1.8%, meaning the optimizer achieved a substantially lower rate of missed windows under identical constraints.
+3.3.4 Visual Analysis (DSE2)
+The optimization reveals improvements in route clustering and overlap reduction:
+Figure 14. DSE2 — Amazon routes (12,962 stops; 125 routes). Network showing significant overlap
+Figure 15. DSE2 — Optimizer routes (12,962 stops; 96 routes). Network with cleaner territorial divisions
+3.3.5 Zoomed-in Cluster Comparison — Overlap Reduction and Balanced Partitioning
+The zoomed-in comparison (Figures 16–17) illustrates how the optimizer achieves cleaner territorial divisions within specific sub-regions, eliminating the route overlap visible in Amazon’s original configuration.
+Figure 16. DSE2 — Zoomed-in Amazon actual routes
+Figure 16. DSE2 — Zoomed-in Optimizer routes
+3.3.6 Full Route and Segment Data (DSE2, Seattle) — Validating Routes with Google’s API
+To complement the DSE2 case study, I provide the complete per-route segment files, calculated with Google Directions API. Each route is split into main segments (≤25 waypoints, API limit) and further into sub-segments (≤8 waypoints, visualization limit).
+These files allow you to inspect the full routing logic, step by step, for both Amazon’s baseline (125 routes) and the Optimizer’s solution (96 routes).
+Amazon Baseline Routes (125 routes): 5,156.63 km
+Optimizer Routes (96 routes): 3,410.03 km (≈34% less distance)
+3.3.7 Case Study 2: Large-Scale Operations (DLA7, 1133 routes)
+Scenario Overview
+Location: DLA7 Depot, Los Angeles metropolitan area
+Total stops: 173,738 delivery stops (9,609 time-window constraints)
+Total packages: 264,302 (1.52 packages per stop)
+Amazon baseline fleet: 1133 routes, 1133 V2 vehicles
+3.3.8 Performance Results (DLA7)
+For DLA7, results are computed using the same per-leg methodology, but analysis is limited to three routing engines: Local OSM Graph, OSRM, and OpenRouteService. Google Maps API was excluded from this analysis due to the exceptionally high volume of API requests required, which would result in significant cost implications.
+Figure 18. DLA7 Results: Fewer routes, higher utilization, and ~31% less distance compared to Amazon’s baseline.
+3.3.9 Visual Analysis (DLA7)
+Figure 19. DLA7 — Amazon routes (173,738 stops; 1133 routes). Network showing significant overlap
+Figure 20. DLA7 — Optimizer routes (173,738 stops; 946 routes). Network with cleaner territorial divisions
+3.3.10 Zoomed-in Cluster Comparison (DLA7)
+Figure 21. DLA7 — Zoomed-in Amazon actual routes
+Figure 22. DLA7 — Zoomed-in Route Optimizer result clustering routes
+3.4 Cross-Scale Consistency
+Although the two examples differ dramatically in scale — DSE2 with ~13k stops vs. DLA7 with ~174k stops, nearly 13× larger — the optimization gains remain similar.
+The improvements are not limited to small scenarios but scale reliably to large operations. While these two case studies highlight substantial efficiency gains, not every depot will exhibit improvements of the same magnitude.
+3.5 Detailed Route Visualization
+When zooming into individual routes generated by the optimizer, we can inspect the full delivery sequence at a granular level. Each stop is assigned a sequential index that represents the exact order a driver would follow.
+It provides a verifiable record for manual auditing and quality assurance.
+Figure 19. Detailed sequencing of a generated route by the Optimizer
+3.6 Cross-Scenario Comparisons (All Depots)
+3.6.1 Average Distance (km) — Amazon vs Optimizer
+These charts illustrate the total kilometers traveled across all depots, comparing Amazon’s baseline routes (blue) with the optimized routes produced by the Router Optimizer (green).
+Each bar pair shows the average total kilometers required to serve each depot. In this dataset, the Optimizer reduces kilometers across every depot — some only modestly (DBO1), others substantially (DLA7) — while serving the same delivery workload.
+Figure 20. Total kilometers traveled across all depots, comparing Amazon’s baseline routes (blue) with the optimized routes produced by the Router Optimizer (green).
+Trend across all depots: Improvements are not random but follow a robust and reproducible pattern. The bigger the problem, the more competitive the optimizer becomes compared to Amazon’s baseline routes.
+Figure 21. Improvement % vs. Initial Amazon km count: The larger the depot, the greater the efficiency gains
+3.6.2 Fleet Size vs Capacity Utilization (All Depots)
+In most depots, the optimizer cuts routes while raising utilization (cargo efficiency). By packing stops more coherently, the fleet runs with a higher average load while requiring fewer vehicles.
+Figure 22 — Fleet Size vs Cargo Efficiency (All Depots). Bars (left axis) represent the number of routes, and lines (right axis) show how much vehicle capacity was actually used.
+3.6.3 Improvement % vs Routes (count)
+Smaller scenarios (under 200 routes) display high variability, ranging from modest single-digit improvements to exceptional gains of over 30%. However, as the number of routes increases, the optimizer’s performance becomes dramatically more consistent and powerful. For [medium-large]-scale depots (2*00+ routes), the optimizer consistently achieves **10–30% reductions in distance traveled.*
+Figure 23. Improvement % vs Routes — Larger depots with more routes show stronger and more consistent gains. Bars sorted left-to-right by route count (ascending)
+3.6.4 Stops vs Execution Time — Linear Scaling of the Optimizer
+It provides a direct view of how processing time grows as the size of the routing problem increases, from a smaller depot (DBO1, 8.2k stops) to our largest (DLA7, ~174k stops)
+Figure 24. This chart compares the number of delivery stops (blue bars) with the execution time required by the Optimizer (red line) across different depots.
+Stops ↔ Execution Time Relationship
+Execution time grows as the number of stops increases, but the relationship is approximately linear over the tested range.
+3.6.5 Execution at Scale
+Across all depots, the Optimizer consistently delivered results at remarkable speed. Thanks to cached road graphs and a memory-light design, execution never hit a bottleneck — even with the largest inputs. Each process manages and releases memory independently, ensuring that the runtime grows linearly with problem size.
+The largest single depot (DLA7: ~1133 routes, ~174k stops) completed in just ~30 minutes, while the entire dataset of over 1 million stops finished in ~2.5 hours on a MacBook Pro M1 (16 GB RAM).
+Beyond speed, the system produced significantly better fleet efficiency: the total number of routes was reduced by an average of 11.6%, the average vehicle load (stops per route) increased by 11.7%, and the total kilometers traveled dropped by an average of 18.5% compared to the baseline. All operational constraints were preserved, with capacity limits fully respected and time windows met at a very high compliance rate (~95%).
+Throughput per 1,000 Stops & Predictive Scaling
+Across all depots, the average processing time is ~9.8 seconds per 1,000 stops (observed range 8.05–14.01 s/1k). Using the dataset’s average route size of ~150 stops, that’s roughly ~1.5 seconds to process a 150-delivery route. Because runtimes are close to linear and largely CPU-bound, this rule of thumb also supports predictive estimates on bigger hardware. Taking AWS’s two highest-end compute-optimized machines as reference (≈96 vCPUs and ≈192 vCPUs, i.e., ~12× and ~24× the laptop’s core count), the projected times for 500,000 stops would be ~6–7 minutes and ~3–4 minutes, respectively.
+These are not measured results, but the prediction is highly reliable: the algorithm decomposes work into independent atomic tasks with a known, bounded RAM footprint, so adding CPUs yields more parallel task execution with minimal contention.
+Cross-Hardware Check (2015 Intel Mac)
+For additional context, I also ran the pipeline on a 2015 Retina 15-inch MacBook Pro (Mid-2015) — quad-core Intel Core i5, 16 GB RAM. Despite being a 10+ year-old laptop, end-to-end runtimes were ~3–4× slower than on the M1 laptop, consistent with older per-core performance and fewer effective parallel workers. Results remained stable and within memory limits, and throughput still scaled predictably with problem size.
+This is possible because the Optimizer is hardware-adaptive batching, which keeps concurrency within the machine’s limits, so tasks queue rather than crash. In short, high-end hardware reduces wall-clock time, but it isn’t a prerequisite for correctness or feasibility. Even a 10+-year-old laptop can process the full Amazon Challenge (~1M stops).
+Put simply, hardware isn’t a barrier to operability; it just governs speed: by adding or removing CPU resources, you can dial the wall-clock time up or down while the algorithm and results remain the same.
+3.7. Comparative Benchmark: Optimizer vs. Google OR-Tools
+Google OR-Tools is one of the most recognized open-source solvers for the Vehicle Routing Problem (VRP). For this comparison, the focus was on intra-cluster routing — measuring how quickly each solver could optimize the order of stops within a pre-defined set of clusters.
+To demonstrate, both systems were tested on the smallest depot (DBO1, 8,205 stops grouped into 55 routes). Both solvers were given the same clustered inputs (unsequenced ~150 stops); their task was simply to return the best stop sequence for each route.
+The Optimizer solved all 55 routes in just 98 seconds (~1.7 s per route), while OR-Tools required about 50 minutes (~54 s per route). At depot scale, the Optimizer ran ~30× faster, and still delivered routes ~20% shorter in total distance. Its efficiency comes from a dual strength — smart clustering algorithms and fast intra-route optimizers, showing that high-quality solutions can be produced in seconds, not hours.
+Final Insights
+This work demonstrates that large-scale route optimization can be executed efficiently on modest hardware. By prioritizing high-quality clustering over perfect route paths, employing fine-grained parallelization, and ensuring balanced vehicle loads, the Optimizer delivers consistent improvements over Amazon’s reported baselines, all while maintaining computational complexity within linear bounds.
+In practice, the architecture scales near-linearly on the same hardware: more demand produces more independent tasks that can be processed predictably, keeping runtimes stable and budget-friendly.
+The goal was not merely to demonstrate that city-scale routing is possible on a laptop, but to ensure it runs reliably on constrained hardware. This efficiency inherently translates to faster execution on larger machines, lower infrastructure costs, and shorter times for high-volume operations.
+Sometimes the best solution isn’t the most complex one. By breaking down the problem and applying the right principles, we can outperform industry leaders using nothing more than a single laptop.
+Next Steps & Availability
+In the near term, the Optimizer will be exposed as an API for experimentation and at-scale routing. The initial release will include endpoints to submit stops, fleet, packages, and time window constraints, returning sequenced routes and key metrics (distance, capacity utilization, time-window compliance).
+If you’re interested in early access for pilots or benchmarks, get in touch, and I’ll share timelines and documentation.
+Sources
+Amazon Last Mile Challenge
+Amazon Last Mile Challenge — datasets
+MIT News on Last-Mile Research
+TSP Research Breakthroughs
+Analysis of the Amazon Last Mile Routing Dataset
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+martin vizzolini
+Follow
+Joined
+Sep 15, 2025
+Trending on DEV Community
+Hot
+The 2025 Guide to Postman's Most Powerful Alternatives! Top 30 Free API Tools
+#webdev
+#programming
+#beginners
+#tutorial
+3 Myths About AI That Are Holding People Back
+#ai
+#discuss
+#beginners
+#programming
+How to Build a CI/CD Pipeline with AWS (Step-by-Step Guide)
+#webdev
+#programming
+#javascript
+#ai
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

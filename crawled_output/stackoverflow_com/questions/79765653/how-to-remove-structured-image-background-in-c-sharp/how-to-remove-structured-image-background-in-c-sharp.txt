@@ -1,0 +1,371 @@
+opencv - How to remove structured image background in c# - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to remove structured image background in c#
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+35 times
+1
+Receipt photo contains background like
+Tried to remove background using OpenCV but background is not fully removed:
+Answer in How to remove non uniform background from image describes how to remove background using imagemagick scripts. How to remove backgound using c# code ?
+program.cs:
+using OpenCvSharp;
+string imagePath = @"c:\a\krooningtaust.jpg";
+Directory.CreateDirectory("out");
+string ocrInputPath;
+using Mat src = Cv2.ImRead(imagePath, ImreadModes.Color);
+Mat pre = ReceiptPreproc.MakeOcrReady(src, useSauvola: true);
+ocrInputPath = "out/ocr_ready.png";
+Cv2.ImWrite(ocrInputPath, pre);
+return 0;
+ReceiptPreproc class:
+using OpenCvSharp;
+public static class ReceiptPreproc
+{
+public static Mat MakeOcrReady(Mat src, bool useSauvola = true)
+{
+// 0) upscale for OCR
+double scaleUp = 1.5;
+Mat srcScaled = new();
+Cv2.Resize(src, srcScaled, new Size(), scaleUp, scaleUp, InterpolationFlags.Cubic);
+// 1) Warp (document detection)
+Mat warped = WarpToTopDown(srcScaled);
+Mat deskewed = warped;
+// 3) Mask paper and paint outside white
+Mat paper = MaskAndWhitenBackground(deskewed);
+// 4) Illumination correction (divide normalization)
+Mat gray = new();
+Cv2.CvtColor(paper, gray, ColorConversionCodes.BGR2GRAY);
+Mat bg = new();
+Cv2.GaussianBlur(gray, bg, new Size(0, 0), 35);
+Cv2.Max(bg, 1, bg);
+Mat norm = new();
+Cv2.Divide(gray, bg, norm, scale: 255);
+Cv2.Normalize(norm, norm, 0, 255, NormTypes.MinMax);
+norm.ConvertTo(norm, MatType.CV_8U);
+// 5) Smooth background (bilateral) to keep edges
+Mat smooth = new();
+Cv2.BilateralFilter(norm, smooth, 9, 75, 75);
+// 6) Binarize
+Mat binary = useSauvola ? Sauvola(smooth, 41, 0.32, 128) : AdaptiveGaussian(smooth);
+// 7) Small speckle removal
+Mat kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(2, 2));
+Cv2.MorphologyEx(binary, binary, MorphTypes.Open, kernel);
+return binary;
+}
+static Mat WarpToTopDown(Mat src)
+{
+double scale = 900.0 / Math.Max(src.Rows, src.Cols);
+Mat small = new(); Cv2.Resize(src, small, new Size((int)(src.Cols * scale), (int)(src.Rows * scale)));
+Mat gray = new(); Cv2.CvtColor(small, gray, ColorConversionCodes.BGR2GRAY);
+Mat blur = new(); Cv2.GaussianBlur(gray, blur, new Size(5, 5), 0);
+Mat edges = new(); Cv2.Canny(blur, edges, 50, 150);
+Cv2.Dilate(edges, edges, Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3)));
+Cv2.FindContours(edges, out Point[][]? contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+contours = contours.OrderByDescending<Point[], double>(cnt => Cv2.ContourArea(cnt)).ToArray();
+Point2f[]? quad = null;
+foreach (Point[]? cnt in contours.Take(10))
+{
+double peri = Cv2.ArcLength(cnt, true);
+Point[] approx = Cv2.ApproxPolyDP(cnt, 0.02 * peri, true);
+if (approx.Length == 4)
+{
+quad = approx.Select(p => new Point2f(p.X / (float)scale, p.Y / (float)scale)).ToArray();
+break;
+}
+}
+if (quad is null) return src;
+Point2f[] ordered = OrderQuad(quad);
+float widthA = Distance(ordered[2], ordered[3]);
+float widthB = Distance(ordered[1], ordered[0]);
+int maxW = (int)Math.Max(widthA, widthB);
+float heightA = Distance(ordered[1], ordered[2]);
+float heightB = Distance(ordered[0], ordered[3]);
+int maxH = (int)Math.Max(heightA, heightB);
+Point2f[] dst = new[] { new Point2f(0, 0), new Point2f(maxW - 1, 0), new Point2f(maxW - 1, maxH - 1), new Point2f(0, maxH - 1) };
+Mat M = Cv2.GetPerspectiveTransform(ordered, dst);
+Mat warped = new(); Cv2.WarpPerspective(src, warped, M, new Size(maxW, maxH));
+return warped;
+}
+static Mat MaskAndWhitenBackground(Mat img)
+{
+Mat gray = new();
+Cv2.CvtColor(img, gray, ColorConversionCodes.BGR2GRAY);
+Mat blur = new();
+Cv2.GaussianBlur(gray, blur, new Size(5, 5), 0);
+Mat th = new();
+Cv2.Threshold(blur, th, 0, 255, ThresholdTypes.Binary | ThresholdTypes.Otsu);
+if (Cv2.Mean(th)[0] < 127) Cv2.BitwiseNot(th, th);
+Mat mask = new();
+Cv2.MorphologyEx(th, mask, MorphTypes.Close, Cv2.GetStructuringElement(MorphShapes.Rect, new Size(9, 9)));
+Cv2.MorphologyEx(mask, mask, MorphTypes.Open, Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5)));
+Mat paper = img.Clone();
+paper.SetTo(new Scalar(255, 255, 255), ~mask);
+return paper;
+}
+static Mat AdaptiveGaussian(Mat img)
+{
+Mat bin = new();
+// Fix: Use AdaptiveThresholdTypes.GaussianC instead of AdaptiveThresholdTypes.Gaussian
+Cv2.AdaptiveThreshold(img, bin, 255, AdaptiveThresholdTypes.GaussianC, ThresholdTypes.Binary, 51, 10);
+return bin;
+}
+// Sauvola implementation using box filter mean and std
+static Mat Sauvola(Mat img, int window, double k, double r)
+{
+Mat src32 = new(); img.ConvertTo(src32, MatType.CV_32F);
+Mat mean = new(); Cv2.BoxFilter(src32, mean, -1, new Size(window, window));
+Mat sqr = src32.Mul(src32);
+Mat meanSqr = new(); Cv2.BoxFilter(sqr, meanSqr, -1, new Size(window, window));
+Mat var = meanSqr - mean.Mul(mean);
+Mat zero = new(var.Size(), var.Type(), Scalar.All(0));
+Mat varNonNeg = new();
+Cv2.Max(var, zero, varNonNeg);
+Mat std = new();
+Cv2.Sqrt(varNonNeg, std);
+Mat stdDivR = new();
+Cv2.Divide(std, r, stdDivR); // std/r
+Mat stdDivRMinus1 = new();
+Cv2.Subtract(stdDivR, 1.0, stdDivRMinus1); // (std/r) - 1.0
+Mat kTimesStdDivRMinus1 = new();
+Cv2.Multiply(stdDivRMinus1, k, kTimesStdDivRMinus1); // k * ((std/r) - 1.0)
+Mat kTimesStdDivRMinus1TimesMean = new();
+Cv2.Multiply(kTimesStdDivRMinus1, mean, kTimesStdDivRMinus1TimesMean); // k * ((std/r) - 1.0) * mean
+Mat thresh = new();
+Cv2.Add(mean, kTimesStdDivRMinus1TimesMean, thresh); // mean + k * ((std/r) - 1.0) * mean
+Mat bin = new();
+Cv2.Compare(src32, thresh, bin, CmpType.GT);
+bin.ConvertTo(bin, MatType.CV_8U, 255);
+return bin;
+}
+static Point2f[] OrderQuad(Point2f[] pts)
+{
+Point2f[] ordered = new Point2f[4];
+float[] sum = pts.Select(p => p.X + p.Y).ToArray();
+float[] diff = pts.Select(p => p.X - p.Y).ToArray();
+ordered[0] = pts[Array.IndexOf(sum, sum.Min())]; // tl
+ordered[2] = pts[Array.IndexOf(sum, sum.Max())]; // br
+ordered[1] = pts[Array.IndexOf(diff, diff.Max())]; // tr
+ordered[3] = pts[Array.IndexOf(diff, diff.Min())]; // bl
+return ordered;
+}
+static float Distance(Point2f a, Point2f b) => (float)Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
+}
+c#opencv.net-coreimage-processingimagemagick
+Share
+Improve this question
+Follow
+edited 2 hours ago
+AndrusAndrus
+asked 2 hours ago
+AndrusAndrus
+28.2k6767 gold badges217217 silver badges397397 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+I haven't done this programmatically before, but I've done it manually in Adobe Photoshop and GIMP many times.
+I'd suggest using your current modified image to find the bounding box to your receipt/text, then crop out the entire background of the original image using the bounding box. By "entire background", I mean finding the largest bounding box where there's absolutely no background or even trace of the paper edge.
+Once you have the cropped image, you can run another process to clean it up. Since you won't have such wide ranging color values to work with, you can fine tune your contrast better.
+I'm assuming you are doing this to pass it through OCR software, so you'll probably need better shapes on the letters for it to recognize the text more reliably.
+It looks like you already have a good handle on the processing, so I won't go into that. You just need a 2nd version dedicated to making the text more readable, instead of finding the edges of the background. What you have now will probably work fairly well for that.
+Share
+Improve this answer
+Follow
+answered 37 mins ago
+computercarguycomputercarguy
+2,49222 gold badges1818 silver badges3737 bronze badges
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c#opencv.net-coreimage-processingimagemagick
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+0
+Find bounding box with C# using OpenCVSharp?
+0
+How to remove non uniform background from image
+Related
+1921
+Image Processing: Algorithm Improvement for 'Coca-Cola Can' Recognition
+4418
+How can I enumerate an enum?
+3946
+How do I cast int to enum in C#?
+3348
+How to iterate over a dictionary?
+1572
+How do I find Waldo with Mathematica?
+2483
+How do I generate a random integer in C#?
+2271
+How do I calculate someone's age based on a DateTime type birthday?
+2373
+How do I get a consistent byte representation of strings in C# without manually specifying an encoding?
+2190
+How do I create an Excel (.XLS and .XLSX) file in C# without installing Microsoft Office?
+2135
+How do I remedy "The breakpoint will not currently be hit. No symbols have been loaded for this document." warning?
+Hot Network Questions
+What is the rationale behind the WebAssembly `if` statements behaving like `block` when it comes to breaking (`br`), rather than being transparent?
+"But I'll miss the bus for my game!" what is a teacher's legal liability for letting kids out of class without confirmation?
+A million and one constants
+Come vs go in this situation
+Visiting US after Green Card Revocation?
+Why do the best of doctors go to Gehinnom? Looking for more answers (especially less well known ones)
+Adventure B-movie from the 70s involving three white people in a tribal country and a medallion the tribe uses in rituals
+Does the Hebrew word [עִדָּה found in Isaiah compare the righteousness of a believer to a women’s used tampon?
+What are the pros and cons of a latent multivariate model vs a non-latent multivariate model
+An unexpected error occurred when using 'tabular' with hooks
+Be supposed to and its meanings
+Where is the upercase option in Kate Editor Version 25?
+Open pdf files in the background with fzf
+Why does the do-while loop in C-like languages require the curly brackets `{` and `}`? Wouldn't the grammar be perfectly parsable without them?
+What happens if I ignore a game on Steam?
+How can one deal with the case of someone misrepresenting his academic job title?
+How to cut a tetrahedron in half using only a pencil and a knife?
+Dovecot cannot find virtual user from Postfix
+How to clear specific byte values inside a 64-bit value without looping
+Is there a deeper meaning behind the gesture of the statue here?
+What is the probability of coming out ahead in the iterated alternating St. Petersburg gamble?
+Why the density function in microcanonical ensemble is not constant?
+Here, "supports" appears in the plural. Why is there this difference in usage? ("Analysis on Manifolds" by James R. Munkres.)
+Are Lands' Activated Abilities colored?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cs
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

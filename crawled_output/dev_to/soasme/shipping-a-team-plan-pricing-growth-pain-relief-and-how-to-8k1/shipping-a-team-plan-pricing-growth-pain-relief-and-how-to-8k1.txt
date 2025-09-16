@@ -1,0 +1,238 @@
+Shipping a Team Plan: Pricing, Growth, Pain Relief, and How-To - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ju
+Posted on Sep 15
+Shipping a Team Plan: Pricing, Growth, Pain Relief, and How-To
+#saas
+#startup
+#indie
+Adding a Team plan (we call it “Crew”) is one of the highest‑leverage levers for a product graduating from solo users to real collaboration. It changes your pricing, accelerates growth loops, removes a latent blocker for buyers, and—done right—doesn’t require a rewrite.
+Here’s how we approached it in Indie10k, what we learned, and how you can ship it without derailing your roadmap.
+Why a Team Plan Matters
+Momentum spreads in groups. When collaborators see each other’s progress, they keep pace.
+Expansion revenue beats pure acquisition. Teams raise ARPU and unlock account‑level upgrades.
+The “but my co‑founder needs access” objection disappears once you support basic roles.
+Pricing Model: From Individual to Account Seats
+We priced Crew around an account‑level seat pool, not per‑project invites.
+Account seats represent unique collaborators across all owned projects.
+Pending invites consume seats; revoking frees them immediately.
+The owner doesn’t count against the pool, and the same collaborator on multiple projects counts once.
+This strikes a balance between predictable revenue and flexibility for small teams or collectives. For Indie10k:
+Free/Builder/Hacker: solo or limited collaboration (0 seat pool by default)
+Crew: includes a pooled seat allowance (e.g., 3 seats)
+Env example:
+ENABLE_TEAM=true
+TEAM_DEFAULT_SEAT_POOL=0
+TEAM_CREW_SEAT_POOL=3
+TEAM_INVITE_EXPIRES_DAYS=7
+Enter fullscreen mode
+Exit fullscreen mode
+Tip: Map seats to paid tiers via your billing mapping rather than baking prices into code.
+Growth Effects: ARPU, Viral Loops, Retention
+Higher ARPU: Accounts upgrade to unlock more collaborators; seat caps create natural upsell moments.
+Product‑led invites: Each invite is a low‑friction acquisition touchpoint; acceptance funnels new users into your product.
+Retention via accountability: Teams return to close loops together (status checks, evidence sharing, and reviews).
+Instrumentation ideas:
+Track seat‑cap‑reached events as an upsell signal.
+Measure invite acceptance rate and time‑to‑first‑action post‑accept.
+Segment retention by “solo vs team” to quantify the impact.
+Pain It Solves (Real Quotes We Heard)
+“I can’t add my co‑founder without sharing my login.”
+“We split projects between personal accounts—now everything’s scattered.”
+“We need read‑only for the advisor and write for the dev.”
+Answer: roles (reader, writer, admin, owner) with predictable behavior and a simple members UI.
+How To Ship It (Fast, Safely)
+The path we used—minimal, reversible, and feature‑flagged.
+1) Start With a Tight PRD
+Keep scope lean: invites by email, roles, a members panel, seat enforcement, and secure tokens. Our full PRD is in docs/team-prd.md and covers:
+Roles matrix and non‑goals for v1.
+Account‑level seat pool rules.
+Security (hashed, expiring, single‑use tokens; no email enumeration).
+2) Schema + Services (Server‑First)
+Add two tables:
+project_members(project_id, user_id, role, status, …)
+project_invites(project_id, email, role, token_hash, expires_at, status, …)
+Service helpers (server‑only):
+requireRole(projectId, userId, minRole)
+createInvite(projectId, email, role, invitedBy)
+acceptInvite(token, userId)
+changeMemberRole(...), removeMember(...), revokeInvite(inviteId)
+Seat math: getSeatPoolSize(ownerId) + getSeatsUsed(ownerId) (distinct users + pending emails across all owner projects)
+3) APIs That Mirror the Mental Model
+POST /api/projects/:id/invites → create invite (admin+)
+POST /api/team/invites/accept → accept invite (auth)
+PATCH /api/projects/:id/members/:userId → change role (admin+)
+DELETE /api/projects/:id/members/:userId → remove (admin+)
+DELETE /api/projects/:id/invites/:inviteId → revoke (admin+)
+POST /api/projects/:id/invites/:inviteId/resend → rotate token + resend (admin+, rate‑limited)
+GET /api/projects/:id/members → list members + pending invites + seat usage
+Guard every route with server‑side role checks. Keep responses predictable: NextResponse.json({ ... }, { status }).
+4) Email + Accept Flow
+Invite email includes an accept URL: /invite/accept?token=....
+The page calls POST /api/team/invites/accept and redirects to the project.
+In dev: RESEND_API_KEY=STDOUT to safely preview emails in logs.
+5) Members UI That Doesn’t Overreach
+A members list with roles and a simple invite form.
+A seat meter that reads “X of Y seats used (account‑wide)”.
+Pending invites with “Resend” and “Revoke”.
+Show names/emails instead of raw IDs for clarity.
+6) Ratchets, Not Roadblocks
+Use rate limits where abuse is likely (invite create/resend). Fail‑open on missing infra in dev.
+// Example keys
+invite:create:user:{userId}
+invite:resend:user:{userId}
+invite:resend:project:{projectId}
+Enter fullscreen mode
+Exit fullscreen mode
+7) Secure by Default
+Hash tokens (sha256 with a salt) and store only the hash.
+Enforce expiry on accept; treat missing keys as 500 in production.
+Avoid email enumeration; always respond with a generic “Invite sent”.
+Example PRD (Summary)
+Roles: reader, writer, admin, owner. Readers view; writers edit and run actions; admins manage members; owner is immutable and can delete the project.
+Seat Pool: unique collaborators across owner’s projects; pending invites count; revokes free seats immediately.
+UI: Members list, invite form, seat meter, and clear error states.
+Reference: see docs/team-prd.md for the complete matrix and constraints.
+Implementation Guide (Summary)
+We documented the exact stack‑aligned steps (Drizzle schema, App Router routes, Zod validators, Resend emails, Stack Auth checks) in docs/team-impl.md.
+Highlights:
+Feature flag: ENABLE_TEAM hides everything until you’re ready.
+Role checks: centralized with requireRole() and reused across routes.
+Access scope: extend project listings and fetches to include active members (not just owners), while locking down mutations to writer/admin.
+Final Notes
+If you’ve got even a handful of users asking “Can I invite my co‑founder?”, a Team plan unlocks not just collaboration—but an entire business model path: expansion revenue, stickier usage, and more reliable growth.
+Ship it small. Lock it down. Iterate from there.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Ju
+Follow
+Joined
+Dec 22, 2018
+More from Ju
+Copycats Aren’t Your Biggest Threat (Fellow Devs, Read This)
+#softwaredevelopment
+#startup
+#discuss
+#productivity
+Validate Your SaaS Idea in Minutes (Free Tool for Solo Founders)
+#saas
+#startup
+#indiehackers
+#productivity
+I Accidentally Bumped to v1.0.0 — What Would You Do?
+#sideprojects
+#startup
+#buildinpublic
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

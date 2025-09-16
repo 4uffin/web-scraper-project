@@ -1,0 +1,305 @@
+Managing private TypeScript types: beyond DefinitelyTyped - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Yoriiis
+Posted on Sep 15
+Managing private TypeScript types: beyond DefinitelyTyped
+#typescript
+#types
+#monorepo
+#webdev
+TypeScript gives us strong typing and we often rely on DefinitelyTyped for public libraries types. But as soon as you load libraries via a CDN or work on multiple internal projects that don't ship their own types, things start to break down. Each project defines its own version, duplication appears, and TypeScript starts yelling at you.
+In large organizations, this often happens: you want all projects to share the same types, but in reality, each team often reinvents its own.
+The solution? A centralized internal repository of TypeScript types.
+How types propagate: NPM vs CDN
+When you install a package from NPM that ships its own types, everything works out of the box. But when you use a library via a CDN, TypeScript can't infer anything. You have to declare the types manually, often by extending Window.
+That's when problems appear. One team declares a subset of methods, another team declares slightly different ones. Merge those projects and TypeScript won't know which definition to trust.
+Loading a script via a CDN rather than via NPM depends on the use case. Sometimes the script does not exist on NPM, sometimes you want to prioritise a specific execution order.
+The problem: conflicting or missing types
+Take the example of the following script loaded via a CDN, in this case the Dailymotion Web SDK.
+<script defer src="https://geo.dailymotion.com/player.js"></script>
+Enter fullscreen mode
+Exit fullscreen mode
+It exposes a global object window.dailymotion. In TypeScript you'd declare it like this according to your requirements:
+declare global {
+interface Window {
+dailymotion: {
+createPlayer: (
+selectorId: string,
+options: {
+player: string;
+video: string;
+}
+) => Promise<{
+on: (event: string, callback: () => void) => void;
+play: () => void;
+}>;
+events: {
+PLAYER_START: string;
+PLAYER_END: string;
+};
+};
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Now imagine two projects that use the Dailymotion SDK and do not declare exactly the same type. If you merge the two, conflicts will arise. This is often unavoidable because each writes its own version, which may differ.
+In the event of a conflict, the following TypeScript error may appear:
+error TS2717: Subsequent property declarations must have the same type.
+See details of error TS2717 on TypeScript.tv.
+Centralizing types: the concept
+The solution is to centralize all internal and CDN-related type definitions in a single monorepo. Think of it as your private DefinitelyTyped.
+Benefits are immediate:
+Consistency: all projects use the same definitions
+Reusability: publish once, install everywhere from your private registry
+Type safety: no more mismatched types between projects
+Maintenance: fix a type once, all consumers get the update
+At Prisma Media, we call our monorepo Prime-Types 🤖
+Minimal implementation
+A minimal monorepo structure could look like this:
+package.json
+// defines workspaces
+types/
+dailymotion/
+package.json
+index.d.ts
+README.md
+Enter fullscreen mode
+Exit fullscreen mode
+The root package.json of the monorepo
+{
+"name": "types",
+"workspaces": ["./types/*"],
+"scripts": {
+"dev": "tsc --noEmit --watch"
+},
+"devDependencies": {
+"typescript": "5.8.3"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Inside types/dailymotion/package.json:
+{
+"name": "@prime-types/dailymotion",
+"version": "1.0.0",
+"description": "TypeScript types for Dailymotion",
+"exports": {
+".": {
+"types": "./index.d.ts",
+"default": "./index.d.ts"
+}
+},
+"main": "./index.d.ts",
+"types": "./index.d.ts",
+"devDependencies": {
+"typescript": "5.8.3"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Example type definition for Dailymotion Web SDK in index.d.ts:
+// /types/dailymotion/index.d.ts
+declare global {
+interface Window {
+dailymotion: {
+createPlayer: (
+selectorId: string,
+options: {
+player: string;
+video: string;
+}
+) => Promise<{
+on: (event: string, callback: () => void) => void;
+play: () => void;
+}>;
+events: {
+PLAYER_START: string;
+PLAYER_END: string;
+};
+};
+}
+}
+// Export to ensure the file is treated as a module
+export {};
+Enter fullscreen mode
+Exit fullscreen mode
+💡 Add export {} at the end of the file if it does not export any types or if only a declare global exists.
+To consume these types in a project, install the package in peer-dependencies preferably (see below why in this section).
+npm install @prime-types/dailymotion
+Enter fullscreen mode
+Exit fullscreen mode
+By default, TypeScript searches for declarations in the node_modules/@types path and in your project source. The rest of node_modules is ignored. You must therefore add the path to your declaration files in the tsconfig.json to allow TypeScript to reference and propagate them.
+{
+"include": [
+"./src/**/*",
++
+"./node_modules/@prime-types"
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+👀 Discover this example in the minimalist monorepo Prime Types on GitHub.
+Managing multiple versions: peer dependencies
+One pitfall may arise: multiple versions of the same type package.
+If library A and library B depend on different versions of @prime-types/dailymotion, TypeScript errors may appear.
+The solution is to always declare the type package as a peer dependency:
+{
+"name": "my-website",
+"peerDependencies": {
+"@prime-types/dailymotion": "1.0.0"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+That way, only one version can be installed at the top level, and all projects align.
+Alternative: a single package
+For small teams, you may consider a simplified version: group all types into a single package.
+Pros:
+Trivial to set up and deploy
+Install one package and you're done
+Cons:
+Harder to version types independently
+Package size grows quickly as you add other types
+A monorepo with multiple packages is more scalable in the long term.
+Conclusion
+DefinitelyTyped is ideal for open source, but internal projects sometimes need their own solution. Centralizing TypeScript types has several advantages:
+Removes duplication and conflicts
+Improves type safety across projects
+Gives you a single source of truth
+The complete example is available on GitHub, so you can have fun with it! 🧑‍💻
+We have not discussed deployment in this article, but I will detail our deployment workflow with GitLab in a future article.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Yoriiis
+Follow
+Hello! I'm a Front-end engineer architect at Prisma Media. Passionate about code, web performance, UX and design, I work on several open-source projects
+Location
+Chambéry, France
+Work
+Front-end engineer architect at Prisma Media
+Joined
+Apr 4, 2020
+More from Yoriiis
+Rebuilding our front-end tech stack for the new teleloisirs.fr
+#webdev
+#webperf
+#webpack
+#javascript
+Granular chunks and JavaScript modules for faster page loads
+#webdev
+#webperf
+#webpack
+#javascript
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

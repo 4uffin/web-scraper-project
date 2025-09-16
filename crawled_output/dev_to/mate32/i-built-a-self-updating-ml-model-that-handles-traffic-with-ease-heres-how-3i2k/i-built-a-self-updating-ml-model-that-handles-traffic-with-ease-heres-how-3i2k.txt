@@ -1,0 +1,431 @@
+I Built a Self-Updating ML Model That Handles Traffic With Ease - Here’s How - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Matia Rašetina
+Posted on Sep 15
+I Built a Self-Updating ML Model That Handles Traffic With Ease - Here’s How
+#webdev
+#aws
+#datascience
+#tutorial
+Most ML models die in notebooks. I built one that retrains itself, scales to hundreds of users, and deploys in minutes — here’s the exact AWS + Docker + CI/CD stack I used.
+In this project, to keep the costs as low as possible, the Machine Learning model was trained on the local machine then uploaded the artifacts to the AWS platform. This project also demonstrates an entry-level MLOps workflow — retraining and redeployment are automated through CI/CD, but advanced MLOps features like data versioning, model registry, and monitoring are not yet implemented.
+There are a few prerequisites for this project and they are the following:
+Docker
+Python
+CI/CD pipelines
+basic usage of GitHub
+basic knowledge of AWS services
+Link to the code is here — let’s get started!
+Part 1: XGBoost Model Training with Optuna
+The dataset for this project was taken from the following Kaggle dataset — link to dataset — this dataset is a great example of a simple regression problem, with clear features and data ready to be used for training a Machine Learning model. We are going to use XGBoost model and there are several reasons:
+gradient boosting trees, particularly XGBoost, consistently outperforms deep learning models on tabular data with evidence that it won most of the Kaggle challenges in 2015 — link
+XGBoost implements L1 and L2 regularization on tree weights, which reduces overfitting
+Other model structures, like deep learning models, might seem more appealing, but with so little data and only 15 features, XGBoost typically outperforms deep learning models on tabular data this size.
+This makes it a great candidate for this project. There are other models which are also worth trying out, but won’t be implemented in this blog post.
+To ensure we are deploying the best model possible with the available data, we need to optimize our model’s hyperparameters. As in the previous blog post, we are going to use Python library called Optuna.
+Optuna is a hyperparameter optimization library and it has become the go-to library for quick and easy Machine Learning workflows.
+At the end of model optimization and training, the training script will output 2 files - final_model.pkl and label_encoders.pkl , which will be put inside a tarball and uploaded to S3.
+We chose local training since our training dataset is very small and it only takes a couple of minutes to train the XGBoost model. AWS Sagemaker does provide a platform for training your models, which makes it very useful if you have big datasets or need a more powerful machine to train your models, but for this use case, local training saves us the money by keeping us inside the AWS Free Tier.
+Here is the output of the training process:
+In the image itself, you can see that we’ve logged the metrics like Mean Square Error (MSE), R^2 score, Root Mean Squared Error (RMSE) and Mean Absolute Error (MAE). These metrics are very important to assess model performance. For a more detailed explanation why do we use these metrics for assessing model performance, please check out this Medium article.
+Part 2: Custom Container Strategy
+Here’s where AWS defaults fall short.
+We are going to use a custom Docker container instead of public Sagemaker Docker images provided by AWS. The reason is that we want to use the latest libraries instead of the outdated ones which are inside the pre-built AWS Docker containers (which you can see here - https://docs.aws.amazon.com/sagemaker/latest/dg-ecr-paths/ecr-eu-central-1.html#xgboost-eu-central-1). At the time of writing this blog, the latest package version for the XGBoost library is 1.7.4, while on PIP, latest available version is 3.0.5.
+Choosing Sagemaker’s pre-built Docker images would handle deployment automatically, but we lose the control over the dependencies and it takes away the ability of testing locally. The usage of custom containers, like in this project, adds complexity but if you were doing this on your job, this approach would enable you a more reproducible environment with faster iteration cycles.
+Our architectural decision to create our custom Docker image has a drawback - we will need to write additional logic to handle 2 HTTP API calls which Sagemaker does by design, those are /invocations and /ping .
+When a resource wants the model to return a value, it will provide the necessary payload to the /invocations endpoint, while the /ping endpoint is used as a health-check endpoint - Sagemaker will periodically send a GET HTTP request to it to verify that everything is up and running - that’s why we’ll need to install Flask - a lightweight Python library for creating servers in Python.
+If we used the pre-built Docker image, we would just need to provide the model artifacts and the interefece.py file, which contains the logic to get the prediction from the model. On the other hand, there is a great benefit to this approach - we are able to test it locally by running the Docker image and we are going to take a look at testing the model locally in the next few steps.
+The following code block is our Dockerfile and let’s explain it step by step:
+# Set the linux/amd64 platform as a base for this Docker Image
+# so even if you have an ARM processor, it won't impact the runtime
+# Common mistake here is a mismatch of the installed libraries because of the
+# host machine and the machine which runs the image - e.g. if you build the image
+# on an ARM processor, it will only work on machines with that architecture CPU
+# and not work on regular x86 processors.
+ARG TARGETPLATFORM=linux/amd64
+FROM --platform=$TARGETPLATFORM python:3.12-slim
+# Set the working directory in the container
+WORKDIR /app
+# Copy the dependencies file to the working directory
+COPY requirements.txt .
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+# Copy the Flask application code into the container
+COPY . .
+# Set the environment variable for the SageMaker model directory
+ENV SM_MODEL_DIR=/opt/ml/model
+# Expose port 8080 to allow external access to the Flask application
+EXPOSE 8080
+# Define the entry point for running the Flask application
+ENTRYPOINT ["gunicorn", "-b", "0.0.0.0:8080", "app:app"]
+Enter fullscreen mode
+Exit fullscreen mode
+Here are the following commands which you need to run in the aws folder to build the image and run the ML model locally:
+# Build the image locally
+cd aws/docker
+docker build -t sagemaker-demo .
+# Run the Docker image to create a container for local testing
+docker run -p 8080:8080 -v ./model.tar.gz:/opt/ml/model/model.tar.gz sagemaker-demo
+Enter fullscreen mode
+Exit fullscreen mode
+This way, we are simulating the Sagemaker environment and we can use API testing tools, like Postman, to see if our model is working as expected.
+I’ve used Postman as the API testing tool to verify that the Flask server is working by sending the GET payload to the /ping, that the model is loaded and returning the expected student score based on the received payload when the POST /invocations endpoint is called.
+Part 3: AWS Infrastructure as Code
+AWS CDK generates the Infrastructure resources automatically and handles the complex resource dependencies. If you did this manually in the AWS console, it would be way more error-prone and would take much more time. This way, we are leveraging our Python knowledge by creating these templates. Another usage of IaC in practice is that we can deploy the same stack in multiple environments (e.g. testing and production environments) knowing that all resources are the deployed in the same way.
+We are going to create multiple resources to be able to open up our Sagemaker model to the Internet:
+AWS Lambda which takes the request and forwards it to the model
+API Gateway opens up our Lambda to the Internet
+Docker Image asset and model training artifacts containing our Docker image with model dependencies and model artifacts respectively
+Sagemaker Model and Endpoint using our defined Docker Image and model artifacts
+To visualize our infrastructure, here is an architecture diagram:
+There are multiple resources which need to be defined inside the CDK file:
+define the path to the Dockerimage file to build our Docker image locally
+# 1. Build & push Docker image from local ./container folder
+image_asset = ecr_assets.DockerImageAsset(
+self,
+"XGBImage",
+directory="./docker",
+)
+Enter fullscreen mode
+Exit fullscreen mode
+define the path to our model.tar.gz which contains necessary artifacts
+# 2. Upload model.tar.gz to S3
+model_asset = s3_assets.Asset(
+self,
+"XGBModel",
+path="./model.tar.gz",
+)
+Enter fullscreen mode
+Exit fullscreen mode
+define the Sagemaker model to connect the Docker image and model artifacts into one entity
+# 3. Create SageMaker Model
+sm_model = sagemaker.CfnModel(
+self,
+"XGBModelResource",
+execution_role_arn=role.role_arn,
+primary_container=sagemaker.CfnModel.ContainerDefinitionProperty(
+image=image_asset.image_uri,
+model_data_url=model_asset.s3_object_url,
+),
+)
+# Ensure model.tar.gz upload finishes first
+sm_model.node.add_dependency(model_asset)
+Enter fullscreen mode
+Exit fullscreen mode
+deploy the model and open it up as an endpoint - very important here is that we are using a Serverless inference configuration to lower cost
+# 4. Create EndpointConfig using Serverless Inference
+endpoint_config = sagemaker.CfnEndpointConfig(
+self,
+"XGBEndpointConfig",
+production_variants=[
+sagemaker.CfnEndpointConfig.ProductionVariantProperty(
+model_name=sm_model.attr_model_name,
+initial_variant_weight=1.0,
+variant_name="AllTraffic",
+# Serverless config replaces instance_type/initial_instance_count
+serverless_config=sagemaker.CfnEndpointConfig.ServerlessConfigProperty(
+memory_size_in_mb=1024,
+max_concurrency=5,
+),
+)
+],
+)
+# and create the endpoint
+sm_endpoint = sagemaker.CfnEndpoint(
+self,
+"XGBEndpoint",
+endpoint_config_name=endpoint_config.attr_endpoint_config_name,
+)
+Enter fullscreen mode
+Exit fullscreen mode
+lastly, create the Lambda which will be opened up to the Internet, so the users can access the ML model, without having to sign a request to access the model
+# 5. Create the Lambda and open it to public (API Gateway)
+predict_student_score_lambda = _lambda.Function(
+self,
+"PredictStudentScoreLambda",
+runtime=_lambda.Runtime.PYTHON_3_12,
+handler="lambda_handler.lambda_handler",
+code=_lambda.Code.from_asset(
+"./PredictStudentScore",
+bundling={
+"image": _lambda.Runtime.PYTHON_3_12.bundling_image,
+"command": ["bash", "-c", "pip install aws-lambda-powertools -t /asset-output && cp -r . /asset-output"],
+},
+),
+environment={
+"SAGEMAKER_ENDPOINT_NAME": sm_endpoint.attr_endpoint_name
+},
+timeout=cdk.Duration.seconds(30)
+)
+# Allow Lambda to invoke SageMaker endpoint
+predict_student_score_lambda.add_to_role_policy(
+iam.PolicyStatement(
+actions=["sagemaker:InvokeEndpoint"],
+resources=[
+f"arn:aws:sagemaker:{self.region}:{self.account}:endpoint/{sm_endpoint.attr_endpoint_name}"
+]
+)
+)
+# API Gateway
+api = apigw.RestApi(
+self,
+"StudentScoreApi",
+rest_api_name="StudentScore API",
+description="StudentScore Services API",
+deploy=True,
+deploy_options=apigw.StageOptions(
+stage_name="score"
+),
+default_cors_preflight_options=apigw.CorsOptions(
+allow_origins=apigw.Cors.ALL_ORIGINS,
+allow_methods=apigw.Cors.ALL_METHODS,
+allow_headers=apigw.Cors.DEFAULT_HEADERS,
+),
+)
+# API Gateway Integrations
+predict_score_integration = apigw.LambdaIntegration(predict_student_score_lambda)
+# API Gateway Resources and Methods
+api.root.add_resource("predict-student-score").add_method("POST", predict_score_integration)
+Enter fullscreen mode
+Exit fullscreen mode
+And that’s it! Our stack is now ready for deployment. You can deploy the stack by simply running cdk deploy.
+Part 4: CI/CD Pipeline for Dynamic Model Updates
+Another great feature of this project is implementing a CI/CD solution - we’ve implemented a Github Actions pipeline, which on dataset change, triggers the training process automatically and updates the Sagemaker endpoint in minutes! But first, let’s clarify why are we choosing Github Actions instead of AWS CodePipeline for example.
+GitHub Actions integrates directly with our code repository and offers 2,000 free minutes monthly. AWS CodePipeline would cost $1 per pipeline per month plus compute costs.
+Now, let’s go over the CI/CD workflow, step by step.
+Connecting our pipeline with AWS
+To connect the pipeline with AWS, I found this tutorial inside the Github docs which I think is a great starting point, the link is https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws. However to make it easier, I’ve created a deploy_bootstrap.py script inside the aws/bootstrap folder which will create OIDC for you as well if you don’t have it set up, together with the necessary IAM role which our pipeline will use.
+After the aws/bootstrap/deploy_bootstrap.py script creates the IAM role, you will get the output from the script itself. That IAM role ARN will be used inside your Github Actions configuration file, so have it ready for the next steps. One more thing, this step needs to be done manually. The output should look like, I’ve redacted some things which are related to my AWS account:
+I’ve left steps to implement the role ARN to implement inside the Github Actions pipeline, however here is the visualization of the process itself:
+go to your Github repo settings
+under Security, click on “Secrets and variables” then on “Actions”
+click on “New Repository Secret”, enter the secret name and secret itself - in my example AWS_ROLE_ARN and the secret ARN itself
+Now you can use the secret inside your pipeline configuration! We’ll input it in later steps.
+Name the workflow and define when to run it
+Now, let’s define the pipeline configuration file!
+The name property is self-explanatory - the name of your workflow.
+After that, you can define on which actions to run your pipeline. In this example, the pipeline will be started in two scenarios:
+if the CSV dataset inside the data folder changes and new data is added
+or by manually starting the pipeline
+YAML code which addresses the mentioned fields is in the next code block:
+name: Train Model
+on:
+push:
+paths:
+- 'data/**'
+branches: [main]
+workflow_dispatch:
+inputs:
+model_version:
+description: 'Model version tag (optional)'
+required: false
+default: 'latest'
+type: string
+Enter fullscreen mode
+Exit fullscreen mode
+Job configuration and environment setup
+Now, let’s define the pipeline environment and download the necessary dependencies:
+jobs:
+train-model:
+name: Train Model
+runs-on: ubuntu-latest
+permissions:
+id-token: write
+# Required for AWS OIDC authentication
+contents: read
+# Required to read repository files
+steps:
+# Checkout the code and setup Python, NPM and necessary libraries for
+# training the ML model
+- name: Check out code
+uses: actions/checkout@v4
+- name: Set up Python
+uses: actions/setup-python@v4
+with:
+python-version: '3.12'
+- name: Set up Node.js
+uses: actions/setup-node@v4
+with:
+node-version: '22'
+- name: Configure AWS credentials
+uses: aws-actions/configure-aws-credentials@v4
+with:
+role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+aws-region: <your-AWS-region>
+- name: Install dependencies
+run: |
+pip install -r requirements.txt
+# Python ML libraries
+npm install -g aws-cdk
+# CDK CLI tool
+Enter fullscreen mode
+Exit fullscreen mode
+Training the model and deploying to AWS via CDK
+- name: Run the train_script script
+run: |
+python train_model.py
+- name: Deploy model with CDK
+run: |
+cdk deploy --require-approval never
+working-directory: aws
+env:
+AWS_DEFAULT_REGION: <your-AWS-region>
+Enter fullscreen mode
+Exit fullscreen mode
+And that’s our pipeline configuration file!
+The end result should look like this - first image is the complete overview of the whole job, while the second image is the process of deployment to AWS from our pipeline.
+Part 5: Testing the API
+By using integrated Postman testing, we’ve used the following configuration to test our deployed API:
+“Ramp up” as our load profile
+30 virtual users
+Here are the test results:
+From this test run, we can conclude the following:
+initial spike of latency, between 500-600ms, was caused by Lambda cold start - can be easily fixed by enabling Provisioned Concurrency, however that would increase cost
+after Lambda cold start was resolved, our infrastructure handled traffic without any issue, returning rock-solid 100ms consistently, even when number of requests per second increased
+no error rates, confirming that our code can handle low traffic without issues
+There are a couple of things which could additionally be tested:
+more requests with a more aggressive spike instead of ramp up
+what is the amount of requests when our infrastructure and configuration starts throttling?
+For production workloads expecting higher traffic, consider testing throttling scenarios and implementing retry logic.
+These are up to you if you want to test them, they won’t be covered in this blog post. At the time of writing this, the test cost me ~$0.05USD.
+Conclusion: Lessons Learned
+In this blog post, we’ve learned many very useful skills and ways of using AWS:
+creating, training and optimizing our Machine Learning model based on very simple regression data
+a great intro for a beginner Data Engineer
+using a “Custom Container” strategy to create our own environment for our ML model
+we own the environment for our model - we can do whatever we want
+using Docker and AWS CDK with Python to build, test and deploy our application
+you’ve deepened your knowledge about AWS CDK and how to test your code which is deployed
+connecting our AWS account with Github Actions CI/CD pipeline to have an automized way of deploying the latest version of our ML model
+an easy intro to MLOps and CI/CD, which is always a great field to understand
+Thank you for reading! See you in the next blog post!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Matia Rašetina
+Follow
+Joined
+May 31, 2025
+More from Matia Rašetina
+How to Deploy Production-Ready AI Models on AWS Lambda Without the $500/Month Bill
+#aws
+#ai
+#serverless
+#docker
+I Built a Complete Event Management Platform with $0 Server Costs With NextJS and AWS (Here’s How)
+#aws
+#webdev
+#programming
+#serverless
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
