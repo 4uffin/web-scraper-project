@@ -1,0 +1,321 @@
+java - Hibernate Lazy Loading Interceptor returning NULL - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Hibernate Lazy Loading Interceptor returning NULL
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+58 times
+0
+I have the following entities:
+class A {
+@Id
+String aId;
+@OneToMany(fetch = FetchType.LAZY)
+List<B> bsOfA
+@OneToMany(fetch = FetchType.LAZY)
+List<C> csOfA
+public A(String id) {
+this.aId = id;
+}
+}
+class B {
+@Id
+String aId;
+@Id
+String bId;
+@ManyToOne(fetch = FetchType.LAZY)
+A aOfB;
+@ManyToOne(fetch = FetchType.LAZY)
+C cOfB
+// this is some member of csOfA
+public B(String id, B sourceB) {
+this.aId = id;
+this.bId = sourceB.bId;
+}
+}
+class C {
+@Id
+String aId;
+@Id
+String cId;
+@OneToMany(fetch = FetchType.LAZY)
+A aOfC;
+@ManyToOne(fetch = FetchType.LAZY)
+List<B> linkedBsToC;
+public C(String id, C sourceC) {
+this.aId = id;
+this.cId = sourceC.cId;
+}
+}
+Now I want to create a copy of A so I proceed as follows
+A sourceA = aRepo.getbyId(sourceAId);
+A copyA = new A(newAId);
+List<B> bsOfA = new ArrayList<>(sourceA.getBsOfA.size());
+sourceA.getBsOfA().forEach(b -> bsOfA.add(new B(newAId, b));
+copyA.setBsOfA(bsOfA)
+List<C> csOfA = new ArrayList<>(sourceA.getCsOfA.size());
+// problematic part
+sourceA.getCsOfA().forEach(c -> csOfA.add(new C(newAId, c));
+copyA.setCsOfA(csOfA)
+Now the issue is: during this copy operation, I am observing that when constructor of C is called, the input c is a hibernate_interceptor object that has null attributes (like in this other post: Data inside hibernate interceptor object but null under entity variables - Can't save to repository).
+To remedy this situation, I have 3 choices:
+Swap the position of initializing copyA's bsOfA and csOfA:
+List<C> csOfA = new ArrayList<>(sourceA.getCsOfA.size());
+sourceA.getCsOfA().forEach(c -> csOfA.add(new C(newAId, c));
+copyA.setCsOfA(csOfA)
+List<B> bsOfA = new ArrayList<>(sourceA.getBsOfA.size());
+sourceA.getBsOfA().forEach(b -> bsOfA.add(new B(newAId, b));
+copyA.setBsOfA(bsOfA)
+Set FetchType.EAGER for cOfB
+Modify the constructors
+public C(String id, C sourceC) {
+this.aId = id;
+this.cId = sourceC.getCId();
+// How is this different from sourceC.id ?!
+}
+Can someone please enlighten me on this issue? I will most definitely opt for #3 because it seems the easiest to adjust but I still can't figure out what is wrong with the original code. Many thanks in advance :)
+javaspring-boothibernatelazy-loadinglazy-initialization
+Share
+Improve this question
+Follow
+asked 10 hours ago
+Guppy_00Guppy_00
+19511 gold badge11 silver badge99 bronze badges
+5
+What exactly your issue is? BTW: hibernate_interceptor you getting is proxy class.
+talex
+–
+talex
+2025-09-16 06:09:43 +00:00
+Commented
+5 hours ago
+The issue is the sourceC object accessed like sourceC.cId=NULL but sourceC.getCId() retrieves the correct, non-NULL ID.
+Guppy_00
+–
+Guppy_00
+2025-09-16 07:30:26 +00:00
+Commented
+4 hours ago
+How it is an issue? Why do you try to access fields directly instead of using getters? As far as I see all works as intended.
+talex
+–
+talex
+2025-09-16 07:32:02 +00:00
+Commented
+4 hours ago
+I just thought that it was weird how sourceC.cId returns the non-NULL ID when I swap the position of initializing copyA's bsOfA and csOfA as mentioned above.
+Guppy_00
+–
+Guppy_00
+2025-09-16 08:07:48 +00:00
+Commented
+3 hours ago
+You are doing getById which will return a lazy proxy. The proxy works on intercepting method calls, you are doing direct field access. So if you call getCId() the proxy will do a query to obtain the information, if you do direct field access it won't. Replacing the getById with a findById will remedy this as well as it will now fetch the full A object, and when accessing the collection will fetch the entities (as opposed to the proxy returned from getById).
+M. Deinum
+–
+M. Deinum
+2025-09-16 08:38:58 +00:00
+Commented
+3 hours ago
+Add a comment
+|
+Related questions
+1276
+What are the possible values of the Hibernate hbm2ddl.auto configuration and what do they do
+1635
+Is null check needed before calling instanceof?
+759
+Difference between FetchType LAZY and EAGER in Java Persistence API?
+Related questions
+1276
+What are the possible values of the Hibernate hbm2ddl.auto configuration and what do they do
+1635
+Is null check needed before calling instanceof?
+759
+Difference between FetchType LAZY and EAGER in Java Persistence API?
+196
+What is lazy loading in Hibernate?
+927
+How to fix the Hibernate "object references an unsaved transient instance - save the transient instance before flushing" error
+5
+Fetch the children of a lazy one to many list
+8
+Hibernate delete from onetomany
+630
+Hibernate throws MultipleBagFetchException - cannot simultaneously fetch multiple bags
+0
+Hibernate @MappedSuperclass @ManyToOne(fetch=FetchType.LAZY)
+8
+I am getting an error with a oneToMany association when using annotations with gilead for hibernate through gwt
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+javaspring-boothibernatelazy-loadinglazy-initialization
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+6
+Data inside hibernate interceptor object but null under entity variables - Can't save to repository
+Hot Network Questions
+Will gases contained inside a box eventually reach zero temperature?
+How do I open my Ability tree page?
+Plugins for exploding map in QGIS
+Is there a reason to do multiple tricks off a jump?
+High Pressure Fuel Pump failure-BMW 535d
+Making sure a smartphone is off
+What is the line of sight distance of a radio transmittion from a high altitude balloon or drone?
+What is the purpose of the neutral line in unbalanced three-phase systems?
+Hat puzzle with rock, paper, scissors
+Is it normal for postdoc to write grant proposals for PI, but then is denied the opportunity to work on the projects later on?
+What happens if I ignore a game on Steam?
+What are the balance implications of allowing players to have more than two loresheets?
+Kaleidoscopic supernova
+Why is the Bonferroni needed?
+What is the probability of coming out ahead in the iterated alternating St. Petersburg gamble?
+Can tubeless rim tape cause a puncture near a tube valve stem?
+After which words or expressions can we use "were" instead of "was"?
+Energy Conservation for Quantum Systems
+Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure Aluminum?
+How far should I go when phonetically transcribing an Irish accent?
+Are Controlled ESR Capacitors Extinct?
+Horror movie where a small town's population is killed and reanimated by a mad scientist while a detective tries to solve the cases
+Does systemd-cryptenroll encryption with a TPM bind decryption to that TPM?
+Finitely Generated Group with Compatible Surjections to Finite Dihedral Groups Surjects onto Infinite Dihedral Group
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-java
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996
