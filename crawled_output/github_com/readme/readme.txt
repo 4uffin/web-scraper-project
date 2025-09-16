@@ -218,21 +218,21 @@ Ruth’s dream is to show people that Africans aren’t just consumers of open s
 Guides
 See all Guides
 stories from Guides
-Career Development
-Nick Penston // Fidelity Investments
-Scaling standards and community in your organization
-Learn how to implement open source community ideas to spread best practices.
 Application Security
 Denys Lashchevskyi // Betsson
 A beginner’s guide to running and managing custom CodeQL queries
 Transform your code into a structured database that you can use to surface security vulnerabilities and discover new insights.
-Niek Palm // Philips
-Provisioning self-hosted GitHub Actions runners on demand
-How Philips optimized their CI/CD process using GitHub Actions and self-hosted runners.
+Career Development
+Nick Penston // Fidelity Investments
+Scaling standards and community in your organization
+Learn how to implement open source community ideas to spread best practices.
 Open Source
 Mike Gifford // CivicActions
 Treat accessibility issues as bugs, not feature requests
 Follow Drupal’s lead: Prioritize and systematically squash accessibility bugs.
+Niek Palm // Philips
+Provisioning self-hosted GitHub Actions runners on demand
+How Philips optimized their CI/CD process using GitHub Actions and self-hosted runners.
 About The ReadME Project
 Coding is usually seen as a solitary activity, but it’s actually the world’s largest community effort led by open source maintainers, contributors, and teams. These unsung heroes put in long hours to build software, fix issues, field questions, and manage communities.
 The ReadME Project is part of GitHub’s ongoing effort to amplify the voices of the developer community. It’s an evolving space to engage with the community and explore the stories, challenges, technology, and culture that surround the world of open source.
