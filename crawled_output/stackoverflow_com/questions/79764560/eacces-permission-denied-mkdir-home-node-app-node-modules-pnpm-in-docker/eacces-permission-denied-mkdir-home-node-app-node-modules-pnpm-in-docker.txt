@@ -1,0 +1,266 @@
+node.js - EACCES: permission denied, mkdir '/home/node/app/node_modules/.pnpm' in Docker - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+EACCES: permission denied, mkdir '/home/node/app/node_modules/.pnpm' in Docker [closed]
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+39 times
+-3
+Closed. This question is not reproducible or was caused by typos. It is not currently accepting answers.
+This question was caused by a typo or a problem that can no longer be reproduced. While similar questions may be on-topic here, this one was resolved in a way less likely to help future readers.
+Closed yesterday.
+Improve this question
+I'm a noob at Docker but I can't get my container to run and can't find working solutions on the internet or with ChatGPT.
+For some reason, when I do docker compose up, It runs pnpm i again (also on another version than what I specified in the Dockerfile, builder does that too).
+This then results in the following error:
+pnpm: EACCES: permission denied, mkdir '/home/node/app/node_modules/.pnpm'
+at async Object.mkdir (node:internal/fs/promises:855:10)
+at async Promise.all (index 0)
+at async headlessInstall (/home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:150705:9)
+at async tryFrozenInstall (/home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:158982:44)
+at async _install (/home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:158776:37)
+at async mutateModules (/home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:158684:23)
+at async install (/home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:158576:77)
+at async installDeps (/home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:160473:67)
+at async /home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:199658:23
+at async main (/home/nextjs/.cache/node/corepack/pnpm/10.16.0/dist/pnpm.cjs:199616:34)
+I tried to fix it by adding RUN chown -R nextjs:nodejs /app to the Dockerfile, but it doesn't change the outcome. Also as I said, as far as I am aware, it shouldn't even run pnpm i in the first place when doing docker compose up or am I missing something?
+docker compose build is running fine and not showing any errors.
+Does someone know what I'm doing wrong here?
+Dockerfile:
+# To use this Dockerfile, you have to set `output: 'standalone'` in your next.config.mjs file.
+# From https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
+FROM node:21.6.2-alpine AS base
+# Enable corepack
+RUN corepack enable && corepack prepare [email protected] --activate
+# Install dependencies only when needed
+FROM base AS deps
+# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+# Install dependencies
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm i --frozen-lockfile
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NEXT_PRIVATE_STANDALONE=true
+ENV NEXT_TELEMETRY_DISABLED 1
+RUN pnpm build
+# Production image, copy all the files and run next
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+# Remove this line if you do not have this folder
+# COPY --from=builder /app/public ./public
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+RUN chown -R nextjs:nodejs /app
+# Automatically leverage output traces to reduce image size
+# https://nextjs.org/docs/advanced-features/output-file-tracing
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+RUN mkdir -p media && chown -R nextjs:nodejs media
+USER nextjs
+EXPOSE 3000
+ENV PORT 3000
+# server.js is created by next build from the standalone output
+# https://nextjs.org/docs/pages/api-reference/next-config-js/output
+CMD HOSTNAME="0.0.0.0" node server.js
+node.jsdockerdocker-composepnpm
+Share
+Improve this question
+Follow
+edited yesterday
+gre_gor
+6,6701212 gold badges9999 silver badges103103 bronze badges
+asked yesterday
+ncls.ncls.
+11711 gold badge11 silver badge77 bronze badges
+2
+Hello ncls! You are right, from the Dockerfile alone this should not re-run the install. Can you please also share your docker-compose.yaml so we can see what you are trying to do there?
+Michael Krupp
+–
+Michael Krupp
+2025-09-14 21:30:36 +00:00
+Commented
+yesterday
+@MichaelKrupp Thank you for your idea. Since I'm using the template of PayloadCMS, I didn't really pay much attention to the docker-compose.yml other than swapping out the database. Seems like they additionally added a command which ran pnpm install´on the latest PNPM version. The issue is now fixed. Thanks
+ncls.
+–
+ncls.
+2025-09-14 22:00:21 +00:00
+Commented
+yesterday
+Add a comment
+|
+Related questions
+1381
+How to fix Docker: Permission denied
+762
+Error: EACCES: permission denied, access '/usr/local/lib/node_modules'
+1
+Error: EACCES: permission denied, mkdir '/client/node_modules/.vite/deps_temp_9a28dca3'
+Related questions
+1381
+How to fix Docker: Permission denied
+762
+Error: EACCES: permission denied, access '/usr/local/lib/node_modules'
+1
+Error: EACCES: permission denied, mkdir '/client/node_modules/.vite/deps_temp_9a28dca3'
+2
+EACCES: permission denied, mkdir '/usr/src/app/dist' when running nestjs in container
+624
+Docker: Got permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
+423
+Permission denied on accessing host directory in Docker
+Load 3 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+node.jsdockerdocker-composepnpm
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+Can chess engines solve the bishop and knight mate without the use of an endings tablebase?
+Plugins for exploding map
+Confidence interval for difference of probabilities, for paired data
+In "amsart" the list of authors does not break a page, but overfills it
+What does the SH pin on HDMI do?
+Why are my fluorescent light fixtures and LED replacements turning on intermittently?
+How to kern letters and put them higher or lower depending on the previous letter?
+What is supposed to make judicial branch make its best effort to judge cases in accordance with laws?
+Did Trump claim "smart people don't like me"?
+Did alignment charts of old use to have Law on the right (and when did that change)?
+What is the purpose of the neutral line in unbalanced three-phase systems?
+Why is the Bonferroni needed?
+How to disable all the AI features in Firefox to increase performance?
+Are we allowed to use ISM bands for broadcast radio, television, or data?
+When do cartographers draw a line for the coast and when do they not?
+To what extent was Spinoza a cartesian?
+How to cut a tetrahedron in half using only a pencil and a knife?
+Where does Bitcoin Core keep the XOR obfuscation keys for both block data files and level DB indexes?
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
+Does the Hebrew word [עִדָּה found in Isaiah compare the righteousness of a believer to a women’s used mentral rag?
+How to double chapter numbers and let hyperref do its work correctly
+Get coordinates of a voltage label (circuitikz)
+Explanation of Rebbe (R Yehuda HaNasi) making kiddish after his passing
+What is the least conspicuous way to bring a hidden junction box with MWBC junction to code compliance?
+more hot questions
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

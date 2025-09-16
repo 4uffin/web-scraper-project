@@ -1,0 +1,265 @@
+powershell - parameter sets and positional parameters - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+parameter sets and positional parameters
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+66 times
+1
+My script uninstall-package2.ps1 has this param section
+[CmdletBinding(DefaultParameterSetName="Uninstall")]
+param (
+[parameter(Mandatory, ValueFromPipeline = $true)][string]
+$displayName,
+[parameter(ParameterSetName = "Uninstall")][string]
+$Command,
+[parameter(ParameterSetName = "QueryOnly")][switch]
+$QueryOnly,
+[string]
+$LogPath
+)
+When I try to call the script with a positional parameter
+C:\temp\uninstall-package2.ps1 "7-zip"
+it returns
+C:\temp\uninstall-package2.ps1 : A positional parameter cannot be found that accepts argument '7-zip'.
+I didn't originally have the DefaultParameterSetName defined. It didn't make any difference. It doesn't seem like that even matters since both parameters labeled with a ParameterSetName are optional. I was just trying to make those mutually exclusive. If a person specifies both a command and -QueryOnly, it should return an error.
+But, while this works naming the parameters, I'm trying to figure out how to at least run with just the first parameter without naming the parameter since I'm trying to use it with Invoke-Command -FilePath , and apparently arguments can only be supplied to that command as a positional array with -ArgumentList.
+If I remove the ParameterSetName from the two parameters, then it works. But, I would like to know how to make this work for any kind of script, even those that have parameter sets.
+Any ideas how to make this work? I don't understand why this is a problem.
+powershellpositional-parameter
+Share
+Improve this question
+Follow
+asked yesterday
+RomanRoman
+55133 gold badges77 silver badges2424 bronze badges
+1
+So which of the parameters should be the position 0 ? DisplayName or Command ? It's failing because of that, if you specify Position = 0 then it will work fine. Another alternative which will work as you have it right now if you want it to bind to DisplayName is to pipe it "7-zip" | C:\temp\uninstall-package2.ps1
+Santiago Squarzon
+–
+Santiago Squarzon
+2025-09-14 21:40:51 +00:00
+Commented
+yesterday
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+4
+With the presence of at least one ParameterSetName property in the [Parameter()] attribute attached to a parameter declaration of a given script or function, the default ability to bind (non-[switch]) parameters positionally (unnamed, i.e. without preceding a given argument with the target parameter's name, such as
+"7-zip" vs. -DisplayName "7-zip") goes away.[1]
+Use explicit Position properties in order to re-enable positional binding.
+The specific numbers assigned to the property are incidental, only their relative ordering matters; customarily, Position = 0 is used to indicate the first positional parameter.
+Therefore, change your *.ps1 script's parameter declarations to the following:
+[CmdletBinding(DefaultParameterSetName = 'Uninstall')]
+param (
+[Parameter(Position = 0, Mandatory, ValueFromPipeline)]
+[string] $DisplayName
+,
+[Parameter(Position = 1, ParameterSetName = 'Uninstall')]
+[string] $Command
+,
+[Parameter(ParameterSetName = 'QueryOnly')]
+[switch] $QueryOnly
+,
+[Parameter(Position = 2)]
+[string] $LogPath
+)
+With the revised declarations above, passing "7-zip" on invocation then positionally binds to the -DisplayName parameter.
+A second positional (unnamed) argument would bind to -Command, a third to -LogPath - except if the -QueryOnly switch is specified, in which case only two positional arguments are supported, with the second one binding to the -LogPath parameter.
+Note:
+Parameter declarations that either lack a [Parameter()] attribute altogether or whose attribute instance lacks a ParameterSetName property are implicitly a part of all parameter sets.
+In general, a given parameter declaration of an (advanced) script or function can have multiple [Parameter()] attributes attached to it, namely if parameter set-specific behavior is required (via distinct ParameterSetName property values); in this case, each such attribute must specify a (potentially differently-valued) Position property.
+[1] Note that even explicitly setting PositionalBinding=$true in the [CmdletBinding()] attribute does not change that fact.
+Share
+Improve this answer
+Follow
+edited yesterday
+answered yesterday
+mklement0mklement0
+450k6868 gold badges722722 silver badges973973 bronze badges
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+powershellpositional-parameter
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Related
+298
+What is the difference between named and positional parameters in Dart?
+996
+How do I concatenate strings and variables in PowerShell?
+0
+Windows PowerShell invoking function with parameters
+0
+Uninstall Applications via Reg Keys
+1
+Powershell script from another script with multiple positional arguments
+2
+VSTS Task Group Powershell Parameter
+4
+Invoke-command and running ps1 with parameters
+606
+How do I pass multiple parameters into a function in PowerShell?
+4
+PowerShell Invoke-Command with FilePath on local computer - vague parameters error?
+Hot Network Questions
+Propeller design in XROTOR
+Is it normal for postdoc to write grant proposals for PI, but then is denied the opportunity to work on the projects later on?
+where and when to put a good olive oil in focaccia?
+How many of each type of dice could you possibly need?
+Calculate force of a door that fell and hit my sister
+Given two normal distributions X and Y with fixed Spearman Correlation, do they have a well-defined Pearson Correlation (and vice-versa)?
+Asymptotics in case of non-identifiability
+Explanation of Rebbe (R Yehuda HaNasi) making kiddish after his passing
+Sorting a dynamic array in Excel
+Where does Bitcoin Core keep the XOR obfuscation keys for both block data files and level DB indexes?
+Is it OK to pray at breakneck speed?
+Who is the model on this Cathy's Curse movie poster / DVD cover?
+Find the first relabeling
+Open pdf files in the background with fzf
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
+A basic graph theory question
+Kaleidoscopic supernova
+Hat puzzle with rock, paper, scissors
+When do cartographers draw a line for the coast and when do they not?
+Are Controlled ESR Capacitors Extinct?
+How is phase volume calculated in microstate counting (microcanonical ensemble)?
+Why are my fluorescent light fixtures and LED replacements turning on intermittently?
+How to disable all the AI features in Firefox to increase performance?
+How to cut a tetrahedron in half using only a pencil and a knife?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-bash
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

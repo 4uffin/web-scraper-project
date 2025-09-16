@@ -1,0 +1,347 @@
+c++ - How to use boost::asio::co_spawn with boost::thread::future? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to use boost::asio::co_spawn with boost::thread::future?
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+74 times
+0
+I'm trying to use asio::co_spawn with boost::future in Thread library, such that I could chain the co_routine task with then() function. But the problem is asio::use_future only generates std::future. For example:
+#define BOOST_THREAD_PROVIDES_FUTURE 1
+#define BOOST_THREAD_PROVIDES_FUTURE_CONTINUATION 1
+#define BOOST_THREAD_PROVIDES_FUTURE_WHEN_ALL_WHEN_ANY 1
+#include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/system_timer.hpp>
+#include <boost/thread/future.hpp>
+#include <print>
+using namespace boost::asio::experimental::awaitable_operators;
+namespace asio = boost::asio;
+auto running_task() -> boost::asio::awaitable<void>
+{
+std::println("starting the coroutine ....");
+auto timer = asio::system_timer{ co_await asio::this_coro::executor };
+timer.expires_after(std::chrono::seconds(10));
+co_await timer.async_wait(asio::use_awaitable);
+std::println("finishing the coroutine ....");
+}
+auto main() -> int
+{
+auto io_context = boost::asio::thread_pool{ 4 };
+auto fut = asio::co_spawn(io_context, running_task() , asio::use_future);
+io_context.join();
+return 0;
+}
+Here the variable fut has the type of std::future<void>, instead of boost::future<void>.
+I tried to use boost::executors::basic_thread_pool to have boost::future returned:
+#define BOOST_THREAD_PROVIDES_EXECUTORS 1
+#define BOOST_THREAD_USES_MOVE 1
+auto main() -> int
+{
+auto io_context = boost::asio::thread_pool{ 1 };
+auto thread_pool = boost::executors::basic_thread_pool{ 1 };
+auto fut = boost::async(
+thread_pool,
+[&io_context]()
+{ return asio::co_spawn(io_context, running_task(), asio::use_future).get(); });
+auto fut2 =
+fut.then(thread_pool,
+[&io_context, &timer](auto fut)
+{
+fut.get();
+return asio::co_spawn(io_context, running_task() || cancel_routine(timer), asio::use_future).get();
+}
+);
+fut2.wait();
+io_context.join();
+return 0;
+}
+But now the problem is that we have two separate thread pools, which are running on their individual thread pool.
+Therefore I would like to know whether there is a way to combine this two together, i.e. using boost::future directly from boost::asio::co_spawn.
+EDIT: For more clarification, my project involves both the network asynchronous IO and task flow. The network IO is done with boost::asio::thread_pool and the task flow is implemented with boost::future, boost::async and boost::wait_for_all. But the latter is using a different thread pool, namely boost::executors::basic_thread_pool. It seems a bit weird and unnecessary to have two different thread pools in the same program. Thus I would like to know whether these is a way to combine them together, such that either boost::async is using the thread provided by boost::asio::thread_pool or boost::asio::co_spawn is using the thread provided by boost::executors::basic_thread_pool.
+c++boostboost-asioasio
+Share
+Improve this question
+Follow
+edited 16 hours ago
+YzEdwinYzEdwin
+asked yesterday
+YzEdwinYzEdwin
+1111 bronze badge
+New contributor
+YzEdwin is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+4
+I know this is not what you're asking about, but you can very much use asio::deferred and asio::experimental::use_promise to get all the composition features that std::future lacks. Can you zoom out and ask about what you want to be able to write, instead of how you tried?
+sehe
+–
+sehe
+2025-09-15 11:32:20 +00:00
+Commented
+18 hours ago
+@sehe Thanks very much for your suggestion. What I would like to do is putting the async io (boost::asio) and task flows (boost::future, boost::wait_for_all, etc in Boost future) in the same thread pool. My implementation for now involves two thread pools, asio::thread_pool and boost::executors::basic_thread_pool, which is a bit weird and unnecessary.
+YzEdwin
+–
+YzEdwin
+2025-09-15 13:31:55 +00:00
+Commented
+16 hours ago
+@sehe
+use_promise seems very interesting. I looked up some documentation about it and found some of your posts, like this. But how could I imitate boost::wait_for_all with use_promise? There seems to be also a problem to have two tasks waiting for one single task to finish.
+YzEdwin
+–
+YzEdwin
+2025-09-15 13:35:24 +00:00
+Commented
+16 hours ago
+You can make a group of async operations (make_parallel_group) and then initiate it with use_promise. Incidentally, experimental::promise is especially versatile because the promise's operator() makes that an async operation as well, so it can be grouped/deferred in turn
+sehe
+–
+sehe
+2025-09-15 14:05:58 +00:00
+Commented
+15 hours ago
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+Currently, boost::asio::co_spawn only supports returning a std::future via asio::use_future, not a boost::future. There is no built-in boost::use_future completion token for Asio, so you cannot directly obtain a boost::future from co_spawn.
+Workarounds:
+Convert std::future to boost::future:
+You can wrap a std::future into a boost::future using boost::make_ready_future or by manually bridging them, but this is not seamless and loses some features (like continuations).
+Use boost::promise manually:
+You can create a boost::promise, pass it into your coroutine, and set its value when the coroutine completes. Then, you get a boost::future from the promise.
+Example:
+auto running_task(boost::promise<void>& prom) -> boost::asio::awaitable<void>
+{
+// current code
+prom.set_value();
+}
+auto main() -> int
+{
+boost::asio::thread_pool io_context{4};
+boost::promise<void> prom;
+auto fut = prom.get_future();
+boost::asio::co_spawn(io_context, running_task(prom), boost::asio::detached);
+fut.then([](auto f){ /* continuation code */ });
+io_context.join();
+return 0;
+}
+Use only std::future and convert logic:
+If you need continuations, you can use std::future and manually chain tasks, or use a library like folly or concurrencpp for more advanced future chaining.
+Summary:
+There is no direct way to get a boost::future from co_spawn. The recommended workaround is to use a boost::promise and set its value in your coroutine, then use the resulting boost::future for chaining.
+Share
+Improve this answer
+Follow
+answered yesterday
+Hariket Sukesh Kumar ShethHariket Sukesh Kumar Sheth
+11811 silver badge88 bronze badges
+3
+When you say "the recommended workaround", who do you claim recommends that?
+sehe
+–
+sehe
+2025-09-15 11:33:11 +00:00
+Commented
+18 hours ago
+1
+@sehe I feel this answer was generated by LLM. :D
+YzEdwin
+–
+YzEdwin
+2025-09-15 13:39:45 +00:00
+Commented
+16 hours ago
+@YzEdwin I don't disagree. Which is why I asked for a motivation
+sehe
+–
+sehe
+2025-09-15 14:03:49 +00:00
+Commented
+16 hours ago
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++boostboost-asioasio
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+2
+How can co_spawn be used with co_await?
+Related
+670
+How to install Boost on Ubuntu
+2
+Segfault inside boost::asio::deadline_timer::async_wait
+2
+Synchronization in boost::asio::thread_pool to return the best result
+25
+Boost asio - stopping io_service
+2
+Boost::Asio io_context::run Unknown Visual C++ Runtime Error : Debug Error
+2
+boost::asio io_service stop specific thread
+379
+How to use Boost in Visual Studio 2010
+Hot Network Questions
+Is there a reason to do multiple tricks off a jump?
+To what extent was Spinoza a cartesian?
+Did Trump claim "smart people don't like me"?
+Making sure a smartphone is off
+Visiting US after Green Card Revocation?
+Do most people not have a stringent moral system?
+Confidence interval for difference of probabilities, for paired data
+Can Boo steal partially used items in Mario Kart World?
+Can chess engines solve the bishop and knight mate without the use of an endings tablebase?
+Plugins for exploding map
+Are we allowed to use ISM bands for broadcast radio, television, or data?
+Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure Aluminum?
+In "amsart" the list of authors does not break a page, but overfills it
+What is the purpose of the neutral line in unbalanced three-phase systems?
+Get coordinates of a voltage label (circuitikz)
+Python implementation of core fundamentals to calculate math arithmetic
+Find the first relabeling
+Is it normal for postdoc to write grant proposals for PI, but then is denied the opportunity to work on the projects later on?
+Does Reaper ability affect touch/self range cantrips?
+How far should I go when phonetically transcribing an Irish accent?
+Kaleidoscopic supernova
+How to cut a tetrahedron in half using only a pencil and a knife?
+Who is the model on this Cathy's Curse movie poster / DVD cover?
+How can St. Peter write 2nd Peter if he copies off Jude? Who was dead when Jude was written?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

@@ -1,0 +1,231 @@
+How can I log (almost) all Visual C++ commands with command line switches? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How can I log (almost) all Visual C++ commands with command line switches?
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+35 times
+0
+When building from the Visual Studio IDE or via command line, how can I see all the commands and the passed command line switches in a fashion similar to compile_commands.json?
+visual-studiovisual-c++msbuild
+Share
+Improve this question
+Follow
+asked yesterday
+OliverOliver
+2111 bronze badge
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+Most of the Visual C++ tooling (but not Clang via its cl driver mode aka clang-cl) will heed the environment variable LOG_BUILD_COMMANDLINES being set.
+The value for this environment variable should be the name of a log file and optionally the path to it. One way to achieve this would be to copy&paste the following to a Directory.Build.props or Directory.Build.targets or similar:
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" InitialTargets="LogBuild">
+<PropertyGroup>
+<ThisProjectBuildLogFileName Condition="'$(MSBuildProjectName)' == ''">$(MSBuildThisFileDirectory)BuildCommandLines.log</ThisProjectBuildLogFileName>
+<ThisProjectBuildLogFileName Condition="'$(MSBuildProjectName)' != ''">$(MSBuildThisFileDirectory)BuildCommandLines-$(MSBuildProjectName).log</ThisProjectBuildLogFileName>
+</PropertyGroup>
+<Target Name="LogBuild" BeforeTargets="SetUserMacroEnvironmentVariables;SetBuildDefaultEnvironmentVariables">
+<Message Text="Setting LOG_BUILD_COMMANDLINES='$(ThisProjectBuildLogFileName)'" />
+<SetEnv Name="LOG_BUILD_COMMANDLINES" Value="$(ThisProjectBuildLogFileName)" Prefix="false" />
+</Target>
+</Project>
+Assuming you use the compiler and linker etc. via .vcxproj or .sln (no matter if IDE or command line), this should create a log file named BuildCommandLines.log in the same directory where you place(d) the Directory.Build.props or Directory.Build.targets. If The property MSBuildProjectName is set, the log file name will be one per project and be: BuildCommandLines-$(MSBuildProjectName).log.
+Command line options injected via response files and the known and documented environment variables CL, _CL_, LIB, _LIB_, LINK, _LINK_ etc. seem to get logged as well.
+However, it should be noted that command line options injected into individual object files #pragma comment(lib, ...) and #pragma comment(linker, ...) or similar mechanisms will not get logged. Thus this also includes command line options "smuggled" into your project via a static library and the object files contained in it.
+PS: if you want to persist this, please use a static <Import /> in your projects instead of a mechanism like Directory.Build.{props,targets} which can simply be suppressed from the outside via environment variable/MSBuild property.
+Share
+Improve this answer
+Follow
+answered yesterday
+OliverOliver
+2111 bronze badge
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+visual-studiovisual-c++msbuild
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Related
+616
+Debugging with command-line parameters in Visual Studio
+1100
+Error message "No exports were found that match the constraint contract name"
+919
+How do I add an existing directory tree to a project in Visual Studio?
+887
+ASP.NET Web Site or ASP.NET Web Application?
+1094
+Can you force Visual Studio to always run as an Administrator?
+524
+Visual Studio : short cut Key : Duplicate Line
+627
+"The breakpoint will not currently be hit. The source code is different from the original version." What does this mean?
+540
+Error 'LINK : fatal error LNK1123: failure during conversion to COFF: file invalid or corrupt' after installing Visual Studio 2012 Release Preview
+793
+How do I "Add Existing Item" an entire directory structure in Visual Studio?
+377
+How can I disable ReSharper in Visual Studio and enable it again?
+Hot Network Questions
+How to tell author that post hoc data manipulation is not okay
+How to clear specific byte values inside a 64-bit value without looping
+Why does the do-while loop in C-like languages require the curly brackets `{` and `}`? Wouldn't the grammar be perfectly parsable without them?
+Is there a reason to do multiple tricks off a jump?
+Why the density function in microcanonical ensemble is not constant?
+How far should I go when phonetically transcribing an Irish accent?
+Does Reaper ability affect touch/self range cantrips?
+tikz plot missing half of the graph
+Confidence interval for difference of probabilities, for paired data
+How to cut a tetrahedron in half using only a pencil and a knife?
+where and when to put a good olive oil in focaccia?
+Insurance company want me to either surrender my totaled car or pay off the negative equity
+What is the purpose of this opening in the airplane interior?
+1970s-90s story where refugees flee through an escape tunnel and emerge unexpectedly in another world
+In GIMP, how do I crop the "invisible" content outside an image's rectange?
+What is the purpose of the neutral line in unbalanced three-phase systems?
+Given two normal distributions X and Y with fixed Spearman Correlation, do they have a well-defined Pearson Correlation (and vice-versa)?
+How do I open my Ability tree page?
+Voltage across Vce in a common emitter BJT
+Every repetition of the same list manipulation takes longer
+Propeller design in XROTOR
+What is the least conspicuous way to bring a hidden junction box with MWBC junction to code compliance?
+What are these angled things on the Saab 340 tail?
+How can I detect self-intersection points of a single curve using Geometry Nodes?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

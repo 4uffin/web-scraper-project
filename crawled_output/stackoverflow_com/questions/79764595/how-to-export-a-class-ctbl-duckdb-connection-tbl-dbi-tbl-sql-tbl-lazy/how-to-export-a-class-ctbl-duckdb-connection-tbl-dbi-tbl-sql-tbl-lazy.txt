@@ -1,0 +1,392 @@
+r - How to export a class c("tbl_duckdb_connection", "tbl_dbi", "tbl_sql", "tbl_lazy", "tbl") to CSV from duckdb without collect()? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to export a class c("tbl_duckdb_connection", "tbl_dbi", "tbl_sql", "tbl_lazy", "tbl") to CSV from duckdb without collect()?
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+107 times
+Part of R Language Collective
+1
+I have a dataset (originally large CSV) that I filtered using duckdb and dbplyr.
+This is a small script that get to my idea :
+library(duckdb)
+library(DBI)
+library(dplyr)
+library(dbplyr)
+path_data_csv = "data.csv"
+data = duckdb::tbl_file(DBI::dbConnect(duckdb()), path_data_csv)
+new_data = data |>
+filter(datasetKey == '12345678',
+kingdom %in% c('Animalia')) |>
+collect()
+Then since the data is in memory, I can export it using write.csv() :
+write.csv(x = new_data,
+file = 'newdata.csv',
+row.names = FALSE)
+But I was wondering if there is a way to export it directly into CSV without 'collecting' the data first. I wish to find something that is not requiring to use dbExecute or dbWriteTable (which would be ways to do it)
+rdatabasecsvexport-to-csvduckdb
+Share
+Improve this question
+Follow
+edited yesterday
+M. BeausoleilM. Beausoleil
+asked yesterday
+M. BeausoleilM. Beausoleil
+3,80366 gold badges3232 silver badges7070 bronze badges
+3
+4
+duckplyr.tidyverse.org/reference/compute_csv.html?
+Jon Spring
+–
+Jon Spring
+2025-09-14 22:40:49 +00:00
+Commented
+yesterday
+If you are simply reading a csv, performing a simple filter and writing back out I wonder if you really need R at all.
+Using just duckdb from the Windows cmd line: duckdb --csv -c "from 'beausoliel.csv' where datasetKey = '12345678' and kingdom = 'Animalia'"
+On Linux you may need different quoting.
+G. Grothendieck
+–
+G. Grothendieck
+2025-09-15 13:11:47 +00:00
+Commented
+16 hours ago
+Indeed! And I've used duckdb for this. I think in particular programming communities (especially people starting) it might be good to show this all in R. Hence the search for a function that does this. For this, compute_csv() does the job!
+M. Beausoleil
+–
+M. Beausoleil
+2025-09-15 13:56:05 +00:00
+Commented
+16 hours ago
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1
+We can use dbplyr::sql_render() to generate the query and then construct a DuckDB copy statement to export the results to a CSV file.
+library(duckdb)
+library(DBI)
+library(dplyr)
+library(dbplyr)
+path_data_csv = "data.csv"
+write.csv(iris, path_data_csv)
+## example dataset
+data = duckdb::tbl_file(DBI::dbConnect(duckdb()), path_data_csv)
+con <- DBI::dbConnect(duckdb())
+data %>%
+dplyr::filter(Sepal.Length > 4.5,
+Species %in% c('virginica')) %>%
+dbplyr::sql_render() %>%
+as.character() %>%
+paste0("COPY (", ., ") TO 'newdata.csv' (FORMAT CSV, HEADER)") %>%
+DBI::dbExecute(con, .)
+#> [1] 50
+Or as Jon mentioned in the comments, load/install {duckplyr} to take advantage of its compute_csv() function to execute the query and write the results directly to CSV; it also returns a duckplyr_df object for potential further operations.
+library(duckplyr)
+data %>%
+dplyr::filter(Sepal.Length > 4.5,
+Species %in% c('virginica')) %>%
+duckplyr::as_duckdb_tibble() %>%
+duckplyr::compute_csv("newdata.csv",
+options = list(header = TRUE, delimiter = ","))
+#> # A duckplyr data frame: 6 variables
+#>
+column0 Sepal.Length Sepal.Width Petal.Length Petal.Width Species
+#>
+<dbl>
+<dbl>
+<dbl>
+<dbl>
+<dbl> <chr>
+#>
+1
+101
+6.3
+3.3
+6
+2.5 virginica
+#>
+2
+102
+5.8
+2.7
+5.1
+1.9 virginica
+#>
+3
+103
+7.1
+3
+5.9
+2.1 virginica
+#>
+4
+104
+6.3
+2.9
+5.6
+1.8 virginica
+#>
+5
+105
+6.5
+3
+5.8
+2.2 virginica
+#>
+6
+106
+7.6
+3
+6.6
+2.1 virginica
+#>
+7
+107
+4.9
+2.5
+4.5
+1.7 virginica
+#>
+8
+108
+7.3
+2.9
+6.3
+1.8 virginica
+#>
+9
+109
+6.7
+2.5
+5.8
+1.8 virginica
+#> 10
+110
+7.2
+3.6
+6.1
+2.5 virginica
+#> # ℹ more rows
+Created on 2025-09-14 with reprex v2.1.1
+Share
+Improve this answer
+Follow
+edited 15 hours ago
+answered yesterday
+M--M--
+33.1k1212 gold badges7474 silver badges114114 bronze badges
+3
+@margusl Oh! So is there a wayto use duckdb::tbl_file and compute_csv() without the as.data.frame()?
+M. Beausoleil
+–
+M. Beausoleil
+2025-09-15 13:57:41 +00:00
+Commented
+16 hours ago
+2
+margusl, yeah, sorry, I wasn't clear. I meant we cannot use "tbl_duckdb_connection" and need "duckplyr_df" to work with compute_csv() which is what your first comment stated. as_duckdb_tibble() + compute_csv() is (most probably) more efficient as it goes through tbl_duckdb_connection -> rapi_rel_from_altrep_df() (extracts existing DuckDB relation) -> rapi_rel_to_altrep() (creates lazy ALTREP wrapper) -> compute_csv() -> rel->WriteCSV() which stays entirely within DuckDB's C++ engine. The manual COPY approach requires SQL string construction and parsing.
+M--
+–
+M--
+2025-09-15 17:32:58 +00:00
+Commented
+12 hours ago
+Got it, cheers!
+margusl
+–
+margusl
+2025-09-15 17:43:25 +00:00
+Commented
+12 hours ago
+Add a comment
+|
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+rdatabasecsvexport-to-csvduckdb
+See similar questions with these tags.
+R Language
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Related
+2451
+How to concatenate text from multiple rows into a single text string in SQL Server
+1457
+How can I output MySQL query results in CSV format?
+1151
+Save PL/pgSQL output from PostgreSQL to a CSV file
+814
+How to export JavaScript array info to csv (on client side)?
+516
+How to export table as CSV with headings on Postgresql?
+684
+Export schema without data
+661
+Is there a way to include commas in CSV columns without breaking the formatting?
+809
+How to import CSV file data into a PostgreSQL table
+779
+How to avoid pandas creating an index in a saved csv
+687
+How to unload a package without restarting R
+Hot Network Questions
+tikz plot missing half of the graph
+What is the least conspicuous way to bring a hidden junction box with MWBC junction to code compliance?
+Do most people not have a stringent moral system?
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
+Confidence interval for difference of probabilities, for paired data
+What is supposed to make judicial branch make its best effort to judge cases in accordance with laws?
+Calculate force of a door that fell and hit my sister
+Why does the do-while loop in C-like languages require the curly brackets `{` and `}`? Wouldn't the grammar be perfectly parsable without them?
+Statistics on list of industry areas that pure math academics transition to
+Malicious tampering of trusted libraries
+Explanation of Rebbe (R Yehuda HaNasi) making kiddish after his passing
+Can Boo steal partially used items in Mario Kart World?
+Insurance company want me to either surrender my totaled car or pay off the negative equity
+Find the first relabeling
+Does Reaper ability affect touch/self range cantrips?
+How to double chapter numbers and let hyperref do its work correctly
+Why the density function in microcanonical ensemble is not constant?
+What is this book about researchers in boats being chased on an alien planet by humanoid aliens?
+Ephemeris Time/Second Tracking
+Are there any missable endings?
+Why are my fluorescent light fixtures and LED replacements turning on intermittently?
+Can chess engines solve the bishop and knight mate without the use of an endings tablebase?
+A million and one constants
+How can I detect self-intersection points of a single curve using Geometry Nodes?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-r
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996

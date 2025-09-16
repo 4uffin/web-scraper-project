@@ -1,0 +1,260 @@
+docker - getting bad gateway error with nextcloud all in one and openresty configuration - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+getting bad gateway error with nextcloud all in one and openresty configuration [closed]
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+29 times
+0
+Closed. This question is not about programming or software development. It is not currently accepting answers.
+This question does not appear to be about a specific programming problem, a software algorithm, or software tools primarily used by programmers. If you believe the question would be on-topic on another Stack Exchange site, you can leave a comment to explain where the question may be able to be answered.
+Closed yesterday.
+Improve this question
+I am running Nextcloud All in One behind an existing reverse proxy, OpenResty. Specifically I am using 1Panel to manage dockers.
+compose.yml
+# ignored options for 'all-in-one'
+# --sig-proxy=false
+# named volume 'nextcloud_aio_mastercontainer' is marked as "external" (used by service 'all-in-one'), so either remove "external" from volume definition or it needs to be created using: docker volume create nextcloud_aio_mastercontainer
+name: meadowfield_cloud
+services:
+all-in-one:
+init: true
+container_name: nextcloud-aio-mastercontainer
+restart: always
+ports:
+- 8080:8080
+environment:
+- APACHE_PORT=11000
+- APACHE_IP_BINDING=0.0.0.0
+- APACHE_ADDITIONAL_NETWORK=
+- SKIP_DOMAIN_VALIDATION=true
+- NEXTCLOUD_DATADIR=/media/cloud_drive/meadowfield_cloud
+volumes:
+- nextcloud_aio_mastercontainer:/mnt/docker-aio-config
+- /var/run/docker.sock:/var/run/docker.sock:ro
+image: ghcr.io/nextcloud-releases/all-in-one:latest
+volumes:
+nextcloud_aio_mastercontainer:
+external: true
+name: nextcloud_aio_mastercontainer
+reverse proxy configuration:
+server {
+listen 80 ;
+listen 443 ssl http2 ;
+server_name nextcloud.sampledomain.com;
+index index.php index.html index.htm default.php default.htm default.html;
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Host $server_name;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $http_connection;
+access_log /www/sites/nextcloud.sampledomain.com/log/access.log main;
+error_log /www/sites/nextcloud.sampledomain.com/log/error.log;
+location ^~ /.well-known/acme-challenge {
+allow all;
+root /usr/share/nginx/html;
+}
+include /www/sites/nextcloud.sampledomain.com/proxy/*.conf;
+if ($scheme = http) {
+return 301 https://$host$request_uri;
+}
+ssl_certificate /www/sites/nextcloud.sampledomain.com/ssl/fullchain.pem;
+ssl_certificate_key /www/sites/nextcloud.sampledomain.com/ssl/privkey.pem;
+ssl_protocols TLSv1.3 TLSv1.2 TLSv1.1 TLSv1;
+ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:!aNULL:!eNULL:!EXPORT:!DSS:!DES:!RC4:!3DES:!MD5:!PSK:!KRB5:!SRP:!CAMELLIA:!SEED;
+ssl_prefer_server_ciphers on;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 10m;
+error_page 497 https://$host$request_uri;
+proxy_set_header X-Forwarded-Proto https;
+add_header Strict-Transport-Security "max-age=31536000";
+}
+error.log:
+2025/09/14 14:30:25 [error] 1152#1152: *5344 connect() failed (111: Connection refused) while connecting to upstream, client: 172.70.126.42, server: nextcloud.sampledomain.com, request: "GET / HTTP/2.0", upstream: "http://172.27.0.2:11000/", host: "nextcloud.sampledomain.com"
+2025/09/14 14:30:25 [error] 1152#1152: *5346 connect() failed (111: Connection refused) while connecting to upstream, client: 172.71.255.131, server: nextcloud.sampledomain.com, request: "GET /favicon.ico HTTP/2.0", upstream: "http://172.27.0.2:11000/favicon.ico", host: "nextcloud.sampledomain.com", referrer: "https://nextcloud.sampledomain.com/"
+The issue that I run into is setting the port to 80, 9000, 8080, 11000 all fails, either bad gateway or I am trying to access the container via an non-SSL port, which is odd since I am running this nextcloud all in one docker instance behind an existing reverse proxy and based on the documentation listed here:
+https://github.com/nextcloud/all-in-one/blob/main/reverse-proxy.md
+I am getting it right. But what port should this be set to?
+dockerdocker-composenextcloud
+Share
+Improve this question
+Follow
+asked yesterday
+expermintexpermint
+1
+Add a comment
+|
+Related questions
+0
+How do I Configure a Docker Registry V2 with Apache and a CA certificate?
+398
+Build and run Dockerfile with one command
+3
+Traefik + Nextcloud results in bad gateway
+Related questions
+0
+How do I Configure a Docker Registry V2 with Apache and a CA certificate?
+398
+Build and run Dockerfile with one command
+3
+Traefik + Nextcloud results in bad gateway
+0
+502 bad gateway error at wordpress docker-compose setup with nginx
+4
+Error installing nextcloud with docker compose
+2
+Nginx Proxy Manager Bad Gateway (Docker Wordpress and Nextcloud)
+5
+nginx + vault in docker reverse proxy
+0
+Nextcloud with Traefik - Bad Gateway / Connection Refused
+5
+Mixed content error with Collabora CODE / Nextcloud / Traefik reverse proxy via docker-compose
+0
+docker-compose Nextcloud Instance behind reverse proxy Bad gateway 502
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+dockerdocker-composenextcloud
+See similar questions with these tags.
+The Overflow Blog
+Planning to Arm mobile devices with chips that handle AI
+Featured on Meta
+Community Asks Sprint Announcement - September 2025
+stackoverflow.ai - rebuilt for attribution
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+Given two normal distributions X and Y with fixed Spearman Correlation, do they have a well-defined Pearson Correlation (and vice-versa)?
+How far should I go when phonetically transcribing an Irish accent?
+In GIMP, how do I crop the "invisible" content outside an image's rectange?
+Can old rim strips (without punctures) cause flat tubes?
+Could there be a set of vectors that is linearly independent in the usual sense, but becomes linearly dependent if we allow infinite sums?
+What is this book about researchers in boats being chased on an alien planet by humanoid aliens?
+Is there a deeper meaning behind the gesture of the statue here?
+What is the line of sight distance of a radio transmittion from a high altitude balloon or drone?
+A basic graph theory question
+Does systemd-cryptenroll encryption with a TPM bind decryption to that TPM?
+What is the purpose of the neutral line in unbalanced three-phase systems?
+Python implementation of core fundamentals to calculate math arithmetic
+Ephemeris Time/Second Tracking
+Sorting a dynamic array in Excel
+1970s-90s story where refugees flee through an escape tunnel and emerge unexpectedly in another world
+Come vs go in this situation
+Can Boo steal partially used items in Mario Kart World?
+Propeller design in XROTOR
+How can I detect self-intersection points of a single curve using Geometry Nodes?
+Why does the do-while loop in C-like languages require the curly brackets `{` and `}`? Wouldn't the grammar be perfectly parsable without them?
+A million and one constants
+What is supposed to make judicial branch make its best effort to judge cases in accordance with laws?
+Did alignment charts of old use to have Law on the right (and when did that change)?
+Is there a reason to do multiple tricks off a jump?
+more hot questions
+lang-yaml
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.15.33996
