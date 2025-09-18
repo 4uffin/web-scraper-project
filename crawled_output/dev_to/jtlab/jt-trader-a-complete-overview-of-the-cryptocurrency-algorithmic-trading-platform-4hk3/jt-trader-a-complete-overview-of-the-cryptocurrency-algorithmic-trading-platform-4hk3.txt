@@ -1,0 +1,287 @@
+JT-Trader: A Complete Overview of the Cryptocurrency Algorithmic Trading Platform - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Alex
+Posted on Sep 17
+JT-Trader: A Complete Overview of the Cryptocurrency Algorithmic Trading Platform
+#webdev
+#opensource
+#typescript
+#programming
+What is JT-Trader?
+JT-Trader is an open-source platform designed to automate cryptocurrency trading. At its core lies JT-Lib, a library that powers the development, testing, and deployment of trading strategies on real exchanges.
+In practice, JT-Trader is a full-featured tool for algorithmic trading:
+Developers can build their own strategies in TypeScript.
+Traders can use ready-made bots via a user-friendly web interface.
+The built-in strategy tester allows you to check whether your algorithm is viable before going live.
+How Trading Bots Are Created
+Bot development in JT-Trader revolves around the Script class, which extends BaseScript. This class defines all the key lifecycle methods: initialization, data processing, order management, and shutdown.
+Bot parameters are defined in static definedArgs. These may include:
+position size;
+stop-loss and take-profit levels;
+indicator periods;
+trading pairs, etc.
+This approach makes it possible to adjust settings directly from the interface without rewriting code.
+Before running a bot in real trading, every strategy can (and should) be backtested — a crucial step for finding effective parameters and avoiding costly mistakes.
+Bot Lifecycle
+Every trading script in JT-Trader follows a clear lifecycle:
+onInit() — load parameters, connect indicators, initialize orders.
+onTick() — process live market data and make decisions.
+onOrderChange() — react to order executions and status changes.
+onStop() — safely shut down and release resources.
+Example: A Simple RSI Strategy
+Below is a code snippet showing a trading bot based on the RSI indicator, with automatic stop-loss and take-profit handling:
+class Script extends BaseScript {
+static definedArgs = [ // User-defined strategy parameters
+{ key: 'symbols', defaultValue: 'BTC/USDT:USDT' }, // Trading pair
+{ key: 'sizeUsd', defaultValue: 100 }, // Position size in USD
+{ key: 'slPercent', defaultValue: 2 }, // Stop-loss percentage
+{ key: 'tpPercent', defaultValue: 4 } // Take-profit percentage
+];
+private basket: OrdersBasket; // Order manager
+private rsi: RelativeStrengthIndex; // RSI indicator
+private sizeUsd: number;
+private slPercent: number;
+private tpPercent: number;
+async onInit() { // Initialization at startup
+this.sizeUsd = getArgNumber('sizeUsd', 100); // Load parameters
+this.slPercent = getArgNumber('slPercent', 2);
+this.tpPercent = getArgNumber('tpPercent', 4);
+this.basket = new OrdersBasket({ // Create order manager
+symbol: this.symbols[0],
+connectionName: this.connectionName
+});
+await this.basket.init();
+this.rsi = await globals.indicators.rsi(this.symbols[0], '1h', 14); // Initialize RSI
+}
+private async signal(): Promise<number> { // Trading signal logic
+const longPosition = await this.basket.getPositionBySide('long');
+if (longPosition.contracts !== 0) return 0; // If there’s already a position – don’t trade
+const rsiValue = this.rsi.getValue();
+if (rsiValue < 30) return 1; // RSI < 30 → buy signal
+if (rsiValue > 70) return -1; // RSI > 70 → sell signal
+return 0; // No signal
+}
+async onTick() { // Called on each price tick
+const currentPrice = close(); // Current closing price
+const signalValue = await this.signal();
+if (signalValue === 1) { // Buy signal
+const contracts = this.basket.getContractsAmount(this.sizeUsd, currentPrice); // Convert USD to contracts
+const stopLoss = currentPrice * (1 - this.slPercent / 100); // Stop-loss price
+const takeProfit = currentPrice * (1 + this.tpPercent / 100); // Take-profit price
+await this.basket.buyMarket(contracts, takeProfit, stopLoss); // Buy with automatic stops
+}
+if (signalValue === -1) { // Sell signal
+const longPosition = await this.basket.getPositionBySide('long');
+if (longPosition.contracts > 0) { // If there’s an open long position
+const contracts = longPosition.contracts;
+const stopLoss = currentPrice * (1 + this.slPercent / 100); // Stop-loss for short
+const takeProfit = currentPrice * (1 - this.tpPercent / 100); // Take-profit for short
+await this.basket.sellMarket(contracts, takeProfit, stopLoss); // Sell with automatic stops
+}
+}
+}
+async onOrderChange(order: Order) { // Handle order status changes
+if (order.status === 'closed') { // If the order has been executed
+log('Script', 'Order executed', { orderId: order.id, side: order.side }, true); // Log the event
+}
+}
+async onStop() { // Cleanup on shutdown
+await this.basket.cancelAllOrders(); // Cancel all active orders
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Strategy Testing
+One of JT-Trader’s biggest strengths is its built-in strategy tester. It allows you to simulate trading strategies on historical data while accounting for commissions, spreads, and slippage.
+You can configure:
+the testing period,
+initial balance,
+trading pairs,
+timeframes.
+The tester outputs:
+equity curve charts,
+maximum drawdown,
+Sharpe ratio,
+trade statistics.
+A standout feature is parameter optimization — JT-Trader can iterate through thousands of parameter combinations to find the most profitable ones.
+Running Bots in Real Time
+For live trading, JT-Trader uses the Runtime section of the web interface. Users simply select a strategy file, exchange connection, and trading pairs.
+Once launched, the bot streams data via WebSocket, processes every tick, and places orders based on the strategy’s logic.
+Key features include:
+adjusting parameters on the fly (without restarting),
+detailed statistics available in the interface,
+utomatic recovery after errors or crashes.
+Monitoring and Debugging
+JT-Trader comes with a comprehensive logging and reporting system:
+all bot actions are logged,
+logs can be filtered by type and severity,
+Telegram alerts are available for critical issues or trade events.
+For developers, there’s also a real-time debug system to inspect indicators, positions, and variables directly while the bot is running. This makes debugging and optimization much more efficient.
+Conclusion
+JT-Trader is a flexible and open platform for algorithmic crypto trading that combines:
+a straightforward strategy development process,
+built-in backtesting,
+safe 24/7 execution of trading bots,
+advanced monitoring and debugging tools.
+It’s equally valuable for seasoned algo-traders and beginners taking their first steps in trading automation.
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Anisimova Jane
+Anisimova Jane
+Anisimova Jane
+Follow
+Joined
+Sep 15, 2025
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+I sold my truck thinking I was taking a great step to greatness, not knowing I was a victim. I lost about $65k to the scammers I'm so grateful to Darek Recovery who helped me. I saw a post about the company here on blogs. I had to contact him , he asked me of proof, then he started the process, within 24 hours
+I got all my lost funds back. his email address is recoverydarek @ gmail com If you are in need of help they are 100% legit.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Alex
+Follow
+Hello! My name is Alexander, I am the founder of the JT-Lab project.
+Joined
+Apr 4, 2025
+Trending on DEV Community
+Hot
+New Framework Ripple? What about Others?
+#webdev
+#react
+#opensource
+#discuss
+Beginner’s Guide for "Replace Non-Coprime Numbers in Array" (LeetCode 2197) with C++, JavaScript & Python Code
+#programming
+#cpp
+#javascript
+#python
+New Framework Ripple? What about Others?
+#webdev
+#react
+#opensource
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

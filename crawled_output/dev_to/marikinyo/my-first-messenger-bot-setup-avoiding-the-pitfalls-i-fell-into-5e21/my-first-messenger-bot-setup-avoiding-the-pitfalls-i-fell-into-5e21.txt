@@ -1,0 +1,268 @@
+Messenger Bot Setup: The Mistake That Taught Me the Most - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Marika Tchavtchavadze
+Posted on Sep 17
+Messenger Bot Setup: The Mistake That Taught Me the Most
+#beginners
+#chatgpt
+#python
+#learning
+I’m diving into chatbots recently, so the next station was a Messenger bot. I thought I could just follow some steps with ChatGPT as my guide… but I missed one very important point.
+👉 If you want to create a Messenger bot, you must have a business page under a BUSINESS type Meta app.
+I didn’t know that. I was creating Meta apps and choosing anything but the right type—and that’s where the loop started.
+Here’s the trap: once you create an app, you can never change its type. I went to the App Dashboard, tried to add Messenger under “Add Product”… but the magic button was gone.
+I tried everything—different setups, endless searches, even trolling the web for answers. Nothing. Days passed.
+And then I found the hidden treasure 🗝️:
+When creating an app, you need to choose Other → Business. That’s it. If you miss this, Messenger will never show up as an option.
+Here is the link where you can create a new app:
+developers.facebook.com/apps
+Once you start creating the app, in Use Cases choose Others
+Then click Next and choose Business type
+This is the magic I missed. After finding this, I could finally move forward! 🎉
+Page Access Token
+Next, you need to create a Page Access Token from Graph API Explorer
+and make sure to select your business page—this is a MUST.
+After that, you can add Messenger as a product in your app.
+Also, set up a Verify Token (you can write your own). Be careful to save it somewhere safe and never share it.
+Ngrok — The Local Tunnel
+The journey is not finished here. Now you need ngrok. When you run your bot locally, Facebook cannot reach localhost. Ngrok creates a secure HTTPS tunnel to your machine so Messenger can communicate with your bot.
+How to install ngrok
+- Download from ngrok.com
+- Unzip/Install it
+- Authenticate once with your ngrok account:
+ngrok config add-authtoken YOUR_AUTH_TOKEN
+Enter fullscreen mode
+Exit fullscreen mode
+After running your bot script
+from flask import Flask, request
+import requests
+import json
+app = Flask(__name__)
+PAGE_ACCESS_TOKEN = "PAGE_ACCESS_TOKEN"
+VERIFY_TOKEN = "VERIFY_TOKEN"
+# The bot will look for an exact, case-insensitive match.
+# Add or remove questions and answers as needed.
+qa_database = {
+"hello": "Hello! I am messenger bot and I am under development. Can't answer any questions yet.",
+}
+# --- Root route for testing ---
+@app.route("/", methods=["GET"])
+def home():
+return "Messenger bot is running!"
+# --- Webhook route for Facebook ---
+@app.route("/webhook", methods=["GET", "POST"])
+def webhook():
+if request.method == "GET":
+# Verification handshake
+token_sent = request.args.get("hub.verify_token")
+return verify_fb_token(token_sent)
+else:
+# Handle messages
+output = request.get_json()
+for event in output.get("entry", []):
+for messaging_event in event.get("messaging", []):
+sender_id = messaging_event["sender"]["id"]
+if messaging_event.get("message"):
+message_text = messaging_event["message"].get("text")
+if message_text:
+# Convert message to lowercase for case-insensitive matching
+message_text_lower = message_text.lower().strip()
+# Look for a response in the QA database
+response_text = qa_database.get(message_text_lower)
+if response_text:
+send_message(sender_id, response_text)
+else:
+# Default response if no match is found
+default_response = "I'm sorry, I don't understand that question. You can try asking one of the following:\n\n"
+# List all available questions
+for q in qa_database.keys():
+default_response += f"- {q}\n"
+send_message(sender_id, default_response)
+return "Message Processed", 200
+def verify_fb_token(token_sent):
+if token_sent == VERIFY_TOKEN:
+return request.args.get("hub.challenge")
+return "Invalid verification token"
+def send_message(recipient_id, text):
+"""Send message back to Facebook Messenger user"""
+url = "https://graph.facebook.com/v21.0/me/messages"
+params = {"access_token": PAGE_ACCESS_TOKEN}
+headers = {"Content-Type": "application/json"}
+data = {
+"recipient": {"id": recipient_id},
+"message": {"text": text}
+}
+response = requests.post(url, params=params, headers=headers, json=data)
+if response.status_code != 200:
+print(f"Error sending message: {response.text}")
+if __name__ == "__main__":
+app.run(port=5000)
+Enter fullscreen mode
+Exit fullscreen mode
+press the link bellow and you will see Bot is running!
+Now open a new terminal and type:
+ngrok http 5000
+Enter fullscreen mode
+Exit fullscreen mode
+You will get a link like:
+https://qwerty123.ngrok-free.app/
+Paste the URL into Meta App Dashboard → Messenger → Webhooks like this:
+https://qwerty123.ngrok-free.app/webhook
+then press Verify and press button.
+⚠️ If you’re using the free version of ngrok, the link changes every time you restart it. That means you’ll need to update the Callback URL in your Meta App every time you run your bot.
+💡 Tip: For testing, I saved all my tokens in a separate file config.py and imported them in my bot script:
+# config.py
+VERIFY_TOKEN = "my_secret_token"
+PAGE_ACCESS_TOKEN = "your_page_access_token_here"
+Enter fullscreen mode
+Exit fullscreen mode
+Then in your main bot code:
+from config import VERIFY_TOKEN, PAGE_ACCESS_TOKEN
+Enter fullscreen mode
+Exit fullscreen mode
+This keeps your tokens out of the main script, making it safer and easier to manage.
+Key Takeaways:
+Small setup mistakes can cost days.
+Planning is crucial.
+Keep your tokens safe.
+Use ngrok for local testing.
+Double-check your app types.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Marika Tchavtchavadze
+Follow
+Freelance Python developer 🐍 building AI chatbots 🤖 and data projects 📊.
+Learning, experimenting, and sharing lessons from my journey 🚀.
+Love backpacking 🏕️ and exploring nature 🌿.
+Education
+Master of Mathematics
+Work
+Freelance Python developer
+Joined
+Sep 1, 2025
+More from Marika Tchavtchavadze
+How I Built My First Telegram Bot (and Why Small Steps Matter)
+#programming
+#python
+#heroku
+#learning
+Greetings DEV Community
+#ai
+#python
+#machinelearning
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

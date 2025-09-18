@@ -1,0 +1,329 @@
+Azure IoT integration for Home Assistant · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+wictorwilen/azureiot.md
+Last active
+September 17, 2025 13:23
+Show Gist options
+Download ZIP
+Star
+9
+(9)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/wictorwilen/cf2de4ff98105eff4dfb16dd04c879d4.js&quot;&gt;&lt;/script&gt;
+Save wictorwilen/cf2de4ff98105eff4dfb16dd04c879d4 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+9
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/wictorwilen/cf2de4ff98105eff4dfb16dd04c879d4.js&quot;&gt;&lt;/script&gt;
+Save wictorwilen/cf2de4ff98105eff4dfb16dd04c879d4 to your computer and use it in GitHub Desktop.
+Download ZIP
+Azure IoT integration for Home Assistant
+Raw
+azureiot.md
+layout
+title
+description
+date
+sidebar
+comments
+sharing
+footer
+logo
+ha_category
+page
+Azure IoT
+Offers support for Azure IoT integration with Homeassistant.
+2017-10-22 14:18
+true
+false
+true
+true
+home-assistant.png
+Other
+The Azure IoT platform is an integration with Azure IoT Hub for homeasistant
+To add Azure IoT to your installation, add the following to your configuration.yaml file:
+# Example configuration.yaml entry
+azureiot:
+host: <azure-iot-host>
+devices:
+<azure-iot-device-name>:
+auth_key: <auth-key>
+include:
+- <sensors>
+<another-azure-iot-device-name>:
+auth_key: <auth-key>
+include:
+- <sensors>
+Configuration variables:
+azure-iot-host : Name of your Azure IoT Hub host (without .azure-devices.net)
+azure-iot-device-name : Name of your Azure IoT Hub device.
+auth-key: The authentication key for the device.
+sensors array (Optional): The sensor values you want to send to the Azure IoT hub. Note, not specifying any sensors will send all event changes to Azure IoT
+A full configuration example can be found below:
+# Example configuration.yaml entry
+azureiot:
+host: myazureiothub
+devices:
+hass_device_1:
+auth_key: ABC1230ABC1230ABC1230ABC1230ABC1230ABC12300=
+include:
+- sun.sun
+- sensor.dht_sensor_temperature
+- sensor.yr_temperature
+hass_device_2:
+auth_key: ABC1230ABC1230ABC1230ABC1230ABC1230ABC12300=
+include:
+- group.phones
+- group.computers
+Raw
+azureiot.py
+"""
+Support for Azure IoT Hub.
+For more details about this platform, please refer to the documentation at
+https://home-assistant.io/components/???
+"""
+import logging
+import voluptuous as vol
+import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.event import async_track_state_change
+from homeassistant.const import MATCH_ALL
+from homeassistant.core import callback
+from homeassistant.util import slugify
+REQUIREMENTS = ['azure-iothub-device-client']
+DOMAIN = 'azureiot'
+ATTR_NAME = 'name'
+DEFAULT_NAME = 'Azure IoT Hub'
+SEND_CALLBACKS = 0
+MESSAGE_TEMPLATE = "{{\"device\":\"{}\",\"entity\":\"{}\",\"state\":\"\"}}"
+_LOGGER = logging.getLogger(__name__)
+CONF_CONNECTIONSTRING = "connection_string"
+CONF_HOST = 'host'
+CONF_DEVICE_ID = 'device_id'
+CONF_AUTH_KEY = 'auth_key'
+CONF_MESSAGE_TIMEOUT = 'message_timeout'
+CONF_LOG_LEVEL = 'log_level'
+MESSAGE_COUNTER = 0
+SEND_CALLBACKS = 0
+CONF_EXCLUDE = 'exclude'
+CONF_INCLUDE = 'include'
+CONF_DEVICES = 'devices'
+CONF_ENTITIES = 'entities'
+CLIENTS = {}
+# Kolla scripts.py
+CONFIG_SCHEMA = vol.Schema({
+DOMAIN: vol.Schema({
+vol.Required(CONF_HOST): cv.string,
+vol.Optional(CONF_MESSAGE_TIMEOUT, default=10000): cv.positive_int,
+vol.Optional(CONF_LOG_LEVEL, default=0): cv.positive_int,
+CONF_DEVICES: vol.Schema({
+cv.string: vol.All({
+vol.Required(CONF_AUTH_KEY): cv.string,
+vol.Required(CONF_INCLUDE, default=[]): cv.entity_ids,
+})
+})
+}),
+}, extra=vol.ALLOW_EXTRA)
+def setup(hass, config):
+"""Set up is called when Home Assistant is loading our component."""
+import iothub_client
+from iothub_client import IoTHubClient, IoTHubClientError, IoTHubTransportProvider, IoTHubClientResult
+from iothub_client import IoTHubMessage, IoTHubMessageDispositionResult, IoTHubError, DeviceMethodReturnValue
+@callback
+def _send_confirmation_callback(message, result, user_context):
+_LOGGER.info("Confirmation[%d] received for message with result = %s" % (
+user_context, result))
+def iothub_client_init(config, device):
+conn = "HostName={}.azure-devices.net;DeviceId={};SharedAccessKey={}".format(
+config[DOMAIN].get("host"), device[0], device[1].get("auth_key"))
+client = IoTHubClient(conn, IoTHubTransportProvider.MQTT)
+# # set the time until a message times out
+client.set_option("messageTimeout",
+config[DOMAIN].get(CONF_MESSAGE_TIMEOUT))
+client.set_option("logtrace", config[DOMAIN].get(CONF_LOG_LEVEL))
+return client
+def _publish_to_azure(entity_id, old_state, new_state):
+if new_state is None:
+return
+global CLIENTS
+global MESSAGE_COUNTER
+for device in config[DOMAIN]["devices"].items():
+include = device[1].get(CONF_INCLUDE)
+if not include or any(entity_id in t for t in include):
+devicename = device[0]
+client = CLIENTS.get(devicename)
+_LOGGER.warn("device {} recieved an update for {}".format(devicename, entity_id))
+message = IoTHubMessage(MESSAGE_TEMPLATE.format(
+config[DOMAIN].get(CONF_DEVICE_ID), entity_id, new_state.state))
+client.send_event_async(
+message, _send_confirmation_callback, MESSAGE_COUNTER)
+hass.states.set("azureiot.{}".format(slugify(devicename)), 'initialized',
+{'error_message': '',
+'count': MESSAGE_COUNTER})
+MESSAGE_COUNTER += 1
+# Initialize devices
+for device in config[DOMAIN]["devices"].items():
+try:
+devicename = device[0]
+CLIENTS[device[0]] = iothub_client_init(config, device)
+hass.states.set("azureiot.{}".format(slugify(device[0])), 'initialized',
+{'error_message': '',
+'count': 0})
+include = device[1].get(CONF_INCLUDE)
+if not include:
+_LOGGER.info("Setting up {} to listen for all events".format(devicename))
+async_track_state_change(
+hass, include, _publish_to_azure)
+else:
+_LOGGER.info("Setting up {} to listen for {}".format(devicename, include))
+async_track_state_change(
+hass, MATCH_ALL, _publish_to_azure)
+except IoTHubClientError as iot_error:
+_LOGGER.error("Azure IoT error: {}".format(iot_error))
+hass.states.set("azureiot.{}".format(slugify(device[0])), 'error', {
+'error_message': "{}".format(iot_error)
+})
+# Return boolean to indicate that initialization was successfully.
+return True
+Copy link
+maxperron
+commented
+Jan 17, 2018
+Hello! Thank you for that!
+I was wondering if it was still working (as it's not an official component). I download your component and added it to my custom component folder. But I still get this error:
+`Traceback (most recent call last):
+File "/usr/local/lib/python3.6/dist-packages/homeassistant/setup.py", line 193, in _async_setup_component
+component.setup, hass, processed_config)
+File "/usr/lib/python3.6/asyncio/futures.py", line 332, in __iter__
+yield self
+# This tells Task to wait for completion.
+File "/usr/lib/python3.6/asyncio/tasks.py", line 250, in _wakeup
+future.result()
+File "/usr/lib/python3.6/asyncio/futures.py", line 245, in result
+raise self._exception
+File "/usr/lib/python3.6/concurrent/futures/thread.py", line 56, in run
+result = self.fn(*self.args, **self.kwargs)
+File "/home/maxime/.homeassistant/custom_components/azureiot.py", line 61, in setup
+import iothub_client
+File "/home/maxime/.homeassistant/deps/lib/python3.6/site-packages/iothub_client/__init__.py", line 1, in <module>
+from .iothub_client import *
+ImportError: libboost_python-py34.so.1.54.0: cannot open shared object file: No such file or directory
+2018-01-17 14:17:44 INFO (MainThread) [homeassistant.core] Bus:Handling <Event call_service[L]: domain=persistent_notification, service=create, service_data=title=Invalid config, message=The following components and platforms could not be set up:
+- [azureiot](https://home-assistant.io/components/azureiot/)
+Please check your config., notification_id=invalid_config, service_call_id=140154516441744-4>
+2018-01-17 14:17:44 INFO (MainThread) [homeassistant.core] Bus:Handling <Event state_changed[L]: entity_id=persistent_notification.invalid_config, old_state=None, new_state=<state persistent_notification.invalid_config=notifying; title=Invalid config, message=The following components and platforms could not be set up:
+- [azureiot](https://home-assistant.io/components/azureiot/)
+Please check your config. @ 2018-01-17T14:17:44.804082-05:00>>`
+I understand if you don't offer support.
+Have a great day!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+peterjlay
+commented
+Mar 13, 2018
+I am having a similar issue to maxperron, "The following components and platforms could not be set up:
+- azureiot".
+I have tried to specify sensors and not at all, but not sure the exact syntax to show all sensors, as you stated: "Note, not specifying any sensors will send all event changes to Azure IoT". Can you provide an example to send all event changes to Azure IoT? I have tried "include: " with nothing after that
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wictorwilen
+commented
+Jun 20, 2018
+Hey.
+Have you installed the Azure IoT Python lib?
+pip install azure-iothub-device-client
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ghost
+commented
+Jul 4, 2018
+Hi. I think there is a typo in line 23:
+MESSAGE_TEMPLATE = "{{"device":"{}","entity":"{}","state":""}}"
+I think it should be
+MESSAGE_TEMPLATE = "{{"device":"{}","entity":"{}","state":"{}"}}"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+joachimpr
+commented
+May 9, 2019
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hi there, been dying to try this out and I finally got everything set up. I am facing the issue where my IoT device is not receiving D2C messages. There are no errors in the home assistant log. The only thing I can sees is the following:
+WARNING (Thread-3) [custom_components.azureiot] device ISOPMS0001 recieved an update for sensor.kettle_energy_today
+In home assistant, the count item on the card for the azureiot component is increasing but nothing is going through to IotHub. No error messages are displayed on the card either.
+Another thing I noticed is that the component constantly says initialized... which I assume it is supposed to say?
+Could anyone give me some pointers? Would love to get this working!!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+glbwell0
+commented
+Oct 19, 2022
+I'm new to Home Assistant.
+Where do I put the Python code?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

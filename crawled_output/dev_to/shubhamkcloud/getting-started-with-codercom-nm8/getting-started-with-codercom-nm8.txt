@@ -1,0 +1,254 @@
+Getting Started with Coder.com - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Shubham Kumar
+Posted on Sep 17
+Getting Started with Coder.com
+#coder
+#clouddevelopment
+#devops
+#aws
+Introduction
+In today’s cloud-native world, developer productivity is often limited by the complexity of local development environments. Setting up tools, dependencies, and resources can be time-consuming and inconsistent across teams. That’s where Coder.com comes in.
+Coder provides a way to run developer environments remotely, allowing engineers to code from anywhere while maintaining security, scalability, and reproducibility. Recently, I performed a Proof of Concept (POC) using Coder.com, and in this blog, I’ll share my experience, learnings, and key takeaways.
+Why Coder.com?
+Traditional development setups often face challenges like:
+Inconsistent environments across machines
+Long onboarding times for new developers
+Security concerns when code resides on laptops
+Scalability issues when projects demand more compute power
+To address these issues, I explored Coder.com, a platform that enables cloud-hosted, reproducible developer workspaces. Recently, I ran a Proof of Concept (POC) to evaluate how Coder fits into a real-world setup. This blog walks you through my installation, configuration, and learnings.
+Step 1: Install Dependencies
+I began with a clean Ubuntu server. First, I updated the system and installed required utilities:
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y curl unzip
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2: Install Coder
+I fetched the latest release of Coder from GitHub and installed it:
+CODER_VERSION=$(curl -s https://api.github.com/repos/coder/coder/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')
+curl -fSL "https://github.com/coder/coder/releases/download/v${CODER_VERSION}/coder_${CODER_VERSION}_linux_amd64.deb" -o coder.deb
+sudo apt install ./coder.deb
+coder --version
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Install Docker
+Coder requires Docker for container-based workspaces, so I installed and enabled it:
+sudo apt update
+sudo apt install -y docker.io
+sudo systemctl enable --now docker
+docker ps
+Enter fullscreen mode
+Exit fullscreen mode
+I also added my user (ubuntu) to the Docker group for permissions:
+sudo usermod -aG docker ubuntu
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4: Run Coder Server
+Once Docker was ready, I launched the Coder server:
+coder server
+Enter fullscreen mode
+Exit fullscreen mode
+To make Coder run as a service, I created a systemd service unit:
+sudo tee /etc/systemd/system/coder.service > /dev/null <<EOF
+[Unit]
+Description=Coder service
+After=network.target
+[Service]
+ExecStart=/usr/bin/coder server
+Restart=always
+User=ubuntu
+Environment=CODER_ADDRESS=0.0.0.0:7080
+[Install]
+WantedBy=multi-user.target
+EOF
+Enter fullscreen mode
+Exit fullscreen mode
+Then reloaded and enabled it:
+sudo systemctl daemon-reload
+sudo systemctl enable coder
+sudo systemctl start coder
+Enter fullscreen mode
+Exit fullscreen mode
+Finally, I opened port 7080 on the server and accessed the Coder dashboard at:
+http://<server-ip>:7080
+Enter fullscreen mode
+Exit fullscreen mode
+Once you access the UI, we need to create admin user first.
+Step 5: Play with Coder UI
+I have used the built-in Docker Template to Create a Workspace
+From the Coder dashboard, I selected the Docker template to spin up a workspace.
+This template allowed me to quickly create a development container running on my server.
+I have created a new user and assign him the member role and he can easily access my templates.
+Step 6: Create Custom template
+Coder integrates natively with Terraform. I have ssh into my ubuntu machine and created a main.tf file to define a simple workspace template:
+terraform {
+required_providers {
+coder = {
+source
+= "coder/coder"
+version = "0.15.0"
+}
+}
+}
+provider "coder" {}
+resource "coder_agent" "dev" {
+arch = "amd64"
+os
+= "linux"
+startup_script = <<EOT
+#!/bin/bash
+set -e
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip git curl vim
+EOT
+}
+Enter fullscreen mode
+Exit fullscreen mode
+I initialized Terraform and pushed the template to Coder:
+terraform init
+coder templates push my-ubuntu-template
+Enter fullscreen mode
+Exit fullscreen mode
+Now, in the Coder dashboard, I can see my custom template.
+✅ Final Thoughts
+This POC with Coder.com gave me a solid understanding of how remote developer environments can simplify onboarding, improve consistency, and enhance security. By testing both the Docker template and Terraform-based custom templates, I was able to validate that Coder is flexible enough to support simple as well as advanced use cases.
+If you have questions or want to share your experience, feel free to drop a comment or reach out to me at https://www.linkedin.com/in/shubham-kumar1807/
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Shubham Kumar
+Follow
+AWS|Cloud Infrastructure|AWS Multi Account Architecture Setup|MicroServices|DevOps|GenAI|K8S|Data Engineer|Cloud Architecture|Infra automation|Cloud Security|Cloud Administrator|AWS Cost Optimisation|
+Joined
+Jul 21, 2021
+More from Shubham Kumar
+🛡️ Kubernetes Pod Security Best Practices: 13 Key Strategies for Hardening Your Workloads
+#kubernetes
+#eks
+#security
+#aws
+A Beginner’s Guide to Building a Career in DevOps and Cloud
+#devops
+#cloud
+#aws
+#learning
+Enhancing AWS S3 Security with GuardDuty.
+#aws
+#guardduty
+#s3malwareprotection
+#s3
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,270 @@
+Engineering "The" Loop - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Trent Best
+Posted on Sep 17
+Engineering "The" Loop
+#architecture
+#designpatterns
+#gamedev
+The Problem with the Classic Game Loop 🎮
+Almost every interactive application, from video games to user interfaces, relies on a continuous execution loop. This loop is the heart of the application, responsible for everything from updating the game state to rendering graphics. While it's a fundamental concept, the traditional approach can often feel like a point of contention among developers. Why? Because the classic game loop, often a simple while(true) or while(IsRunning) block, can quickly become an unmanageable monolith.
+Consider a typical game loop:
+void MainGameLoop()
+{
+Initialize();
+while (IsRunning)
+{
+ProcessInput();
+UpdateGameState();
+RenderGraphics();
+PlayAudio();
+// ...and a dozen other things
+}
+Shutdown();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This works for simple projects, but as an application grows, this single loop becomes a catch-all for complex logic. It tightly couples disparate systems (like input, rendering, and AI), making the code difficult to maintain, test, and debug. You end up with a single, massive function that handles everything, and any small change can have unintended consequences.
+A Better Way: A State Machine-Driven Loop ✨
+What if we could break free from this monolithic approach? What if our application's "loop" wasn't a static while statement, but a dynamic, self-managing system? That's the power of a Finite State Machine (FSM).
+In our project, we've integrated this idea into the MainWindowViewModel for a WPF application. Instead of a single, endlessly running loop, our application's flow is managed by an FSM. Each "tick" of the application isn't a fixed set of actions, but a transition to a new state based on events.
+Our MainWindowViewModel (from the provided code) implements the IStateContext interface:
+public class MainWindowViewModel : INotifyPropertyChanged, IStateContext
+{
+// ... properties and methods
+public bool IsValid { get; set; }
+public string Name { get; set; }
+public void InitializeState()
+{
+// This method will be called by the FSM
+// It will be the entry point for our initial actions
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This approach allows the FSM to dictate what happens at any given moment. For example, when the application starts, the FSM can trigger the InitializeState() method. If a user clicks a button, the FSM can transition the application into a new state that handles that specific action, like fetching GitHub repository data. The loop isn't a single, continuous block—it's a series of transitions and actions managed by a state machine.
+This makes the MainWindowViewModel highly modular and responsive. We can have states like LoadingRepositories, ShowingGitHubStatus, or Idle, and the FSM ensures that the correct actions are executed for each state.
+The API Evolution: From Simple to Dynamic 🚀
+The two provided Unity C# scripts, FSM_UnityIntegration.cs and FSM_UnityIntegrationAdvanced.cs, showcase different approaches to creating a game loop driven by a Finite State Machine (FSM) API. The basic FSM_UnityIntegration script uses a rigid one-to-one mapping between Unity's lifecycle methods and a single FSM processing group. In contrast, FSM_UnityIntegrationAdvanced allows for a dynamic, runtime-modifiable list of processing groups for each Unity message, providing greater flexibility. Both scripts implement the singleton pattern to ensure only one instance of the integration exists in a scene.
+The Basic Approach: Direct Mapping
+In our initial API, we used a direct one-to-one mapping. Each Unity message (like Start, Update, OnDestroy) directly called a single, corresponding process group. This was a step up from the monolithic loop, but it was still quite rigid. You had a predefined set of actions for each phase of the application lifecycle.
+For instance, the Update() method in the basic integration always calls the single _updateProcessingGroup:
+void Update()
+{
+FSM_API.Interaction.Update(_updateProcessingGroup);
+FSM_API.Interaction.Update(_unityHandles);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Pros:
+Simplicity: It's a simple, predictable model that's easy for new developers to grasp.
+Performance: The direct call to a single processing group is efficient and has minimal overhead.
+Reliability: The flow is fixed and well-defined, reducing the chance of unexpected behavior.
+Cons:
+Rigidity: The biggest drawback is its lack of flexibility. You can't dynamically add or remove processing groups at runtime. To change what happens during an Update, you'd need to modify the code itself.
+Limited Customization: It's not suitable for scenarios where the game loop needs to change its behavior based on the application's state, such as enabling or disabling different systems (e.g., a combat system) only when a specific state is active.
+The Advanced Approach: Runtime Modifiable Loops
+Our more advanced API takes this a step further. We don't just have a single method for Update; instead, we provide a list of strings that represent the process groups to be executed. This is a simple but incredibly powerful change.
+The Update() method in the advanced integration iterates through a list of groups, calling FSM_API.Interaction.Update() for each one:
+void Update()
+{
+foreach (var group in _updateProcessingGroup)
+{
+FSM_API.Interaction.Update(group);
+}
+FSM_API.Interaction.Update(_unityHandles);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This allows us to add, remove, or reorder process groups on the fly. For example, when the FSM enters a FetchRepositories state, it can dynamically add the GitHubRepositoryService process group to the update list using the AddProcessingGroup() method. When the fetch is complete, the FSM transitions to another state and can remove that process group. The application's loop isn't just a fixed sequence of events—it's a fluid, context-aware process.
+Pros:
+Flexibility and Modularity: You can compose the game loop on the fly, adding and removing systems as needed without changing the core integration code.
+State-Driven Behavior: This approach fully leverages the power of the FSM. Different states can dictate which systems are active, making the application's behavior highly contextual and adaptive.
+Scalability: It's easier to add new systems without a cascading effect. You simply create a new processing group and add it to the relevant list when it's needed.
+Cons:
+Complexity: This model is more complex to set up and manage. Developers must be mindful of which groups are active at any given time to avoid unexpected behavior.
+Potential Performance Overhead: Iterating through a list of groups every frame adds a small amount of overhead compared to a direct function call, though this is negligible in most cases.
+Debugging: It can be more challenging to debug, as the flow of execution isn't fixed; it depends on the current state and the contents of the processing group lists.
+Comparison and Conclusion ⚖️
+Feature
+Basic Integration
+Advanced Integration
+Execution Model
+Fixed: One-to-one mapping between Unity messages and FSM groups.
+Dynamic: Iterates through a runtime-modifiable list of groups.
+Flexibility
+Low: Changes require code modification.
+High: Groups can be added/removed at runtime.
+Use Case
+Ideal for simple applications with a consistent, unchanging game loop.
+Best for complex, state-driven applications where systems need to be enabled/disabled dynamically.
+Maintainability
+Easy to maintain and understand for small projects.
+More maintainable in the long run for large projects, as logic is isolated by state.
+Scalability
+Limited: Adding new features can lead to a monolithic Update() method.
+High: New systems can be added without modifying core code.
+The choice between the two integrations depends on the needs of the project. The basic FSM_UnityIntegration is a great starting point for developers who want a simple, reliable FSM-driven loop without the need for complex, dynamic behavior. The advanced FSM_UnityIntegrationAdvanced is a more powerful and scalable solution for larger, more complex applications that require a fluid and responsive game loop that can adapt to different application states. By leveraging the FSM to control which groups are active, the advanced model creates a truly context-aware application loop.
+Conclusion: The Future is State-Driven 🤖
+By moving from a monolithic while loop to a dynamic, FSM-driven execution model, we've created an application that is more:
+Modular: Each process group and state handles a single responsibility.
+Maintainable: Logic is isolated, making it easier to debug and modify.
+Scalable: We can easily add new features without a cascading effect.
+Runtime Modifiable: The application can adapt its behavior on the fly based on its current state.
+This isn't just about elegant code; it's about building robust, flexible, and powerful applications that can grow and evolve without becoming a tangled mess. So next time you're about to write a classic while(true) loop, ask yourself: could a state machine do this better?
+💖 Support Us
+If you find this project useful, you can support its development through PayPal.
+Donate via PayPal
+🔗 Useful Links
+NuGet Package: TheSingularityWorkshop.FSM_API
+GitHub Repository: TrentBest/FSM_API
+License: MIT License
+🧠 Brought to you by
+The Singularity Workshop – Tools for the curious, the bold, and the systemically inclined.
+Because state shouldn’t be a mess.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Trent Best
+Follow
+The Singularity Workshop is proudly developing technology to usher in the Singularity, an age where humanity unlocks it's full creative potential, and steps away from our broken history.
+Location
+Washington, USA
+Education
+CSU Chico
+Pronouns
+he/him
+Work
+AEC BIM Consultant
+Joined
+Sep 5, 2025
+Trending on DEV Community
+Hot
+Package naming nobody cares about (but should)
+#kotlin
+#architecture
+#codequality
+#java
+What was your win this week?
+#weeklyretro
+#discuss
+Automate GitHub Security Reviews with Glama’s AI Automation and MCP Servers
+#ai
+#beginners
+#tutorial
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

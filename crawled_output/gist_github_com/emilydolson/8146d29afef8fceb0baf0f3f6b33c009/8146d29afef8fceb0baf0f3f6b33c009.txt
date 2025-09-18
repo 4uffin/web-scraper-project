@@ -1,0 +1,183 @@
+Simple Bloom filter implementation in Python 3 (for use with the HIBP password list) · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+emilydolson/bloom.py
+Forked from marcan/bloom.py
+Last active
+September 17, 2025 16:16
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/emilydolson/8146d29afef8fceb0baf0f3f6b33c009.js&quot;&gt;&lt;/script&gt;
+Save emilydolson/8146d29afef8fceb0baf0f3f6b33c009 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+12
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/emilydolson/8146d29afef8fceb0baf0f3f6b33c009.js&quot;&gt;&lt;/script&gt;
+Save emilydolson/8146d29afef8fceb0baf0f3f6b33c009 to your computer and use it in GitHub Desktop.
+Download ZIP
+Simple Bloom filter implementation in Python 3 (for use with the HIBP password list)
+Raw
+bloom.py
+#!/usr/bin/python3
+#
+# Simple Bloom filter implementation in Python 3
+# Copyright 2017 Hector Martin "marcan" <marcan@marcan.st>
+# Licensed under the terms of the MIT license
+# Adapted by Emily Dolson in 2022
+#
+# Use something like this to work out what 'm' and 'k' you need:
+#
+https://krisives.github.io/bloom-calculator/
+#
+# Examples:
+#
+#
+$ python3
+#
+>>> from hashlib import sha1
+#
+>>> from bloom import BloomFilter
+#
+>>> filter = BloomFilter(1000, 1)
+#
+>>> filter.add("hi")
+#
+>>> filter.contains("hi")
+#
+True
+#
+>>> filter.contains("bye")
+#
+False
+import mmap
+from hashlib import md5
+class BloomFilter(object):
+ALIGN = 65536
+THRESHOLD_HEADROOM = 2**16 # for uniformity, rehash after fewer bits left
+def __init__(self, m=None, k=None):
+self.bits = None
+self.create(m, k)
+def create(self, m, k):
+size = (m + 7) // 8
+size = (size + self.ALIGN - 1) & ~(self.ALIGN - 1)
+self.m = m
+self.k = k
+self.size = size
+self.offset = self.ALIGN
+self.threshold = 1
+while self.threshold < self.m:
+self.threshold *= 2
+self.threshold *= self.THRESHOLD_HEADROOM
+self.bits = mmap.mmap(-1, self.size, offset=self.offset)
+def hash(self, s):
+capacity = 0
+val = 0
+if isinstance(s, str):
+s = s.encode("utf-8")
+for i in range(self.k):
+if capacity < self.threshold:
+s = md5(s).digest()
+val = int.from_bytes(s, byteorder='big')
+capacity = 1 << 128
+h = val % self.m
+val //= self.m
+capacity //= self.m
+yield h
+def add(self, s):
+for h in self.hash(s):
+byte, bit = h >> 3, h & 7
+self.bits[byte] |= 1 << bit
+def update(self, iterable):
+for s in iterable:
+for h in self.hash(s):
+byte, bit = h >> 3, h & 7
+self.bits[byte] |= 1 << bit
+def contains(self, s):
+for h in self.hash(s):
+byte, bit = h >> 3, h & 7
+if not (self.bits[byte] & (1 << bit)):
+return False
+return True
+def sync(self):
+self.bits.flush()
+def __del__(self):
+if self.bits:
+self.bits.flush()
+self.bits.close()
+Copy link
+Author
+emilydolson
+commented
+Jan 30, 2024
+Readme
+General instructions for using this class:
+Constructor
+The constructor takes two values as arguments: m (the size of the Bloom filter) and k (the number of hash functions). So for example to create a Bloom filter with 1000 spots in its array and two hash functions you could do:
+bf = BloomFilter(1000, 2)
+Add
+Takes one argument (the element to be added) and adds it. So for example to add the string "MSU" to our bloom filter from above, we could do:
+bf.add("MSU")
+Contains
+Takes one argument and checks whether the Bloom filter potentially has already had that item added. So for example if we wanted to check whether its possible that the string "MSU" had been added to a our bloom filter, we could do:
+bf.contains("MSU")
+and it would return True.
+If we instead asked it for something it didn't contain, e.g.:
+bf.contains("apple")
+it would probably return False but there is a small chance that it would return True.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

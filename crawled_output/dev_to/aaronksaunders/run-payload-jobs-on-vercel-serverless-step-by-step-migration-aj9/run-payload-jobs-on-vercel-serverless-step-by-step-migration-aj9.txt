@@ -1,0 +1,362 @@
+Run Payload Jobs on Vercel (Serverless) — Step‑by‑Step Migration - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Aaron K Saunders
+Posted on Sep 17
+Run Payload Jobs on Vercel (Serverless) — Step‑by‑Step Migration
+#payloadcms
+#nextjs
+#serverless
+#vercel
+I recently did a video tutorial on using jobs and queues in PayloadCMS and the solution I provide will not work in a Vercel deployment, runs locally and will probably also run on Railway because those are actual servers.
+This blog post explains why and walks you through how to update the project to run on Vercel.
+Get the source code here
+The "Why": Serverless vs. Long-Running Processes
+The code in the video uses Payload's built-in jobs queue, which relies on a long-running Node.js server process. The autoRun: true setting starts a persistent "clock" (setInterval) inside your server that checks every minute if a job needs to run.
+With Vercel, however, since it is a serverless platform, your code doesn't run on a server that is "always on." Instead, it's packaged into serverless functions that spin up to handle an incoming request and then shut down shortly after the response is sent.
+Because the functions shut down, there is no persistent process to keep the scheduler's "clock" ticking in the background. Your job would never be triggered after the initial deployment.
+A Vercel functions have execution timeouts (e.g., 10-60 seconds on hobby/pro plans). Since the payload job queue designed to run indefinitely would be terminated.
+The Solution: How to Run Scheduled Jobs on Vercel
+You can run scheduled tasks with your Payload CMS app on Vercel, but you need to change the trigger mechanism. Instead of having the app schedule itself, you use an external service to call your app on a schedule.
+Vercel has Vercel Cron Jobs which can be utilized to solve our problem
+Here is how you would updat the project to work on Vercel:
+Step 1: Disable autoRun in Payload Config
+First, prevent Payload from trying to start its own internal scheduler.
+In payload.config.ts, Disable auto scheduling by default on serverless. Opt‑in locally or on traditional servers with ENABLE_PAYLOAD_AUTORUN=true.
+// payload.config.ts
+jobs: {
+tasks: [processTrackersTask],
+/**
+* Conditionally enable autoRun based on environment
+* @description Serverless environments (e.g., Vercel) should disable in-process schedulers.
+* Set ENABLE_PAYLOAD_AUTORUN="true" locally or on traditional servers to turn this on.
+*/
+autoRun:
+process.env.ENABLE_PAYLOAD_AUTORUN === 'true'
+? [
+{
+cron: '* * * * *', // Process jobs every minute
+queue: 'tracker-queue',
+},
+]
+: [],
+jobsCollectionOverrides: ({ defaultJobsCollection }) => {
+// keep jobs visible in Admin
+if (!defaultJobsCollection.admin) {
+defaultJobsCollection.admin = {}
+}
+defaultJobsCollection.admin.hidden = false
+return defaultJobsCollection
+},
+},
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2: Create a Secure API Endpoint to Trigger the Job
+Make the task’s internal schedule conditional and export a runProcessTrackers function you can call from an API route which is what the vercel cron job will call.
+export const processTrackersTask: TaskConfig<'process-trackers'> = {
+slug: 'process-trackers',
+/**
+* Conditionally attach schedule when ENABLE_PAYLOAD_TASK_SCHEDULE === 'true'
+* @description On serverless, keep this empty and rely on Vercel Cron hitting an API route.
+*/
+schedule:
+process.env.ENABLE_PAYLOAD_TASK_SCHEDULE === 'true'
+? [
+{
+cron: '* * * * *', // Run every minute
+queue: 'tracker-queue',
+},
+]
+: [],
+handler: async (): Promise<TaskHandlerResult<'process-trackers'>> => {
+return runProcessTrackers()
+},
+}
+/**
+* Reusable runner for process-trackers
+* @description Extracted so we can call from API route or the Task handler.
+*/
+export const runProcessTrackers = async (): Promise<TaskHandlerResult<'process-trackers'>> => {
+console.log(`[TASK] Processing all active price trackers...`)
+// ... rest of implementation unchanged
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Create a Secure API Endpoint to Trigger the Job
+You need to create a route in your application that an external service can call. When this route is hit, it will manually trigger the job.
+It's critical to protect this endpoint, the standard way is to use a CRON_SECRET stored in an environment variable. If you don't implement a way to secure the endpoint then anyone can spam the endpoint and disrupt your site
+Create a new file, for example, at src/app/api/payload-cron/route.ts:
+import { NextResponse } from 'next/server'
+import { runProcessTrackers } from '@/tasks/process-trackers'
+/**
+* Validates cron job requests using CRON_SECRET authentication
+* @description Implements Vercel's official cron job security pattern:
+* - Primary: Checks Authorization header for "Bearer {CRON_SECRET}" (production)
+* - Fallback: Checks query parameter "secret" for manual testing
+*/
+const isAuthorized = (req: Request): boolean => {
+const configured = process.env.CRON_SECRET || ''
+if (!configured) {
+console.log('[CRON] No CRON_SECRET configured')
+return false
+}
+const authHeader = req.headers.get('authorization') || ''
+// Check if Authorization header matches CRON_SECRET (as per Vercel docs)
+if (authHeader === `Bearer ${configured}`) {
+return true
+}
+// Fallback to query param for manual testing
+try {
+const url = new URL(req.url)
+const qsSecret = url.searchParams.get('secret') || ''
+if (qsSecret === configured) {
+return true
+}
+} catch (e) {
+console.log('[CRON] Error parsing URL:', e)
+}
+console.log('[CRON] Authorization failed')
+return false
+}
+export const dynamic = 'force-dynamic'
+export async function GET(req: Request) {
+console.log('[CRON] Processing cron job request')
+if (!isAuthorized(req)) {
+return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+}
+console.log('[CRON] Authorization successful, running task...')
+const result = await runProcessTrackers()
+console.log('[CRON] Task completed:', result)
+return NextResponse.json(result)
+}
+export async function POST(req: Request) {
+if (!isAuthorized(req)) {
+return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+}
+const result = await runProcessTrackers()
+return NextResponse.json(result)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4: Configure environment variables
+Add the new environment variables
+ENABLE_PAYLOAD_AUTORUN=false
+ENABLE_PAYLOAD_TASK_SCHEDULE=false
+CRON_SECRET=replace-with-long-random-string
+Enter fullscreen mode
+Exit fullscreen mode
+Step 5: Configure Vercel Cron Jobs
+Finally, you tell Vercel to call this new endpoint on a schedule. You do this by adding a crons section to a vercel.json file in the root of your project.
+Vercel will automatically send the CRON_SECRET environment variable as an Authorization: Bearer {CRON_SECRET} header when invoking your endpoint. This follows Vercel's official documentation for cron job security.
+// vercel.json
+{
+"crons": [
+{
+"path": "/api/payload-cron",
+"schedule": "* * * * *"
+}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+path: This is the API route you created in Step 2.
+schedule: This is the standard cron syntax. * * * * * means "run every minute," just like in the video.
+Notes:
+This sets a once-per-minute schedule. Adjust the cron as needed.
+Vercel automatically sends CRON_SECRET as Authorization header - no manual header configuration needed.
+For manual testing, you can pass the secret via query string: /api/payload-cron?secret=$CRON_SECRET. The route supports both header and ?secret= for convenience.
+Test Locally
+Vercel Cron only runs in Vercel’s cloud environment. The vercel dev command does not simulate cron triggers.
+Run dev server and trigger the route manually:
+pnpm run dev
+curl -i -H "x-cron-secret: $CRON_SECRET" http://localhost:3000/api/payload-cron
+curl -i "http://localhost:3000/api/payload-cron?secret=$CRON_SECRET" # query param alternative
+Enter fullscreen mode
+Exit fullscreen mode
+You should see logs:
+[TASK] Processing all active price trackers...
+[TASK] Found N active trackers to process.
+[TASK] Fetching prices for coins: ...
+[TASK] Finished processing trackers.
+Enter fullscreen mode
+Exit fullscreen mode
+Expected responses:
+Success (200): { "output": { "success": true } }
+Unauthorized (401): { "error": "Unauthorized" } (check your header/query secret)
+Tips:
+Ensure ENABLE_PAYLOAD_AUTORUN=false and ENABLE_PAYLOAD_TASK_SCHEDULE=false locally to avoid double execution while testing the route.
+If you prefer in-process scheduling in local dev, set ENABLE_PAYLOAD_AUTORUN=true and skip calling the route.
+So, while the core logic of the process-tracker.ts file remains the same, the method of triggering that logic must be adapted for Vercel's serverless architecture.
+Vercel deployment checklist
+Configure env vars (Project → Settings → Environment Variables)
+DATABASE_URI, PAYLOAD_SECRET
+ENABLE_PAYLOAD_AUTORUN=false, ENABLE_PAYLOAD_TASK_SCHEDULE=false, CRON_SECRET=<long-random>
+Deploy the app (Git push or Vercel CLI)
+vercel.json is included and automatically configures cron jobs
+Verify
+Call: https://<your-app>.vercel.app/api/payload-cron?secret=<CRON_SECRET>
+Expect 200 and { "output": { "success": true } }
+Check Vercel logs and Payload Admin for updates
+When everything is properly deployed you can go to Project Setting / Jobs and you should see something similar to this.
+Summary
+This blog post shows how to update Payload CMS's built-in Jobs Queue system for serverless deployment on Vercel. By replacing in-process schedulers with Vercel Cron, we achieve:
+Reliable Scheduling: Cron jobs run consistently in serverless environments
+Proper Authentication: Uses Vercel's official CRON_SECRET Authorization header pattern
+Environment Flexibility: Same codebase works locally (with in-process scheduling) and on Vercel (with HTTP scheduling)
+Production Ready: Follows Vercel's documented best practices for cron job security
+The key insight is that serverless functions are short lived, so persistent timers don't work. The solution is to trigger work via scheduled HTTP requests that execute tasks on-demand, maintaining the same functionality while adapting to the serverless model.
+Reference Links
+Official Documentation
+Vercel Cron Jobs Documentation - Official guide for setting up cron jobs
+Vercel Cron Jobs Management - Managing and securing cron jobs
+Payload CMS Jobs Queue - Payload's built-in job system
+Next.js API Routes - Creating API endpoints
+Related Resources
+Vercel Functions Documentation - Understanding Vercel's serverless functions
+Payload CMS Configuration - General Payload configuration
+Vercel Cron Examples - Vercel templates with cron jobs
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Aaron K Saunders
+Follow
+See more, like and subscribe 👉🏾 ‪Aaron Saunders 📺
+https://www.youtube.com/aaronsaundersci?sub_confirmation=1
+Location
+Washington, DC
+Education
+MBA NYU Stern School of Business
+Work
+CEO at Clearly Innovative Inc
+Joined
+Sep 23, 2017
+More from Aaron K Saunders
+[Video] Payload CMS Custom Array Field Component
+#payloadcms
+#nextjs
+#fullstack
+#webdev
+Firebase and Payload CMS: Early Look at a Client-Side Auth Strategy
+#payloadcms
+#firebase
+#webdev
+#nextjs
+Supercharge Your Payload CMS App's Middleware with saveToJWT
+#payloadcms
+#webdev
+#nextjs
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

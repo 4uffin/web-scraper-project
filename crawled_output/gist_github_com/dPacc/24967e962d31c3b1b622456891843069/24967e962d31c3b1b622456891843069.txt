@@ -1,0 +1,329 @@
+Self Host Private Docker Registry · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+dPacc/private_docker_registry.md
+Created
+January 23, 2025 05:07
+Show Gist options
+Download ZIP
+Star
+5
+(5)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/dPacc/24967e962d31c3b1b622456891843069.js&quot;&gt;&lt;/script&gt;
+Save dPacc/24967e962d31c3b1b622456891843069 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+5
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/dPacc/24967e962d31c3b1b622456891843069.js&quot;&gt;&lt;/script&gt;
+Save dPacc/24967e962d31c3b1b622456891843069 to your computer and use it in GitHub Desktop.
+Download ZIP
+Self Host Private Docker Registry
+Raw
+private_docker_registry.md
+Private Docker Registry Setup Guide
+A comprehensive guide for setting up a secure private Docker registry with authentication, UI, backup, and restoration capabilities.
+Table of Contents
+Prerequisites
+Registry Setup
+Authentication Setup
+UI Configuration
+Backup and Restoration
+Maintenance and Cleanup
+Troubleshooting
+Prerequisites
+Ubuntu 20.04 or later
+Docker installed
+Docker Compose installed
+Sufficient storage space (recommended: at least 50GB)
+Root or sudo access
+Registry Setup
+1. Create Directory Structure
+# Create base directory
+mkdir -p ~/docker-registry/{data,auth}
+cd ~/docker-registry
+2. Create Docker Compose Configuration
+Create docker-compose.yml:
+version: '3'
+services:
+registry:
+image: registry:2
+ports:
+- "5000:5000"
+environment:
+REGISTRY_AUTH: htpasswd
+REGISTRY_AUTH_HTPASSWD_REALM: Registry
+REGISTRY_AUTH_HTPASSWD_PATH: /auth/registry.password
+REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
+volumes:
+- ./auth:/auth
+- ./data:/data
+ui:
+image: joxit/docker-registry-ui:latest
+ports:
+- "8080:80"
+environment:
+- REGISTRY_TITLE=Private Docker Registry
+- REGISTRY_URL=http://registry:5000
+- SINGLE_REGISTRY=true
+- REGISTRY_SECURED=true
+- BASIC_AUTH_USER=admin
+- BASIC_AUTH_PASSWORD=redhat
+depends_on:
+- registry
+Authentication Setup
+1. Install Required Tools
+sudo apt update
+sudo apt install apache2-utils -y
+2. Create Authentication File
+# Create credentials file
+htpasswd -Bc auth/registry.password admin
+# Enter password when prompted (e.g., redhat)
+# Add additional users (if needed)
+htpasswd -B auth/registry.password additional_user
+3. Start the Registry
+docker-compose up -d
+4. Configure Docker Clients
+On each client machine that needs to access the registry:
+For Docker Runtime
+# Edit or create daemon.json
+sudo nano /etc/docker/daemon.json
+# Add the following content
+{
+"insecure-registries": ["your-registry-ip:5000"]
+}
+# Restart Docker
+sudo systemctl restart docker
+For Containerd Runtime
+# Edit containerd configuration
+sudo nano /etc/containerd/config.toml
+# Add the following configuration
+[plugins."io.containerd.grpc.v1.cri".registry]
+[plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+[plugins."io.containerd.grpc.v1.cri".registry.mirrors."your-registry-ip:5000"]
+endpoint = ["http://your-registry-ip:5000"]
+# Restart containerd
+sudo systemctl restart containerd
+Backup and Restoration
+1. Create Backup Script
+Create registry_backup.sh:
+#!/bin/bash
+# Configuration
+REGISTRY_HOME="/root/docker-registry"
+BACKUP_DIR="/data/registry_backups"
+BACKUP_NAME="registry_backup_$(date +%Y%m%d_%H%M%S)"
+KEEP_LAST_N=5
+# Create backup directory
+mkdir -p "$BACKUP_DIR"
+# Create backup
+echo "Creating backup..."
+tar -czf "$BACKUP_DIR/$BACKUP_NAME.tar.gz" \
+-C $(dirname "$REGISTRY_HOME") \
+--exclude="docker-registry/data/docker/registry/v2/blobs" \
+docker-registry
+# Cleanup old backups
+cd "$BACKUP_DIR"
+ls -t | grep 'registry_backup_.*\.tar\.gz$' | tail -n +$((KEEP_LAST_N + 1)) | xargs -r rm
+echo "Backup completed: $BACKUP_DIR/$BACKUP_NAME.tar.gz"
+2. Setup Automated Backups
+# Make script executable
+chmod +x registry_backup.sh
+# Add to crontab (run daily at 2 AM)
+crontab -e
+0 2 * * * /root/docker-registry/registry_backup.sh
+3. Restoration Procedure
+Create registry_restore.sh:
+#!/bin/bash
+if [ $# -ne 1 ]; then
+echo "Usage: $0 /path/to/backup.tar.gz"
+exit 1
+fi
+BACKUP_FILE="$1"
+REGISTRY_HOME="/root/docker-registry"
+# Stop registry
+cd $REGISTRY_HOME
+docker-compose down
+# Backup current state
+tar -czf "pre_restore_$(date +%Y%m%d_%H%M%S).tar.gz" ./*
+# Restore from backup
+rm -rf ./*
+tar -xzf "$BACKUP_FILE" -C "$REGISTRY_HOME/.."
+# Start registry
+docker-compose up -d
+echo "Restore completed. Please verify registry is functioning correctly."
+Maintenance and Cleanup
+1. Registry Cleanup Script
+Create cleanup_registry.sh:
+#!/bin/bash
+# Configuration
+REGISTRY_URL="http://localhost:5000"
+USERNAME="admin"
+PASSWORD="redhat"
+KEEP_LAST_N=20
+DRY_RUN=false
+# Function to get auth token
+get_auth_token() {
+echo $(echo -n "$USERNAME:$PASSWORD" | base64)
+}
+# Function to get tags for a repository
+get_tags() {
+local repo=$1
+local tags_json=$(curl -sf -u "${USERNAME}:${PASSWORD}" \
+"$REGISTRY_URL/v2/$repo/tags/list")
+if [ $? -eq 0 ] && [ ! -z "$tags_json" ]; then
+echo "$tags_json" | jq -r '.tags[]?' 2>/dev/null || echo ""
+else
+echo ""
+fi
+}
+# Function to get manifest digest
+get_digest() {
+local repo=$1
+local tag=$2
+local digest=$(curl -sf -I -u "${USERNAME}:${PASSWORD}" \
+-H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+"$REGISTRY_URL/v2/$repo/manifests/$tag" | grep Docker-Content-Digest | awk '{print $2}' | tr -d $'\r')
+echo "$digest"
+}
+# Function to delete a tag
+delete_tag() {
+local repo=$1
+local digest=$2
+if [ "$DRY_RUN" = true ]; then
+echo "Would delete: $repo@$digest"
+else
+echo "Deleting: $repo@$digest"
+curl -sf -X DELETE -u "${USERNAME}:${PASSWORD}" \
+"$REGISTRY_URL/v2/$repo/manifests/$digest"
+fi
+}
+echo "Starting registry cleanup process..."
+# Process each repository
+for repo in $(curl -sf -u "${USERNAME}:${PASSWORD}" "$REGISTRY_URL/v2/_catalog" | jq -r '.repositories[]'); do
+echo "Processing repository: $repo"
+tags_output=$(get_tags "$repo")
+if [ -z "$tags_output" ]; then
+continue
+fi
+readarray -t tags < <(echo "$tags_output" | sort -V)
+total_tags=${#tags[@]}
+if [ $total_tags -gt $KEEP_LAST_N ]; then
+to_delete=$((total_tags - KEEP_LAST_N))
+echo "Found $total_tags tags, keeping last $KEEP_LAST_N, will delete $to_delete"
+for ((i=0; i<$to_delete; i++)); do
+tag=${tags[$i]}
+digest=$(get_digest "$repo" "$tag")
+if [ ! -z "$digest" ]; then
+delete_tag "$repo" "$digest"
+fi
+done
+fi
+done
+echo "Cleanup process completed"
+if [ "$DRY_RUN" = false ]; then
+echo "Running garbage collection..."
+docker exec registry registry garbage-collect /etc/docker/registry/config.yml
+fi
+2. Schedule Regular Cleanup
+# Make script executable
+chmod +x cleanup_registry.sh
+# Add to crontab (run weekly)
+crontab -e
+0 3 * * 0 /root/docker-registry/cleanup_registry.sh
+Troubleshooting
+Common Issues and Solutions
+Authentication Failures
+# Verify auth file exists and is correctly formatted
+cat ~/docker-registry/auth/registry.password
+# Recreate auth file if needed
+htpasswd -Bc ~/docker-registry/auth/registry.password admin
+Registry Access Issues
+# Test registry connectivity
+curl -u admin:redhat http://registry-ip:5000/v2/_catalog
+# Check registry logs
+docker-compose logs registry
+UI Access Issues
+# Check UI container logs
+docker-compose logs ui
+# Verify UI is running
+curl http://localhost:8080
+# Check port availability
+netstat -tulpn | grep 8080
+Best Practices
+Regular Maintenance
+Monitor disk usage regularly
+Keep backups in multiple locations
+Test restoration process periodically
+Review and update cleanup policies
+Security
+Use strong passwords
+Regularly rotate credentials
+Keep Docker and components updated
+Monitor access logs
+Performance
+Clean up old images regularly
+Monitor system resources
+Optimize storage usage
+Additional Resources
+Official Docker Registry Documentation
+Docker Registry UI Documentation
+Docker Compose Documentation
+Copy link
+Author
+dPacc
+commented
+Jan 23, 2025
+If docker-compose throws an error, use docker compose (w/o the hyphen)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

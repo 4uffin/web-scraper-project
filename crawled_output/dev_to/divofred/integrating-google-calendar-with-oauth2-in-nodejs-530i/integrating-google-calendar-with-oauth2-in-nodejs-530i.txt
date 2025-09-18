@@ -1,0 +1,606 @@
+Integrating Google Calendar with OAuth2 in Node.js - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Fredrick Emmanuel
+Posted on Sep 16
+Integrating Google Calendar with OAuth2 in Node.js
+#google
+#oauth
+#node
+#calender
+📘 Integrating Google Calendar with OAuth2 in Node.js
+Time is very essential in our everyday life ⏳. The popular saying goes, "Time is money!!". Knowing how to efficiently allocate and account for every second can help foster growth and productivity, hence the need of this guide
+This guide walks you through the entire process of creating a meeting scheduler, time manager or calendry as I call it. Involving connecting your Node.js application with the Google Calendar API using OAuth2.
+We’ll go from creating a project in Google Cloud Console all the way to making API calls, storing tokens, and handling common errors.
+So sit back and let's quickly sail through this journey.
+1. 🚀 Create a Project in Google Cloud Console
+Go to Google Cloud Console.
+Click on New Project → give it a name (e.g., r360).
+Select your billing account (if prompted).
+Once created, make sure it’s selected at the top of your console.
+2. 📡 Enable Google Calendar API
+From the left menu, navigate to APIs & Services → Library.
+Search for Google Calendar API.
+Click Enable.
+3. 🔑 Configure OAuth Consent Screen
+Go to APIs & Services → OAuth consent screen.
+Choose External (unless you’re just testing internally).
+Fill in:
+App name
+User support email
+Developer email
+Save and continue.
+4. 🛠️ Create OAuth 2.0 Credentials
+Go to APIs & Services → Credentials.
+Click Create Credentials → OAuth Client ID.
+Select Web Application.
+Add Authorized redirect URI → e.g.:
+http://localhost:3000/auth/redirect
+Enter fullscreen mode
+Exit fullscreen mode
+Save → Download the credentials JSON file.
+5. 💻 Setting Up Node.js Project
+Install Dependencies
+We need some dependencies:
+npm init -y
+npm install express googleapis dotenv uuid body-parser
+Enter fullscreen mode
+Exit fullscreen mode
+express: to build our backend routes.
+googleapis: official library to talk to Google Calendar.
+dotenv: manage secrets like CLIENT_ID.
+uuid: generate unique IDs for Google Meet links.
+body-parser: parse JSON requests.
+Here is what our project structure should look like
+project/
+├─ .env
+├─ credentials.json
+# from Google Console
+├─ index.html
+├─ index.js
+├─ package.json
+├─ package.lock.json
+└─ node_modules
+Enter fullscreen mode
+Exit fullscreen mode
+⚙️ Config and Boilerplate
+We start with some imports and Express setup:
+import express from 'express';
+import { google } from 'googleapis';
+import dotenv from 'dotenv';
+import { v4 as uuid } from 'uuid';
+import fs from 'fs';
+import path from 'path';
+import bodyParser from 'body-parser';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config();
+const app = express();
+const port = process.env.PORT || 8000;
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+Enter fullscreen mode
+Exit fullscreen mode
+In the code above:
+We load environment variables (.env) where we keep Google credentials.
+Setup Express with body-parser so we can handle form submissions.
+__dirname is fixed for ES modules.
+Configuring the .env File
+CLIENT_ID=your-client-id
+CLIENT_SECRET=your-client-secret
+REDIRECT_URI=http://localhost:3000/auth/redirect
+MONGO_URI=mongodb://localhost:27017/calendarApp
+Enter fullscreen mode
+Exit fullscreen mode
+6. 📝 Sample Code
+import express from 'express';
+import { google } from 'googleapis';
+import dotenv from 'dotenv';
+import { v4 as uuid } from 'uuid';
+import fs from 'fs';
+import path from 'path';
+import bodyParser from 'body-parser';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config();
+const app = express();
+const port = process.env.PORT || 8000;
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+// OAuth config
+const scopes = ['https://www.googleapis.com/auth/calendar'];
+const oauth2Client = new google.auth.OAuth2(
+process.env.CLIENT_ID,
+process.env.CLIENT_SECRET,
+process.env.REDIRECT_URL
+);
+// Calendar API instance
+const calendar = google.calendar({
+version: 'v3',
+auth: oauth2Client
+});
+// Serve frontend
+app.get('/', (req, res) => {
+res.sendFile(path.join(__dirname, 'index.html'));
+});
+// Auth flow
+app.get('/auth', (req, res) => {
+const tokenPath = path.join(__dirname, 'tokens.json');
+if (fs.existsSync(tokenPath)) {
+const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+oauth2Client.setCredentials(tokens);
+return res.send('Already authenticated! Tokens loaded from local file.');
+} else {
+const url = oauth2Client.generateAuthUrl({
+access_type: 'offline',
+prompt: 'consent', // 👈 force refresh token every time
+scope: scopes
+});
+res.redirect(url);
+}
+});
+app.get('/auth/redirect', async (req, res) => {
+try {
+const { tokens } = await oauth2Client.getToken(req.query.code);
+oauth2Client.setCredentials(tokens);
+const tokenPath = path.join(__dirname, 'tokens.json');
+fs.writeFileSync(tokenPath, JSON.stringify(tokens));
+res.send('Authentication successful! You can now go back to /');
+} catch (err) {
+console.error('Error during token exchange:', err);
+res.status(500).send('Authentication failed.');
+}
+});
+function generateSlots(freeBlocks, durationMinutes) {
+const slots = [];
+freeBlocks.forEach(block => {
+let start = new Date(block.start);
+const end = new Date(block.end);
+while (start.getTime() + durationMinutes * 60000 <= end.getTime()) {
+const slotStart = new Date(start);
+const slotEnd = new Date(start.getTime() + durationMinutes * 60000);
+slots.push({ start: slotStart, end: slotEnd });
+start = slotEnd; // move to next interval
+}
+});
+return slots;
+}
+// Fetch busy times (next 7 days)
+app.get('/availability', async (req, res) => {
+const tokenPath = path.join(__dirname, 'tokens.json');
+if (!fs.existsSync(tokenPath)) {
+return res.status(401).send('No tokens found. Please authenticate first.');
+}
+const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+oauth2Client.setCredentials(tokens);
+try {
+const duration = parseInt(req.query.duration || '30'); // default 30 min
+const startDate = new Date();
+const endDate = new Date();
+endDate.setDate(startDate.getDate() + 7); // next 7 days
+const result = await calendar.freebusy.query({
+requestBody: {
+timeMin: startDate.toISOString(),
+timeMax: endDate.toISOString(),
+items: [{ id: 'primary' }]
+}
+});
+const busySlots = result.data.calendars.primary.busy;
+// Full day working hours (9am–6pm for example)
+const workingHoursStart = 9;
+const workingHoursEnd = 18;
+const freeBlocks = [];
+let current = new Date(startDate);
+while (current < endDate) {
+const dayStart = new Date(current);
+dayStart.setHours(workingHoursStart, 0, 0, 0);
+const dayEnd = new Date(current);
+dayEnd.setHours(workingHoursEnd, 0, 0, 0);
+let freeRanges = [{ start: dayStart, end: dayEnd }];
+busySlots.forEach(busy => {
+const busyStart = new Date(busy.start);
+const busyEnd = new Date(busy.end);
+freeRanges = freeRanges.flatMap(free => {
+// If busy overlaps free, split
+if (busyEnd <= free.start || busyStart >= free.end) {
+return [free]; // no overlap
+}
+const ranges = [];
+if (busyStart > free.start) {
+ranges.push({ start: free.start, end: busyStart });
+}
+if (busyEnd < free.end) {
+ranges.push({ start: busyEnd, end: free.end });
+}
+return ranges;
+});
+});
+freeBlocks.push(...freeRanges);
+current.setDate(current.getDate() + 1);
+}
+const slots = generateSlots(freeBlocks, duration);
+res.send({ slots });
+} catch (err) {
+console.error(err);
+res.status(500).send('Failed to fetch availability.');
+}
+});
+// Create event
+app.post('/create-event', async (req, res) => {
+const tokenPath = path.join(__dirname, 'tokens.json');
+if (!fs.existsSync(tokenPath)) {
+return res.status(401).send('No tokens found. Please authenticate first.');
+}
+const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+oauth2Client.setCredentials(tokens);
+const {
+summary,
+location,
+description,
+startDateTime,
+endDateTime,
+attendeeEmail
+} = req.body;
+const event = {
+summary,
+location: 'Google Meet',
+description,
+start: { dateTime: startDateTime, timeZone: 'Africa/Lagos' },
+end: { dateTime: endDateTime, timeZone: 'Africa/Lagos' },
+colorId: 1,
+conferenceData: { createRequest: { requestId: uuid() } },
+attendees: attendeeEmail ? [{ email: attendeeEmail }] : []
+};
+try {
+const result = await calendar.events.insert({
+calendarId: 'primary',
+auth: oauth2Client,
+conferenceDataVersion: 1,
+sendUpdates: 'all',
+resource: event
+});
+res.json({
+status: 200,
+message: 'Event created',
+link: result.data.hangoutLink
+});
+} catch (err) {
+console.error(err);
+res.status(500).send('Failed to create event.');
+}
+});
+app.listen(port, () => {
+console.log(`Server running on port ${port}`);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+The flow starts with setting up the server using Express, applying body parsers for handling JSON and URL-encoded payloads, and configuring OAuth2 with Google’s googleapis library. The OAuth2 client is initialized with CLIENT_ID, CLIENT_SECRET, and REDIRECT_URL from environment variables. These values come from your Google Cloud Console project.
+The backend serves a simple frontend (index.html) and provides an authentication endpoint /auth. If tokens already exist locally (tokens.json), they are loaded so you don’t need to re-authenticate. If not, the app generates a Google OAuth2 consent screen URL with access_type: offline and prompt: consent, which ensures refresh tokens are retrieved. After the user logs in and Google redirects back to /auth/redirect, the code exchanges the authorization code for tokens, stores them locally, and sets credentials on the OAuth2 client.
+The app also provides an /availability endpoint. This endpoint queries Google Calendar’s FreeBusy API for the next 7 days. The logic defines working hours (9AM–6PM), then removes any busy slots returned from Google to compute free time ranges. These free ranges are further divided into slots of a given duration (default 30 minutes, but configurable via query string). The generateSlots function takes each free block and cuts it into smaller intervals, returning a full list of available slots.
+The /create-event endpoint allows creating calendar events. It constructs an event object with details like summary, description, and attendees, and sets Google Meet (conferenceData) as the meeting location. The event is inserted into the authenticated user’s primary calendar, with updates automatically emailed to attendees. The response includes the generated Google Meet link.
+Authentication tokens are stored locally in tokens.json for quick re-use. In a production system, tokens should be stored securely in a database (e.g., MongoDB or PostgreSQL) instead of a file. The entire design enables a user to authenticate once, then use the scheduling features without needing to log in repeatedly.
+7. 📋 Displaying Available Slots in HTML
+Here's a sample HTML template you can use
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Create Google Calendar Event</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+<div class="bg-white shadow-lg rounded-2xl p-8 w-full max-w-5xl">
+<h1 class="text-3xl font-bold text-gray-800 mb-8 text-center">
+📅 Book a Time with Fredrick
+</h1>
+<!-- Step 1: Choose Slot Duration -->
+<div class="flex gap-4 mb-8 justify-center">
+<label class="font-medium text-gray-700 flex items-center gap-2">
+Duration:
+<select
+id="duration"
+class="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500"
+>
+<option value="10">10 minutes</option>
+<option value="15">15 minutes</option>
+<option value="30" selected>30 minutes</option>
+<option value="60">1 hour</option>
+</select>
+</label>
+<button
+onclick="fetchAvailability()"
+class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700"
+>
+Refresh Availability
+</button>
+</div>
+<!-- Step 2: Available Slots -->
+<h2 class="text-xl font-semibold text-gray-700 mb-4">Available Slots</h2>
+<div class="overflow-x-auto mb-8 border rounded-lg shadow-sm">
+<table class="w-full border-collapse text-sm">
+<thead class="bg-gray-50">
+<tr>
+<th class="border border-gray-200 p-3 text-left w-40">Date</th>
+<th class="border border-gray-200 p-3 text-left">
+Available Times
+</th>
+</tr>
+</thead>
+<tbody id="slotsTable" class="divide-y divide-gray-100"></tbody>
+</table>
+</div>
+<!-- Step 3: Event Form -->
+<form
+id="eventForm"
+action="/create-event"
+method="POST"
+class="space-y-6"
+>
+<div>
+<label class="block text-gray-700 font-medium">Event Title</label>
+<input
+type="text"
+name="summary"
+required
+class="w-full mt-2 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500"
+/>
+</div>
+<div>
+<label class="block text-gray-700 font-medium">Description</label>
+<textarea
+name="description"
+class="w-full mt-2 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500"
+></textarea>
+</div>
+<div>
+<label class="block text-gray-700 font-medium">Attendee Email</label>
+<input
+type="email"
+name="attendeeEmail"
+class="w-full mt-2 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500"
+/>
+</div>
+<!-- Hidden inputs for slot start & end -->
+<input type="hidden" name="startDateTime" />
+<input type="hidden" name="endDateTime" />
+<button
+type="submit"
+class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition text-lg font-semibold"
+>
+✅ Confirm Booking
+</button>
+</form>
+</div>
+<script>
+async function fetchAvailability() {
+const duration = document.getElementById('duration').value;
+const res = await fetch(`/availability?duration=${duration}`);
+const data = await res.json();
+const tbody = document.getElementById('slotsTable');
+tbody.innerHTML = '';
+if (!data.slots || data.slots.length === 0) {
+tbody.innerHTML =
+'<tr><td colspan="2" class="text-center p-4 text-gray-500">No free slots available.</td></tr>';
+return;
+}
+// Group slots by date
+const grouped = {};
+data.slots.forEach(slot => {
+const date = new Date(slot.start).toLocaleDateString([], {
+weekday: 'short',
+month: 'short',
+day: 'numeric',
+year: 'numeric'
+});
+if (!grouped[date]) grouped[date] = [];
+grouped[date].push(slot);
+});
+Object.keys(grouped).forEach(date => {
+const row = document.createElement('tr');
+// Date cell
+const dateCell = document.createElement('td');
+dateCell.className =
+'border border-gray-200 p-3 font-semibold text-gray-700 align-top';
+dateCell.textContent = date;
+// Times cell
+const timesCell = document.createElement('td');
+timesCell.className = 'border border-gray-200 p-3';
+const grid = document.createElement('div');
+grid.className = 'grid grid-cols-2 md:grid-cols-4 gap-2';
+grouped[date].forEach(slot => {
+const start = new Date(slot.start).toLocaleTimeString([], {
+hour: '2-digit',
+minute: '2-digit'
+});
+const end = new Date(slot.end).toLocaleTimeString([], {
+hour: '2-digit',
+minute: '2-digit'
+});
+const btn = document.createElement('button');
+btn.type = 'button';
+btn.innerText = `${start} - ${end}`;
+btn.className =
+'bg-blue-500 text-white px-3 py-2 rounded-md hover:bg-blue-600 text-sm transition';
+btn.onclick = () => {
+document.querySelector('[name=startDateTime]').value = slot.start;
+document.querySelector('[name=endDateTime]').value = slot.end;
+// Highlight selected
+document
+.querySelectorAll('#slotsTable button')
+.forEach(b => b.classList.remove('ring-2', 'ring-yellow-400'));
+btn.classList.add('ring-2', 'ring-yellow-400');
+};
+grid.appendChild(btn);
+});
+timesCell.appendChild(grid);
+row.appendChild(dateCell);
+row.appendChild(timesCell);
+tbody.appendChild(row);
+});
+}
+// Load availability immediately on first page load
+window.onload = fetchAvailability;
+</script>
+</body>
+</html>
+Enter fullscreen mode
+Exit fullscreen mode
+8. 🛑 Common Errors & Fixes
+❌ Error: No refresh token is set.
+Cause: You didn’t request access_type=offline when generating the auth URL.
+Fix: Add access_type: "offline" and prompt: "consent" in your generateAuthUrl call.
+❌ Error: ETIMEDOUT
+Cause: Network issues or firewall blocking https://oauth2.googleapis.com/token.
+Fix: Ensure your server has internet access. Retry with a fresh auth code.
+❌ Invalid Redirect URI
+Cause: Redirect URI in Google Console doesn’t match your .env.
+Fix: Make sure both are exactly the same (character for character).
+9. 🎯 Next Steps
+Store tokens securely in MongoDB so users don’t need to re-login each time.
+Expand /availability logic to calculate 10m / 15m / 30m / 1h slots dynamically.
+Build a UI for selecting slots → save to MongoDB as confirmed bookings.
+Add cancellation & rescheduling endpoints so users can manage events easily.
+Wrap everything with proper error handling and logging for production.
+✅ Conclusion
+By following this guide, you can authenticate users with Google OAuth2, fetch free/busy times from Google Calendar, and store confirmed bookings securely.
+Once integrated, your app can act as a full scheduling system – handling availability, bookings, and even video conference links automatically 🎉.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Fredrick Emmanuel
+Follow
+I am an Aspiring Programmer. Full-Stack dev but based mainly on backend
+Location
+Nigeria
+Education
+University of Port Hacourt
+Work
+Student at University of Port Harcourt
+Joined
+Oct 8, 2019
+More from Fredrick Emmanuel
+Mastering API Data Validation in Strapi: A Practical Guide
+#api
+#strapi
+#node
+DEPLOY REACT AND NODE APP TO HEROKU
+#heroku
+#react
+#node
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,402 @@
+Git pickaxe : show only relevant hunks (filter displayed hunks using the given search string) · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+phil-blain/.gitattributes
+Last active
+September 17, 2025 19:09
+Show Gist options
+Download ZIP
+Star
+52
+(52)
+You must be signed in to star a gist
+Fork
+4
+(4)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/phil-blain/2a1cf81a0030001d33158e44a35ceda6.js&quot;&gt;&lt;/script&gt;
+Save phil-blain/2a1cf81a0030001d33158e44a35ceda6 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+47
+Stars
+52
+Forks
+4
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/phil-blain/2a1cf81a0030001d33158e44a35ceda6.js&quot;&gt;&lt;/script&gt;
+Save phil-blain/2a1cf81a0030001d33158e44a35ceda6 to your computer and use it in GitHub Desktop.
+Download ZIP
+Git pickaxe : show only relevant hunks (filter displayed hunks using the given search string)
+Raw
+.gitattributes
+*.md diff=markdown
+Raw
+git-pickaxe-aliases.gitconfig
+[alias]
+# git log -p -S
+log-pickaxe-s = "!f() { : git log ; for arg; do [ \"${arg}\" = \"--pickaxe-regex\" ] && export PICKAXE_REGEX=1; done; GREPDIFF_REGEX=\"$1\" git -C \"${GIT_PREFIX}\" --work-tree=$PWD -c diff.external=pickaxe-diff log
+-p --ext-diff -S \"$@\"; }; f"
+# git show -S
+show-pickaxe-s = "!f() { : git show; for arg; do [ \"${arg}\" = \"--pickaxe-regex\" ] && export PICKAXE_REGEX=1; done; GREPDIFF_REGEX=\"$1\" git -C \"${GIT_PREFIX}\" --work-tree=$PWD -c diff.external=pickaxe-diff show -p --ext-diff -S \"$@\"; }; f"
+# git diff -S
+diff-pickaxe-s = "!f() { : git diff; for arg; do [ \"${arg}\" = \"--pickaxe-regex\" ] && export PICKAXE_REGEX=1; done; GREPDIFF_REGEX=\"$1\" git -C \"${GIT_PREFIX}\" --work-tree=$PWD -c diff.external=pickaxe-diff diff -p -S \"$@\"; }; f"
+# git log -p -G
+log-pickaxe-g = "!f() { : git log;
+GREPDIFF_REGEX=\"$1\" PICKAXE_REGEX=1 git -C \"${GIT_PREFIX}\" --work-tree=$PWD -c diff.external=pickaxe-diff log
+-p --ext-diff -G \"$@\"; }; f"
+# git show -G
+show-pickaxe-g = "!f() { : git show; GREPDIFF_REGEX=\"$1\" PICKAXE_REGEX=1 git -C \"${GIT_PREFIX}\" --work-tree=$PWD -c diff.external=pickaxe-diff show -p --ext-diff -G \"$@\"; }; f"
+# git diff -G
+diff-pickaxe-g = "!f() { : git diff; GREPDIFF_REGEX=\"$1\" PICKAXE_REGEX=1 git -C \"${GIT_PREFIX}\" --work-tree=$PWD -c diff.external=pickaxe-diff diff -p -G \"$@\"; }; f"
+Raw
+git-pickaxe-filter-hunks.md
+Intro : the Git pickaxe
+You can use the "pickaxe" functions of Git to look for commits where a certain string was added, deleted or moved.
+It is supported by git log, git show and git diff, as well as the plumbing commands git diff-files, git diff-index and git diff-tree.
+It goes like this:
+git log -S 'string'
+# shows commits where a line containing 'string' was added or deleted
+git log -G 'string'
+# shows commits where a line containing
+'string' was added, deleted or moved
+You can also use a regex instead of a plain string:
+git log -S 'regex' --pickaxe-regex # shows commits where a line matching 'regex' was added or deleted
+git log -G 'regex'
+# shows commits where a line matching 'regex' was added, deleted or moved (-G defaults to a regex)
+Adding diff output
+You can of course use all other git log options as well, like showing the full patch, the diffstat, etc. of the relevant commits:
+git log -S 'string' --stat # also shows the diffstat of the files where a line containing 'string' was added or deleted
+git log -S 'string' -p # also shows the full patch of the files where a line containing 'string' was added or deleted
+By default, the above commands limit the diff to the files whose hunks match the given string/regex.
+To show the full diff of each commit, you can add the --pickaxe-all option:
+git log -S 'string' --stat --pickaxe-all # shows the full diffstat of the commits where a line containing 'string' was added or deleted
+git log -S 'string' -p --pickaxe-all # shows the full diff of the commits where a line containing 'string' was added or deleted
+Limiting diff output
+Sometimes the full diff (-p) is too much information, even without --pickaxe-all.
+What if you want to see only the hunks that contain the search string or regex ?
+This is a little bit tricky, but it's possible thanks to Git's flexibility.
+The trick is to define and call an external diff driver that will generate the diff patches, but keep only the relevant hunks.
+First, we add a script called "pickaxe-diff" somewhere in our $PATH.
+This script is where the magic happens, and it makes use of the grepdiff command from the patchutils package.
+Here is the gist of my "pickaxe-diff" script:
+#!/bin/bash
+# pickaxe-diff : external diff driver for Git.
+#
+To be used with the pickaxe options (git [log|show|diff[.*]] [-S|-G])
+#
+to only show hunks containing the searched string/regex.
+path=$1
+old_file=$2
+old_hex=$3
+old_mode=$4
+new_file=$5
+new_hex=$6
+new_mode=$7
+diff_output=$(git diff --no-color --no-ext-diff -p
+$old_file $new_file || :)
+filtered_diff=$( echo "$diff_output" | \
+grepdiff "$GREPDIFF_REGEX" --output-matching=hunk | \
+\grep -v -e '^--- a/' -e '^+++ b/' | \
+\grep -v -e '^diff --git' -e '^index ')
+a_path="a/$path"
+b_path="b/$path"
+echo "diff --git $a_path $b_path"
+echo "index $old_hex..$new_hex $old_mode"
+echo "--- $a_path"
+echo "+++ $b_path"
+echo "$filtered_diff"
+Note that Git passes 7 arguments to the external diff driver, which are documented in the main man page for git.
+We use git diff --no-ext-diff to generate the diff (it's very important to add --no-ext-diff here, since if we don't the script calls itself recursively!), then pipe it to grepdiff to filter the hunks and keep only those containing $GREPDIFF_REGEX.
+Since we can't control what variables Git passes as arguments to our diff driver, we need to make sure that GREPDIFF_REGEX is available to our script when it is called by Git.
+Then, we need to tell Git to use our external diff driver. This can be done using the GIT_EXTERNAL_DIFF environment variable.
+We also need to define a GREPDIFF_REGEX variable so that our pickaxe-diff script can get the search string:
+GREPDIFF_REGEX=<string> GIT_EXTERNAL_DIFF=pickaxe-diff bash -c 'git log -p --ext-diff -S $GREPDIFF_REGEX'
+Note that we need the --ext-diff option to convince git log to use our custom driver, and that we need to make sure our GREPDIFF_REGEX variable is correctly received by the -S flag (bash -c '').
+Another way to do it is exporting the variable, optionnally in a subshell:
+export GREPDIFF_REGEX=<string>; GIT_EXTERNAL_DIFF=pickaxe-diff git log -p --ext-diff -S $GREPDIFF_REGEX; unset GREPDIFF_REGEX
+# or
+(export GREPDIFF_REGEX=<string>; GIT_EXTERNAL_DIFF=pickaxe-diff git log -p --ext-diff -S $GREPDIFF_REGEX)
+As an aside, note that an external diff driver can also be defined using the Git configuration mechanism, namely the diff.external configuration option.
+An equivalent invocation to the above would then be:
+(export GREPDIFF_REGEX=<string>; git -c diff.external=pickaxe-diff log -p --ext-diff -S $GREPDIFF_REGEX)
+Here we use
+the -c flag to the git command itself, which activates a Git configuration for the duration of the following command only.
+Wrapping it all up in Git aliases
+Since it's not that convenient to have to define the GREPDIFF_REGEX variable in a subshell, and use git -c diff.external=pickaxe-diff (or GIT_EXTERNAL_DIFF) every time we want to use the pickaxe options, here are some convenient Git aliases :
+# $HOME/.gitconfig
+[alias]
+# git log -p -S
+log-pickaxe-s
+= "!f() { GREPDIFF_REGEX=\"$1\" git -c diff.external=pickaxe-diff log
+-p --ext-diff -S \"$@\"; }; f"
+# git log -p -G
+log-pickaxe-g
+= "!f() { GREPDIFF_REGEX=\"$1\" git -c diff.external=pickaxe-diff log
+-p --ext-diff -G \"$@\"; }; f"
+# git show -S
+show-pickaxe-s = "!f() { GREPDIFF_REGEX=\"$1\" git -c diff.external=pickaxe-diff show -p --ext-diff -S \"$@\"; }; f"
+# git show -G
+show-pickaxe-g = "!f() { GREPDIFF_REGEX=\"$1\" git -c diff.external=pickaxe-diff show -p --ext-diff -G \"$@\"; }; f"
+# git diff -S
+diff-pickaxe-s = "!f() { GREPDIFF_REGEX=\"$1\" git -c diff.external=pickaxe-diff diff -p -S \"$@\"; }; f"
+# git diff -G
+diff-pickaxe-g = "!f() { GREPDIFF_REGEX=\"$1\" git -c diff.external=pickaxe-diff diff -p -G \"$@\"; }; f"
+These make use of the fact that any Git alias starting with ! is interpreted by the shell and not by Git itself (see this post for more aliases ideas using this trick!).
+Since we are defining and executing shell functions we don't need to use a subshell.
+Note also that git diff does not need the --ext-diff option to use our external diff driver.
+These aliases are defined in git-pickaxe-aliases.gitconfig in the Gist's repo, so after cloning it you can simply include them in your Git config:
+# $HOME/.gitconfig
+[include]
+path = ~/path/to/git-pickaxe-filter-hunks.md/git-pickaxe-aliases.gitconfig
+Now we can simply use our aliases to pickaxe with hunk filtering !
+git log-pickaxe-s <string> [<git log arguments>]
+git log-pickaxe-g <string> [<git log arguments>]
+git show-pickaxe-s <string> [<git show arguments>]
+git show-pickaxe-g <string> [<git show arguments>]
+git diff-pickaxe-s <string> [<git diff arguments>]
+git diff-pickaxe-g <string> [<git diff arguments>]
+Bonus 1 : adding colors
+With the pickaxe-diff script above, the hunks are not colorized even if color.ui is set, because the hunks are piped from git diff --no-ext-diff to grepdiff.
+Even if we try to add --color=always, grepdiff does not seem to work if it is given colorized input.
+But the pickaxe-diff script can easily be modified to colorize its output according to the configured Git colors:
+#!/bin/bash
+# pickaxe-diff : external diff driver for Git.
+#
+To be used with the pickaxe options (git [log|show|diff[.*] [-S|-G])
+#
+to only show hunks containing the searched string/regex.
+echo_meta () {
+echo "${color_meta}$1${color_none}"
+}
+path=$1
+old_file=$2
+old_hex=$3
+old_mode=$4
+new_file=$5
+new_hex=$6
+new_mode=$7
+color_frag=$(git config --get-color color.diff.frag cyan)
+color_func=$(git config --get-color color.diff.func '')
+color_meta=$(git config --get-color color.diff.meta 'normal bold')
+color_new=$(git config --get-color color.diff.new green)
+color_old=$(git config --get-color color.diff.old red)
+color_none=$(tput sgr 0)
+diff_output=$(git diff --no-color --no-ext-diff -p
+$old_file $new_file || :)
+filtered_diff=$( echo "$diff_output" | \
+grepdiff "$GREPDIFF_REGEX" --output-matching=hunk | \
+\grep -v -e '^--- a/' -e '^+++ b/' | \
+\grep -v -e '^diff --git' -e '^index '
+sed -e "s/\(@@ .* @@\)\(.*\)/${color_frag}\1${color_func}\2${color_none}/" | \
+sed -e "s/^\(+.*\)/${color_new}\1${color_none}/" | \
+sed -e "s/^\(-.*\)/${color_old}\1${color_none}/" )
+a_path="a/$path"
+b_path="b/$path"
+echo_meta "diff --git $a_path $b_path"
+echo_meta "index $old_hex..$new_hex $old_mode"
+echo_meta "--- $a_path"
+echo_meta "+++ $b_path"
+echo "$filtered_diff"
+Bonus 2: filtering unwanted hunks
+The way that the Git pickaxe work is that it limits the output to the files whose hunks change the given string/regex.
+This means that if another hunk in these files also contain the search string/regex, but does not change it (ex. it appears in context lines), it will still be displayed.
+This is a limitation of grepdiff before 0.4.0.
+A pull request at the patchutils project added an --only-match flag to grepdiff, which provides the needed functionality to correctly filter out these hunks.
+We can thus verify if this flag exists in the installed version of grepdiff, and add it to our invocation in that case:
+# ...
+only_match_flag=""
+if grepdiff -h 2>&1 | \grep -q -e '--only-match'
+only_match_flag="--only-match=mod"
+fi
+diff_output=$(git diff --no-color --no-ext-diff -p $old_file $new_file || :)
+filtered_diff=$( echo "$diff_output" | \
+grepdiff "$GREPDIFF_REGEX" --output-matching=hunk ${only_match_flag} | \
+# ...
+Caveats
+When using the colorized version, any redirection (piping or writing the output to a file) will retain the color codes.
+See the TODO for more future work.
+References:
+https://stackoverflow.com/questions/34885397/using-custom-diff-tool-with-git-show/34934452
+https://unix.stackexchange.com/questions/216066/display-only-relevant-hunks-of-a-diff-patch-based-on-a-regexp
+https://stackoverflow.com/questions/13192594/add-patch-in-git-all-hunks-matching-regex-in-file
+https://stackoverflow.com/questions/10856129/setting-an-environment-variable-before-a-command-in-bash-not-working-for-second
+https://git-scm.com/docs/git-log
+https://git-scm.com/docs/git
+Raw
+pickaxe-diff
+#!/bin/bash
+# pickaxe-diff : external diff driver for Git.
+#
+To be used with the pickaxe options (git [log|show|diff[.*]] [-S|-G])
+#
+to only show hunks containing the searched string/regex.
+set -Eeuo pipefail
+trap 'rc=$?; echo "${0}: ERR trap at line ${LINENO} (return code: $rc)"; exit $rc' ERR
+path=$1
+old_file=$2
+old_hex=$3
+old_mode=$4
+new_file=$5
+new_hex=$6
+new_mode=$7
+only_match_flag=""
+if { grepdiff -h 2>&1 || : ; } | \grep -q -e '--only-match'; then
+only_match_flag="--only-match=mod"
+fi
+diff_output=$(git diff --no-color --no-ext-diff -p
+$old_file $new_file || :)
+filtered_diff=$( echo "$diff_output" | \
+grepdiff "$GREPDIFF_REGEX" --output-matching=hunk ${only_match_flag} | \
+\grep -v -e '^--- a/' -e '^+++ b/' | \
+\grep -v -e '^--- /dev/null' -e '^+++ /dev/null' | \
+\grep -v -e '^diff --git' -e '^index ')
+a_path="a/$path"
+b_path="b/$path"
+echo "diff --git $a_path $b_path"
+echo "index $old_hex..$new_hex $old_mode"
+echo "--- $a_path"
+echo "+++ $b_path"
+echo "$filtered_diff"
+Raw
+pickaxe-diff-color
+#!/bin/bash
+# pickaxe-diff : external diff driver for Git.
+#
+To be used with the pickaxe options (git [log|show|diff[.*]] [-S|-G])
+#
+to only show hunks containing the searched string/regex.
+set -Eeuo pipefail
+trap 'rc=$?; echo "${0}: ERR trap at line ${LINENO} (return code: $rc)"; exit $rc' ERR
+color_trace=$(git config --get-color color.trace 145)
+color_none=$(tput sgr 0)
+if [
+! -z "${PICKAXEDIFF_TRACE+x}" ]; then
+PS4='+${color_trace}+(${BASH_SOURCE}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }${color_none}'
+set -x
+fi
+echo_meta () {
+echo "${color_meta}$1${color_none}"
+}
+path=$1
+old_file=$2
+old_hex=$3
+old_mode=$4
+new_file=$5
+new_hex=$6
+new_mode=$7
+color_frag=$(git config --get-color color.diff.frag cyan)
+color_func=$(git config --get-color color.diff.func '')
+color_meta=$(git config --get-color color.diff.meta 'normal bold')
+color_new=$(git config --get-color color.diff.new green)
+color_old=$(git config --get-color color.diff.old red)
+only_match_flag=""
+if { grepdiff -h 2>&1 || : ; } | \grep -q -e '--only-match'; then
+only_match_flag="--only-match=mod"
+fi
+extended_flag=""
+if [
+! -z "${PICKAXE_REGEX+x}" ]; then
+extended_flag="--extended-regexp"
+fi
+diff_output=$(git diff --no-color --no-ext-diff -p --src-prefix=a/ --dst-prefix=b/ $old_file $new_file || :)
+filtered_diff=$( echo "$diff_output" | \
+grepdiff --output-matching=hunk ${only_match_flag} ${extended_flag} -- "$GREPDIFF_REGEX" | \
+\grep -v -e '^--- a/' -e '^+++ b/' | \
+\grep -v -e '^--- /dev/null' -e '^+++ /dev/null' | \
+\grep -v -e '^diff --git' -e '^index ' | \
+sed -e "s/\(@@ .* @@\)\(.*\)/${color_frag}\1${color_none}${color_func}\2${color_none}/" | \
+GREP_COLOR=7 GREP_COLORS="ms=7" \grep --color=always -E -e "$GREPDIFF_REGEX|$" | \
+sed -e $'s/\x1b\[m\x1b\[K/\x1b\[27m/g' -e $'s/\x1b\[K//g' | \
+sed -e "s/^\(+.*\)/${color_new}\1${color_none}/" | \
+sed -e "s/^\(-.*\)/${color_old}\1${color_none}/" )
+a_path="a/$path"
+b_path="b/$path"
+old_path="$a_path"
+new_path="$b_path"
+echo_meta "diff --git $a_path $b_path"
+# Detect new or removed files
+NULL='/dev/null'
+ZERO_OID="0000000"
+same_mode="$old_mode"
+if [ "$old_file" == "$NULL" ]; then
+old_path="$NULL"
+old_hex="$ZERO_OID"
+same_mode=''
+echo_meta "new file mode $new_mode"
+elif [ "$new_file" == "$NULL" ]; then
+new_path="$NULL"
+new_hex="$ZERO_OID"
+same_mode=''
+echo_meta "deleted file mode $old_mode"
+elif [ "$old_mode" != "$new_mode" ]; then
+echo_meta "old mode $old_mode"
+echo_meta "new mode $new_mode"
+same_mode=''
+fi
+echo_meta "index $old_hex..$new_hex $same_mode"
+echo_meta "--- $old_path"
+echo_meta "+++ $new_path"
+echo "$filtered_diff"
+Raw
+todo.md
+[optionnally] skip hunks larger than X lines (when whole functions are moved to another file)
+only show partial hunk ("context" line around the lines that change the given regex)
+include in upstream Git so that it's faster !
+respect diff "hints" prefix instead of a/ b/ (might be tricky)
+[optionnaly] pipe the output to 'grep' to highlight the search term
+This is done but does not work with delta, and also does not work with diff-so-fancy/diff-highlight with {log,diff,show}-pickaxe-g
+because diff-highlight removes the color codes before doing its own coloring... (see highlight_line in diff-highlight)
+workaround: git -c color.diff-highlight.newNormal= -c
+color.diff-highlight.oldNormal= log-pickaxe-g ...
+rewrite in Python
+honor abbreviated hashes in "index" line (can use git rev-parse --short <hash>, but then the aliases must catch --full-index and use an environment variable to communicate to the script that hashes should not be abbreviated)
+better support for renamed/copied files
+see also: https://git-scm.com/docs/git-diff#_generating_patch_text_with_p
+respect diff.colorMoved? this is likely impossible
+be more robust when the search string is a fixed string (-S) that can be parsed as a regex,
+since 1) grepdiff does not have a --fixed-strings option and 2) we use the pattern with
+grep -E to highligh it
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

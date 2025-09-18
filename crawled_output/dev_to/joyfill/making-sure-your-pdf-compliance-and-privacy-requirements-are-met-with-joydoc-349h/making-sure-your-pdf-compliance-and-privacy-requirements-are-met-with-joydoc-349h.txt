@@ -1,0 +1,743 @@
+Making sure your PDF compliance and privacy requirements are met with JoyDoc - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+John Pagley
+for Joyfill
+Posted on Sep 17
+• Originally published at joyfill.io
+Making sure your PDF compliance and privacy requirements are met with JoyDoc
+#pdf
+#json
+#security
+#javascript
+TL;DR:
+Picking a random PDF tool can quietly break your compliance. Cloud-hosted PDF builders often route data through outside servers, change terms without warning, skimp on encryption, and lack the audit logs regulators expect—putting you at risk with GDPR, HIPAA, CCPA, and more. The safer path is to keep control: self-host Joyfill’s Form Builder, model documents as JSON with JoyDoc, collect inputs via your own HTML forms, then generate PDFs on your own infrastructure (e.g., with the JoyDoc Exporter + Puppeteer). This setup lets Legal get clear custody and audit trails, Engineering keep a simple, flexible workflow, and Product avoid surprise data exposure—all while meeting strict privacy promises to users. In short: own your data flow, prove who accessed what and when, and ship PDFs without handing sensitive info to third parties.
+Many companies underestimate how something as simple as choosing a PDF form builder or a library can affect compliance. When multiple teams are involved, priorities diverge: Management focuses on cost, speed, and scalability; Legal focuses on regulatory obligations and liability; Design and Engineering prioritize user experience, functionality, and integration.
+Yet, it's easy to overlook how a seemingly minor detail such as where and how a third-party PDF filler or a PDF builder stores and processes user data can undermine all other priorities by introducing serious compliance violations.
+Common Risks in Everyday PDF Workflows
+Because many PDF tool vendors operate as cloud-managed services, confidential data may pass through external servers or even jurisdictions where data and processing regulations may conflict with GDPR, NEN, HIPPA, CCPA, and dozens of other regional regulations your company has promised to uphold.
+A trend that's got most companies that care about data privacy on their toes is how a PDF form creator vendor for example, updates its terms of service and privacy policy without adequately notifying its customers. So, what seemed like a compliant solution yesterday might expose your organization to significant regulatory penalties tomorrow.
+Some PDF processors use outdated encryption methods or fail to maintain end-to-end encryption throughout the document lifecycle, creating vulnerabilities that could result in compliance violations if sensitive data is compromised.
+Compliance frameworks often require comprehensive audit trails showing who accessed what documents when and from where. Many PDF tools lack the detailed logging capabilities necessary to satisfy these requirements.
+To properly manage such risks, an organization must proactively identify and mitigate both common and less obvious compliance risks as soon as they decide to collect, process, or share confidential data. The moment user data enters your system, you are responsible for its security, access control, and for maintaining the privacy guarantees you’ve made to both your users and regulatory bodies of jurisdictions where they live.
+How JoyDoc and Joyfill’s Self-Hosted Approach Facilitate Compliance
+Organizations with strict compliance requirements can’t afford to risk unauthorized access to PDF documents or user data collected through PDF forms hosted by third-party PDF services with opaque handling policies. That’s why many teams are turning to self-hosted PDF solutions built on tools like Joyfill's web and mobile components.
+Although Joyfill offers a managed service, its tools are also designed to accommodate compliance requirements through integration paths where you retain full control of your data.
+Such an integration strategy is made possible by JoyDoc, a JSON schema for transferring data between Joyfill platform solutions such as the mobile/web UI components, and the PDF form builder and PDF filler SDK.
+Because JoyDoc represents a PDF document as JSON, organizations could avoid compliance issues using the following PDF generation workflow:
+Self-hosting Joyfill’s PDF Form Builder SDK.
+Creating an empty but reusable JoyDoc PDF document using the self-hosted form builder.
+Collecting user input through HTML forms.
+Generating actual PDF documents by populating reusable JoyDocs from such user input. This can be done in your own infrastructure using Joyfill’s PDF Exporter SDK and a headless browser like Puppeteer.
+Step 1: Self-host Joyfill’s Form Builder SDK
+Joyfill’s Form Builder SDK offers a
+simple drag-and-drop interface for authoring a PDF document’s fields in JoyDoc format. Self-hosting the SDK allows you to:
+Control where your data is stored and how it’s processed.
+Reuse the created document across your applications by updating its fields from user data collected through HTML forms.
+For example, a simple patient portal that allows admins to create reusable PDF templates with JoyDoc, patients to schedule appointments through HTML forms, and the system to generate
+PDFs from each appointment’s details might look as follows:
+Create a new folder named patient-portal and open it in your preferred code editor.
+Run the following command in the code editor’s integrated terminal to configure a new NodeJS project:
+npm init -y
+Install the project’s dependencies by running the following commands:
+npm install express lowdb puppeteer
+express exposes the web application to your computer’s network.
+lowdb stores data in a single JSON file.
+puppeteer will use JoyDoc’s exporter to generate PDFs in a
+headless browser.
+Change the value of the type field in the project’s package.json file to make it compatible with lowdb which is going to be used as a database.
+Create an index.js file in the project and copy the following code to it:
+// index.js
+import { JSONFilePreset } from 'lowdb/node';
+import express from 'express';
+(async () => {
+// Create a data store for JoyDoc and appointments storage
+const db = await JSONFilePreset('db.json', {
+joydoc: [],
+appointment: [],
+});
+// Configure an express application
+const app = express();
+app.use(express.static('static'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+// Retrieve all JoyDoc
+app.get('/joydoc', async (req, res) => {
+const documents = db.data.joydoc.map((doc) => doc.name);
+res.status(200).json(documents);
+});
+// Create a reusable JoyDoc
+app.post('/joydoc', async (req, res) => {
+const doc = req.body;
+let savedDoc = db.data.joydoc.find((d) => d.name === doc.name);
+if (savedDoc) {
+res
+.status(400)
+.json({ error: 'A document with the same name already exists' });
+return;
+}
+// Save new document
+db.data.joydoc.push(doc);
+await db.write();
+savedDoc = db.data.joydoc.find((d) => d.name === doc.name);
+res.status(201).json(savedDoc);
+});
+// Retrieve a JoyDoc for editing
+app.get('/joydoc/:name', async (req, res) => {
+const { name } = req.params;
+let savedDoc = db.data.joydoc.find((d) => d.name === name);
+if (!savedDoc) {
+res.status(404).json({ error: 'Not found' });
+return;
+}
+res.status(200).json(savedDoc);
+});
+// Update an existing JoyDoc as it's edited
+app.put('/joydoc', async (req, res) => {
+const update = req.body;
+const docIndex = db.data.joydoc.findIndex((d) => d.name === update.name);
+if (docIndex === -1) {
+res.status(404).json({ error: 'Not found' });
+return;
+}
+db.data.joydoc[docIndex] = update;
+db.write();
+res.status(200).end();
+});
+// Schedule a new appointment
+app.post('/appointment', async (req, res) => {
+db.data.appointment.push(req.body);
+await db.write();
+const [date, time] = req.body.time.split('T');
+res.status(201).send(
+`<body style="min-height: 90vh; display: flex; justify-content: center; align-items: center;">
+<p style="font-size: 2rem;">You successfully scheduled an appointment for ${time} on ${date}.</p>
+</body>
+`
+);
+});
+const port = 3000;
+app.listen(port, () => {
+console.log(`Patient portal is listening on port ${port}`);
+});
+})();
+Create a static folder in the project.
+Add an index.html file to the just created static folder and copy the following HTML to it:
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patient Portal</title>
+<style>
+body {
+margin: 0;
+padding: 0;
+min-height: 100vh;
+display: flex;
+justify-content: center;
+align-items: center;
+gap: 7.5vmin;
+}
+a {
+font-size: 2rem;
+border: 1px solid #ddd;
+padding: 1em;
+border-radius: .5em;
+}
+</style>
+</head>
+<body>
+<a href="/document.html" class="cta">Manage Documents</a>
+<a href="/appointment.html" class="cta">Schedule Appointment</a>
+</body>
+</html>
+Start the web server by running the following command:
+node index.js
+Visit http://localhost:3000 in your browser. You should see the following web page:
+The app currently offers the options of managing existing JoyDocs or scheduling an appointment. Let's make a page to create and edit JoyDocs below.
+Enter fullscreen mode
+Exit fullscreen mode
+Add a document.html file to the static folder and save the following markup to it:
+<!-- static/document.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Documents</title>
+<style>
+.action-form {
+display: flex;
+justify-content: center;
+align-items: center;
+min-height: 100vh;
+gap: 2em;
+}
+.field-group {
+border: 1px solid #ddd;
+padding: 1em;
+flex-basis: 400px;
+max-width: 400px;
+height: 240px;
+}
+.field-group>.field-label {
+font-size: 1.75em;
+}
+.hint {
+font-size: 0.75em;
+margin-top: 2px;
+}
+#old-document,
+#new-document,
+#create-new {
+font-size: 1.25rem;
+}
+#old-document,
+#new-document,
+#create-new,
+.field-group>.field-label {
+font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+#old-document {
+flex: 1;
+cursor: pointer;
+width: 100%;
+padding: 0.8em;
+border-radius: 0.25em;
+}
+#old-document,
+::picker(select) {
+appearance: base-select;
+}
+#new-document {
+padding: 0.8em;
+display: block;
+max-width: 100%;
+border-radius: 0.25em;
+}
+#create-new {
+display: block;
+border: none;
+border-radius: 0.25em;
+background-color: green;
+color: white;
+padding: 0.8em 1em;
+font-size: 1em;
+}
+</style>
+</head>
+<body>
+<form action="" class="action-form">
+<div class="field-group">
+<p class="field-label">Edit existing document</p>
+<select id="old-document">
+<option value="" selected class="document-option">Select a document</option>
+</select>
+</div>
+<div class="field-group">
+<p class="field-label">Create new document</p>
+<input type="text" id="new-document" placeholder="Document name">
+<p class="hint">E.g. <i>Patient Appointment</i></p>
+<button id="create-new">Create</button>
+</div>
+</form>
+<div id="joyfill"></div>
+<script type="application/javascript"
+src="https://cdn.jsdelivr.net/npm/@joyfill/components@latest/dist/joyfill.min.js"></script>
+<script src="/document.js"></script>
+<script>
+(async () => {
+let docNames = [];
+// Retrieve existing documents
+try {
+const res = await fetch('/joydoc', {
+headers: { 'Content-Type': 'application/json' },
+});
+docNames = await res.json();
+} catch (e) {
+console.error(e);
+alert(
+`Failed to retrieve list of existing documents: ${JSON.stringify(e.message)}`
+);
+}
+// Add the names of existing documents to the select field to the UI
+let docList = document.querySelector('#old-document');
+for (let name of docNames) {
+let option = document.createElement('option');
+option.textContent = name;
+option.value = name;
+docList.appendChild(option);
+}
+//
+Handle new document creation
+document
+.querySelector('#create-new')
+.addEventListener('click', createNewDocument);
+// Handle document selection
+document
+.querySelector('#old-document')
+.addEventListener('change', loadExisting);
+})();
+// Create a new document
+async function createNewDocument(e) {
+e.preventDefault();
+let name = document.querySelector('#new-document').value;
+let blankDocument = Joyfill.getDefaultDocument();
+blankDocument.name = name;
+// Save the document to the store
+const res = await fetch('/joydoc', {
+method: 'POST',
+body: JSON.stringify(blankDocument),
+headers: {
+'Content-Type': 'application/json',
+},
+});
+const doc = await res.json();
+if (doc.error) {
+const msg = `Failed to save ${blankDocument.name}: ${doc.error}`;
+console.error(msg);
+alert(msg);
+return;
+}
+initFormBuilder(doc);
+console.log(`Saved ${doc.name}`);
+}
+function initFormBuilder(doc) {
+// Partially reset layout
+document.querySelector('.action-form').style.display = 'none';
+Joyfill.JoyDoc(document.getElementById('joyfill'), {
+doc,
+mode: 'edit',
+onChange: async (changelogs, updatedDoc) => {
+// Log document changes to the console.
+console.log(changelogs);
+// Update document
+try {
+await fetch('/joydoc', {
+method: 'PUT',
+body: JSON.stringify(updatedDoc),
+headers: {
+'Content-Type': 'application/json',
+},
+});
+console.log(`Successfully updated ${updatedDoc.name}`);
+} catch (e) {
+console.error(e);
+alert(`Failed to update ${updatedDoc.name}: ${e.message}`);
+}
+},
+});
+}
+async function loadExisting(e) {
+e.preventDefault();
+const name = document.querySelector('#old-document').value;
+try {
+const res = await fetch(`/joydoc/${name}`, {
+headers: { 'Content-Type': 'application/json' },
+});
+const doc = await res.json();
+initFormBuilder(doc);
+} catch (e) {
+console.error(e);
+alert(
+`Failed retrieve list of existing documents: ${JSON.stringify(e.message)}`
+);
+}
+}
+</script>
+</body>
+</html>
+Step 2: Create a Resusable JoyDoc
+Click the Manage Documents link on http://localhost:3000. It should display the options shown in the image below. Create a new document named Patient Appointment as shown below.
+Add fields to the document as demonstrated in the following image. For each field, set an appropriate title, identifier, etc.
+Step 3: Collect User Input from HTML Forms
+Back in your code editor, add an appointment.html file to the static folder and copy the following markup into it:
+<!-- static/appointment.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Patient Appointment</title>
+<style>
+.appointment-wrapper {
+background-color: #ecedf3;
+min-height: 100vh;
+background-color: #ecedf3;
+font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+color: #2c3345;
+}
+.appointment {
+background-color: #fff;
+margin: 0 auto;
+padding: 5vmin;
+max-width: 816px;
+min-height: 100%;
+display: flex;
+justify-content: center;
+align-items: center;
+flex-wrap: wrap;
+row-gap: 24px;
+}
+.title,
+.name {
+flex: 0 0 100%;
+max-width: 100%;
+}
+.name {
+display: flex;
+justify-content: space-between;
+}
+.name>.field-control {
+flex: 0 0 40%;
+max-width: 40%;
+}
+.field-label,
+input.field {
+display: block;
+}
+.field-label {
+margin-bottom: 4px;
+}
+input.field {
+padding: 0.8em;
+width: 100%;
+}
+.appointment>.field-group {
+flex: 0 0 100%;
+max-width: 100%;
+}
+.field-hint {
+margin-top: 4px;
+font-size: 14px;
+}
+.contact-preference>label {
+display: inline-block;
+}
+.prefers-email-label {
+margin-right: 24px;
+}
+.field,
+.prefers-email,
+.prefers-phone,
+.contact-preference>label,
+.departments>ul>li {
+border-radius: 0.5em;
+border: 1px solid #333;
+}
+.departments>ul>li,
+.contact-preference label {
+padding: 0.8em 1em;
+cursor: pointer;
+width: 220px;
+}
+.departments {
+display: flex;
+justify-content: flex-start;
+gap: 24px;
+}
+.departments>ul {
+list-style-type: none;
+flex: 0 0 30%;
+padding-left: 0;
+padding-right: 0;
+}
+.schedule {
+cursor: pointer;
+margin: 0px auto;
+display: block;
+background-color: green;
+border: 0;
+border-radius: 0.25em;
+color: white;
+padding: 0.5em 1em;
+font-size: 1.25rem;
+font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+</style>
+</head>
+<body>
+<div class="appointment-wrapper">
+<form class="appointment" action="/appointment" method="POST">
+<h1 class="title">Patient Appointment</h1>
+<div class="name">
+<div class="field-control">
+<label for="firstname" class="field-label">First name</label>
+<input value="John" type="text" name="firstname" class="firstname field" />
+</div>
+<div class="field-control">
+<label for="lastname" class="field-label">Last name</label>
+<input value="Doe" type="text" name="lastname" class="lastname field" />
+</div>
+</div>
+<div class="field-group">
+<label class="field-label">Email</label>
+<input value="john@doe.com" type="email" name="email" class="email field" />
+<p class="field-hint">example@example.com</p>
+</div>
+<div class="field-group">
+<label class="field-label">Phone</label>
+<input value="+17182222222" type="tel" name="phone" class="phone field">
+<p class="field-hint">+17182222222</p>
+</div>
+<div class="field-group">
+<label class="field-label">Contact preference</label>
+<div class="contact-preference">
+<label class="prefers-email-label">
+<input checked type="radio" name="contactPreference" class="prefers-email" value="Email">
+Email
+</label>
+<label>
+<input type="radio" name="contactPreference" class="prefers-phone" value="Phone">
+Phone
+</label>
+</div>
+</div>
+<div class="field-group">
+<label for="department">Which department do you want to make an appointment with?</label>
+<div class="departments">
+<ul>
+<li><input checked type="radio" name="department" value="Pediatrics"> Pediatrics</li>
+<li><input type="radio" name="department" value="General Surgery"> General Surgery</li>
+</ul>
+<ul>
+<li><input type="radio" name="department" value="Obstetrics & Gynecology"> Obstetrics &amp; Gynecology</li>
+<li><input type="radio" name="department" value="Neurology"> Neurology</li>
+</ul>
+<ul>
+<li><input type="radio" name="department" value="Orthopedics"> Orthopedics</li>
+<li><input type="radio" name="department" value="Oncology"> Oncology</li>
+<ul>
+</div>
+</div>
+<div class="field-group">
+<label for="time" class="field-label">Time</label>
+<input value="2030-06-01T08:30" type="datetime-local" name="time" class="time field">
+</div>
+<button type="submit" class="schedule">Schedule</button>
+</form>
+</div>
+</body>
+</html>
+Visit http://localhost:3000/appointment.html in your browser and click the Schedule button at the bottom of the page:
+This should save the appointment’s details to a `db.json` file created by `lowdb` earlier.
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4: Generate PDFs from User Supplied Data
+JoyDoc Exporter renders a populated JoyDoc to HTML in a browser context. However, you can take advantage of it outside a browser by adding a JavaScript module like the following to your project.
+// generate-pdf.js
+import { JSONFilePreset } from 'lowdb/node';
+import puppeteer from 'puppeteer';
+import { join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+async function generatePdfs() {
+const db = await JSONFilePreset('db.json', { joydoc: [], appointment: [] });
+const browser = await puppeteer.launch();
+const page = await browser.newPage();
+await page.addScriptTag({
+url: 'https://cdn.jsdelivr.net/npm/@joyfill/components@latest/dist/joyfill.min.js',
+});
+// Get appointments JoyDoc from the database
+const joydoc = db.data.joydoc.find(
+(doc) => doc.name === 'Patient Appointment'
+);
+if (!existsSync('appointments')) {
+mkdirSync('appointments');
+}
+// Render each appointment in a headless browser and export the page
+// and save it to a PDF file.
+for (let appointment of db.data.appointment) {
+const appointmentJoyDoc = populateDocument(appointment, joydoc);
+console.log(`Generating PDF for ${appointmentJoyDoc.name}`);
+await page.evaluate((appointmentJoyDoc) => {
+const container = document.createElement('div');
+container.id = 'joyfill';
+document.body.appendChild(container);
+document.body.appendChild(container);
+Joyfill.JoyDocExporter(container, {
+doc: appointmentJoyDoc,
+config: { page: { height: 1056, width: 816, padding: 0 } },
+});
+}, appointmentJoyDoc);
+await page.pdf({
+path: join('appointments', `${appointmentJoyDoc.name}.pdf`),
+});
+await page.evaluate(() => {
+document.querySelector('#joyfill').remove();
+});
+}
+await browser.close();
+}
+function populateDocument(appointment, joydoc) {
+// Include the patient's name in the document's title
+const filledDocument = { ...joydoc };
+// Set the document's name
+filledDocument.name = `${filledDocument.name} - ${appointment.firstname} ${appointment.lastname} - ${appointment.time}`;
+// Set the document's title
+filledDocument.fields[0].value = 'Patient Appointment';
+// Populate other fields of the document
+for (let field of filledDocument.fields) {
+const id = field.identifier;
+if (['contactPreference', 'department'].includes(id)) {
+const option = field.options.find(
+(option) => option.value.trim() === appointment[id].trim()
+);
+field.value = [option._id];
+continue;
+}
+field.value = appointment[id];
+}
+return filledDocument;
+}
+generatePdfs()
+.then(() => {
+console.log("PDFs saved to 'appointments' successfully");
+})
+.catch((e) => {
+console.log('Failed to generate PDFs', e);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+With a bit of hardening and the right sanity checks in place, a setup like the one above, leverages Joyfill’s self-hosted tools and the JoyDoc schema to strike the balance most organizations struggle with. You get full control over where and how data is stored, clear audit trail for compliance teams, and the flexibility engineers need to keep workflows simple. In practice, this means meeting strict regulatory requirements without exposing sensitive information to third-party PDF services or sacrificing usability in the process.
+Need to build PDF capabilities inside your SaaS application? Joyfill makes it easy for developers to natively build, embed, and customize form and PDF experiences inside their web and mobile apps.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Joyfill
+Follow
+Build and embed form experiences into your apps.
+More from Joyfill
+Integrating PDF generation into Node.js backends: tips & gotchas
+#pdf
+#node
+#database
+#javascript
+Creating PDFs from HTML + CSS in JavaScript: What actually works
+#pdf
+#html
+#css
+#javascript
+The untold story behind the popular open-source PDF library—react-pdf
+#opensource
+#react
+#pdf
+#github
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

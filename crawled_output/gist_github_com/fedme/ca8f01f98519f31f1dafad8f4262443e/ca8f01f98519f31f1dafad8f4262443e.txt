@@ -1,0 +1,133 @@
+Yubikey in WSL2 Ubuntu.md · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+fedme/Yubikey in WSL2 Ubuntu.md
+Last active
+September 17, 2025 19:05
+Show Gist options
+Download ZIP
+Star
+5
+(5)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/fedme/ca8f01f98519f31f1dafad8f4262443e.js&quot;&gt;&lt;/script&gt;
+Save fedme/ca8f01f98519f31f1dafad8f4262443e to your computer and use it in GitHub Desktop.
+Code
+Revisions
+4
+Stars
+5
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/fedme/ca8f01f98519f31f1dafad8f4262443e.js&quot;&gt;&lt;/script&gt;
+Save fedme/ca8f01f98519f31f1dafad8f4262443e to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+Yubikey in WSL2 Ubuntu.md
+WSL does now have native support for USB devices, which means it can't detect the Yubikey plugged into your computer.
+It seems like USB support will come soon, but for now we need to use a workaround.
+The workaround consists in exposing a GPG socket from Windows to your WSL Linux instance. That way, your WSL's gpg command will connect to your Windows's gpg software and will be able to detect your USB Yubikey.
+Install GnuPG on Windows
+Install Putty on Windows
+Run the following 2 commands in Powershell to create your GPG conf file:
+# In Poweshell
+mkdir $env:APPDATA/gnupg
+Add-Content -Path $env:APPDATA/gnupg/gpg-agent.conf -Value "enable-putty-support`r`nenable-ssh-support"
+mkdir $env:LOCALAPPDATA/gnupg
+Add-Content -Path $env:LOCALAPPDATA/gnupg/gpg-agent.conf -Value "enable-putty-support`r`nenable-ssh-support"
+If you connect your Yubikey now, you should be able to see it from Windows if you run the following command from Powershell:
+# In Poweshell
+gpg --card-status
+You should also see the Yubikey inside the "Smartcards" tab of the Kleopatra app that was installed together with GnuPG.
+Now that GPG can see your Yubikey on Windows, it's time to expose it to your WSL Linux.
+First, install socat in your WSL Linux:
+# In WSL
+sudo apt install socat
+Now let's install wsl-ssh-pageant using the instructions from their README:
+# In WSL
+windows_destination="/mnt/c/Users/Public/Downloads/wsl2-ssh-pageant.exe"
+linux_destination="$HOME/.ssh/wsl2-ssh-pageant.exe"
+wget -O "$windows_destination" "https://github.com/BlackReloaded/wsl2-ssh-pageant/releases/latest/download/wsl2-ssh-pageant.exe"
+# Set the executable bit.
+chmod +x "$windows_destination"
+# Symlink to linux for ease of use later
+ln -s $windows_destination $linux_destination
+Finally, add the following config to your .bashrc file. You can open it in vscode from WSL with code ~/.bashrc.
+IMPORTANT: Replace YOUR-WINDOWS-USERNAME-HERE with your Windows username folder.
+# WSL2-SSH-PAGEANT config
+# https://github.com/BlackReloaded/wsl2-ssh-pageant
+# https://github.com/BlackReloaded/wsl2-ssh-pageant/issues/37
+export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"
+if ! ss -a | grep -q "$SSH_AUTH_SOCK"; then
+rm -f "$SSH_AUTH_SOCK"
+wsl2_ssh_pageant_bin="$HOME/.ssh/wsl2-ssh-pageant.exe"
+if test -x "$wsl2_ssh_pageant_bin"; then
+(setsid nohup socat UNIX-LISTEN:"$SSH_AUTH_SOCK,fork" EXEC:"$wsl2_ssh_pageant_bin" >/dev/null 2>&1 &)
+else
+echo >&2 "WARNING: $wsl2_ssh_pageant_bin is not executable."
+fi
+unset wsl2_ssh_pageant_bin
+fi
+export GPG_AGENT_SOCK="$HOME/.gnupg/S.gpg-agent"
+if ! ss -a | grep -q "$GPG_AGENT_SOCK"; then
+rm -rf "$GPG_AGENT_SOCK"
+wsl2_ssh_pageant_bin="$HOME/.ssh/wsl2-ssh-pageant.exe"
+if test -x "$wsl2_ssh_pageant_bin"; then
+(setsid nohup socat UNIX-LISTEN:"$GPG_AGENT_SOCK,fork" EXEC:"$wsl2_ssh_pageant_bin -gpgConfigBasepath 'C:/Users/YOUR-WINDOWS-USERNAME-HERE/AppData/Local/gnupg' -gpg S.gpg-agent" >/dev/null 2>&1 &)
+else
+echo >&2 "WARNING: $wsl2_ssh_pageant_bin is not executable."
+fi
+unset wsl2_ssh_pageant_bin
+fi
+Now restart your PC just be sure (or just restart WSL with wsl --shutdown from Powershell)
+On your WSL Linux, you should now be able to see the Yubikey from GPG:
+# On WSL
+gpg --card-status
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

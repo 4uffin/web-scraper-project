@@ -1,0 +1,248 @@
+.AttackSpotProvider.cs.md · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+andrew-raphael-lukasik/.AttackSpotProvider.cs.md
+Last active
+September 17, 2025 22:15
+Show Gist options
+Download ZIP
+Star
+2
+(2)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/andrew-raphael-lukasik/95ee4c1ee27a0087e7e8dc1785b6c542.js&quot;&gt;&lt;/script&gt;
+Save andrew-raphael-lukasik/95ee4c1ee27a0087e7e8dc1785b6c542 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+2
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/andrew-raphael-lukasik/95ee4c1ee27a0087e7e8dc1785b6c542.js&quot;&gt;&lt;/script&gt;
+Save andrew-raphael-lukasik/95ee4c1ee27a0087e7e8dc1785b6c542 to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+.AttackSpotProvider.cs.md
+Answers a question: "How to make enemies surround player"
+AttackSpotProvider.cs provides attack positions to attackers.
+Attacker.cs simulates an attacker
+Raw
+Attacker.cs
+// src*: https://gist.github.com/andrew-raphael-lukasik/95ee4c1ee27a0087e7e8dc1785b6c542
+using UnityEngine;
+public class Attacker : MonoBehaviour
+{
+[SerializeField] GameObject _attacked;
+[SerializeField] float _tickTime = 0.23f;// seconds
+AttackSpotProvider _attackSpotProvider;
+int _assignedSpotIndex;
+Vector2 _assignedOffset;
+#if UNITY_EDITOR
+void OnDrawGizmos ()
+{
+UnityEditor.Handles.color = Color.yellow;
+UnityEditor.Handles.CircleHandleCap( 0 , transform.position , Quaternion.identity , 0.1f , EventType.Repaint );
+if( _attackSpotProvider!=null )
+{
+Vector3 src = transform.position;
+Vector3 dst = _attackSpotProvider.transform.position + (Vector3)_assignedOffset;
+Vector3 dir = dst - src;
+Gizmos.color = Color.cyan;
+Gizmos.DrawLine( src , dst );
+UnityEditor.Handles.color = Gizmos.color;
+UnityEditor.Handles.ArrowHandleCap( 0 , dst-dir.normalized*0.6f , Quaternion.LookRotation(dir) , 0.6f , EventType.Repaint );
+}
+}
+#endif
+void OnEnable ()
+{
+_attackSpotProvider = _attacked.GetComponent<AttackSpotProvider>();
+if( _attackSpotProvider!=null )
+{
+_attackSpotProvider.RegisterAttacker( transform.position , out _assignedSpotIndex , out _assignedOffset );
+InvokeRepeating( nameof(Tick) , Random.Range(0,_tickTime) , _tickTime );
+}
+}
+void OnDisable ()
+{
+if( _attackSpotProvider!=null )
+{
+_attackSpotProvider.UnregisterAttacker( _assignedSpotIndex );
+}
+}
+void Tick ()
+{
+_attackSpotProvider.UnregisterAttacker( _assignedSpotIndex );
+_attackSpotProvider.RegisterAttacker( transform.position , out _assignedSpotIndex , out _assignedOffset );
+}
+}
+Raw
+AttackSpotProvider.cs
+// src*: https://gist.github.com/andrew-raphael-lukasik/95ee4c1ee27a0087e7e8dc1785b6c542
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Assertions;
+using BurstCompile = Unity.Burst.BurstCompileAttribute;
+public class AttackSpotProvider : MonoBehaviour
+{
+[SerializeField][Min(0)] float _playerRadius = 1.0f;
+[SerializeField][Min(0)] float _enemyRadius = 0.5f;
+HashSet<int> _takenSpots = new ();
+#if UNITY_EDITOR
+void OnDrawGizmos ()
+{
+Vector2 origin = transform.position;
+UnityEditor.Handles.color = Color.yellow;
+UnityEditor.Handles.CircleHandleCap( 0 , origin , Quaternion.identity , _playerRadius , EventType.Repaint );
+foreach( int spotIndex in _takenSpots )
+{
+AttackSpotProviderUtilities.GetRing( spotIndex , _playerRadius , _enemyRadius , out int ring , out int firstSpotIndexForThisRing );
+float innerCircle = _playerRadius + ring * _enemyRadius * 2f;
+int cmax = AttackSpotProviderUtilities.NumSpotsAroundACircleApprox( circleRadius:innerCircle , spotRadius:_enemyRadius );
+int c = spotIndex - firstSpotIndexForThisRing;
+AttackSpotProviderUtilities.SpotOffset( circleIndex:c , circleRadius:innerCircle , spotRadius:_enemyRadius , cmax , out Vector2 spotOffset );
+UnityEditor.Handles.CircleHandleCap( 0 , origin + spotOffset , Quaternion.identity , _enemyRadius , EventType.Repaint );
+}
+}
+#endif
+public void RegisterAttacker ( Vector2 attackerPosition , out int assignedSpotIndex , out Vector2 assignedOffset )
+{
+Vector2 spotOrigin = transform.position;
+int spotIndex = -1;
+for( int ring=0 ; ring<10 ; ring++ )
+{
+float innerCircle = _playerRadius + ring * _enemyRadius * 2f;
+int cmax = AttackSpotProviderUtilities.NumSpotsAroundACircleApprox( circleRadius:innerCircle , spotRadius:_enemyRadius );
+int nearestSpotIndex = -1;
+float nearestDist = float.MaxValue;
+Vector2 nearestOffset = Vector2.zero;
+for( int c=0 ; c<cmax ; c++ )
+{
+spotIndex++;
+if( !_takenSpots.Contains(spotIndex) )
+{
+AttackSpotProviderUtilities.SpotOffset( circleIndex:c , circleRadius:innerCircle , spotRadius:_enemyRadius , numSpotsAroundCircle:cmax , out Vector2 spotOffset );
+float spotDistance = Vector2.Distance( attackerPosition , spotOrigin + spotOffset );
+if( spotDistance<nearestDist )
+{
+nearestSpotIndex = spotIndex;
+nearestDist = spotDistance;
+nearestOffset = spotOffset;
+}
+}
+}
+if( nearestSpotIndex!=-1 )
+{
+assignedSpotIndex = nearestSpotIndex;
+_takenSpots.Add( nearestSpotIndex );
+assignedOffset = nearestOffset;
+return;
+}
+}
+throw new System.Exception("Something went wrong here.");
+}
+public void UnregisterAttacker ( int spotIndex )
+{
+Assert.IsTrue( _takenSpots.Contains(spotIndex) );
+_takenSpots.Remove( spotIndex );
+}
+}
+// burst-compiled to make these calculations go brrrrr fast
+[BurstCompile]
+public static class AttackSpotProviderUtilities
+{
+/// <summary> quick and dirty approximation </summary>
+[BurstCompile]
+public static int NumSpotsAroundACircleApprox ( float circleRadius , float spotRadius )
+{
+Assert.IsTrue( circleRadius>0 , $"{circleRadius} > 0" );
+Assert.IsTrue( spotRadius>0 , $"{spotRadius} > 0" );
+return Mathf.FloorToInt( ( 2f*Mathf.PI*( circleRadius + spotRadius ) )/(2f*spotRadius) );
+}
+/// <summary> Calculates local spot position </summary>
+[BurstCompile]
+public static void SpotOffset ( int circleIndex , float circleRadius , float spotRadius , int numSpotsAroundCircle , out Vector2 spotOffset )
+{
+Assert.IsTrue( circleIndex>=0 , $"{circleIndex} >= 0" );
+Assert.IsTrue( circleRadius>0 , $"{circleRadius} > 0" );
+Assert.IsTrue( spotRadius>0 , $"{spotRadius} > 0" );
+Assert.IsTrue( numSpotsAroundCircle>0 , $"{numSpotsAroundCircle} > 0" );
+float angle = Mathf.PI*2f * circleIndex/numSpotsAroundCircle;
+Vector2 unitVector = new Vector2( Mathf.Cos(angle) , Mathf.Sin(angle) );
+spotOffset = unitVector*circleRadius + unitVector*spotRadius;
+}
+/// <summary> Calculates ring index from spot index </summary>
+[BurstCompile]
+public static void GetRing ( int spotIndex , float initialCircleRadius , float spotRadius , out int ring , out int firstSpotIndexForThisRing )
+{
+Assert.IsTrue( spotIndex>=0 , $"{spotIndex} >= 0" );
+Assert.IsTrue( initialCircleRadius>0 , $"{initialCircleRadius} > 0" );
+Assert.IsTrue( spotRadius>0 , $"{spotRadius} > 0" );
+int cmaxSum = 0;
+for( ring=0 ; ring<100 ; ring++ )
+{
+float innerCircle = initialCircleRadius + ring * spotRadius * 2f;
+firstSpotIndexForThisRing = cmaxSum;
+cmaxSum += NumSpotsAroundACircleApprox( circleRadius:innerCircle , spotRadius:spotRadius );
+if( cmaxSum>spotIndex) return;
+}
+throw new System.Exception("Something went wrong here.");
+}
+}
+Copy link
+BlackBlockHunter
+commented
+Nov 16, 2023
+That's pretty neat, it's kinda the crowd manager. Probably the best solution I ve found so far, at free access, for zombielike behaviour, thanks.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

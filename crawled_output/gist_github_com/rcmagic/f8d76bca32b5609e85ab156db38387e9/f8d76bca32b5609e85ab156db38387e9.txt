@@ -1,0 +1,387 @@
+RollbackPseudoCode.txt · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+rcmagic/RollbackPseudoCode.txt
+Last active
+September 17, 2025 22:53
+Show Gist options
+Download ZIP
+Star
+143
+(143)
+You must be signed in to star a gist
+Fork
+15
+(15)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/rcmagic/f8d76bca32b5609e85ab156db38387e9.js&quot;&gt;&lt;/script&gt;
+Save rcmagic/f8d76bca32b5609e85ab156db38387e9 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+9
+Stars
+143
+Forks
+15
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/rcmagic/f8d76bca32b5609e85ab156db38387e9.js&quot;&gt;&lt;/script&gt;
+Save rcmagic/f8d76bca32b5609e85ab156db38387e9 to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+RollbackPseudoCode.txt
+Readme: In the following pseudo code, [] indicates a subroutine.
+Sometimes I choose to write the subroutine inline under the [] in order to maintain context.
+One important fact about the way rollbacks are handled here is that we are storing state for every frame.
+In any real implementation you only need to store one game state at a time. Storing a game
+state for every frame allows us to only rollback to the first frame where the predicted inputs don't match the true ones.
+==Constants==
+MAX_ROLLBACK_FRAMES
+:= Any Positive Integer
+# Specifies the maximum number of frames that can be resimulated
+FRAME_ADVANTAGE_LIMIT
+:= Any Positive Integer
+# Specifies the number of frames the local client can progress ahead of the remote client before time synchronizing.
+INITAL_FRAME
+:= Any Integer
+# Specifies the initial frame the game starts in. Cannot rollback before this frame.
+[Initialize Variables]
+local_frame
+:= INITAL_FRAME
+# Tracks the latest updates frame.
+remote_frame
+:= INITAL_FRAME
+# Tracks the latest frame received from the remote client
+sync_frame
+:= INITAL_FRAME
+# Tracks the last frame where we synchronized the game state with the remote client. Never rollback before this frame.
+remote_frame_advantage := 0
+# Latest frame advantage received from the remote client.
+[Store Game State]
+Stores the game state for the current frame
+[Restore Game State]
+Restores the game state to the frame set in sync_frame
+[Update Input]
+Predict the remote player's input if not available yet.
+Setup the local player and remote player's input for use in [Update Game]
+[Rollback Condition]
+local_frame > sync_frame AND remote_frame > sync_frame
+# No need to rollback if we don't have a frame after the previous sync frame to synchronize to.
+[Time Synced]
+Let local_frame_advantage = local_frame - remote_frame
+# How far the client is ahead of the last reported frame by the remote client
+Let frame_advantage_difference = local_frame_advantage - remote_frame_advantage
+# How different is the frame advantage reported by the remote client and this one.
+local_frame_advantage < MAX_ROLLBACK_FRAMES AND frame_advantage_difference <= FRAME_ADVANTAGE_LIMIT
+# Only allow the local client to get so far ahead of remote.
+Start Program:
+[Initialize Variables]
+loop:
+[Update Network]
+Let remote_frame = latest frame received from the remote client
+Let remote_frame_advantage = (local_frame - remote_frame) sent from the remote client
+[Update Synchronization]
+[Determine the sync_frame]
+Let final_frame = remote_frame
+# We will only check inputs until the remote_frame, since we don't have inputs after.
+if remote_frame > local_frame then final_frame = local_frame
+# Incase the remote client is ahead of local, don't check past the local frame.
+select frames from (sync_frame + 1) through final_frame and find the first frame where predicted and remote inputs don't match
+if found then
+sync_frame = found frame - 1
+# The found frame is the first frame where inputs don't match, so assume the previous frame is synchronized.
+else
+sync_frame = final_frame
+# All remote inputs matched the predicted inputs since the last synchronized frame.
+if [Rollback Condition] then
+[Execute Rollbacks]
+[Restore Game State]
+select inputs from (sync_frame + 1) through local_frame
+# Use all the inputs since the last sync frame until the current frame to simulate
+[Rollback Update]
+[Update Input]
+[Update Game]
+[Store Game State]
+if [Time Synced] then
+[Normal Update]
+Increment local_frame
+[Get Local Player Input]
+Read the joystick/pad/keyboard for the local player and store it, associating it with local_frame
+[Send input to remote client]
+Send the input and the local_frame to the remote client so it arrives asap.
+[Update Input]
+[Update Game]
+[Store Game State]
+goto loop
+End Program
+Copy link
+HeatXD
+commented
+Oct 19, 2020
+Hey thanks for the pseudo code!
+I've got one question about it tho, at line 49 it says:
+if remote_frame > local_frame then final_frame = remote_frame
+# Incase the remote client is ahead of local, don't check past the local frame.
+Shouldn't it be:
+if remote_frame > local_frame then final_frame = local_frame
+if you don't want to check past the local frame?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Brassens
+commented
+Oct 28, 2020
+As mentionned above, l49 doesn't do anything as is
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+rcmagic
+commented
+Oct 28, 2020
+Hey thanks for the pseudo code!
+I've got one question about it tho, at line 49 it says:
+if remote_frame > local_frame then final_frame = remote_frame
+# Incase the remote client is ahead of local, don't check past the local frame.
+Shouldn't it be:
+if remote_frame > local_frame then final_frame = local_frame
+if you don't want to check past the local frame?
+Yes this is what it should be. I went ahead and made the correction. Thank you!
+https://gist.github.com/rcmagic/f8d76bca32b5609e85ab156db38387e9/revisions?diff=split
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+bmarquismarkail
+commented
+Jan 19, 2021
+I am confused by l46 and l57, as it looks like both is a declaration of [Process Rollbacks]. is l57 a separate method, or is it intended to execute [Process Rollbacks] twice?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+HeatXD
+commented
+Jan 19, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I am confused by l46 and l57, as it looks like both is a declaration of [Process Rollbacks]. is l57 a separate method, or is it intended to execute [Process Rollbacks] twice?
+I think l46 is a subroutine containing the [determine sync frame] and the the [process rollbacks ] subroutines. I think it was meant for some context that there might be rollbacks happening in this subroutine. that's at least how I've done it in my implementation
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+rcmagic
+commented
+Jan 19, 2021
+I've renamed the sections to be more clear. Thank you for pointing out the issue!
+I am confused by l46 and l57, as it looks like both is a declaration of [Process Rollbacks]. is l57 a separate method, or is it intended to execute [Process Rollbacks] twice?
+I think l46 is a subroutine containing the [determine sync frame] and the the [process rollbacks ] subroutines. I think it was meant for some context that there might be rollbacks happening in this subroutine. that's at least how I've done it in my implementation
+I've renamed the sections to be more clear. Thank you both for raising the issue.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+CortesJoan
+commented
+Feb 8, 2022
+This works for a Server/Client model?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lazytiger
+commented
+Dec 23, 2022
+If my game has multiple clients, should every client have a remote_frame and rollback independently?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+rcmagic
+commented
+Dec 23, 2022
+If my game has multiple clients, should every client have a remote_frame and rollback independently?
+The purpose of comparing the opponent's remote frame and local frame is to determine if the amount of latency between you and your opponent is equal to balance out the amount of rollbacks each player experiences. The design assumption made in this pseudo code is that clients which are ahead, and experiencing more rollbacks should wait for opponents to catch up. If there are multiple clients, you could make all clients which are "ahead" slow down for the client that is most behind to catch up. I haven't spent a lot of time experimenting with more than 2 clients, so keep that in mind.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lolriven
+commented
+Apr 26, 2023
+When the remote peer's input finally does arrive and a rollback is performed, is rollback done on both local player and remote player from that specific frame? Or just the remote player and the local player's inputs are left untouched? I would imagine you shouldn't need to rollback your own inputs .
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+bmarquismarkail
+commented
+Apr 27, 2023
+When the remote peer's input finally does arrive and a rollback is performed, is rollback done on both local player and remote player from that specific frame? Or just the remote player and the local player's inputs are left untouched? I would imagine you shouldn't need to rollback your own inputs .
+When a rollback is performed, it is done for both the local player and the remote player from the specific frame. The reason for this is that the game state is a shared state between the two players, and the game simulation relies on both players' inputs to be accurate.
+Rolling back only the remote player's inputs would lead to inconsistencies in the game state, as the local player's actions would be based on outdated or incorrect information about the remote player's actions.
+By rolling back both players' inputs to the specific frame, the game can resimulate the game state with the now accurate remote player input and the local player input, ensuring the game state is consistent for both players.
+In summary, rollback is performed on both the local player and remote player from the specific frame to maintain a consistent and accurate game state between the two players.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+bmarquismarkail
+commented
+Apr 27, 2023
+This works for a Server/Client model?
+This pseudocode works for a P2P model, but can be adjusted for client/server. The server controls the game state, while the clients send their inputs. both client and server will simulate game state, but when the server gives each client an gamestate update, if any client's simulation is different than the server's simulation, rollback will occur.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lolriven
+commented
+Aug 6, 2023
+I'm slightly confused about the initialization process.
+Let's assume player A starts the game and is now frame 1.
+Player B joins the game , now Player A is on frame 3 and player B is on frame 1.
+Player A sends an input to player B on frame 5.
+Player B receives input on its local frame 3 (2 frames behind Player A) and by now player A is on frame 7.
+Player B doesn't have a record for player A's frame 5, because it hasn't locally reached frame 5 yet.
+Similarly if Player B sends an input on frame 1 to player A
+Player A will receive this on frame 5, but it can't apply that input to frame 1 that would be inaccurate, it has to apply it to frame 3 because Player B was frame 1 when player A was frame 3..
+this is what's confusing me, how do I make sense of all of this?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+bmarquismarkail
+commented
+Aug 6, 2023
+I'm slightly confused about the initialization process. Let's assume player A starts the game and is now frame 1. Player B joins the game , now Player A is on frame 3 and player B is on frame 1.
+Player A sends an input to player B on frame 5. Player B receives input on its local frame 3 (2 frames behind Player A) and by now player A is on frame 7. Player B doesn't have a record for player A's frame 5, because it hasn't locally reached frame 5 yet.
+Similarly if Player B sends an input on frame 1 to player A Player A will receive this on frame 5, but it can't apply that input to frame 1 that would be inaccurate, it has to apply it to frame 3 because Player B was frame 1 when player A was frame 3..
+this is what's confusing me, how do I make sense of all of this?
+When you initialize the variables, Player A will set their initial frame to 3, and Player B will set their initial frame to 1. Note that Player A cannot have a initial frame less than 3, and Player B's initial frame is less than that. Then they will give their initial frame to each other for them to save it to their remote_frame variables.
+When you first invoke [Update Network], Player A will get Player B's local_frame and vice-versa. because [Initialize Variables] and the first [Update Network] is ran on the same frame, the local_frame will equal to the initial frame, so
+Player_A.remote_frame = 1, and Player_B.remote_frame = 3.
+On the very first invocation of [Update Synchronization] [Determine the sync_frame], Player B set its final frame to Player A's frame, which is 3. Then checks if Player A's frame has a greater value than its own. Because Player A is on frame 3, and Player B is on frame 1, Player B will set the final frame to check to 1, likewise, Player A will set the final frame to Player B's frame, which is 1. Since 1 is not greater than 3 the final frame stays to 1.
+Now it's time to check for desync. Now, because it has never been synced before, both player's sync_frame is 0. Both Player's will find that the very first frame is not synced, Player A will Rollback to the first frame.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lolriven
+commented
+Aug 7, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+When you initialize the variables, Player A will set their initial frame to 3, and Player B will set their initial frame to 1. Note that Player A cannot have a initial frame less than 3, and Player B's initial frame is less than that. Then they will give their initial frame to each other for them to save it to their remote_frame variables.
+When you first invoke [Update Network], Player A will get Player B's local_frame and vice-versa. because [Initialize Variables] and the first [Update Network] is ran on the same frame, the local_frame will equal to the initial frame, so
+Player_A.remote_frame = 1, and Player_B.remote_frame = 3.
+On the very first invocation of [Update Synchronization] [Determine the sync_frame], Player B set its final frame to Player A's frame, which is 3. Then checks if Player A's frame has a greater value than its own. Because Player A is on frame 3, and Player B is on frame 1, Player B will set the final frame to check to 1, likewise, Player A will set the final frame to Player B's frame, which is 1. Since 1 is not greater than 3 the final frame stays to 1.
+Now it's time to check for desync. Now, because it has never been synced before, both player's sync_frame is 0. Both Player's will find that the very first frame is not synced, Player A will Rollback to the first frame.
+Ah thank you, I kind of understand. I used frame 3 and 1 arbitrarily. This differs depending on the ping to the players. But from what I gather from this both players need to be able to accurately assume the remote player's current frame?
+If the ping is 30 and we're updating at 60fps then we can assume it takes about a single frame for the packet to reach the remote player. If player A is on frame 2 when player B sends its initial packet, this means now player B is on frame 2 and player A is on frame 3 when the packet is received. So player A has to realise that it took roughly 15ms or about the length of a single frame for that packet to arrive ?
+So before the game realistically even starts to both players have to determine ping to eachother and guess what frame the remote player is on by the time they receive the initial frame?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+rcmagic
+commented
+Aug 7, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I'm slightly confused about the initialization process.
+It seems I baked in an assumption into the pseudo-code without actually realizing it. I always assumed the initial frame would be the same for both clients. Looking back at this, if I had just set it to 0 it would have caused less confusion. I wrote "the initial frame the game starts in", but it should be something more like "the initial frame the game starts in, which is the same value on all clients"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lolriven
+commented
+Aug 8, 2023
+I'm slightly confused about the initialization process.
+It seems I baked in an assumption into the pseudo-code without actually realizing it. I always assumed the initial frame would be the same for both clients. Looking back at this, if I had just set it to 0 it would have caused less confusion. I wrote "the initial frame the game starts in", but it should be something more like "the initial frame the game starts in, which is the same value on all clients"
+Yes that is correct. We can not assume that both peers are going to have the same initial frame.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+HeatXD
+commented
+Aug 8, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+if you dont have the same initial frame. frame advantage estimates would be all screwed up. it should be assumed that the clients start at the same frame. im pretty sure one client wont even progress and get stuck if you dont
+.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lolriven
+commented
+Aug 8, 2023
+if you dont have the same initial frame. frame advantage estimates would be all screwed up. it should be assumed that the clients start at the same frame. im pretty sure one client wont even progress and get stuck if you dont
+.
+That depends on the implementation though of how big the frame advantage is. But the most important thing to remember is they have to calculate what their initial frame is . Myself as a client on frame 0 can not assume that the remote client is also on frame 0.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

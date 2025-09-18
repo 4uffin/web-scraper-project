@@ -1,0 +1,433 @@
+⚡ Scaling User Search with Bloom Filters in Node.js - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Abhinav
+Posted on Sep 17
+⚡ Scaling User Search with Bloom Filters in Node.js
+#programming
+#tutorial
+#learning
+#development
+When your system grows to millions of users, even the simplest operations—like checking if a phone number or email already exists—can become costly.
+Yes, you can add database indexes, but every lookup still eats up I/O and CPU cycles. Under heavy signup traffic, this can quickly overwhelm your database.
+This is where Bloom Filters come to the rescue. 🌸
+🌱 What is a Bloom Filter?
+A Bloom Filter is a probabilistic data structure used for set membership checks. It allows us to ask:
+👉 “Does this value possibly exist?”
+It can say:
+❌ Definitely Not → Safe to skip DB.
+✅ Might Exist → Confirm with DB.
+This tiny compromise (allowing false positives, but never false negatives) gives us O(1) lookups with very little memory usage.
+🔬 Anatomy of a Bloom Filter (Abscissa)
+At its core, a Bloom filter is just:
+A Bit Array (size m) → starts with all 0’s.
+k Hash Functions → each maps an input to one of the m positions.
+👉 When we add an element:
+Run it through all k hash functions.
+Flip those positions in the bit array to 1.
+👉 When we check an element:
+Run it through the same k functions.
+If all those positions are 1 → the element might exist.
+If any position is 0 → it definitely does not exist.
+📈 Visual Abscissa
+Think of it as a number line (abscissa = x-axis):
+Bit Array (size m)
+0 1 2 3 4 5 6 7 8 9 ... m-1
+[0][0][0][0][0][0][0][0][0][0]
+Enter fullscreen mode
+Exit fullscreen mode
+Each hash function picks some positions along this line.
+Adding "alice@example.com" might flip positions 3, 7, and 9.
+Checking "bob@example.com"? If one of its hash positions is still 0, we know Bob isn’t in the set.
+⚖️ Balancing Act
+More bits (m) → fewer collisions, lower false positives.
+More hash functions (k) → more accuracy, but also more computation.
+The sweet spot depends on expected number of elements n.
+Formula for optimal k:
+k=n/m(​ln2)
+This balance is why Bloom filters are tiny in memory yet mighty in scale.
+🏗️ Our Architecture
+We built a Bloom Filter Service in Node.js that acts as a fast gatekeeper before the database.
+It consists of:
+Routes Layer → API endpoints for clients.
+Handler Layer → Processes requests, interacts with the service.
+Service Layer → Manages Bloom filters, population, refresh, and lookups.
+📜 Routes Layer
+We expose three endpoints under /bloom_filter:
+import express from 'express';
+import { getBloomFilterStatus, refreshBloomFilter, checkPhoneExists } from './handler.js';
+const router = express.Router();
+router.get('/status', getBloomFilterStatus);
+router.post('/refresh', refreshBloomFilter);
+router.get('/check', checkPhoneExists);
+export default router;
+Enter fullscreen mode
+Exit fullscreen mode
+GET /status → Monitor filters.
+POST /refresh → Force a refresh.
+GET /check?phoneNumber=... → Check existence.
+⚙️ Handler Layer
+The handlers sit between API requests and the service. They manage errors and responses:
+import userSearchBloomFilter from '../../services/userSearchBloomFilter.js';
+import { generateInternalServerErrorRepsonse } from '../../utils/errorHandler.js';
+export async function getBloomFilterStatus(req, res) {
+try {
+const status = userSearchBloomFilter.getStatus();
+return res.status(200).json({ success: true, data: status });
+} catch (error) {
+const errorResponse = await generateInternalServerErrorRepsonse(error, 'getBloomFilterStatus');
+return res.status(500).json(errorResponse);
+}
+}
+export async function refreshBloomFilter(req, res) {
+try {
+await userSearchBloomFilter.refresh();
+return res.status(200).json({
+success: true,
+message: 'Bloom filter refreshed successfully'
+});
+} catch (error) {
+const errorResponse = await generateInternalServerErrorRepsonse(error, 'refreshBloomFilter');
+return res.status(500).json(errorResponse);
+}
+}
+export async function checkPhoneExists(req, res) {
+try {
+const { phoneNumber } = req.query;
+if (!phoneNumber) {
+return res.status(400).json({
+success: false,
+error: 'Phone number is required'
+});
+}
+const mightExist = userSearchBloomFilter.mightExist(phoneNumber);
+return res.status(200).json({
+success: true,
+data: {
+phoneNumber,
+mightExist,
+note: mightExist
+? 'Might exist - check database'
+: 'Definitely does not exist'
+}
+});
+} catch (error) {
+const errorResponse = await generateInternalServerErrorRepsonse(error, 'checkPhoneExists');
+return res.status(500).json(errorResponse);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+👉 Notice how checkPhoneExists does not immediately hit the DB. It asks the Bloom filter first.
+🧠 Service Layer: Core Bloom Filter Logic
+This is where the real magic happens.
+We maintain four Bloom filters:
+emailFilter
+phoneFilter
+alternateEmailFilter
+alternatePhoneFilter
+Each filter is initialized with a target capacity and error rate (0.01 = 1%).
+import BloomFilter from '../utils/BloomFilter.js';
+import User from '../models/user.js';
+import logger from '../setup/logger.js';
+class UserSearchBloomFilterService {
+constructor() {
+this.emailFilter = new BloomFilter(100000, 0.01);
+this.phoneFilter = new BloomFilter(100000, 0.01);
+this.alternateEmailFilter = new BloomFilter(50000, 0.01);
+this.alternatePhoneFilter = new BloomFilter(50000, 0.01);
+this.isInitialized = false;
+this.lastUpdated = null;
+this.updateInterval = 24 * 60 * 60 * 1000; // 24 hours
+}
+Enter fullscreen mode
+Exit fullscreen mode
+🔄 Populating the Filters
+On startup, we fetch users in batches and add their identifiers into the filters:
+async populateFilters() {
+const batchSize = 1000;
+let offset = 0;
+let hasMoreUsers = true;
+while (hasMoreUsers) {
+const users = await User.query(qb => {
+qb.select('email', 'phone_number', 'alternate_email', 'alternate_phone');
+qb.whereNotNull('email').orWhereNotNull('phone_number');
+qb.limit(batchSize);
+qb.offset(offset);
+}).fetchAll();
+const userList = users.toJSON();
+if (userList.length === 0) {
+hasMoreUsers = false;
+break;
+}
+userList.forEach(user => {
+if (user.email) this.emailFilter.add(user.email);
+if (user.phone_number) this.phoneFilter.add(user.phone_number);
+if (user.alternate_email) this.alternateEmailFilter.add(user.alternate_email);
+if (user.alternate_phone) this.alternatePhoneFilter.add(user.alternate_phone);
+});
+offset += batchSize;
+logger.info(`Processed ${offset} users for bloom filter`);
+}
+logger.info(`Bloom filter population completed. Total users processed: ${offset}`);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This ensures all existing users are represented in the filter.
+⚡ Lookup Logic
+When a phone/email check request arrives:
+mightExist(searchKey) {
+if (!this.isInitialized) {
+return true; // fail-safe until initialized
+}
+const normalizedKey = searchKey.toLowerCase().trim();
+return (
+this.emailFilter.mightContain(normalizedKey) ||
+this.phoneFilter.mightContain(normalizedKey) ||
+this.alternateEmailFilter.mightContain(normalizedKey) ||
+this.alternatePhoneFilter.mightContain(normalizedKey)
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+👉 If it returns false, we know for sure the user doesn’t exist.
+👉 If it returns true, we query the DB to confirm.
+🕒 Auto-Refreshing
+To stay fresh with new data, we schedule a 24-hour refresh:
+schedulePeriodicUpdate() {
+setInterval(async () => {
+try {
+logger.info('Starting scheduled bloom filter update');
+await this.refresh();
+} catch (error) {
+logger.error('Scheduled bloom filter update failed:', error);
+}
+}, this.updateInterval);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This clears and repopulates the filters.
+📊 Status Reporting
+Finally, we can inspect filter health:
+getStatus() {
+return {
+isInitialized: this.isInitialized,
+lastUpdated: this.lastUpdated,
+emailFilterStats: this.emailFilter.getStats(),
+phoneFilterStats: this.phoneFilter.getStats(),
+alternateEmailFilterStats: this.alternateEmailFilter.getStats(),
+alternatePhoneFilterStats: this.alternatePhoneFilter.getStats()
+};
+}
+Enter fullscreen mode
+Exit fullscreen mode
+🚀 Example Flow
+A signup form checks if 1231881971 exists:
+Client calls → GET /bloom_filter/check?phoneNumber=<phoneNumber>
+Bloom filter says:
+❌ Not in set → Return immediately (skip DB).
+✅ Might exist → Query DB to confirm.
+This cuts DB load massively.
+✅ Benefits
+O(1) Lookups → Super fast.
+Reduced DB Load → Fewer queries.
+Scalable → Handles millions of entries.
+Fault-Tolerant → Always errs on the safe side (false positives only).
+⚠️ Limitations
+False Positives → Might say “exists” when it doesn’t.
+No Deletion → Standard Bloom filters don’t support removing entries.
+Cold Start → Until initialized, returns “might exist” to avoid false negatives.
+🌟 Final Thoughts
+Bloom Filters are not a database replacement—they’re an optimization layer.
+Think of them as a bouncer at the club entrance:
+If you’re definitely not on the list, you’re turned away instantly.
+If you might be on the list, they’ll double-check inside.
+For high-traffic systems, this simple gatekeeping can make a world of difference.
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Abhinav
+Abhinav
+Abhinav
+Follow
+Learning In Public
+Location
+Bengaluru, India
+Work
+Full Stack Dev @Traya
+Joined
+Nov 10, 2021
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+Some rough sketches to ideate the flow
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+shruti jain
+shruti jain
+shruti jain
+Follow
+I work with JavaScript, React, and Node.js, and always explore new tools that make development more enjoyable and efficient.
+Here, I write about what I'm learning, building.
+Joined
+Aug 30, 2024
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+How is this more beneficial then a redis set cache layer....
+Like comment:
+Like comment:
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Abhinav
+Follow
+Learning In Public
+Location
+Bengaluru, India
+Work
+Full Stack Dev @Traya
+Joined
+Nov 10, 2021
+More from Abhinav
+⚡ Deep Dive: How `Promise.all` Works with API & DB Calls in Node.js
+#programming
+#javascript
+#node
+#libuv
+A Technical Deep Dive: The Internals of Database Storage 🔬
+#database
+#dbms
+#programming
+#learning
+Android 15 and Safe Areas: Why Apps Feel Different Now
+#android
+#mobile
+#reactnative
+#learning
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,449 @@
+Using Effects Effectively in React: Stop Misusing useEffect Once and For All - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Yehonatan Paripsky
+Posted on Sep 17
+Using Effects Effectively in React: Stop Misusing useEffect Once and For All
+#react
+#webdev
+#programming
+#javascript
+"Effects specifically are still hard to understand and are the most common pain point we hear from developers."
+Quoted from the last blog post in the React documentation site.
+To this day, one of the most difficult concepts to wrap your head around as a React developer is using useEffect properly.
+It got so bad that even AI uses useEffect incorrectly, leading to even more misuse.
+In this post I'll talk about how we got to this point, and how, hopefully we can get to a point where every React dev knows how to use useEffect in the way that it's meant to be used.
+Component Lifecycle Hooks
+Before React had hooks, components were written as classes that had a render function, a constructor to initialize state and several functions to manage the component's lifecycle, for example a componentDidMount function to run code when the component mounts to the DOM and a componentDidUpdate function to handle component state and prop updates.
+This way of writing components had several drawbacks, the main one being that many times, logic had to be split across separate lifecycle hooks, for example when componentDidMount code needed to run a cleanup on unmount.
+React Hooks
+React 16.8 brought with it a list of hooks that created a new paradigm, instead of thinking about lifecycle hooks, developers were expected to think in terms of effects.
+But what are effects in React? Effects refer to operations that occur outside a component’s rendering process, they are escape hatches from React itself and allow you to synchronize React with external systems.
+The way to write these effects in code is by using the useEffect hook, that accepts an effect function that returns a cleanup function and a dependency array of variables that are used in the effect.
+useEffect should be used for things like:
+fetch/axios/WebSockets
+Timers (setTimeout, setInterval)
+Browser APIs (navigator, localStorage)
+The golden rule for effects in React is: "If no external system is involved, you should generally not need an Effect."
+Why Is useEffect So Difficult?
+This is the original explanation for useEffect in React's legacy docs:
+Basically saying:
+Which was more confusing than helpful, many developers started using useEffect for running code on mount, syncing state between components, thinking it's proper usage because that's the way that lifecycle hooks worked in React class components.
+Later came the new React documentation that explained useEffect properly once and for all in the "You Might Not Need An Effect" article.
+But, was that enough?
+In my opinion, not really.
+The new docs were helpful but it was too little too late, many devs figured that they already know useEffect and skipped the new docs and even new devs might have missed these docs as they're a part of a section called "Escape Hatches", which is the last section in the docs.
+Thinking In Effects
+The latest React blog post says that one of the biggest reasons for confusion around useEffect is that developers tend to think of Effects from the component’s perspective (like a lifecycle), instead of the Effects point of view.
+useEffect(() => {
+const connection = createConnection(serverUrl, roomId);
+connection.connect();
+return () => {
+connection.disconnect();
+};
+}, [roomId]);
+Enter fullscreen mode
+Exit fullscreen mode
+Many React developers read this example as "on mount and on the change of the roomId variable, connect to the chat room, and on unmount and before connecting to a different roomId, disconnect from the previous chat room" when instead you should think about this code as "I want to connect to a chat room from my component, and disconnect from the chat room when the effect is cleaned up. I connect to a chat room by its room Id so I'll provide it as a dependency in the dependency array of useEffect".
+This different way of thinking about effects helps you understand how useEffect should be used properly.
+AI Doesn't Get useEffect
+So many React developers use useEffect improperly that we've gotten to a point where AI tools like Copilot and Cursor also misuse useEffect.
+And without a review from an experienced dev that knows how to use useEffect properly, this code will end up in a git repository, which LLMs might train on, thus just making this problem worse and worse.
+The Do's: Examples of what useEffect should be used for
+Fetch data using useEffect:
+useEffect(() => {
+fetch('/api/user')
+.then(res => res.json())
+.then(data => setUser(data));
+}, []);
+Enter fullscreen mode
+Exit fullscreen mode
+This is a very simplified example, a proper fetch request should handle errors, have an abort controller for canceling the request on unmount and more.
+Sync a state variable to localStorage:
+useEffect(() => {
+localStorage.setItem('theme', theme);
+}, [theme]);
+Enter fullscreen mode
+Exit fullscreen mode
+Listen to DOM events:
+useEffect(() => {
+const handleScroll = () => setScrollY(window.scrollY);
+window.addEventListener('scroll', handleScroll);
+return () => window.removeEventListener('scroll', handleScroll);
+}, []);
+Enter fullscreen mode
+Exit fullscreen mode
+When You Do Need Effects
+Fetching data (with important caveats).
+Syncing state with external systems.
+Subscribing to external data stores and browser APIs (though -useSyncExternalStore is preferred)
+The Don'ts: Examples of improper useEffect usage
+Avoid: Transforming Data for Rendering
+function Form() {
+const [firstName, setFirstName] = useState('Morty');
+const [lastName, setLastName] = useState('Smith');
+const [fullName, setFullName] = useState('');
+useEffect(() => {
+setFullName(firstName + ' ' + lastName);
+}, [firstName, lastName]);
+return <span>{fullName}</span>;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Updating a state variable based on another variables isn't an effect, instead calculate the fullName while rendering:
+function Form() {
+const [firstName, setFirstName] = useState('Morty');
+const [lastName, setLastName] = useState('Smith');
+const fullName = firstName + lastName;
+return <span>{fullName}</span>;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Avoid: Caching Expensive Calculations
+function TodoList({ todos }) {
+const [searchTerm, setSearchTerm] = useState('');
+const [matchingTodos, setMatchingTodos] = useState(todos);
+useEffect(() => {
+setMatchingTodos(todos.filter(todo => todo.title.includes(searchTerm)));
+}, [searchTerm]);
+// render
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Instead calculate matchingTodos as part of the render and use the useMemo hook if it's a heavy calculation, to memoize the result:
+function TodoList({ todos }) {
+const [searchTerm, setSearchTerm] = useState('');
+const matchingTodos = useMemo(() => todos.filter(todo => todo.title.includes(searchTerm)), [todos, searchTerm]);
+// render
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Avoid: Resetting State on Prop Change
+function TodoList({ todos }) {
+const [searchTerm, setSearchTerm] = useState('');
+useEffect(() => {
+setSearchTerm('');
+}, [todos]);
+// render
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Instead you should use the built in key prop to let React know that the provided todos are new todos:
+function App() {
+const [todos, setTodos] = useState(todos);
+const todosKey = useMemo(() => todos.map(todo => todo.id).join(','), [todos]);
+return <TodoList todos={todos} key={todosKey} />;
+}
+function TodoList({ todos }) {
+const [searchTerm, setSearchTerm] = useState('');
+// render
+}
+Enter fullscreen mode
+Exit fullscreen mode
+If using a key isn't possible you can save a local copy of the todos and check if the prop changed in the render:
+function TodoList({ todos }) {
+const [localTodos, setLocalTodos] = useState(todos);
+const [searchTerm, setSearchTerm] = useState('');
+if (todos !== localTodos) {
+setLocalTodos(todos);
+setSearchTerm('');
+}
+// render
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Calling a setState function as part of the render tells react to perform another render immediately, skipping effects, making this a viable option when using a key just isn't possible.
+Avoid: Handling User Events in Effects
+function Todo({ title, isSelected, onSelect }) {
+useEffect(() => {
+if (!isSelected) return;
+toast.success(`Todo "${title}" is now selected`);
+}, [isSelected]);
+return (
+<label>
+<input type="checkbox" value={isSelected} onChange={onSelect} /> {title}
+</label>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Instead handle the selection event in an event handler:
+function Todo({ title, isSelected, onSelect }) {
+const handleSelect = (selected) => {
+onSelect(selected);
+if (!selected) return;
+toast.success(`Todo "${title}" is now selected`);
+};
+return (
+<label>
+<input type="checkbox" value={isSelected} onChange={onSelect} /> {title}
+</label>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Avoid: Syncing State Between Parent & Child Components
+function TodoList({ todos }) {
+const [selectedTodos, setSelectedTodos] = useState([]);
+return todos.map((todo) => (
+<Todo
+key={todo.id}
+title={todo.title}
+isSelected={selectedTodos.includes(todo.id)}
+onSelect={(isSelected) => {
+setSelectedTodos(
+isSelected
+? [...selectedTodos, todo.id]
+: selectedTodos.filter((id) => id !== todo.id),
+);
+}}
+/>
+));
+}
+function Todo({ title, onSelectChange }) {
+const [isSelected, setIsSelected] = useState(false);
+useEffect(() => {
+onSelectChange(isSelected);
+}, [isSelected, onSelectChange]);
+return (
+<label>
+<input type="checkbox" value={isSelected} onChange={setIsSelected} />{' '}
+{title}
+</label>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The selection state is duplicated both in the child and in the parent component, so there's no single source of truth for the selection state. Instead, move the state up to the parent:
+function TodoList({ todos }) {
+const [selectedTodos, setSelectedTodos] = useState([]);
+return todos.map((todo) => (
+<Todo
+key={todo.id}
+title={todo.title}
+isSelected={selectedTodos.includes(todo.id)}
+onSelect={(isSelected) => {
+setSelectedTodos(
+isSelected
+? [...selectedTodos, todo.id]
+: selectedTodos.filter((id) => id !== todo.id),
+);
+}}
+/>
+));
+}
+function Todo({ title, isSelected, onSelectChange }) {
+return (
+<label>
+<input type="checkbox" value={isSelected} onChange={onSelectChange} />{' '}
+{title}
+</label>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+When You Don’t Need Effects
+Transforming Data for Rendering
+Caching Expensive Calculations
+Adjusting/Resetting State on Prop Change
+Handling User Events
+Syncing State Between Parent & Child Components
+useEffect Alternative: useSyncExternalStore
+If you have a custom hook that syncs to an external store where you can get the current state and listen to state changes you'll be able to use useSyncExternalStore instead of useEffect.
+Let's create a useOnline hook for example:
+export function useOnlineStatus() {
+const [isOnline, setIsOnline] = useState(navigator.onLine);
+useEffect(() => {
+function updateStatus() {
+setIsOnline(navigator.onLine);
+}
+window.addEventListener('online', updateStatus);
+window.addEventListener('offline', updateStatus);
+// Cleanup function
+return () => {
+window.removeEventListener('online', updateStatus);
+window.removeEventListener('offline', updateStatus);
+};
+}, []);
+return isOnline;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+using useSyncExternalStore, we can simplify this to:
+export function useOnlineStatus() {
+const isOnline = useSyncExternalStore(subscribe, getSnapshot);
+return isOnline;
+}
+function getSnapshot() {
+return navigator.onLine;
+}
+function subscribe(callback) {
+window.addEventListener('online', callback);
+window.addEventListener('offline', callback);
+return () => {
+window.removeEventListener('online', callback);
+window.removeEventListener('offline', callback);
+};
+}
+Enter fullscreen mode
+Exit fullscreen mode
+We don't need useState and useEffect anymore, we just use useSyncExternalStore and give it a function to subscribe to changes and a way to get the current state.
+The Future Of useEffect
+The team behind React are considering using the new React Compiler as a possible solution, instead of manually providing dependencies to useEffect, the compiler will auto detect dependencies for you, similar to Vue, Solid and others.
+This shift will make developers think about the code written in useEffect as an actual side effect instead of thinking "if this dependency changes, run this function".
+useEffect(() => {
+const connection = createConnection(serverUrl, roomId);
+connection.connect();
+return () => {
+connection.disconnect();
+};
+}); // React Compiler will add these deps automatically
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+Removing unnecessary Effects makes code simpler to follow, easier to debug, faster to run, and less error-prone.
+Also, if we use useEffect correctly, AI will use it properly as well and hopefully after reading this post you know when you should, and mostly shouldn't use useEffect.
+Read more about useSyncExternalStore in my blogpost: https://dev.to/paripsky/build-your-own-react-state-management-library-in-under-40-lines-of-code-with-typescript-support-hji
+Read "You Might Not Need An Effect" in React's docs for more in depth explanations and examples: https://react.dev/learn/you-might-not-need-an-effect
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Yehonatan Paripsky
+Follow
+Full Stack Engineer
+Education
+College of Management Academic Studies
+Work
+Full Stack Engineer
+Joined
+Aug 2, 2022
+More from Yehonatan Paripsky
+You Might Not Need Next.js
+#webdev
+#programming
+#javascript
+#react
+Building a Meta Tags Scraping API in Under 40 Lines of Code
+#javascript
+#webdev
+#typescript
+#tutorial
+Build your own React state management library in under 40 lines of code - with typescript support
+#react
+#javascript
+#webdev
+#typescript
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

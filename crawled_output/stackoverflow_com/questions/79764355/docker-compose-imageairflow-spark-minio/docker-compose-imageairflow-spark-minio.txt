@@ -1,0 +1,336 @@
+docker compose image(airflow, spark, minio) - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+docker compose image(airflow, spark, minio) [closed]
+Ask Question
+Asked
+3 days ago
+Modified
+3 days ago
+Viewed
+36 times
+-4
+Closed. This question is not about programming or software development. It is not currently accepting answers.
+This question does not appear to be about a specific programming problem, a software algorithm, or software tools primarily used by programmers. If you believe the question would be on-topic on another Stack Exchange site, you can leave a comment to explain where the question may be able to be answered.
+Closed 3 days ago.
+Improve this question
+I am new with docker just trying to create a docker compose file which have basicaly 3 containers: airflow, spark and minio.
+Id like to orchestrate using airflow, scripts spark and persist it as delta tables on minio. I came up with this docker compose bellow. After running docker compose up and checking using docker compose ps i can see healthy containers but the airflow UI is not working, says
+http://localhost:8080/ doesnt return data etc. Can someone give me any hint or review my code? thanks for any suggestion guys
+x-airflow-common: &airflow-common
+image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.0.0}
+environment: &airflow-common-env
+AIRFLOW__CORE__EXECUTOR: LocalExecutor
+AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+AIRFLOW__API_AUTH__JWT_SECRET: 'test-key'
+AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-your-generated-fernet-key}
+AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://localhost:8080/execution/'
+AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+_PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
+AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+volumes:
+- ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
+- ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
+- ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
+- ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+user: "${AIRFLOW_UID:-50000}:0"
+depends_on: &airflow-common-depends-on
+postgres:
+condition: service_healthy
+services:
+postgres:
+image: postgres:13
+environment:
+POSTGRES_USER: airflow
+POSTGRES_PASSWORD: airflow
+POSTGRES_DB: airflow
+volumes:
+- postgres-db-volume:/var/lib/postgresql/data
+healthcheck:
+test: ["CMD", "pg_isready", "-U", "airflow"]
+interval: 10s
+retries: 5
+start_period: 5s
+restart: always
+networks:
+- data_network
+minio:
+image: minio/minio:latest
+container_name: minio
+ports:
+- "9000:9000"
+- "9001:9001"
+environment:
+- MINIO_ROOT_USER=${MINIO_ROOT_USER}
+- MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+volumes:
+- minio_data:/data
+command: server /data --console-address ":9001"
+networks:
+- data_network
+spark-master:
+image: bitnami/spark:3.5
+container_name: spark-master
+environment:
+- SPARK_MODE=master
+- SPARK_RPC_AUTHENTICATION_ENABLED=no
+- SPARK_RPC_ENCRYPTION_ENABLED=no
+- SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+- SPARK_SSL_ENABLED=no
+ports:
+- "8081:8082"
+- "7077:7077"
+volumes:
+- ./spark/app:/opt/bitnami/spark/app
+networks:
+- data_network
+spark-worker:
+image: bitnami/spark:3.5
+container_name: spark-worker
+depends_on:
+- spark-master
+environment:
+- SPARK_MODE=worker
+- SPARK_MASTER_URL=spark://spark-master:7077
+- SPARK_RPC_AUTHENTICATION_ENABLED=no
+- SPARK_RPC_ENCRYPTION_ENABLED=no
+- SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+- SPARK_SSL_ENABLED=no
+volumes:
+- ./spark/app:/opt/bitnami/spark/app
+networks:
+- data_network
+airflow-apiserver:
+<<: *airflow-common
+command: api-server
+ports:
+- "8080:8080"
+healthcheck:
+test: ["CMD-SHELL", "airflow info > /dev/null || exit 1"]
+interval: 30s
+timeout: 10s
+retries: 5
+start_period: 30s
+restart: always
+depends_on:
+<<: *airflow-common-depends-on
+airflow-init:
+condition: service_completed_successfully
+airflow-scheduler:
+<<: *airflow-common
+command: scheduler
+healthcheck:
+test: ["CMD-SHELL", "airflow info > /dev/null || exit 1"]
+interval: 30s
+timeout: 10s
+retries: 5
+start_period: 30s
+restart: always
+depends_on:
+<<: *airflow-common-depends-on
+airflow-init:
+condition: service_completed_successfully
+airflow-init:
+<<: *airflow-common
+entrypoint: /bin/bash
+command:
+- -c
+- |
+mkdir -p /opt/airflow/{logs,dags,plugins,config}
+chown -R "${AIRFLOW_UID}:0" /opt/airflow/{logs,dags,plugins,config}
+exec /entrypoint airflow version
+environment:
+<<: *airflow-common-env
+_AIRFLOW_DB_MIGRATE: 'true'
+_AIRFLOW_WWW_USER_CREATE: 'true'
+_AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+_AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+_PIP_ADDITIONAL_REQUIREMENTS: ''
+user: "0:0"
+networks:
+- data_network
+volumes:
+postgres-db-volume:
+minio_data:
+networks:
+data_network:
+driver: bridge
+dockerapache-sparkairflowminio
+Share
+Improve this question
+Follow
+asked Sep 14 at 14:15
+Afonso O. LenziAfonso O. Lenzi
+9111 silver badge88 bronze badges
+1
+github.com/afonsolenzi1983/Brewery/blob/main/README.md
+Afonso O. Lenzi
+–
+Afonso O. Lenzi
+2025-09-15 04:06:50 +00:00
+Commented
+Sep 15 at 4:06
+Add a comment
+|
+Related questions
+4497
+How is Docker different from a virtual machine?
+2574
+How to copy files from host to Docker container?
+1700
+How to force Docker for a clean build of an image
+Related questions
+4497
+How is Docker different from a virtual machine?
+2574
+How to copy files from host to Docker container?
+1700
+How to force Docker for a clean build of an image
+2256
+How to get a Docker container's IP address from the host
+1028
+Docker Compose - How to execute multiple commands?
+1499
+How to remove old Docker containers
+Load 3 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+dockerapache-sparkairflowminio
+See similar questions with these tags.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+stackoverflow.ai - rebuilt for attribution
+Spevacus has joined us as a Community Manager
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+Maximizing profit given a pmf
+Clearly allowed
+Looking for 70s to early 90s Sci Fi book where neck tattoo indicates social status
+When can you stealth in terms of "other senses"?
+Find the first relabeling
+Must I enclose the values of the parameters in GRUB with quotation marks?
+Book about two ships that leave Earth decades apart but the later ship has FTL technology
+1970s-90s story where refugees flee through an escape tunnel and emerge unexpectedly in another world
+Should beginner writers publish short story science fiction on Amazon short reads to get experience?
+How to clear specific byte values inside a 64-bit value without looping
+Pressure treated or regular wood for temporary ramp?
+How do I remove a gap in date x axis?
+Where can a French citizen with Russian visa legally cross by bike/foot/car from China into Russia at a border point as close as possible to Dongning?
+Peg solitaire starting position
+How to fix excessive dust / lint problem inside the house
+In what sense is this algorithm better than Dijkstra?
+Color GeoPath according to current distance traveled
+Understanding the delay x bandwidth product for computer networks
+append iterator value to variable in for loop
+Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure aluminum?
+Tiling the plane with pair-wise non-congruent and mutually similar quadrilaterals
+Siblings buying grandparents' home as first time buyers. Please help me identify our blind spots
+"a bunch of random Xs {do/does}”
+Beyond first place?
+more hot questions
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

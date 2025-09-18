@@ -1,0 +1,137 @@
+go-modernize-interactive.sh · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+adibhanna/go-modernize-interactive.sh
+Created
+April 12, 2025 17:56
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/adibhanna/5efc06f65370b64c9b2a75ed9bff8f83.js&quot;&gt;&lt;/script&gt;
+Save adibhanna/5efc06f65370b64c9b2a75ed9bff8f83 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/adibhanna/5efc06f65370b64c9b2a75ed9bff8f83.js&quot;&gt;&lt;/script&gt;
+Save adibhanna/5efc06f65370b64c9b2a75ed9bff8f83 to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+go-modernize-interactive.sh
+#!/bin/bash
+function go_modernize_interactive() {
+# Check if bat is installed
+if ! command -v bat &>/dev/null; then
+echo "bat is not installed. Please install it first (https://github.com/sharkdp/bat)"
+echo "You can install it with: "
+echo "
+- Homebrew: brew install bat"
+echo "
+- Ubuntu/Debian: apt install bat"
+echo "
+- Fedora: dnf install bat"
+return 1
+fi
+# Find all Go files
+local go_files=$(find . -name "*.go" -not -path "*/vendor/*" | sort)
+if [[ -z "$go_files" ]]; then
+echo "No Go files found"
+return 1
+fi
+# Create a temporary directory for storing analysis results
+local tmp_dir=$(mktemp -d)
+trap "rm -rf $tmp_dir" EXIT
+# First, let user select files to analyze with full-screen preview
+local selected_files=$(echo "$go_files" | fzf --multi --preview "bat --style=numbers,changes --color=always {}" --preview-window=right:70%:wrap)
+if [[ -z "$selected_files" ]]; then
+return 0
+fi
+# Analyze selected files one by one
+echo "Analyzing selected files for modernization opportunities..."
+local files_with_issues=()
+local all_output_files=()
+while IFS= read -r file; do
+echo "Analyzing $file..."
+local output_file="$tmp_dir/$(echo "$file" | tr '/' '_').txt"
+go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest "$file" >"$output_file" 2>&1
+# Check if there are any issues
+if [[ -s "$output_file" ]]; then
+files_with_issues+=("$file")
+all_output_files+=("$file:$output_file")
+fi
+done <<<"$selected_files"
+if [[ ${#files_with_issues[@]} -eq 0 ]]; then
+echo "No modernization issues found in selected files."
+return 0
+fi
+# Create a combined preview function
+preview_cmd="file={}; output_file=\"$tmp_dir/\$(echo \$file | tr '/' '_').txt\"; echo -e \"\033[1;33m=== Modernization Issues ===\033[0m\n\"; cat \"\$output_file\"; echo -e \"\n\033[1;33m=== File Content ===\033[0m\n\"; bat --style=numbers,changes --color=always \"\$file\""
+# Select files with issues to fix with full-screen preview
+local files_to_fix=$(printf "%s\n" "${files_with_issues[@]}" | fzf --multi --preview "$preview_cmd" --preview-window=right:70%:wrap)
+if [[ -z "$files_to_fix" ]]; then
+return 0
+fi
+# Ask if user wants to fix the selected files
+local action=$(echo -e "fix\ncancel" | fzf --height 20% --reverse --prompt="Apply fixes to selected files? ")
+if [[ "$action" != "fix" ]]; then
+echo "No changes made."
+return 0
+fi
+# Apply fixes to selected files
+echo "Applying modernization fixes to selected files..."
+echo "$files_to_fix" | xargs go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -fix
+echo "Modernization complete!"
+}
+go_modernize_interactive
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

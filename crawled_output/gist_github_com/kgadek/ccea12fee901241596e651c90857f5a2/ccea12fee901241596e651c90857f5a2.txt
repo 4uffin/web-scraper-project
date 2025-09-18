@@ -1,0 +1,356 @@
+Debian on ZFS root on Raspberry Pi 4 · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+kgadek/note.md
+Last active
+September 18, 2025 04:08
+Show Gist options
+Download ZIP
+Star
+4
+(4)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/kgadek/ccea12fee901241596e651c90857f5a2.js&quot;&gt;&lt;/script&gt;
+Save kgadek/ccea12fee901241596e651c90857f5a2 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+8
+Stars
+4
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/kgadek/ccea12fee901241596e651c90857f5a2.js&quot;&gt;&lt;/script&gt;
+Save kgadek/ccea12fee901241596e651c90857f5a2 to your computer and use it in GitHub Desktop.
+Download ZIP
+Debian on ZFS root on Raspberry Pi 4
+Raw
+note.md
+Note
+I'm no longer be maintaining this, as I'm no longer using Raspberry Pi 4 + ZFS.
+My case was:
+Raspberry Pi 4 8GB
+Debian 11 Bullseye
+native ZFS encryption
+And results were not ideal — I broke things 1h after I've installed things 😬 Kinda expected, as ZFS folks mentioned somewhere that arm code is not-so-well supported… Perhaps I'll return to this setup, but for now I'm migrating to x86_64.
+About the breakage: not sure what exactly caused that: I've ended with zpool list stuck (kill -9 didn't help, so in-kernel issue most likely). Eventually I've unplugged USB disks but that didn't help. And to make matters worse, I didn't want to lose 120s for full system reboot to call update-initramfs (yeah, that was megastupid)… That broke the boot.
+Raw
+step1-host.sh
+### Prepare SD card or USB disk for first boot.
+### Executed as user with sudo rights on some host.
+### -----------------------------------------------
+### Customize:
+export DISKNAME=sda
+export RASPI_IMG=20220121_raspi_4_bullseye
+### -------------------------------------------
+set -euxo pipefail
+# Install packages
+sudo apt update
+sudo apt install -y curl
+# Obtain Buster for RPi
+curl -O "https://raspi.debian.net/verified/${RASPI_IMG}.img.xz"
+curl -O "https://raspi.debian.net/verified/${RASPI_IMG}.xz.sha256"
+sha256sum -c "${RASPI_IMG}.xz.sha256"
+unxz "${RASPI_IMG}.img.xz"
+#### Initial partitioning
+sfdisk -d "${RASPI_IMG}.img" # debug
+BOOT_SIZE=$(sfdisk -d "${RASPI_IMG}.img" | awk '/.img1/{print $6}' | tr -d ',')
+ROOT_SIZE=$(sfdisk -d "${RASPI_IMG}.img" | awk '/.img2/{print $6}' | tr -d ',')
+sudo sfdisk -d "/dev/${DISKNAME}" # debug
+cat << EOF | sudo sfdisk "/dev/${DISKNAME}"
+label: dos
+unit: sectors
+1 : start=
+2048,
+size=${BOOT_SIZE}, type=c, bootable
+2 : start=$((2048+BOOT_SIZE)),
+size=$((ROOT_SIZE*2)), type=83
+3 : start=$((2048+BOOT_SIZE+ROOT_SIZE*2)), size=$((ROOT_SIZE*2)), type=83
+EOF
+sudo partprobe
+sleep 2
+sudo wipefs -a "/dev/${DISKNAME}1"
+sudo wipefs -a "/dev/${DISKNAME}2"
+sudo wipefs -a "/dev/${DISKNAME}3"
+IMG=$(sudo losetup -fP --show "${RASPI_IMG}.img")
+sudo dd if="${IMG}p1" of="/dev/${DISKNAME}1" bs=1M
+sudo dd if="${IMG}p2" of="/dev/${DISKNAME}3" bs=1M status=progress conv=fsync
+sudo losetup -d "${IMG}"
+Raw
+step2-rpi.sh
+### Execute as `root` on Raspberry
+### to enable SSH and upgrade kernel.
+### ---------------------------------
+### Customize:
+export TEMP_ROOT_PASSWD=...
+# please don't pick anything too obvious here,
+# otherwise RPi will be left widely opened
+# on your network...
+### ---------------------------------
+set -euxo pipefail
+echo "root:${TEMP_ROOT_PASSWD}" | chpasswd
+echo PermitRootLogin yes >> /etc/ssh/sshd_config
+systemctl restart ssh
+# If this fails with a message
+apt update
+apt dist-upgrade -y
+apt install -y tmux
+apt clean
+reboot
+Raw
+step3-rpi.sh
+### Execute as `root` on Raspberry
+### to prepare ZFS pool.
+### ------------------------------
+### customize:
+RPIHOSTNAME=spongebob
+### ------------------------------
+set -euxo pipefail
+DISKNAME="$(mount | awk '$3=="/" {print $1}' | sed 's/p[0-9]*$//g' | xargs basename)"
+DISK_BYID="$(find /dev/disk/by-id -lname "*/${DISKNAME}")"
+export PART2="${DISK_BYID}-part2"
+export PART3="${DISK_BYID}-part3"
+# apt install -y pv dkms dpkg-dev "linux-headers-$(uname -r)" man-db console-setup locales
+apt install -y zfsutils-linux locales man-db console-setup pv
+# en_US.UTF-8 should always be installed
+dpkg-reconfigure locales tzdata keyboard-configuration console-setup
+apt install -y zfs-initramfs
+echo REMAKE_INITRD=yes > /etc/dkms/zfs.conf
+modprobe zfs
+zpool create \
+-o ashift=12 \
+-O acltype=posixacl \
+-O atime=off \
+-O canmount=off \
+-O compression=lz4 \
+-O dnodesize=auto \
+-O encryption=aes-256-gcm \
+-O keyformat=passphrase \
+-O keylocation=prompt \
+-O mountpoint=/ \
+-O normalization=formD \
+-O xattr=sa \
+-R /mnt \
+rpool "${PART2}"
+zfs create -o canmount=off
+-o mountpoint=none
+rpool/ROOT
+zfs create -o canmount=noauto -o mountpoint=/
+rpool/ROOT/debian
+zfs mount rpool/ROOT/debian
+zfs create -o canmount=off
+-o mountpoint=/
+rpool/USERDATA
+zfs create
+rpool/USERDATA/home #+buster
+zfs create
+-o mountpoint=/root rpool/USERDATA/home/root #+buster
+zfs create -o canmount=off
+rpool/ROOT/debian/var #+buster #+ubuntu
+zfs create -o com.sun:auto-snapshot=false
+rpool/ROOT/debian/var/cache #+buster
+zfs create -o canmount=off
+rpool/ROOT/debian/var/lib #+buster #+ubuntu #+merge
+zfs create
+rpool/ROOT/debian/var/lib/apt #+ubuntu
+zfs create
+rpool/ROOT/debian/var/lib/dpkg #+ubuntu
+zfs create
+rpool/ROOT/debian/var/lib/NetworkManager #+ubuntu
+zfs create -o com.sun:auto-snapshot=false
+rpool/ROOT/debian/var/lib/docker #+buster
+zfs create -o com.sun:auto-snapshot=false
+rpool/ROOT/debian/var/lib/nfs #+buster
+zfs create
+rpool/ROOT/debian/var/lib/AccountsService #+buster #+ubuntu
+zfs create
+rpool/ROOT/debian/var/log #+buster #+ubuntu
+zfs create
+rpool/ROOT/debian/var/mail #+buster #+ubuntu
+zfs create
+rpool/ROOT/debian/var/opt
+zfs create
+rpool/ROOT/debian/var/spool #+buster #+ubuntu
+zfs create
+rpool/ROOT/debian/var/games #+buster #+ubuntu
+zfs create
+rpool/ROOT/debian/var/www #+buster #+ubuntu
+zfs create
+rpool/ROOT/debian/opt #+buster
+zfs create
+rpool/ROOT/debian/srv #+buster #+ubuntu
+zfs create -o canmount=off
+rpool/ROOT/debian/usr #+buster #+ubuntu
+zfs create
+rpool/ROOT/debian/usr/local #+buster #+ubuntu
+zfs create -o com.sun:auto-snapshot=false
+rpool/ROOT/debian/var/tmp #+buster
+zfs create -o com.sun:auto-snapshot=false
+rpool/ROOT/debian/tmp #+buster
+chmod 1777 /mnt/var/tmp
+chmod 1777 /mnt/tmp
+#### Install system
+(cd /; tar -cf - --one-file-system --warning=no-file-ignored .) | \
+pv -p -bs "$(du -sxm --apparent-size / | cut -f1)m" | \
+(cd /mnt ; tar -x)
+#### chroot prepare
+mount --rbind /boot/firmware /mnt/boot/firmware
+mount --rbind /dev
+/mnt/dev
+mount --rbind /proc /mnt/proc
+mount -t tmpfs tmpfs /mnt/run
+mount --rbind /sys
+/mnt/sys
+mkdir /mnt/run/lock
+echo "${RPIHOSTNAME}" > /mnt/etc/hostname
+echo 127.0.1.1 "${RPIHOSTNAME}" >> /mnt/etc/hosts
+systemctl stop zed
+mkdir /mnt/etc/zfs/zfs-list.cache
+touch /mnt/etc/zfs/zfs-list.cache/rpool
+#### chroot
+chroot /mnt bash --login <<EOF
+set -euxo pipefail
+dpkg-reconfigure locales tzdata keyboard-configuration console-setup
+zed -F &
+zfs set canmount=noauto rpool/ROOT/debian
+while [[ ! -s /etc/zfs/zfs-list.cache/rpool ]] ; do
+echo "waiting for zed to update cache"
+sleep 1
+done
+sleep 1
+# to be on a safe side
+kill %1
+# kill zed
+EOF
+sed -Ei "s|/mnt/?|/|" /mnt/etc/zfs/zfs-list.cache/*
+sed -i '/LABEL=RASPIROOT/d' /mnt/etc/fstab
+sed -i "s/^LABEL=RASPIFIRM/UUID=$(lsblk -dno UUID "${DISK_BYID}-part1")/" /mnt/etc/fstab
+cp /boot/firmware/cmdline.txt "/boot/firmware/cmdline.txt.orig-$(date -u +%Y-%m-%d--%H-%M-%S-UTC)"
+sed -i "s|root=[^ ]*|root=ZFS=rpool/ROOT/debian|" /boot/firmware/cmdline.txt
+sed -i "s|$| init_on_alloc=0 nosplash|" /boot/firmware/cmdline.txt
+sed -i "s|console=ttyS1,115200 ||" /boot/firmware/cmdline.txt
+sed -i "s|
+| |" /boot/firmware/cmdline.txt
+reboot
+Raw
+step4-rpi.sh
+### Run this as `root`
+### -----------------------------------------------------
+### customize:
+export RPIUSER=konrad
+export DISKNAME=sda
+export GROW_SIZE="30G" # size of rpool: 2.4G + GROW_SIZE
+# empty means: whole disk
+### -----------------------------------------------------
+set -euxo pipefail
+DISK_BYID="$(find /dev/disk/by-id -lname "*/${DISKNAME}")"
+export DISK_BYID
+sfdisk "${DISK_BYID}" --delete 3
+echo ", +${GROW_SIZE}" | sfdisk --no-reread -N 2 "${DISK_BYID}"
+partprobe
+zpool online -e rpool "${DISK_BYID}-part2"
+zfs create "rpool/USERDATA/home/${RPIUSER}"
+adduser "${RPIUSER}"
+cp -a /etc/skel/. "/home/${RPIUSER}"
+chown -R "${RPIUSER}:${RPIUSER}" "/home/${RPIUSER}"
+usermod -a -G audio,cdrom,dip,floppy,netdev,plugdev,sudo,video "${RPIUSER}"
+echo "${RPIUSER}
+ALL=(ALL:ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${RPIUSER}"
+chmod 0440 "/etc/sudoers.d/${RPIUSER}"
+visudo -c
+usermod -p '*' root
+sed -i '/^PermitRootLogin yes/d' /etc/ssh/sshd_config
+for file in /etc/logrotate.d/* ; do
+if grep -Eq "(^|[^#y])compress" "${file}" ; then
+sed -i -r "s/(^|[^#y])(compress)/\1#\2/" "${file}"
+fi
+done
+zfs create -V 10G -b "$(getconf PAGESIZE)" -o compression=zle -o logbias=throughput -o sync=always -o primarycache=metadata -o secondarycache=none -o com.sun:auto-snapshot=false rpool/swap
+mkswap -f /dev/zvol/rpool/swap
+echo /dev/zvol/rpool/swap none swap discard 0 0 >> /etc/fstab
+echo RESUME=none > /etc/initramfs-tools/conf.d/resume
+swapon -av
+apt install -y mosh zfs-auto-snapshot psmisc watchdog curl apt-file
+apt-file update
+cat << EOF > /etc/systemd/system/zfs-scrub@.timer
+[Unit]
+Description=Bi-Monthly zpool scrub on %i
+[Timer]
+# Last Tuesday of the month, at 2am +/-1h
+OnCalendar=Tue *-01/2~07/1 02:00:00
+AccuracySec=1h
+Persistent=true
+[Install]
+WantedBy=multi-user.target
+EOF
+cat << EOF > /etc/systemd/system/zfs-scrub@.service
+[Unit]
+Description=zpool scrub on %i
+[Service]
+Nice=19
+IOSchedulingClass=idle
+KillSignal=SIGINT
+ExecStart=/usr/sbin/zpool scrub %i
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable zfs-scrub@rpool.timer
+systemctl start zfs-scrub@rpool.timer
+systemctl disable rpi-set-sysconf
+zfs snapshot -r rpool@install
+zfs destroy rpool/swap@install
+echo Storage=persistent > /etc/systemd/journald.conf
+killall -USR1 systemd-journald
+cat << EOF >> /etc/watchdog.conf
+watchdog-device = /dev/watchdog
+watchdog-timeout = 10
+interval = 2
+max-load-1 = 24
+EOF
+systemctl enable watchdog
+systemctl start watchdog
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

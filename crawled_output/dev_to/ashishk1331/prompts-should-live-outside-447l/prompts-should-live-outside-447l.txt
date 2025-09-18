@@ -1,0 +1,260 @@
+Prompts should live outside. - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ashish Khare😎
+Posted on Sep 17
+Prompts should live outside.
+#ai
+#webdev
+#javascript
+#discuss
+Recently, I’ve been working on an AI wrapper with NextJS and the Google GenAI SDK. For the most part, the entire context text and prompts lived inside the functions, which bloated the function bodies. A file that could have been just 50 lines grew to around 500 lines. 🤯 This pushed me to move all the prompt text into separate files and organize them under a prompts folder. Not only because of the file length, but also because it became difficult to view functions together and identify areas for change.
+TL;DR
+Prompts should live outside application logic — treat them like static assets (images, configs) instead of embedding them inside functions.
+Separation of concerns matters — keep values (prompts) independent from logic to avoid bloated files and improve maintainability.
+Lightweight templating with pm — a simple regex-based tagged template function can substitute variables in prompt text, reducing repetition.
+Language-agnostic storage — saving prompts as .txt or .prompt files (with loaders or templating engines) removes runtime dependency on JavaScript.
+Avoid black-box solutions — don’t chase all-in-one frameworks; instead, use modular, composable building blocks that keep flexibility and clarity.
+Preachings of Dan Abramov
+I’m a believer in the teachings of Dan and want to clarify the mental model of values, i.e.,
+As we start building our mental model, one of the first common misconceptions
+we need to clear up is that values are our code. Instead, we need to think of them
+separately—our code interacts with values, but values exist in a completely
+separate space.
+Quoted from Just JavaScript by Dan
+I strongly believe that values—here, the prompts being simple text—should exist outside the logic sphere. Just as you place images and other static assets in the public folder, separate from your code files, prompts should also be placed outside coding files.
+Building on this notion, I would like to present a few ways of placing your prompts and context files separately from your code.
+The clsx for templating
+For this project, I didn’t want to introduce any compiler-level intricacies. Instead, I came up with a clever use of template strings and regex, which can be imported as functions and invoked with an object of data to render the template.
+Let me jot down the requirements for better understanding. I wanted:
+No object nesting
+Simple substitution
+Ability to import templates as callable functions
+Templates to accept an object of data
+For this section, I would like to thank goober css for introducing me to tagged functions in template strings. Also, credit to the inventor of the clsx function, used by shadcn UI components back in the day, when it was a one-liner: classNames.filter(Boolean).join(' '). These two sparked a connection and inspired me to write a small tagged function that can be used with template literals and later return a function.
+The returned function runs a regex to identify escaped entities, which are then substituted with values. Hence, I created the pm function (short for prompt-maker). The best part of pm is that it returns a function that can be reused multiple times to render the template with different sets of values.
+function pm([string]) {
+const pattern = /\{\{\s*?\.?([\w\d]+)\s*?\t*?\}\}/g;
+return (context) => {
+for (let [match, variable] of string.matchAll(pattern)) {
+string = string.replaceAll(match, context[variable]);
+}
+return string;
+};
+}
+const introductoryPrompt = pm`
+Hello {{world}}, my name is {{name}}.
+I'm working on {{project}}.
+`;
+introductoryPrompt({
+world: "World!",
+name: "Ashish",
+project: "tilde",
+});
+/*
+Output ->
+"
+Hello World!, my name is Ashish.
+I'm working on tilde.
+"
+*/
+Enter fullscreen mode
+Exit fullscreen mode
+This small hack solved the bloated file problem for me.
+The .prompt files and loader
+The pm function still depends on the JavaScript runtime for the prompt files to be created, which makes it language-dependent. But what if I decided to create a dedicated Go server for handling API requests and logging? All the prompt files would still require a JavaScript environment.
+A solution would be to save the prompts as simple .txt files instead. This removes the dependency of prompt files on any specific language. For example, consider the following prompt file:
+Hello {{world}}, my name is {{name}}.
+I'm working on {{project}}.
+Enter fullscreen mode
+Exit fullscreen mode
+The fenced words can be identified and replaced—just like in any templating language. If I were using Go, I could leverage the text/template package from the standard library. In the case of meta-frameworks like Next.js, which internally use Webpack to parse arbitrary languages (yes, JSX isn’t really a language!), we could write a custom loader to convert raw prompt (or text) files into callable functions. This would behave similarly to what our pm function returns, or even implement a very basic version of HandlebarsJS.
+With this idea in mind, I created a minimal loader to test my hypothesis—and it works! The following code includes the loader file, Webpack configuration, and the function call. The code uses CommonJS because the loader documentation was in CJS (and ChatGPT followed my initial code).
+// loader.js
+module.exports = function (source) {
+const escaped = source.replace(/`/g, "\\`");
+return `
+module.exports = function (data) {
+let template = ${JSON.stringify(escaped)};
+return template.replace(
+/\\{\\{(.*?)\\}\\}/g,
+(_, key) => data[key.trim()] ?? "",
+);
+}
+`;
+};
+// webpack.config.js
+module: {
+rules: [
+{
+test: /\.prompt$/,
+use: {
+loader: path.resolve(
+__dirname,
+"loader.js",
+),
+},
+},
+],
+},
+// context.prompt
+Hello {{world}}, my name is {{name}}.
+I'm working on {{project}}.
+// index.js
+const Context = require("./context.prompt");
+console.log(
+Context({
+world: "World!",
+name: "Ashish",
+project: "tilde",
+}),
+);
+Enter fullscreen mode
+Exit fullscreen mode
+You can also use a full-fledged templating engine to be on the safer side—or anything in between, depending on your curiosity and requirements.
+Other options on the shelf
+The closest available option is the prompt templates on the Vertex AI dashboard. However, the website lists several limitations, and they can’t be used with system prompts. The implementation process is stricter, and I’ve only tested them on the dashboard.
+I also found dotprompt by Google, which provides executable files along with prompts and metadata for models, such as output structure. However, it defeats the real purpose of storing values as separate entities.
+There is also Generative AI Scripting by Microsoft, which again handles the process of calling LLMs for you. Although, the use of the $ symbol reminded me of jQuery and the magic it once brought.
+Most solutions have coupled behavioral logic with the data itself. Think about it—do SQL tables know what query language they use? Or does HTML code know what a window represents for any browser?
+Conclusion
+If there’s one lesson to take away from this post, it’s this: don’t chase shiny things just because they promise an all-in-one solution. Instead, pick the plain Lego pieces and build a working solution yourself. Otherwise, you’ll lose your sanity debugging these black boxes!
+Also, as an educated and responsible software engineer, you should employ the principle of separation of concerns—keep data, logic, and configuration independent of one another. This not only makes your codebase easier to maintain but also allows you to swap out individual parts without breaking the entire system. By doing so, you gain flexibility, improve testability, and future-proof your architecture against inevitable changes in tools and frameworks.
+Plus, I’m still exploring the prompting space and tend to jump into coding faster than doing research. If you find the perfect solution to this problem, feel free to point it out to me. 🙇
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Ashish Khare😎
+Follow
+BFS and DFS
+Location
+Uttar Pradesh, India
+Education
+Kamla Nehru Institute of Technology, Sultanpur.
+Pronouns
+He/Him
+Joined
+Jan 13, 2020
+More from Ashish Khare😎
+Use generators for magic in React
+#react
+#javascript
+Even a mouse can do i18n
+#javascript
+#toglee
+#react
+#i18n
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

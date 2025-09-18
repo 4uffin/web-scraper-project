@@ -1,0 +1,1446 @@
+Docker
+https://www.docker.com
+Wed, 17 Sep 2025 16:12:37 +0000
+en-US
+hourly
+1
+https://wordpress.org/?v=6.7.1
+https://www.docker.com/app/uploads/2024/02/cropped-docker-logo-favicon-32x32.png
+Docker
+https://www.docker.com
+32
+32
+How to Build Secure AI Coding Agents with Cerebras and Docker Compose
+https://www.docker.com/blog/cerebras-docker-compose-secure-ai-coding-agents/
+Oleg Selajev
+Wed, 17 Sep 2025 16:00:00 +0000
+Products
+Docker Compose
+Docker MCP Gateway
+MCP server
+https://www.docker.com/?p=77621
+In the recent article, Building Isolated AI Code Environments with Cerebras and Docker Compose, our friends at Cerebras showcased how one can build a coding agent to use worlds fastest Cerebras’ AI inference API, Docker Compose, ADK-Python, and MCP servers. In this post, we’ll dive deeper into the underlying technologies and show how the pieces...
+<p>In the recent article, <a href="https://www.cerebras.ai/blog/DockerCompose" data-type="link" data-id="https://www.cerebras.ai/blog/DockerCompose" rel="nofollow noopener" target="_blank">Building Isolated AI Code Environments with Cerebras and Docker Compose</a>, our friends at Cerebras showcased how one can build a coding agent to use worlds fastest Cerebras’ AI inference API, Docker Compose, ADK-Python, and MCP servers.</p>
+<p>In this post, we’ll dive deeper into the underlying technologies and show how the pieces come together to build an AI agent environment that’s portable, secure, and fully containerized. You&#8217;ll learn how to create multi-agent systems, run some agents with local models in Docker Model Runner, and integrate custom tools as MCP servers into your AI agent&#8217;s workflow.</p>
+<p>We’ll also touch on how to build a secure sandbox for executing the code your agent writes, an ideal use case for containers in real-world development.&nbsp;</p>
+<h2 class="wp-block-heading">Getting Started</h2>
+<p>To begin, clone the <a href="https://github.com/dockersamples/docker-cerebras-demo" rel="nofollow noopener" target="_blank">repository from GitHub</a> and navigate into the project directory.</p>
+<p>Get the code for the agent, and prepare the .env file to provide your Cerebras API key:&nbsp;</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+git clone https://github.com/dockersamples/docker-cerebras-demo &amp;&amp; cd docker-cerebras-demo
+</pre></div>
+<p>Next, prepare the .env file to provide your Cerebras API key. You can get a key from the<a href="https://cloud.cerebras.ai/" rel="nofollow noopener" target="_blank"> Cerebras Cloud platform</a>.</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+# This copies the sample environment file to your local .env file
+cp .env-sample .env
+</pre></div>
+<p>Now, open the <code>.env</code> file in your favorite editor and add your API key to the <code>CEREBRAS_API_KEY</code> line. Once that&#8217;s done, run the system using Docker Compose:<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+docker compose up --build
+</pre></div>
+<p>The first run may take a few minutes to pull the model and containers. Once it’s up, you can see the agent at <code>localhost:8000</code>.</p>
+<p>The first run may take a few minutes to pull the necessary Docker images and the AI model. Once it’s running, you can access the agent&#8217;s interface at <code>http://localhost:8000</code>. From there, you can interact with your agent and issue commands like &#8220;write code,&#8221; &#8220;initialize the sandbox environment,&#8221; or request specific tools like &#8220;cerebras, curl <a href="http://docker.com" rel="nofollow noopener" target="_blank">docker.com</a> for me please.&#8221;</p>
+<h2 class="wp-block-heading">Understanding the Architecture</h2>
+<p>This demo follows the architecture from our<a href="https://www.google.com/search?q=https://github.com/dockersamples/compose-for-agents" rel="nofollow noopener" target="_blank"> Compose for Agents repository</a>, which breaks down an agent into three core components:</p>
+<ol class="wp-block-list">
+<li>The Agentic Loop: This is the main application logic that orchestrates the agent&#8217;s behavior. In our case, it&#8217;s an ADK-Python-based application. The ADK-Python framework also includes a visualizer that lets you inspect tool calls and trace how the system reached specific decisions.</li>
+</ol>
+<div class="wp-block-ponyo-image">
+<img fetchpriority="high" decoding="async" width="5102" height="2810" src="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.29.27.png" class="attachment-full size-full" alt="DevDuck architecture" srcset="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.29.27.png 5102w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.29.27-545x300.png 545w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.29.27-1110x611.png 1110w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.29.27-1536x846.png 1536w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.29.27-2048x1128.png 2048w" sizes="(max-width: 5102px) 100vw, 5102px" title="- Screenshot 2025 09 15 at 13.29.27">
+</div>
+<ol start="2" class="wp-block-list">
+<li>The MCP Tools: These are the external tools the agent can use. We provide them securely via the Docker MCP Gateway. In this app we use context7 and node sandbox MCP servers.&nbsp;</li>
+<li>The AI Model: You can define any local or remote AI model you want to use. Here, we&#8217;re using a local Qwen model for routing between the local agent and the powerful Cerebras agent which will use Cerebras API.&nbsp;</li>
+</ol>
+<p><a href="https://cloud.cerebras.ai/" rel="nofollow noopener" target="_blank">Cerebras Cloud</a> serves as a specialized, high-performance inference backend. It can run massive models, like a half-trillion parameter Qwen coder, at thousands of tokens per second. While our simple demo doesn&#8217;t require this level of speed, such performance is a game-changer for real-world applications.</p>
+<p>Most of the prompts and responses are a few hundred tokens long, as they are simple commands to initialize a sandbox or write some JavaScript code in it. You&#8217;re welcome to make the agent work harder and see Cerebras&#8217; performance on more verbose requests.&nbsp;</p>
+<p>For example, you can ask the Cerebras agent to write some JavaScript code, and see it call the functions from the MCP tools to read and write the files and run them as you see on the screenshot below.&nbsp;</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="5106" height="2814" src="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.57.png" class="attachment-full size-full" alt="DevDuck architecture calling MCP tools" srcset="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.57.png 5106w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.57-544x300.png 544w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.57-1110x612.png 1110w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.57-1536x847.png 1536w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.57-2048x1129.png 2048w" sizes="(max-width: 5106px) 100vw, 5106px" title="- Screenshot 2025 09 15 at 13.30.57">
+</div>
+<h2 class="wp-block-heading">Building a Custom Sandbox as an MCP Server</h2>
+<p>A key feature of this setup is the ability to create a secure sandbox for code execution. To do this, we&#8217;ll build a custom MCP server. In our example, we enable two MCP servers:</p>
+<ul class="wp-block-list">
+<li><code>context7</code>: This gives our agent access to the latest documentation for various application frameworks.</li>
+<li><code>node-code-sandbox</code>: This is our custom-made sandbox for executing the code our agent writes.</li>
+</ul>
+<p>You can find the implementation of our Node.js sandbox server in the<a href="https://github.com/shelajev/node-sandbox-mcp" rel="nofollow noopener" target="_blank"> node-sandbox-mcp GitHub repository</a>. It&#8217;s a Quarkus application written in Java that exposes itself as an <code>stdio</code> mcp-server and uses the awesome <a href="http://testcontainers.com" rel="nofollow noopener" target="_blank">Testcontainers library</a> to create and manage the sandbox containers programmatically.</p>
+<p>An important detail is that you have full control over the sandbox configuration. We start the container with a common Node.js development image and, as a crucial security measure, disable its networking. But since it&#8217;s a custom MCP server, you can enable any security measures you deem necessary.&nbsp;</p>
+<p>Here&#8217;s a snippet of the Testcontainers-java code used to create the container:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: java; gutter: false; title: ; notranslate">
+GenericContainer sandboxContainer = new GenericContainer&lt;&gt;(&quot;mcr.microsoft.com/devcontainers/javascript-node:20&quot;)
+.withNetworkMode(&quot;none&quot;) // disable network!!
+.withWorkingDirectory(&quot;/workspace&quot;)
+.withCommand(&quot;sleep&quot;, &quot;infinity&quot;);
+sandboxContainer.start();
+</pre></div>
+<p>Testcontainers provides a flexible, idiomatic API to interact with the sandbox. Running a command or writing a file becomes a simple one-line method call:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: java; gutter: false; title: ; notranslate">
+// To execute a command inside the sandbox
+sandbox.execInContainer(command);
+// To write a file into the sandbox
+sandbox.copyFileToContainer(Transferable.of(contents.getBytes()), filename);
+</pre></div>
+<p>The actual implementation has a bit more glue code for managing background processes or selecting the correct sandbox if you&#8217;ve created multiple, but these one-liners are the core of the interaction.<br></p>
+<h2 class="wp-block-heading">Packaging and Using the Custom Server</h2>
+<p>To use our custom server, we first need to package it as a Docker image. For Quarkus applications, a single command does the trick:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+./mvnw package -DskipTests=true -Dquarkus.container-image.build=true
+</pre></div>
+<p>This command produces a local Docker image and outputs its name, something like:<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: plain; gutter: false; title: ; notranslate">
+&#x5B;INFO] &#x5B;io.quarkus.container.image.docker.deployment.DockerProcessor] Built container image shelajev/node-sandbox:1.0.0-SNAPSHOT
+</pre></div>
+<p>Since we&#8217;re running everything locally, we don&#8217;t even need to push this image to a remote registry. You can inspect this image in Docker Desktop and find its hash, which we&#8217;ll use in the next step.</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="2796" height="1536" src="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.48.20.png" class="attachment-full size-full" alt="DevDuck - Docker Desktop image layers" srcset="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.48.20.png 2796w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.48.20-546x300.png 546w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.48.20-1110x610.png 1110w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.48.20-1536x844.png 1536w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.48.20-2048x1125.png 2048w" sizes="(max-width: 2796px) 100vw, 2796px" title="- Screenshot 2025 09 15 at 13.48.20">
+</div>
+<h2 class="wp-block-heading">Integrating the Sandbox via the MCP Gateway</h2>
+<p>With our custom MCP server image ready, it&#8217;s time to plug it into <a href="https://github.com/docker/mcp-gateway" rel="nofollow noopener" target="_blank">the MCP Gateway</a>. We&#8217;ll create a custom catalog file (<a href="https://github.com/dockersamples/docker-cerebras-demo/blob/main/mcp-gateway-catalog.yaml" rel="nofollow noopener" target="_blank">mcp-gateway-catalog.yaml</a>) that enables both the standard <code>context7</code> server and our new <code>node-code-sandbox</code>.</p>
+<p>Currently, creating this file is a manual process, but we&#8217;re working on simplifying it. The result is a portable catalog file that mixes standard and custom MCP servers.</p>
+<p>Notice two key things in the configuration for the node-code-sandbox MCP server in the catalog:</p>
+<ul class="wp-block-list">
+<li><code>longLived: true</code>: This tells the gateway that our server needs to persist between the tool calls to track the sandbox&#8217;s state.&nbsp;</li>
+<li><code>image:</code>: We reference the specific Docker image using its <code>sha256</code> hash to ensure reproducibility.</li>
+</ul>
+<p>If you&#8217;re building the custom server for the sandbox MCP, you can replace the image reference with the one your build step produced.&nbsp;</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: plain; gutter: false; title: ; notranslate">
+longLived: true
+image: olegselajev241/node-sandbox@sha256:44437d5b61b6f324d3bb10c222ac43df9a5b52df9b66d97a89f6e0f8d8899f67
+</pre></div>
+<p>Finally, we update our <code>docker-compose.yml</code> to mount this catalog file and enable both servers:<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: plain; gutter: false; title: ; notranslate">
+mcp-gateway:
+# mcp-gateway secures your MCP servers
+image: docker/mcp-gateway:latest
+use_api_socket: true
+command:
+- --transport=sse
+# add any MCP servers you want to use
+- --servers=context7,node-code-sandbox
+- --catalog=/mcp-gateway-catalog.yaml
+volumes:
+- ./mcp-gateway-catalog.yaml:/mcp-gateway-catalog.yaml:ro
+</pre></div>
+<p>When you run <code>docker compose up</code>, the gateway starts, which in turn starts our <code>node-sandbox</code> MCP server. When the agent requests a sandbox, a third container is launched &#8211; the actual isolated environment.&nbsp;<br></p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="3724" height="1532" src="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.13.png" class="attachment-full size-full" alt="DevDuck launched node-sandbox in isolated container" srcset="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.13.png 3724w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.13-730x300.png 730w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.13-1110x457.png 1110w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.13-1536x632.png 1536w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.30.13-2048x843.png 2048w" sizes="(max-width: 3724px) 100vw, 3724px" title="- Screenshot 2025 09 15 at 13.30.13">
+</div>
+<p>You can use tools like Docker Desktop to inspect all running containers, view files, or even open a shell for debugging.<br></p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="2690" height="1962" src="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-14.00.35.png" class="attachment-full size-full" alt="DevDuck Docker Desktop inspect running containers" srcset="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-14.00.35.png 2690w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-14.00.35-411x300.png 411w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-14.00.35-1110x810.png 1110w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-14.00.35-1536x1120.png 1536w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-14.00.35-2048x1494.png 2048w" sizes="(max-width: 2690px) 100vw, 2690px" title="- Screenshot 2025 09 15 at 14.00.35">
+</div>
+<h2 class="wp-block-heading">The Security Benefits of Containerized Sandboxes&nbsp;</h2>
+<p>This containerized sandbox approach is a significant security win. Containers provide a well-understood security boundary with a smaller vulnerability profile than running random internet code on your host machine, and you can harden them as needed.</p>
+<p>Remember how we disabled networking in the sandbox container? This means any code the agent generates cannot leak local secrets or data to the internet. If you ask the agent to run code that tries to access, for example, <code>google.com</code>, it will fail.</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="5104" height="2816" src="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.31.32.png" class="attachment-full size-full" alt="DevDuck containerized sandbox showing inability to access google.com" srcset="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.31.32.png 5104w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.31.32-544x300.png 544w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.31.32-1110x612.png 1110w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.31.32-1536x847.png 1536w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.31.32-2048x1130.png 2048w" sizes="(max-width: 5104px) 100vw, 5104px" title="- Screenshot 2025 09 15 at 13.31.32">
+</div>
+<p>This demonstrates a key advantage: granular control. While the sandbox is cut off from the network, other tools are not. The <code>context7</code> MCP server can still access the internet to fetch documentation, allowing the agent to write better code without compromising the security of the execution environment.<br></p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="5102" height="2816" src="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.32.54.png" class="attachment-full size-full" alt="DevDuck demo showing sandbox access to provided docs" srcset="https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.32.54.png 5102w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.32.54-544x300.png 544w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.32.54-1110x613.png 1110w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.32.54-1536x848.png 1536w, https://www.docker.com/app/uploads/2025/09/Screenshot-2025-09-15-at-13.32.54-2048x1130.png 2048w" sizes="(max-width: 5102px) 100vw, 5102px" title="- Screenshot 2025 09 15 at 13.32.54">
+</div>
+<p>Oh, and a neat detail is that when you stop the containers managed by compose, it also kills the sandbox MCP server, and that in turn triggers Testcontainers to clean up all the sandbox containers, just like it cleans after a typical test run.&nbsp;<br></p>
+<h2 class="wp-block-heading">Next Steps and Extensibility</h2>
+<p>This coding agent is a great starting point, but it isn&#8217;t production-ready. For a real-world application, you might want to grant controlled access to resources like the npm registry. You could, for example, achieve this by mapping your local npm cache from the host system into the sandbox. This way, you, the developer, control exactly which npm libraries are accessible.</p>
+<p>Because the sandbox is a custom MCP server, the possibilities are endless. You can build it yourself, tweak it however you want, and integrate any tools or constraints you need.</p>
+<h2 class="wp-block-heading">Conclusion</h2>
+<p>In this post, we demonstrated how to build a secure and portable AI coding agent using Docker Compose and the MCP Toolkit. By creating a custom MCP server with Testcontainers, we built a sandboxed execution environment that offers granular security controls, like disabling network access, without limiting the agent&#8217;s other tools.&nbsp; We connect this coding agent to Cerebras API, so we get incredible inference speed.&nbsp;This architecture provides a powerful and secure foundation for building your own AI agents. We encourage you to clone the repository and experiment with the code! You probably already <a href="https://docs.docker.com/get-started/get-docker/" rel="nofollow noopener" target="_blank">have Docker</a> and can sign up for a Cerebras API key <a href="http://inference.cerebras.ai" rel="nofollow noopener" target="_blank">here</a>.</p>
+MCP Security: A Developer’s Guide
+https://www.docker.com/blog/mcp-security-explained/
+Saurabh Davala
+Tue, 16 Sep 2025 13:00:30 +0000
+Engineering
+Products
+AI/ML
+Docker Desktop
+Docker Hub
+Docker MCP Gateway
+https://www.docker.com/?p=77545
+Since its release by Anthropic in November 2024, Model Context Protocol (MCP) has gained massive adoption and is quickly becoming the connective tissue between AI agents and the tools, APIs, and data they act on.&#160; With just a few lines of configuration, an agent can search code, open tickets, query SaaS systems, or even deploy...
+<p>Since its release by Anthropic in November 2024, Model Context Protocol (MCP) has gained massive adoption and is quickly becoming the connective tissue between AI agents and the tools, APIs, and data they act on.&nbsp;</p>
+<p>With just a few lines of configuration, an agent can search code, open tickets, query SaaS systems, or even deploy infrastructure. That kind of flexibility is powerful but it also introduces new security challenges. In fact, security researchers analyzing the MCP ecosystem found command injection flaws <a href="https://www.docker.com/blog/mcp-security-issues-threatening-ai-infrastructure/#:~:text=Security%20researchers%20analyzing%20the%20MCP%20ecosystem%20found%20that%20OAuth%2Drelated%20vulnerability%20represent%20the%20most%20severe%20attack%20class%2C%20with%20command%20injection%20flaws%20affecting%2043%25%20of%20analyzed%20servers.">affecting 43% of analyzed servers</a>. A single misconfigured or malicious server can exfiltrate secrets, trigger unsafe actions, or quietly change how an agent behaves.&nbsp;</p>
+<p>This guide is for developers and platform teams building with agents. We’ll unpack what makes MCP workflows uniquely risky for AI infrastructure, highlight common missteps like prompt injection or shadow tooling, and show how secure defaults, like <a href="https://www.docker.com/products/mcp-catalog-and-toolkit/">containerized MCP servers</a> and <a href="https://www.docker.com/blog/docker-mcp-gateway-secure-infrastructure-for-agentic-ai/">policy-based gateways</a>, can help you govern every tool call without slowing your AI roadmap.</p>
+<h2 class="wp-block-heading"><strong>What is MCP security?</strong></h2>
+<p><a href="https://www.docker.com/blog/mcp-security-issues-threatening-ai-infrastructure/">Model Context Protocol</a> is a standardized interface that enables AI agents to interact with external tools, databases, and services. MCP security refers to the controls and risks that govern how agents <strong>discover, connect to, and execute </strong>MCP servers. These security risks span across the entire development lifecycle and involve:</p>
+<ul class="wp-block-list">
+<li><strong>Supply chain</strong>: how servers are packaged, signed, versioned, and approved.</li>
+<li><strong>Runtime isolation</strong>: how they’re executed on the host vs. in containers, with CPU/memory/network limits.</li>
+<li><strong>Brokered access</strong>: how calls are mediated, logged, blocked, or transformed in real time.</li>
+<li><strong>Client trust</strong>: which tools a given IDE/agent is allowed to see and use.</li>
+</ul>
+<h3 class="wp-block-heading">Why does MCP security matter?</h3>
+<p>Securing MCP workflows has become more important than ever because AI agents blur the line between “code” and “runtime.” A prompt or tool description can change what your system is capable of without a code release.&nbsp;</p>
+<p>This means that security practices have to move up a layer, from static analysis to <strong>policy over agent‑tool interactions</strong>. Docker codifies that policy in a gateway and makes secure defaults practical for everyday developers.</p>
+<p>Docker’s approach is to make MCP both <strong>easy</strong> and <strong>safe</strong> through containerized execution, a policy‑enforcing <strong>MCP Gateway</strong>, and a curated <a href="https://www.docker.com/products/mcp-catalog-and-toolkit/"><strong>MCP Catalog &amp; Toolkit</strong></a> that helps teams standardize what agents can do. If you’re building with agents, this guide will help you understand the risks, why traditional tools fall short, and how Docker reduces blast radius without slowing your AI roadmap.</p>
+<h2 class="wp-block-heading"><strong>Understanding MCP security risks</strong></h2>
+<p>While MCP risks can show up in various ways across the dev lifecycle, there are specific categories they typically fall into. The section below highlights how these risks surface in real workflows, their impact, and practical guardrails that mitigate without slowing teams down.&nbsp;</p>
+<h3 class="wp-block-heading"><strong>Misconfigurations &amp; weak defaults</strong></h3>
+<ul class="wp-block-list">
+<li><strong>Running servers directly on the host</strong> with broad privileges or a persistent state.</li>
+<li><strong>Unrestricted network egress</strong> from tools to the public internet.</li>
+<li><strong>Unvetted catalogs/registries</strong> in client configs, exposing agents to unknown tools.</li>
+<li><strong>No audit trail</strong> for tool calls-hard to investigate or respond.</li>
+</ul>
+<p><strong>Impact:</strong> Lateral movement, data exfiltration, and irreproducible behavior.</p>
+<p><strong>Mitigation:</strong> Always follow <a href="https://www.docker.com/blog/mcp-server-best-practices/">MCP server best practices</a> such as leveraging containerization, applying resource and network limits, maintaining an allowlist of approved tools, and capturing call logs centrally.</p>
+<h3 class="wp-block-heading"><strong>Malicious or compromised servers (supply chain)</strong></h3>
+<ul class="wp-block-list">
+<li><strong>Typosquatting/poisoned images</strong> or unsigned builds.</li>
+<li><strong>Hidden side effects</strong> or altered tool metadata that nudges agents into risky actions.</li>
+</ul>
+<p><strong>Impact:</strong> Covert behavior change, credential theft, persistent access.</p>
+<p><strong>Mitigation:</strong> Require signature verification, pin versions/digests, and pull from curated sources such as the <a href="https://www.docker.com/products/mcp-catalog-and-toolkit/"><strong>MCP Catalog &amp; Toolkit</strong></a>.</p>
+<h3 class="wp-block-heading"><strong>Secret management failures</strong></h3>
+<ul class="wp-block-list">
+<li><strong>Plaintext credentials</strong> in environment variables, prompts, or tool arguments.</li>
+<li><strong>Leakage</strong> via tool outputs or model completions.</li>
+</ul>
+<p><strong>Impact:</strong> Account takeover, data loss.</p>
+<p><strong>Mitigation:</strong> Use managed secrets, minimize prompt exposure, and redact or block sensitive values at the broker.</p>
+<h3 class="wp-block-heading"><strong>Prompt injection &amp; tool poisoning</strong></h3>
+<ul class="wp-block-list">
+<li><strong>Prompt injection</strong>: hostile content instructs the model to exfiltrate data or call dangerous tools.</li>
+<li><strong>Tool poisoning/shadowing</strong>: misleading tool descriptions or unexpected defaults that steer the agent.</li>
+</ul>
+<p><strong>Impact:</strong> Agents do the wrong thing, confidently.</p>
+<p><strong>Mitigation:</strong> Strict tool allowlists, pre/post‑call interceptors, and output filtering at the gateway. Docker’s MCP Gateway provides <a href="https://github.com/docker/mcp-gateway/blob/main/docs/security.md#active-security" rel="nofollow noopener" target="_blank">active security capabilities</a> (signature checks, call logging, secret and network controls, interceptors).</p>
+<h2 class="wp-block-heading"><strong>What makes MCP security challenging?</strong></h2>
+<ul class="wp-block-list">
+<li><strong>Dynamic &amp; non‑deterministic behavior</strong>: the same prompt may lead to different tool calls.</li>
+<li><strong>Instruction vs. data ambiguity</strong>: LLMs can treat content (including tool docs) as instructions.</li>
+<li><strong>Growing, shifting attack surface</strong>: every new tool expands what the agent can do instantly.</li>
+<li><strong>Traditional AppSec gaps</strong>: Static analysis tools don’t see agentic tool calls or MCP semantics; you need mediation between agents and tools, not just better prompts.</li>
+</ul>
+<p><strong>Implication for developers:</strong> You need a guardrail that lives at the agent–tool boundary, verifying what runs, brokering what’s allowed, and recording what happened.</p>
+<h2 class="wp-block-heading"><strong>How to prevent and mitigate MCP server security concerns</strong></h2>
+<p>Use this practitioner checklist to raise the floor:</p>
+<ol class="wp-block-list">
+<li><strong>Containerize every MCP server</strong><strong><br></strong>Run servers in containers (not on the host) with <strong>CPU/memory caps</strong> and a read‑only filesystem where possible. Treat each server as untrusted code with the least privilege necessary.<br>Why it helps<em>:</em> limits blast radius and makes behavior reproducible.</li>
+<li><strong>Centralize enforcement at a gateway (broker)</strong><strong><br></strong>Place a <strong>policy‑enforcing gateway</strong> between clients (IDE/agent) and servers. Use it to:
+<ul class="wp-block-list">
+<li>Verify <strong>signatures</strong> before running servers.</li>
+<li>Maintain a <strong>tool allowlist</strong> (only approved servers are discoverable).</li>
+<li>Apply <strong>network egress controls</strong> and <strong>secret redaction</strong>.</li>
+<li><strong>Log</strong> requests/responses for audit and incident response.</li>
+</ul>
+</li>
+<li><strong>Govern secrets end‑to‑end</strong><strong><br></strong>Store secrets in a managed system; avoid .env files. Prefer short‑lived tokens. Sanitize prompts and tool outputs to reduce exposure.</li>
+<li><strong>Defend the prompt layer</strong><strong><br></strong>Use <strong>pre‑call interceptors</strong> (argument/type checks, safety classifiers) and <strong>post‑call interceptors</strong> (redaction, PII scrub). Combine with strict tool scoping to reduce prompt‑injection blast radius.</li>
+<li><strong>Harden the supply chain</strong><strong><br></strong>Pull servers from curated sources (e.g., <a href="https://www.docker.com/products/mcp-catalog-and-toolkit/"><strong>MCP Catalog &amp; Toolkit</strong></a>), require signatures, and pin to immutable versions.</li>
+<li><strong>Monitor and rehearse</strong><strong><br></strong>Alert on anomalous tool sequences (e.g., sudden credential access), and run tabletop exercises to rotate tokens and revoke access.</li>
+</ol>
+<h2 class="wp-block-heading"><strong>How Docker makes MCP security practical</strong></h2>
+<p>Turning MCP security from theory into practice means putting guardrails where agents meet tools and making trusted servers easy to adopt for agentic workflows. Docker’s MCP stack does both: Docker Gateway enforces policy and observability on every call, while the Docker MCP Catalog &amp; Toolkit curates, verifies, and versions the servers your team can safely use.</p>
+<h3 class="wp-block-heading"><strong>Docker MCP Gateway: Your enforcement point</strong></h3>
+<p>The gateway sits between clients and servers to provide <strong>verification, policy, and observability</strong> for every tool call. It supports active security measures like <strong>signature verification, call logging, secret and network controls, and pre/post-interceptors</strong> so you can block or transform risky actions before they reach your systems.&nbsp;</p>
+<p>Learn more in <a href="https://www.docker.com/blog/docker-mcp-gateway-secure-infrastructure-for-agentic-ai/"><strong>Docker MCP Gateway: Unified, Secure Infrastructure for Agentic AI</strong></a> and the <a href="https://github.com/docker/mcp-gateway/blob/main/docs/security.md#active-security" rel="nofollow noopener" target="_blank"><strong>Gateway Active Security</strong></a> documentation.</p>
+<h3 class="wp-block-heading"><strong>Docker MCP Catalog &amp; Toolkit: Curation and convenience</strong></h3>
+<p>Use the <a href="https://www.docker.com/products/mcp-catalog-and-toolkit/"><strong>MCP Catalog &amp; Toolkit</strong></a> to standardize the servers your organization trusts. The catalog helps reduce supply‑chain risk (publisher verification, versioning, provenance) and makes it straightforward for developers to pull approved tools into their workflow. With a growing selection of 150+ curated MCP servers, MCP Catalog is a safe and easy way to get started with MCP.</p>
+<p>Looking for a broader view of how Docker helps with AI development? Check out <a href="https://www.docker.com/solutions/docker-ai/"><strong>Docker for AI</strong></a>.</p>
+<h3 class="wp-block-heading">Putting it all Together: A practical flow</h3>
+<ol class="wp-block-list">
+<li><strong>Choose servers from the Catalog</strong> and pin them by digest.</li>
+<li><strong>Register servers with the Gateway</strong> so clients only see approved tooling.</li>
+<li><strong>Enable active security</strong>: verify signatures, log all calls, redact/deny secrets, and restrict egress.</li>
+<li><strong>Add pre/post interceptors</strong>: validate arguments (before), redact/normalize outputs (after).</li>
+<li><strong>Monitor and tune</strong>: review call logs, alert on anomalies, rotate secrets, and update allowlists as new tools are introduced.</li>
+</ol>
+<h3 class="wp-block-heading">Conclusion</h3>
+<p>MCP unlocks powerful agentic workflows but also introduces new classes of risk, from prompt injection to tool poisoning and supply‑chain tampering. MCP security isn’t just better prompts; it’s <strong>secure packaging, verified distribution, and a brokered runtime with policy</strong>.</p>
+<p><strong>Key takeaways</strong></p>
+<ul class="wp-block-list">
+<li>Treat MCP as a <strong>governed toolchain</strong>, not just an SDK.</li>
+<li>Put a <strong>policy gateway</strong> between agents and tools to verify, mediate, and observe.</li>
+<li>Pull servers from the <a href="https://www.docker.com/products/mcp-catalog-and-toolkit/"><strong>MCP Catalog &amp; Toolkit</strong></a> and pin versions/digests.</li>
+<li>Use <strong>active security</strong> features such as <a href="https://github.com/docker/mcp-gateway/blob/main/docs/security.md#active-security" rel="nofollow noopener" target="_blank"><strong>signature checks, interceptors, logging, and secret/network controls</strong></a> to reduce blast radius.</li>
+</ul>
+<h3 class="wp-block-heading">Learn more</h3>
+<p>Browse the<a href="https://hub.docker.com/mcp" rel="nofollow noopener" target="_blank"><strong> </strong><strong>MCP Catalog</strong></a>: Discover 200+ containerized, security-hardened MCP servers</p>
+<p>Download the MCP Toolkit in<a href="https://www.docker.com/products/docker-desktop/"><strong> </strong><strong>Docker Desktop</strong></a>: Get immediate access to secure credential management and container isolation</p>
+<p>Submit Your Server: Help build the secure, containerized MCP ecosystem.<a href="https://github.com/docker/mcp-registry" rel="nofollow noopener" target="_blank"> Check our submission guidelines</a> for more.</p>
+<p>Follow Our Progress:<a href="https://github.com/docker/mcp-gateway" rel="nofollow noopener" target="_blank"> Star our repository</a> for the latest security updates and threat intelligence</p>
+The Nine Rules of AI PoC Success: How to Build Demos That Actually Ship
+https://www.docker.com/blog/ai-poc-success-rules/
+Jim Clark
+Mon, 15 Sep 2025 13:00:00 +0000
+Engineering
+AI/ML
+developers
+productivity
+https://www.docker.com/?p=76416
+That study claiming "95% of AI POCs fail" has been making the rounds. It's clickbait nonsense, and frankly, it's not helping anyone. The real number? Nobody knows, because nobody's tracking it properly. But here's what I do know after years of watching teams build AI systems: the study masks a much more important problem. Teams...
+<p>That study claiming &#8220;95% of AI POCs fail&#8221; has been making the rounds. It&#8217;s clickbait nonsense, and frankly, it&#8217;s not helping anyone. The real number? Nobody knows, because nobody&#8217;s tracking it properly. But here&#8217;s what I do know after years of watching teams build AI systems: the study masks a much more important problem.<br></p>
+<p><strong>Teams are confused about how to design POCs that survive beyond the demo stage. There is no playbook.</strong></p>
+<p></p>
+<p>Most AI POCs die because they were designed to die. They&#8217;re built as disposable demos, optimized for executive presentations rather than production reality. They burn through cloud credits, rely on perfect conditions and perfectly structured data, and quickly collapse when real users start to touch them. If they don’t collapse then, often under scale they collapse when the design problems emerge under strain, leading to more serious failure.</p>
+<p></p>
+<p>But it doesn&#8217;t have to be this way.&nbsp;</p>
+<p></p>
+<p>After watching hundreds of AI projects at Docker and beyond, I&#8217;ve seen the patterns that separate the 5% that make it from the 95% that don&#8217;t. Here&#8217;s the playbook I wish every platform and MLOps team had from day one.</p>
+<p></p>
+<h2 class="wp-block-heading"><strong>The New Foundation: Remocal Workflows</strong></h2>
+<p></p>
+<p>Before we dive into the rules, let&#8217;s talk about the biggest shift in how successful teams approach AI development: <strong>remocal workflows</strong> (remote + local).</p>
+<p></p>
+<p>Running AI locally isn&#8217;t just about saving money—though it absolutely does that. It&#8217;s about maintaining developer velocity and avoiding the demo theater trap. Here&#8217;s how the best teams structure their work:</p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Test locally on laptops</strong> for fast iteration. No waiting for cloud resources, no surprise bills, no network latency killing your flow. The nature of building with AI should be making the process feel very interactive.</li>
+<li><strong>Burst to remote resources</strong> for scale testing, production-like validation, or when you actually need those H100s. It should feel easy to move AI workloads around.</li>
+<li><strong>Keep costs transparent</strong> from day one. You know exactly what each experiment costs because you&#8217;re only paying for remote compute when you choose to.</li>
+</ul>
+<p></p>
+<p>POCs that incorporate this pattern from day zero avoid both runaway bills and the classic &#8220;it worked in the demo&#8221; disaster. They&#8217;re grounded in reality because they&#8217;re built with production constraints baked in.</p>
+<p></p>
+<h2 class="wp-block-heading"><strong>The Nine Rules of POC Survival</strong></h2>
+<p></p>
+<h3 class="wp-block-heading"><strong>1. Start Small, Stay Small</strong></h3>
+<p></p>
+<p>Your first instinct is wrong. You don&#8217;t need the biggest model, the complete dataset, or every possible feature. Bite-sized everything: models that fit on a laptop, datasets you can actually inspect, and scope narrow enough that you can explain the value in one sentence.</p>
+<p></p>
+<p>Early wins compound trust. A small thing that works beats a big thing that might work.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>2. Design for Production from Day Zero</strong></h3>
+<p></p>
+<p>Logging, monitoring, versioning, and guardrails aren&#8217;t &#8220;nice to haves&#8221; you add later. They&#8217;re the foundation that determines whether your POC can grow up to be a real system.</p>
+<p></p>
+<p>If your POC doesn&#8217;t have structured logging and basic metrics – observability –&nbsp; from the first commit, you&#8217;re building a disposable demo, not a prototype of a production system.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>3. Optimize for Repeatability and Model Improvement, Not Novelty</strong></h3>
+<p></p>
+<p>Infrastructure should be templated. Prompt testing should be in CI/CD. Model comparisons should be apples-to-apples benchmarks, not &#8220;it felt better this time.&#8221; What’s more, POC designs can and should assume existing model families will continue to rapidly improve. That includes larger context windows, greater accuracy, lower latency and smaller resource consumption.</p>
+<p></p>
+<p>The sexiest part of AI isn&#8217;t the novel algorithm—it&#8217;s how we&#8217;re learning to frame problems in ways&nbsp; that make AI more reliable at scale.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>4. Think in Feedback Loops</strong></h3>
+<p></p>
+<p>This is the big one that separates amateur hour from production-ready systems. Separate your non-deterministic AI components from your deterministic business logic. Build in layers of control and validation. Domain knowledge is still your magic ingredient.</p>
+<p></p>
+<p>In a remocal setup, this becomes natural: your agent loops can run locally for fast iteration, while tool execution and heavy compute burst to remote resources only when needed. You get reliability from layered control, not from hoping your model has a good day.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>5. Solve Pain, Not Impress</strong></h3>
+<p></p>
+<p>Anchor everything to measurable business pain. Real users with real problems they&#8217;re willing to pay to solve. If your POC&#8217;s main value proposition is &#8220;look how cool this is,&#8221; you&#8217;re building the wrong thing.</p>
+<p></p>
+<p>Kill the vanity demos that only look good in slideware. Build the boring solutions that save people actual time and money.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong><strong>6. Embed Cost and Risk Awareness Early</strong></strong></h3>
+<p></p>
+<p>Track unit economics from day one. What does each request cost? Each user? Each workflow?</p>
+<p></p>
+<p>Benchmark small vs. large models. Cloud vs. local execution. Know your trade-offs with real numbers, not hand-waving about &#8220;cloud scale.&#8221;</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>7. Make Ownership Clear</strong></h3>
+<p></p>
+<p>Who owns this thing when it breaks at 2 AM? What are the SLAs? Who&#8217;s responsible for retraining the model? Who pays for the compute?</p>
+<p></p>
+<p>Don&#8217;t let POCs drift in the organizational void between research labs and operations teams. Assign owners, responsibilities, and lifecycle management from day one.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>8. Control Costs Upfront</strong></h3>
+<p></p>
+<p>Transparent cost per request, user, and workflow. Hard budget caps and kill switches. No surprises in the monthly cloud bill.</p>
+<p></p>
+<p>Remocal workflows make this natural: you default to local execution and only burst remote when you consciously choose to spend money. Your costs are predictable because they&#8217;re intentional.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>9. Involve Users From Day Zero</strong></h3>
+<p></p>
+<p>Co-design with real users, not executives who saw a ChatGPT demo and want &#8220;AI for everything.&#8221; Measure adoption and time saved, not just accuracy scores.</p>
+<p></p>
+<p>The best AI POCs feel like natural extensions of existing workflows because they were built with the people who actually do the work.</p>
+<p></p>
+<h2 class="wp-block-heading"><strong>Why This Actually Matters</strong></h2>
+<p></p>
+<p>Most failed AI POCs never had a chance. They were too big, too expensive, too disconnected from real problems, and too optimized for demo day rather than daily use.</p>
+<p>By flipping the script—starting small, designing for production, involving real users, and building on remocal workflows—you dramatically increase your odds of building something that ships and scales.</p>
+<p></p>
+<p>The difference between a successful AI POC and a failed one isn&#8217;t the sophistication of the model. It&#8217;s the boring engineering decisions you make on day zero.</p>
+<p></p>
+<p><strong>Stop treating AI POCs as disposable demos. Treat them as the first draft of a production system.</strong></p>
+<p></p>
+<p><em>Jim Clark is Principal Engineer for AI at Docker, where he helps teams build AI systems that actually make it to production. He&#8217;s spent the last decade watching the gap between AI demos and AI products, and occasionally bridging it.</em></p>
+<p></p>
+From Hallucinations to Prompt Injection: Securing AI Workflows at Runtime
+https://www.docker.com/blog/secure-ai-agents-runtime-security/
+Andy Ramirez
+Wed, 10 Sep 2025 13:00:00 +0000
+Products
+AI/ML
+Docker
+security
+https://www.docker.com/?p=76370
+How developers are embedding runtime security to safely build with AI agents Introduction: When AI Workflows Become Attack Surfaces The AI tools we use today are powerful, but also unpredictable and exploitable. You prompt an LLM and it generates a Dockerfile. It looks correct. A shell script? Reasonable. You run it in dev. Then something...
+<p><strong>How developers are embedding runtime security to safely build with AI agents</strong></p>
+<h3 class="wp-block-heading"><br><strong>Introduction: When AI Workflows Become Attack Surfaces</strong></h3>
+<p></p>
+<p>The AI tools we use today are powerful, but also unpredictable and exploitable.</p>
+<p></p>
+<p>You prompt an LLM and it generates a Dockerfile. It looks correct. A shell script? Reasonable. You run it in dev. Then something breaks: a volume is deleted. A credential leaks into a log. An outbound request hits a production API. Nothing in your CI pipeline flagged it, because the risk only became real <em>at runtime</em>.</p>
+<p></p>
+<p>This is the new reality of AI-native development: fast-moving code, uncertain behavior, and an expanding attack surface.</p>
+<p></p>
+<p>Hallucinations in LLM output are only part of the story. As developers build increasingly autonomous agentic tools, they’re also exposed to <strong>prompt injection</strong>, <strong>jailbreaks</strong>, and <strong>deliberate misuse</strong> of model outputs by adversaries. A malicious user, through a cleverly crafted input, can hijack an AI agent and cause it to modify files, exfiltrate secrets, or run unauthorized commands.</p>
+<p></p>
+<p>In one recent case, a developer ran an LLM-generated script that silently deleted a production database, an issue that went undetected until customer data was already lost. In another, an internal AI assistant was prompted to upload sensitive internal documents to an external file-sharing site, triggered entirely through user input.</p>
+<p></p>
+<p>These failures weren’t caught in static analysis, code review, or CI. They surfaced only when the code <em>ran</em>.</p>
+<p></p>
+<p>In this post, we’ll explore how developers are addressing both accidental failures and intentional threats by shifting runtime security into the development loop, embedding observability, policy enforcement, and threat detection directly into their workflows using Docker.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>The Hidden Risks of AI-Generated Code</strong></h3>
+<p></p>
+<p>LLMs and AI agents are great at generating text, but they don’t always know what they’re doing. Whether you&#8217;re using GitHub Copilot, LangChain, or building with OpenAI APIs, your generated outputs might include:</p>
+<p></p>
+<ul class="wp-block-list">
+<li>Shell scripts that escalate privileges or misconfigure file systems<br></li>
+<li>Dockerfiles that expose unnecessary ports or install outdated packages<br></li>
+<li>Infra-as-code templates that connect to production services by default<br></li>
+<li>Hardcoded credentials or tokens hidden deep in the output<br></li>
+<li>Command sequences that behave differently depending on the context<br></li>
+</ul>
+<p>The problem is compounded when teams start running autonomous agents, AI tools designed to take actions, not just suggest code. These agents can:</p>
+<p></p>
+<ul class="wp-block-list">
+<li>Execute file writes and deletions<br></li>
+<li>Make outbound API calls<br></li>
+<li>Spin up or destroy containers<br></li>
+<li>Alter configuration state mid-execution<br></li>
+<li>Execute dangerous database queries<br></li>
+</ul>
+<p>These risks only surface at runtime, after your build has passed and your pipeline has shipped. And that’s a problem developers are increasingly solving inside the dev loop.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>Why Runtime Security Belongs in the Developer Workflow</strong></h3>
+<p></p>
+<p>Traditional security tooling focuses on build-time checks, SAST, SCA, linters, compliance scanners. These are essential, but they don’t protect you from what AI-generated agents do at execution time.</p>
+<p>Developers need runtime security that fits their workflow, not a blocker added later.</p>
+<p></p>
+<p><strong>What runtime security enables:</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Live detection of dangerous system calls or file access<br></li>
+<li>Policy enforcement when an agent attempts unauthorized actions<br></li>
+<li>Observability into AI-generated code behavior in real environments<br></li>
+<li>Isolation of high-risk executions in containerized sandboxes<br></li>
+</ul>
+<p><strong>Why it matters:</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Faster feedback loops: See issues before your CI/CD fails<br></li>
+<li>Reduced incident risk: Catch privilege escalation, data exposure, or network calls early<br></li>
+<li>Higher confidence: Ship LLM-generated code without guesswork<br></li>
+<li>Secure experimentation: Enable safe iteration without slowing down teams<br></li>
+</ul>
+<p><strong>Developer ROI:</strong> Catching a misconfigured agent in dev avoids hours of triage and mitigates production risk and reputation risk; saving time, cost, and compliance exposure.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>Building Safer AI Workflows with Docker</strong></h3>
+<p>Docker provides the building blocks to develop, test, and secure modern agentic applications:</p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Docker Desktop</strong> gives you an isolated, local runtime for testing unsafe code<br></li>
+<li><strong>Docker Hardened Images.</strong> Secure, minimal, production-ready images<br></li>
+<li><strong>Docker Scout</strong> scans container images for vulnerabilities and misconfigurations<br></li>
+<li><strong>Runtime policy enforcement</strong> (with upcoming MCP Defender integration) provides live detection and guardrails while code executes<br></li>
+</ul>
+<h3 class="wp-block-heading"><strong>Step-by-Step: Safely Test AI-Generated Scripts</strong></h3>
+<p></p>
+<p><strong>1. Run your agent or script in a hardened container</strong></p>
+<p></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: python; title: ; notranslate">
+docker run --rm -it \
+--security-opt seccomp=default.json \
+--cap-drop=ALL \
+-v $(pwd):/workspace \
+python:3.11-slim
+</pre></div>
+<p></p>
+<ul class="wp-block-list">
+<li>Applies syscall restrictions and drops unnecessary capabilities<br></li>
+<li>Runs with no persistent volume changes<br></li>
+<li>Enables safe, repeatable testing of LLM output</li>
+</ul>
+<p></p>
+<p><strong>2. Scan the container with Docker Scout</strong></p>
+<p></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: plain; title: ; notranslate">
+docker scout cves my-agent:latest
+</pre></div>
+<ul class="wp-block-list">
+<li>Surfaces known CVEs and outdated dependencies<br></li>
+<li>Detects unsafe base images or misconfigured package installs<br></li>
+<li>Available both locally and inside CI/CD workflows</li>
+</ul>
+<p></p>
+<p><strong>3. Add runtime policy (beta) to block unsafe behavior</strong></p>
+<p></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: python; title: ; notranslate">
+scout policy add deny-external-network \
+--rule &quot;deny outbound to *&quot;
+</pre></div>
+<p>This would catch an AI agent that unknowingly makes an outbound request to an internal system, third-party API, or external data store.</p>
+<p></p>
+<p><strong>Note:</strong> Runtime policy enforcement in Docker Scout is currently in development. CLI and behavior may change upon release.</p>
+<p></p>
+<p><strong>Best Practices for Securing AI Agent Containers</strong></p>
+<p></p>
+<p></p>
+<p></p>
+<div style="--row-column-count: 2;" class="wp-block-ponyo-table style__default">
+<table class="responsive-table">
+<tbody class="wp-block-ponyo-table-body">
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p><span><strong>Practice</strong></span></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><span><strong>Why it matters</strong></span></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p><span>Use slim, verified base images</span></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><span>Minimizes attack surface and dependency drift</span></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p><span>Avoid downloading from unverified sources</span></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><span>Prevents LLMs from introducing shadow dependencies</span></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p><span>Use </span><span>.dockerignore</span><span> and secrets management</span></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><span>Keeps secrets out of containers</span></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p><span>Run containers with dropped capabilities</span></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><span>Limits impact of unexpected commands</span></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p><span>Apply runtime seccomp profiles</span></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><span>Enforces syscall-level sandboxing</span></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p><span>Log agent behavior for analysis</span></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><span>Builds observability into experimentation</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p></p>
+<p><strong>Integrating Into Your Cloud-Native Workflow</strong></p>
+<p></p>
+<p>Runtime security for AI tools isn’t just for local testing, it fits cleanly into cloud-native and CI/CD workflows too.</p>
+<p></p>
+<p><strong>GitHub Actions Integration Example:</strong></p>
+<p></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: python; title: ; notranslate">
+jobs:
+security-scan:
+runs-on: ubuntu-latest
+steps:
+- uses: actions/checkout@v3
+- name: Build container
+run: docker build -t my-agent:latest .
+- name: Scan for CVEs
+run: docker scout cves my-agent:latest
+</pre></div>
+<p></p>
+<p><strong>Works across environments:</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Local dev via Docker Desktop<br></li>
+<li>Remote CI/CD via GitHub Actions, GitLab, Jenkins<br></li>
+<li>Kubernetes staging environments with policy enforcement and agent isolation<br></li>
+<li>Cloud Development Environments (CDEs) with Docker + secure agent sandboxes<br></li>
+</ul>
+<p>Dev teams using ephemeral workspaces and Docker containers in cloud IDEs or CDEs can now enforce the same policies across local and cloud environments.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>Real-World Example: AI-Generated Infra Gone Wrong</strong></h3>
+<p></p>
+<p>A platform team uses an LLM agent to auto-generate Kubernetes deployment templates. A developer reviews the YAML and merges it. The agent-generated config opens an internal-only service to the internet via <code>LoadBalancer</code>. The CI pipeline passes. The deploy works. But a customer database is now exposed.</p>
+<p></p>
+<p>Had the developer run this template inside a containerized sandbox with outbound policy rules, the attempt to expose the service would have triggered an alert, and the policy would have prevented escalation.</p>
+<p></p>
+<p><strong>Lesson:</strong> You can’t rely on static review alone. You need to see what AI-generated code <em>does</em>, not just what it looks like.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>Why This Matters: Secure-by-Default for AI-Native Dev Teams</strong></h3>
+<p></p>
+<p>As LLM-powered tools evolve from suggestion to action, runtime safety becomes a baseline requirement, not an optional add-on.</p>
+<p>The future of secure AI development starts in the inner loop, with runtime policies, observability, and smart defaults that don’t slow you down.</p>
+<p>Docker’s platform gives you:</p>
+<ul class="wp-block-list">
+<li>Developer-first workflows with built-in security<br></li>
+<li>Runtime enforcement to catch AI mistakes early<br></li>
+<li>Toolchain integration across build, test, deploy<br></li>
+<li>Cloud-native flexibility across local dev, CI/CD, and CDEs<br></li>
+</ul>
+<p>Whether you&#8217;re building AI-powered automations, agent-based platforms, or tools that generate infrastructure, you need a runtime layer that sees what AI can’t, and blocks what it shouldn’t do.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>What’s Next</strong></h3>
+<p></p>
+<p>Runtime protection is moving left, into your dev environment. With Docker, developers can:</p>
+<ul class="wp-block-list">
+<li>Run LLM-generated code in secure, ephemeral containers<br></li>
+<li>Observe runtime behavior before pushing to CI<br></li>
+<li>Enforce policies that prevent high-risk actions<br></li>
+<li>Reduce the risk of silent security failures in AI-powered apps<br></li>
+</ul>
+<p>Docker is working to bring MCP Defender into our platform to provide this protection out-of-the-box, so hallucinations don’t turn into incidents.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>Ready to Secure Your AI Workflow?</strong></h3>
+<p></p>
+<ul class="wp-block-list">
+<li>Sign up for early access to Docker’s runtime security capabilities<br></li>
+<li>Watch our Tech Talk on “Building Safe AI Agents with Docker”<br></li>
+<li>Explore Docker Scout for real-time vulnerability insights<br></li>
+<li>Join the community conversation on Docker Community Slack or GitHub Discussions</li>
+</ul>
+<p></p>
+<p>Let’s build fast, and safely.</p>
+<p></p>
+Docker Acquisition of MCP Defender Helps Meet Challenges of Securing the Agentic Future
+https://www.docker.com/blog/docker-acquires-mcp-defender-ai-agent-security/
+Andy Ramirez
+Fri, 05 Sep 2025 13:00:00 +0000
+Company
+Agentic apps
+Docker
+MCP
+https://www.docker.com/?p=76255
+Docker, Inc.®, a provider of cloud-native and AI-native development tools, infrastructure, and services, today announced the acquisition of MCP Defender, a company founded to secure AI applications. The rapid evolution of AI-from simple generative models to powerful agentic tools-has transformed software development in extraordinary ways. But as with all powerful technologies, new capabilities bring new...
+<p>Docker, Inc.®, a provider of cloud-native and AI-native development tools, infrastructure, and services, today announced the acquisition of MCP Defender, a company founded to secure AI applications.</p>
+<p>The rapid evolution of AI-from simple generative models to powerful agentic tools-has transformed software development in extraordinary ways. But as with all powerful technologies, new capabilities bring new security challenges. <a href="https://www.docker.com/blog/mcp-security-issues-threatening-ai-infrastructure/">We recently highlighted critical MCP security issues on the Docker blog</a>, emphasizing how essential it is to secure our emerging AI infrastructure. Building on that discussion, we want to offer our perspective on the current state of AI security, outline its trajectory, consider what this means for organizations developing AI agents and tools, and explore Docker&#8217;s vision for securely empowering these new AI workloads.</p>
+<p></p>
+<p>Today’s AI security landscape mirrors the early days of container adoption: rapid innovation, widespread enthusiasm, but significant uncertainty around risks. AI agents now routinely execute critical tasks &#8211; from automated code generation and system administration to customer interaction &#8211; often interfacing directly with sensitive data and critical infrastructure. The security stakes have never been higher.</p>
+<p></p>
+<p>Looking ahead, securing AI infrastructure will require a significant shift towards runtime monitoring, real-time threat detection, and continuous security evaluation. Organizations will increasingly adopt tools designed specifically to detect and respond dynamically to threats occurring at runtime. Instead of relying solely on preventative measures, security strategies will embrace active monitoring and intelligent automation.</p>
+<p></p>
+<p>For companies developing AI agents and MCP tools, these security shifts are profound. Security can no longer be a late-stage consideration-it must be embedded from the earliest design phase. These solutions must transparently enforce policies, providing clear guardrails that reduce the cognitive load on development teams. Security for AI agents should be frictionless &#8211; built seamlessly into the workflows developers already use every day.</p>
+<p></p>
+<p>Docker’s mission has always been to simplify application development while ensuring security and portability. Extending that mission to agentic AI means integrating security deeply into the infrastructure itself. Docker’s vision is clear: secure-by-default AI infrastructure where every interaction is automatically verified, every threat proactively detected, and every policy transparently enforced. Docker’s commitment to security extends beyond AI, with products such as Docker Scout and Docker Hardened Images.</p>
+<p></p>
+Hybrid AI Isn’t the Future — It’s Here (and It Runs in Docker using the Minions protocol)
+https://www.docker.com/blog/hybrid-ai-and-how-it-runs-in-docker/
+Ignasi Lopez Luna
+Thu, 04 Sep 2025 13:00:44 +0000
+Products
+AI/ML
+Docker Compose
+Docker Model Runner
+https://www.docker.com/?p=76250
+Running large AI models in the cloud gives access to immense capabilities, but it doesn’t come for free. The bigger the models, the bigger the bills, and with them, the risk of unexpected costs. Local models flip the equation. They safeguard privacy and keep costs predictable, but their smaller size often limits what you can...
+<p>Running large AI models in the cloud gives access to immense capabilities, but it doesn’t come for free. The bigger the models, the bigger the bills, and with them, the risk of unexpected costs.</p>
+<p>Local models flip the equation. They safeguard privacy and keep costs predictable, but their smaller size often limits what you can achieve.&nbsp;</p>
+<p>For many GenAI applications, like analyzing long documents or running workflows that need a large context, developers face a tradeoff between quality and cost. But there might be a smarter way forward: a hybrid approach that combines the strengths of remote intelligence with local efficiency.&nbsp;</p>
+<p>This idea is well illustrated by <a href="https://arxiv.org/pdf/2502.15964" rel="nofollow noopener" target="_blank">the Minions protocol</a>, which coordinates lightweight local “minions” with a stronger remote model to achieve both cost reduction and accuracy preservation. By letting local agents handle routine tasks while deferring complex reasoning to a central intelligence, Minions demonstrates how organizations can cut costs without sacrificing quality.</p>
+<p>With Docker and Docker Compose, the setup becomes simple, portable, and secure.&nbsp;</p>
+<p>In this post, we’ll show how to use Docker Compose, Model Runner, and the MinionS protocol to deploy hybrid models and break down the results and trade-offs.&nbsp;&nbsp;</p>
+<h2 class="wp-block-heading">What’s Hybrid AI</h2>
+<p>Hybrid AI combines the strengths of powerful cloud models with efficient local models, creating a balance between performance, cost, and privacy. Instead of choosing between quality and affordability, Hybrid AI workflows let developers get the best of both worlds.</p>
+<p>Next, let’s see an example of how this can be implemented in practice.</p>
+<h4 class="wp-block-heading">The Hybrid Model: Supervisors and Minions</h4>
+<p>Think of it as a teamwork model:</p>
+<ul class="wp-block-list">
+<li><strong>Remote Model (Supervisor)</strong>: Smarter, more capable, but expensive. It doesn’t do all the heavy lifting, it directs the workflow.</li>
+<li><strong>Local Models (Minions)</strong>: Lightweight and inexpensive. They handle the bulk of the work in parallel, following the supervisor’s instructions.</li>
+</ul>
+<p>Here’s how it plays out in practice in our new Dockerized Minions integration:</p>
+<ol class="wp-block-list">
+<li>Spin up the Minions application server with <em>docker compose up</em></li>
+<li>A request is sent to the remote model. Instead of processing all the data directly, it generates executable code that defines how to split the task into smaller jobs.</li>
+<li>Execute that orchestration code inside the Minions application server, which runs in a Docker container and provides sandboxed isolation.</li>
+<li>Local models run those subtasks, analyzing chunks of a large document, summarizing sections, or performing classification in parallel.</li>
+<li>The results are sent back to the remote model, which aggregates them into a coherent answer.</li>
+</ol>
+<p>The remote model acts like a supervisor, while the local models are the team members doing the work. The result is a division of labor that’s efficient, scalable, and cost-effective.</p>
+<h3 class="wp-block-heading">Why Hybrid?</h3>
+<ul class="wp-block-list">
+<li><strong>Cost Reduction</strong>: Local models handle most of the tokens and context, thereby reducing cloud model usage.</li>
+<li><strong>Scalability</strong>: By splitting large jobs into smaller ones, workloads scale horizontally across local models.</li>
+<li><strong>Security</strong>: The application server runs in a Docker container, and orchestration code is executed there in a sandboxed environment.</li>
+<li><strong>Quality</strong>: Hybrid protocols pair the cost savings of local execution with the coherence and higher-level reasoning of remote models, delivering better results than local-only setups.</li>
+<li><strong>Developer Simplicity</strong>: Docker Compose ties everything together into a single configuration file, with no messy environment setup.</li>
+</ul>
+<h2 class="wp-block-heading">Research Benchmarks: Validating the Hybrid Approach</h2>
+<p>The ideas behind this hybrid architecture aren’t just theoretical, they’re backed by research. In this recent research paper <a href="https://arxiv.org/pdf/2502.15964" rel="nofollow noopener" target="_blank">Minions: Cost-efficient Collaboration Between On-device and Cloud Language Models</a>, the authors evaluated different ways of combining smaller local models with larger remote models.</p>
+<p>The results demonstrate the value of the hybrid design where a local and remote model collaborate on a task:</p>
+<ul class="wp-block-list">
+<li><strong>Minion Protocol</strong>: A local model interacts directly with the remote model, which reduces cloud usage significantly. This setup achieves a 30.4× reduction in remote inference costs, while maintaining about 87% of the performance of relying solely on the remote model.</li>
+<li><strong>MinionS Protocol</strong>: A local model executes parallel subtasks defined by code generated by the remote model. This structured decomposition achieves a 5.7× cost reduction while preserving ~97.9% of the remote model’s performance.</li>
+</ul>
+<p>This is an important validation: hybrid AI architectures can deliver nearly the same quality as high-end proprietary APIs, but at a fraction of the cost.</p>
+<p>For developers, this means you don’t need to choose between quality and cost, you can have both. Using Docker Compose as the orchestration layer, the hybrid MinionS protocol becomes straightforward to implement in a real-world developer workflow.</p>
+<h2 class="wp-block-heading">Compose-Driven Developer Experience</h2>
+<p>What makes this approach especially attractive for developers is how little configuration it actually requires.&nbsp;</p>
+<p>With <a href="https://docs.docker.com/ai/compose/models-and-compose/" rel="nofollow noopener" target="_blank">Docker Compose</a>, setting up a local AI model doesn’t involve wrestling with dependencies, library versions, or GPU quirks. Instead, the model can be declared as a service in a few simple lines of YAML, making the setup both transparent and reproducible.</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: yaml; gutter: false; title: ; notranslate">
+models:
+worker:
+model: ai/llama3.2
+context_size: 10000
+</pre></div>
+<p>This short block is all it takes to bring up a worker running a local Llama 3.2 model with a 10k context window. Under the hood, Docker ensures that this configuration is portable across environments, so every developer runs the same setup, without ever needing to install or manage the model manually.&nbsp;</p>
+<p>Please note that, depending on the environment you are running in, <a href="https://docs.docker.com/ai/model-runner/" rel="nofollow noopener" target="_blank">Docker Model Runner</a> might run as a host process (Docker Desktop) instead of in a container (Docker CE) to ensure optimal inference performance.</p>
+<p>Beyond convenience, containerization adds something essential: <strong>security</strong>.&nbsp;</p>
+<p>In a hybrid system like this, the remote model generates code to orchestrate local execution. By running that code inside a Docker container, it’s safely sandboxed from the host machine. This makes it possible to take full advantage of dynamic orchestration without opening up security risks.</p>
+<p>The result is a workflow that feels effortless: declare the model in Compose, start it with a single command, and trust that Docker takes care of both reproducibility and isolation. Hybrid AI becomes not just powerful and cost-efficient, but also safe and developer-friendly.</p>
+<p>You can find a complete example ready to use <a href="https://github.com/docker/compose-for-agents/tree/52171991f314a9c95734f3779940bad6e48eedb8/minions" rel="nofollow noopener" target="_blank">here</a>. In practice, using ai/qwen3 as a local model can cut cloud usage significantly. For a typical workload, only ~15,000 remote tokens are needed, about half the amount required if everything ran on the remote model.&nbsp;</p>
+<p>This reduction comes with a tradeoff: because tasks are split, orchestrated, and processed locally before aggregation, responses may take longer to generate (up to ~10× slower). For many scenarios, the savings in cost and control over data can outweigh the added latency.</p>
+<h3 class="wp-block-heading">Conclusion</h3>
+<p>Hybrid AI is no longer just an interesting idea, it is a practical path forward for developers who want the power of advanced models while keeping costs low.&nbsp;</p>
+<p>The research behind Minions shows that this approach can preserve nearly all the quality of large remote models while reducing cloud usage dramatically. Docker, in turn, makes the architecture simple to run, easy to reproduce, and secure by design.</p>
+<p>By combining remote intelligence with local efficiency, and wrapping it all in a developer-friendly Compose setup, we can better control the tradeoff between capability and cost. What emerges is an AI workflow that is smarter, more sustainable, and accessible to any developer, not just those with deep infrastructure expertise.</p>
+<p>This shows a realistic direction for GenAI: not always chasing bigger models, but finding smarter, safer, and more efficient ways to use them. By combining Docker and MinionS, developers already have the tools to experiment with this hybrid approach and start building cost-effective, reproducible AI workflows today. Try it yourself today by visiting the project <a href="https://github.com/docker/compose-for-agents/tree/52171991f314a9c95734f3779940bad6e48eedb8/minions" rel="nofollow noopener" target="_blank">GitHub repo</a>!&nbsp;</p>
+<h3 class="wp-block-heading">Learn more&nbsp;</h3>
+<ul class="wp-block-list">
+<li>Read our quickstart guide to<a href="https://www.docker.com/blog/run-llms-locally/"> Docker Model Runner</a>.</li>
+<li>Visit our <a href="https://github.com/docker/model-runner" rel="nofollow noopener" target="_blank">Model Runner GitHub repo</a>! Docker Model Runner is open-source, and we welcome collaboration and contributions from the community!</li>
+<li><a href="https://www.docker.com/solutions/docker-ai/">Discover other AI solutions from Docker </a></li>
+<li>Learn how Compose<a href="https://www.docker.com/blog/build-ai-agents-with-docker-compose/"> makes building AI apps and agents easier</a></li>
+</ul>
+<p></p>
+You are Doing MCP Wrong: 3 Big Misconceptions
+https://www.docker.com/blog/mcp-misconceptions-tools-agents-not-api/
+Jim Clark
+Wed, 03 Sep 2025 16:59:46 +0000
+Engineering
+Solutions
+developers
+MCP
+https://www.docker.com/?p=76109
+MCP is not an API. Tools are not agents. MCP is more than tools. Here’s what this means in practice. Most developers misread the Model Context Protocol because they map it onto familiar API mental models. That mistake breaks agent designs, observability, and the “last mile” where non-deterministic reasoning must meet deterministic execution. This piece...
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="640" height="360" src="https://www.docker.com/app/uploads/2025/08/lie-1920-x-1080-px-e1756918175653.jpg" class="attachment-full size-full" alt="lie 1920 x 1080 px e1756918175653" title="- lie 1920 x 1080 px e1756918175653">
+</div>
+<p><strong>MCP is not an API. Tools are not agents. MCP is more than tools. Here’s what this means in practice.</strong><br></p>
+<p>Most developers misread the Model Context Protocol because they map it onto familiar API mental models. That mistake breaks agent designs, observability, and the “last mile” where non-deterministic reasoning must meet deterministic execution. This piece corrects three common misconceptions and offers concrete patterns that actually work.<br></p>
+<h3 class="wp-block-heading"><strong>1) Misconception #1: “MCP is just another API”</strong></h3>
+<p></p>
+<p><strong>Claim people make:</strong> Treat an MCP call like calling REST or gRPC.<br><strong>Reality:</strong> MCP is a model-facing protocol designed for LLM tool use, intent mediation, and context exchange. It does not replace RPC. It often uses APIs and RPC under the hood, but its purpose is to make those safely and effectively usable by non-deterministic agents.</p>
+<p></p>
+<p><strong>Why the confusion happens</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Teams default to API thinking because it is familiar and testable.</li>
+<li>Most demos show “call tool, get result,” which looks like HTTP.</li>
+</ul>
+<p></p>
+<p><strong>What MCP actually gives you</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Tool interfaces for models</strong> that carry intent and affordances, not just endpoints.</li>
+<li><strong>Context surfaces</strong> beyond request/response: prompts, elicitations, and resources that shape model behavior.</li>
+<li><strong>A seam between non-deterministic planning and deterministic execution</strong> so the last mile can be reliable.</li>
+</ul>
+<p></p>
+<p><strong>Design patterns that work</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>API behind MCP:</strong> Keep your stable business APIs. Wrap them with MCP tool definitions that express preconditions, success criteria, and affordances the model can reason about.</li>
+<li><strong>Deterministic “last mile”:</strong> Treat tool execution as deterministic and idempotent where possible. Validate inputs derived from model planning. Fail closed.</li>
+</ul>
+<p></p>
+<p><strong>Anti-patterns to avoid</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Treating MCP tools as business APIs with complex state changes and no guardrails.</li>
+<li>Expecting strict schema obedience without model-aware validation and retries.</li>
+</ul>
+<p></p>
+<p><strong>Mini-checklist</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Define tool preconditions and postconditions.</li>
+<li>Return machine-checkable outcomes the agent can evaluate.</li>
+<li>Log plan → tool → result so you can replay and audit.</li>
+</ul>
+<p></p>
+<h3 class="wp-block-heading"><strong>2) Misconception #2: “Tools are agents”</strong></h3>
+<p></p>
+<p><strong>Claim people make:</strong> A tool with input and output is an agent.<br><strong>Reality:</strong> Tools execute. Agents plan, re-plan, and evaluate. Agents loop until goals are satisfied. Tools do not.</p>
+<p></p>
+<p><strong>Why the confusion happens</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Unix mental model: “compose tools and you get intelligence.”</li>
+<li>Modern LLM demos blur the line when a single call seems to “do everything.”</li>
+</ul>
+<p></p>
+<p><strong>What separates agents from tools</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Agency:</strong> goal tracking, re-planning, and error recovery.</li>
+<li><strong>Evaluation:</strong> fitness functions and success criteria, not just status codes.</li>
+<li><strong>Memory and context:</strong> prompts and resources evolve across steps.</li>
+</ul>
+<p></p>
+<p><strong>Design patterns that work</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Control loop outside the tool:</strong> Keep the agent loop responsible for deciding which tool to run next and why.</li>
+<li><strong>Explicit success metrics:</strong> Give the agent measurable checks to know if it should stop, retry, or escalate to a human.</li>
+<li><strong>Human elicitation via MCP:</strong> When confidence is low or ambiguity is high, use MCP prompts to ask the user for disambiguation.</li>
+</ul>
+<p></p>
+<p><strong>Anti-patterns to avoid</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Cramming planning into a single tool invocation.</li>
+<li>Measuring “agent performance” only with tool latency.</li>
+</ul>
+<p></p>
+<p><strong>Mini-checklist</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Write the agent’s goal, constraints, and stop conditions.</li>
+<li>Add retries with backoff and tool-specific error handling.</li>
+<li>Capture traces for each loop iteration.</li>
+</ul>
+<p></p>
+<h3 class="wp-block-heading"><strong>3) Misconception #3: “MCP is just tools”</strong></h3>
+<p></p>
+<p><strong>Claim people make:</strong> MCP equals tool definitions with JSON in and out.<br><strong>Reality:</strong> MCP includes <strong>resources</strong>, <strong>prompts</strong>, and <strong>elicitations</strong> in addition to tools. These are first-class for context-rich work.</p>
+<p></p>
+<p><strong>Why the confusion happens</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Early adopters only wired tools and ignored the rest of the spec.</li>
+<li>Many examples look like “natural language over an API.”</li>
+</ul>
+<p></p>
+<p><strong>What you miss if you ignore the rest</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Resources:</strong> structured artifacts the agent can read, write, and reference across steps.</li>
+<li><strong>Prompts:</strong> reusable, versioned instruction sets the system can attach, test, and audit.</li>
+<li><strong>Elicitations:</strong> structured human-in-the-loop requests when only a user can resolve ambiguity.</li>
+</ul>
+<p></p>
+<p><strong>Design patterns that work</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Resource adapters:</strong> Map knowledge bases, files, and tickets into MCP resources with permissions and lifecycle.</li>
+<li><strong>Prompt registries:</strong> Treat prompts like code. Version, test, and roll back.</li>
+<li><strong>Human checkpoints:</strong> Define when to elicit user input and how to resume the loop afterward.</li>
+</ul>
+<p></p>
+<p><strong>Anti-patterns to avoid</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Using MCP as a “voice layer” over existing services without resources or prompts.</li>
+<li>Hard-coding long prompts inside the application rather than managing them via MCP.</li>
+</ul>
+<p></p>
+<p><strong>Mini-checklist</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Expose at least one resource type the agent can read and one it can write.</li>
+<li>Register prompts with IDs and versions.</li>
+<li>Define user elicitation flows for low-confidence branches.</li>
+</ul>
+<p></p>
+<p><strong>Putting it together: The architecture seam that makes AI reliable</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Non-deterministic layer:</strong> model planning, tool choice, re-planning, evaluation.</li>
+<li><strong>Deterministic layer:</strong> tool execution, input validation, idempotency, side-effect control.</li>
+<li><strong>MCP as the seam:</strong> tools, resources, prompts, and elicitations connect the two layers with observable traces and policies.</li>
+</ul>
+<p></p>
+<p><strong>Observability and governance</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Trace plan → prompt → tool → resource updates.</li>
+<li>Version prompts and tool specs.</li>
+<li>Enforce access, rate limits, and approvals at the MCP boundary.</li>
+</ul>
+<p></p>
+<h3 class="wp-block-heading"><strong>Conclusion</strong></h3>
+<p></p>
+<p>If you keep thinking “API,” you will ship brittle, one-shot demos. Treat tools as deterministic executors, treat agents as planners and evaluators, and use all of MCP — tools, resources, prompts, and elicitations — as the seam where intelligent behavior meets reliable systems.</p>
+<p></p>
+<h3 class="wp-block-heading"><strong>Implementation guide&nbsp;</strong></h3>
+<p></p>
+<p><strong>Inventory APIs</strong> and wrap them with MCP tools that declare pre/postconditions.</p>
+<p></p>
+<ol class="wp-block-list">
+<li><strong>Define agent goals</strong> and fitness functions. Encode stop criteria.</li>
+<li><strong>Model resources</strong> the agent needs. Add read/write guards and retention.</li>
+<li><strong>Stand up a prompt registry</strong> with testing and rollback.</li>
+<li><strong>Add human elicitations</strong> for low-confidence paths.</li>
+<li><strong>Instrument traces</strong> and create replayable sessions for audits.</li>
+<li><strong>Run chaos drills</strong> where tools fail and confirm the agent recovers or escalates.</li>
+</ol>
+<p></p>
+<p><strong>Common pitfalls and how to avoid them</strong></p>
+<p></p>
+<ul class="wp-block-list">
+<li><strong>Treating MCP like REST:</strong> Add success checks and evaluation, not just status codes.</li>
+<li><strong>One-shot agent calls:</strong> Build loops with retries and human checkpoints.</li>
+<li><strong>No resource model:</strong> The agent thrashes without durable context.</li>
+<li><strong>Prompt sprawl:</strong> Version prompts and run A/B tests.</li>
+<li><strong>Opaque operations:</strong> Without traces you cannot debug or trust outcomes.</li>
+</ul>
+<p></p>
+Broadcom’s New Bitnami Restrictions? Migrate Easily with Docker
+https://www.docker.com/blog/broadcoms-new-bitnami-restrictions-migrate-easily-with-docker/
+Michael Donovan
+Sat, 30 Aug 2025 23:19:29 +0000
+Products
+containers
+Docker Hardened Images
+Secure Software Supply Chain
+security
+https://www.docker.com/?p=76119
+For years, Bitnami has played a vital role in the open source and cloud-native community, making it easier for developers and operators to deploy popular applications with reliable, prebuilt container images and Helm charts. Countless teams have benefited from their work standardizing installation and updates for everything from WordPress to PostgreSQL. We want to acknowledge...
+<p>For years, Bitnami has played a vital role in the open source and cloud-native community, making it easier for developers and operators to deploy popular applications with reliable, prebuilt container images and Helm charts. Countless teams have benefited from their work standardizing installation and updates for everything from WordPress to PostgreSQL. <strong>We want to acknowledge and thank Bitnami’s contributors</strong> for that important contribution.</p>
+<p>Recently, however, Bitnami announced significant changes to how their images are distributed. Starting this month, access to most versioned images will move behind a paid subscription under Bitnami Secure Images (BSI), with only the :latest tags remaining free. Older images are being shifted into a Bitnami Legacy archive that will no longer receive updates. For many teams, this raises real challenges around cost, stability, and compliance.</p>
+<p>Docker remains committed to being a trusted partner for developers and enterprises alike. <strong>Docker Official Images (DOI) are one of the two most widely used catalogs of open source container images in the world, and by far the most adopted.</strong> While Bitnami has been valuable to the community, Docker Official Images see billions of pulls every month and are trusted by developers, maintainers, and enterprises globally. This is the standard foundation teams already rely on.</p>
+<p>For production environments that require added security and compliance, <strong>Docker Hardened Images (DHI) are a seamless drop-in replacement for DOI</strong>. They combine the familiarity and compatibility of DOI with enterprise-ready features: minimal builds, non-root by default, signed provenance, and near-zero-CVE baselines. Unlike Bitnami’s new paid model, DHI is designed to be affordable and transparent, giving organizations the confidence they need without unpredictable costs.</p>
+<p></p>
+<h2 class="wp-block-heading">Bitnami’s Access Changes Are Already Underway</h2>
+<p>On July 16, Broadcom’s Bitnami team <a href="https://github.com/bitnami/charts/issues/35164" rel="nofollow noopener" target="_blank">announced changes</a> to their container image distribution model, effective September 29. Here’s what’s changing:</p>
+<ul class="wp-block-list">
+<li><strong>Freely built and available images and Helm charts are going away. </strong>The <a href="https://hub.docker.com/u/bitnami" rel="nofollow noopener" target="_blank">bitnami</a> organization will be deleted.</li>
+<li><strong>New Bitnami Secure Images offering. </strong>Users that want to use Bitnami images will need to get a paid subscription to a new Binami Secure Images offering, hosted on the Bitnami registry. This provides access to stable tags, version history,<br></li>
+<li><strong>Free tier of Bitnami Secure Images</strong>. The <a href="https://hub.docker.com/u/bitnamisecure" rel="nofollow noopener" target="_blank">bitnamisecure org</a> has been created to provide a set of hardened, more secure images. Only the :latest tags will be available and the images are intended for development purposes only.<br></li>
+<li><strong>Unsupported legacy fallback</strong>. Older images are moved to a “Bitnami Legacy Registry”, available on Docker Hub in the <a href="https://hub.docker.com/r/bitnamilegacy" rel="nofollow noopener" target="_blank">bitnamilegacy org</a>. These images are unsupported, will no longer receive updates or patches, and are intended to be used while making plans for alternatives.<br></li>
+<li><strong>Image and Helm chart source still available.</strong> While the built artifacts won&#8217;t be published, organizations will still be able to access the source code for Debian-based images and Helm charts. They can build and publish these on their own.</li>
+</ul>
+<p><strong>The timeline is tight too. </strong>Brownouts have already begun, and the public catalog deletion is set for <strong>September 29, 2025</strong>.</p>
+<p></p>
+<p></p>
+<p></p>
+<h2 class="wp-block-heading">What Bitnami Users Need to Know</h2>
+<p>For many teams, this means Helm charts, CI/CD pipelines, and Kubernetes clusters relying on Bitnami will soon face broken pulls, compliance risks, or steep new costs.</p>
+<p>The community reaction has been strong. Developers and operators voice concerns around:</p>
+<ul class="wp-block-list">
+<li><strong>Trust and stability concerns</strong>. Many see this as a “bait and switch,” with long-standing free infrastructure suddenly paywalled.<br></li>
+<li><strong>Increased operational risk.</strong> Losing version pinning or relying on :latest tags introduces deployment chaos, security blind spots, and audit failures.<br></li>
+<li><strong>Cost and budget pressure</strong>. Early pricing reports suggest that for organizations running hundreds of workloads, Bitnami’s new model could mean six-figure annual costs.</li>
+</ul>
+<p>In short: teams depending on Bitnami for reliable, stable images and Helm charts now face an urgent decision.</p>
+<p></p>
+<p></p>
+<h2 class="wp-block-heading">Your Fastest Path Forward: Docker</h2>
+<p>At Docker, we believe developers and enterprises deserve choice, stability, and stability. That’s why we continue to offer two strong paths forward:</p>
+<h3 class="wp-block-heading">Docker Official Images &#8211; Free and Widely Available</h3>
+<p>Docker is committed to building and maintaining its Docker Official Image catalog. This catalog:</p>
+<ul class="wp-block-list">
+<li><strong>Fully supported with a dedicated team.</strong> This team reviews, publishes, and maintains the Docker Official Images.<br></li>
+<li><strong>Focused on collaboration.</strong> The team works with upstream software maintainers, security experts, and the broader Docker community to ensure images work, are patched, and support the needs of the Docker community.<br></li>
+<li><strong>Trusted by millions of developers worldwide.</strong> The Docker Official Images are pulled billions of times per month for development, learning, and production.<br></li>
+</ul>
+<h3 class="wp-block-heading">Docker Hardened Images &#8211; Secure, Minimal, Production-Ready</h3>
+<p>Docker Hardened Images are secure, production-ready container images designed for enterprise use.</p>
+<ul class="wp-block-list">
+<li><strong>Smaller near-zero known CVEs. </strong>Start with images that are up to 95% smaller, fewer packages, and a much-reduced attack surface.<strong><br></strong></li>
+<li><strong>Fast, SLA-backed remediation.</strong> Critical and High severity CVEs are patched within 7 days, faster than typical industry response times, and backed by an enterprise-grade SLA.<br></li>
+<li><strong>Multi-distro support.</strong> Use the distros you&#8217;re familiar with, including trusted Linux distros like Alpine and Debian<br></li>
+<li><strong>Signed provenance, SBOMs, and VEX data</strong> &#8211; for compliance confidence.<br></li>
+<li><strong>SLSA Level 3 builds, non-root by default, distroless options</strong> &#8211; following secure-by-default practices.<br></li>
+<li><strong>Self-service customization. </strong>Add certificates, packages, environment variables, and other configuration right into the build pipelines without forking or secondary patching.<br></li>
+<li>Fully integrated into Docker Hub for a familiar developer workflow.<br><br></li>
+</ul>
+<h2 class="wp-block-heading">Start Your Move Today</h2>
+<p>If your organization is affected by the Bitnami changes,we are here to help. Docker offers you a fast path forward:</p>
+<ol class="wp-block-list">
+<li><strong>Audit your Bitnami dependencies</strong>. <a href="https://hub.docker.com/usage/pulls" rel="nofollow noopener" target="_blank">Identify</a> which images you’re pulling.<br></li>
+<li><strong>Choose your path</strong>. Explore the <a href="https://hub.docker.com/u/library" rel="nofollow noopener" target="_blank">Docker Official Images catalog</a> or learn more about <a href="https://www.docker.com/products/hardened-images/">Docker Hardened Images</a>. Many of the Bitnami images can be easily swapped with images from either catalog.</li>
+</ol>
+<p></p>
+<p><strong>Need help?<br></strong><a href="https://www.docker.com/products/hardened-images/#getstarted"><strong>Contact our sales team</strong></a><strong> to learn how Docker Hardened Images can provide secure, production-ready images at scale.</strong></p>
+<ol class="wp-block-list"></ol>
+<p></p>
+Boost Your Copilot with SonarQube via Docker MCP Toolkit and Gateway
+https://www.docker.com/blog/blog-sonarqube-copilot-docker-mcp-toolkit/
+Anna Chernyshova
+Fri, 29 Aug 2025 13:00:00 +0000
+Engineering
+Products
+AI Agent
+Docker Desktop
+Docker MCP Gateway
+MCP
+https://www.docker.com/?p=76023
+In the era of AI copilots and code generation tools productivity is skyrocketing, but so is the risk of insecure, untested, or messy code slipping into production. How do you ensure it doesn’t introduce vulnerabilities, bugs, or bad practices?&#160; A widely adopted tool to help address these concerns is SonarQube. It provides a rich set...
+<p>In the era of AI copilots and code generation tools productivity is skyrocketing, but so is the risk of insecure, untested, or messy code slipping into production. How do you ensure it doesn’t introduce vulnerabilities, bugs, or bad practices?&nbsp;</p>
+<p>A widely adopted tool to help address these concerns is SonarQube. It provides a rich set of rules and quality gates to analyze code for bugs, test coverage, code smells, and security issues. But there’s a common pain point: the feedback loop. You often need to switch between your IDE and SonarQube’s results, breaking focus and slowing iteration.</p>
+<p>What if your AI agent could see code quality issues the moment they appear, right in your IDE, without you switching tabs or breaking your flow? In this post, we’ll focus on enhancing your development workflow by integrating SonarQube analysis directly into your IDE using the Sonar MCP server and Docker MCP Toolkit.</p>
+<h2 class="wp-block-heading"><strong>Getting Started with Sonar MCP from the Docker MCP Toolkit</strong></h2>
+<p>The solution is here: Sonar MCP Server &#8211; a Model Context Protocol (MCP) server that integrates with SonarQube (Cloud or Server) and allows AI agents (like GitHub Copilot) to access code quality metrics and insights directly from your IDE.</p>
+<p>To enable Sonar MCP easily and securely, we’ll use the Docker MCP Toolkit. It provides a catalog of over 150 MCP servers &#8211; including SonarQube.</p>
+<p>We won’t dive deep into how MCP servers and the MCP Toolkit work, (check out the links below for that), but instead we’ll walk through a hands-on example of using Docker MCP Toolkit with Sonar MCP in a Java project.</p>
+<p>Further reading about MCP Catalog and Toolkit:</p>
+<ul class="wp-block-list">
+<li><a href="https://www.docker.com/blog/mcp-toolkit-and-vs-code-copilot-agent/">How Docker MCP Toolkit Works with VS Code Copilot Agent Mode</a></li>
+<li><a href="https://www.docker.com/blog/mcp-catalog/">Introducing Docker MCP Catalog and Toolkit</a></li>
+</ul>
+<h2 class="wp-block-heading"><strong>Demo Project: Java Local Development with Testcontainers</strong></h2>
+<p>For our demo, we’ll use the Java Local Development Testcontainers Workshop project, a Spring Boot-based microservice for managing a product catalog, complete with APIs and Testcontainers-based tests.</p>
+<p>GitHub repo:<a href="https://github.com/GannaChernyshova/java-testcontainers-local-development" rel="nofollow noopener" target="_blank"> GannaChernyshova/java-testcontainers-local-development</a></p>
+<p>Before diving into MCP integration, ensure your Java project is already set up for SonarQube analysis. In this demo project, that includes:</p>
+<ul class="wp-block-list">
+<li>Using the JaCoCo plugin to collect test coverage data</li>
+</ul>
+<ul class="wp-block-list">
+<li>Adding the SonarQube Maven plugin for code scanning</li>
+</ul>
+<p>We also created a corresponding project in SonarQube Cloud and linked it to the GitHub repository. The details of SonarQube setup are outside the scope of this post, but if you need guidance, check out the <a href="https://docs.sonarsource.com/" rel="nofollow noopener" target="_blank">official SonarQube documentation</a>.</p>
+<h3 class="wp-block-heading"><strong>Step 1: Start the Sonar MCP Server via Docker Desktop</strong></h3>
+<p>The Docker MCP Toolkit, available in Docker Desktop, makes it quick and secure to spin up MCP servers from a pre‑curated catalog without worrying about manual setup or complex dependencies.&nbsp;</p>
+<p>To get started:</p>
+<ol class="wp-block-list">
+<li>Open Docker Desktop and navigate to the MCP Toolkit tab.</li>
+<li>Browse the Catalog to find SonarQube.</li>
+<li>Configure it with your SonarQube URL, organization, and access token.</li>
+<li>Hit Start to launch the MCP server.</li>
+</ol>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="2400" height="1514" src="https://www.docker.com/app/uploads/2025/08/mcp-Figure1.jpg" class="attachment-full size-full" alt="SonarQube MCP settings in the Docker Desktop MCP Toolkit" srcset="https://www.docker.com/app/uploads/2025/08/mcp-Figure1.jpg 2400w, https://www.docker.com/app/uploads/2025/08/mcp-Figure1-476x300.jpg 476w, https://www.docker.com/app/uploads/2025/08/mcp-Figure1-1110x700.jpg 1110w, https://www.docker.com/app/uploads/2025/08/mcp-Figure1-1536x969.jpg 1536w, https://www.docker.com/app/uploads/2025/08/mcp-Figure1-2048x1292.jpg 2048w" sizes="(max-width: 2400px) 100vw, 2400px" title="- mcp Figure1">
+</div>
+<p><em>Figure 1: SonarQube MCP settings in the Docker Desktop MCP Toolkit</em></p>
+<p></p>
+<p>Your MCP server should now be up and running.</p>
+<h3 class="wp-block-heading"><strong>Step 2: Connect Sonar MCP to GitHub Copilot (IntelliJ)</strong></h3>
+<p>We’ll use GitHub Copilot in IntelliJ, which now supports Agent Mode and MCP integration.&nbsp; Here is the detailed instruction from GitHub: <a href="https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/extend-copilot-chat-with-mcp?tool=jetbrains" rel="nofollow noopener" target="_blank">how to use the Model Context Protocol (MCP) to extend Copilot Chat.</a></p>
+<ol class="wp-block-list">
+<li>Open Copilot Settings.</li>
+<li>Edit or create the mcp.json file with:</li>
+</ol>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: jscript; title: ; notranslate">
+{
+&quot;servers&quot;: {
+&quot;MCP_DOCKER&quot;: {
+&quot;command&quot;: &quot;docker&quot;,
+&quot;args&quot;: &#x5B;
+&quot;mcp&quot;,
+&quot;gateway&quot;,
+&quot;run&quot;
+],
+&quot;type&quot;: &quot;stdio&quot;
+}
+}
+}
+</pre></div>
+<p>With this configuration you enable the Docker MCP Gateway, a secure enforcement point between agents and external tools, that would connect the MCP servers from the MCP Toolkit to your clients or agents.&nbsp;&nbsp;</p>
+<p>Now when you switch to Agent Mode in Copilot Chat, you’ll see a list of tools available from the connected MCP server &#8211; in this case, the Sonar MCP tools.</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1328" height="973" src="https://www.docker.com/app/uploads/2025/08/mcp-Figure2.jpg" class="attachment-full size-full" alt="Tools that SonarQube MCP server provides" srcset="https://www.docker.com/app/uploads/2025/08/mcp-Figure2.jpg 1328w, https://www.docker.com/app/uploads/2025/08/mcp-Figure2-409x300.jpg 409w, https://www.docker.com/app/uploads/2025/08/mcp-Figure2-1110x813.jpg 1110w" sizes="(max-width: 1328px) 100vw, 1328px" title="- mcp Figure2">
+</div>
+<p><em>Figure 2: Tools that SonarQube MCP server provides</em><br></p>
+<h3 class="wp-block-heading"><strong>Step 3: Analyze and Improve Your Code</strong></h3>
+<p>Let’s scan the project:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+mvn clean verify sonar:sonar
+</pre></div>
+<p>In our case, the default quality gate passed. However, 4 security issues, few maintainability and 72.1% test coverage were flagged, leaving room for improvement.</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="2340" height="1266" src="https://www.docker.com/app/uploads/2025/08/mcp-Figure3.jpg" class="attachment-full size-full" alt="Initial SonarQube scanning overview" srcset="https://www.docker.com/app/uploads/2025/08/mcp-Figure3.jpg 2340w, https://www.docker.com/app/uploads/2025/08/mcp-Figure3-555x300.jpg 555w, https://www.docker.com/app/uploads/2025/08/mcp-Figure3-1110x601.jpg 1110w, https://www.docker.com/app/uploads/2025/08/mcp-Figure3-1536x831.jpg 1536w, https://www.docker.com/app/uploads/2025/08/mcp-Figure3-2048x1108.jpg 2048w" sizes="(max-width: 2340px) 100vw, 2340px" title="- mcp Figure3">
+</div>
+<p><em>Figure 3: Initial SonarQube scanning overview</em></p>
+<p></p>
+<p>Time to bring in Copilot + Sonar MCP!</p>
+<p>We can now ask Copilot Chat to list the issues, suggest fixes, help with adding missing tests, and iterate faster &#8211; all within IntelliJ, without switching context.</p>
+<p>Through several iterations, the agent successfully:</p>
+<ul class="wp-block-list">
+<li>Detected open issues, suggested and applied fixes:</li>
+</ul>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1200" height="1178" src="https://www.docker.com/app/uploads/2025/08/mcp-Figure4.jpg" class="attachment-full size-full" alt="GitHub Copilot Agent detects and fixes issues reported by SonarQube " srcset="https://www.docker.com/app/uploads/2025/08/mcp-Figure4.jpg 1200w, https://www.docker.com/app/uploads/2025/08/mcp-Figure4-306x300.jpg 306w, https://www.docker.com/app/uploads/2025/08/mcp-Figure4-1043x1024.jpg 1043w" sizes="(max-width: 1200px) 100vw, 1200px" title="- mcp Figure4">
+</div>
+<p><em>Figure 4: GitHub Copilot Agent detects and fixes issues reported by SonarQube&nbsp;</em></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Improved test coverage based on the sonar report of uncovered code lines:&nbsp;</li>
+</ul>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1200" height="938" src="https://www.docker.com/app/uploads/2025/08/mcp-Figure5.jpg" class="attachment-full size-full" alt="GitHub Copilot Agent writes tests for uncovered code detected in SonarQube report " srcset="https://www.docker.com/app/uploads/2025/08/mcp-Figure5.jpg 1200w, https://www.docker.com/app/uploads/2025/08/mcp-Figure5-384x300.jpg 384w, https://www.docker.com/app/uploads/2025/08/mcp-Figure5-1110x868.jpg 1110w" sizes="(max-width: 1200px) 100vw, 1200px" title="- mcp Figure5">
+</div>
+<p><em>Figure 5: GitHub Copilot Agent writes tests for uncovered code detected in SonarQube report&nbsp;</em></p>
+<p></p>
+<ul class="wp-block-list">
+<li>Resolved security problems and improved code maintainability:</li>
+</ul>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1200" height="938" src="https://www.docker.com/app/uploads/2025/08/mcp-Figure6.jpg" class="attachment-full size-full" alt="GitHub Copilot Agent implements fixes based on the SonarQube open security and maintainability issues" srcset="https://www.docker.com/app/uploads/2025/08/mcp-Figure6.jpg 1200w, https://www.docker.com/app/uploads/2025/08/mcp-Figure6-384x300.jpg 384w, https://www.docker.com/app/uploads/2025/08/mcp-Figure6-1110x868.jpg 1110w" sizes="(max-width: 1200px) 100vw, 1200px" title="- mcp Figure6">
+</div>
+<p><em>Figure 6: GitHub Copilot Agent implements fixes based on the SonarQube open security and maintainability issues</em></p>
+<p></p>
+<p>As a result, the final SonarQube scan showed an A rating in every analysis category, and test coverage increased by over 15%, reaching 91.1%.</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="2400" height="1514" src="https://www.docker.com/app/uploads/2025/08/mcp-Figure7.jpg" class="attachment-full size-full" alt="SonarQube scanning results after the fixes made with the help of Copilot" srcset="https://www.docker.com/app/uploads/2025/08/mcp-Figure7.jpg 2400w, https://www.docker.com/app/uploads/2025/08/mcp-Figure7-476x300.jpg 476w, https://www.docker.com/app/uploads/2025/08/mcp-Figure7-1110x700.jpg 1110w, https://www.docker.com/app/uploads/2025/08/mcp-Figure7-1536x969.jpg 1536w, https://www.docker.com/app/uploads/2025/08/mcp-Figure7-2048x1292.jpg 2048w" sizes="(max-width: 2400px) 100vw, 2400px" title="- mcp Figure7">
+</div>
+<p><em>Figure 7: SonarQube scanning results after the fixes made with the help of Copilot</em></p>
+<h2 class="wp-block-heading"><strong>Conclusion</strong></h2>
+<p>With the rapid rise of generative AI tools, developers can move faster than ever. But that speed comes with responsibility. The combination of Sonar MCP + Docker MCP Toolkit turns AI copilots into security- and quality-aware coding partners. It’s not just about writing code faster, it’s about writing better code first.&nbsp;</p>
+<h2 class="wp-block-heading">Learn More</h2>
+<ul class="wp-block-list">
+<li>Discover hundreds of curated MCP servers on the<a href="https://hub.docker.com/mcp" rel="nofollow noopener" target="_blank"> Docker MCP Catalog</a></li>
+<li>Learn more about<a href="https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/" rel="nofollow noopener" target="_blank"> Docker MCP Toolkit</a></li>
+<li>Explore<a href="https://github.com/docker/mcp-gateway" rel="nofollow noopener" target="_blank"> Docker MCP Gateway</a> on GitHub</li>
+</ul>
+<p></p>
+Secure by Design: A Proactive Testing Approach with Testcontainers, Docker Scout, and Hardened Images
+https://www.docker.com/blog/a-shift-left-approach-with-docker/
+Anna Chernyshova
+Thu, 28 Aug 2025 13:00:00 +0000
+Engineering
+Products
+Docker Desktop
+Docker Hardened Images
+Docker Scout
+Testcontainers
+https://www.docker.com/?p=76011
+In today’s fast-paced world of software development, product teams are expected to move quickly: building features, shipping updates, and reacting to user needs in real-time. But moving fast should never mean compromising on quality or security. Thanks to modern tooling, developers can now maintain high standards while accelerating delivery. In a previous article, we explored...
+<p></p>
+<p>In today’s fast-paced world of software development, product teams are expected to move quickly: building features, shipping updates, and reacting to user needs in real-time. But moving fast should never mean compromising on quality or security.</p>
+<p>Thanks to modern tooling, developers can now maintain high standards while accelerating delivery. In a previous article, we explored how Testcontainers <a href="https://www.docker.com/blog/shift-left-testing-with-testcontainers/">supports shift-left testing</a> by enabling fast and reliable integration tests within the inner dev loop. In this post, we’ll look at the security side of this approach and how Docker can help move security earlier in the development lifecycle, using practical examples.</p>
+<p></p>
+<h2 class="wp-block-heading">Testing a Movie Catalog API with Security Built In</h2>
+<p>We’ll use a simple <a href="https://github.com/GannaChernyshova/movie-catalog" rel="nofollow noopener" target="_blank">demo project</a> to walk through our workflow. This is a Node.js + TypeScript API backed by PostgreSQL and tested with Testcontainers.</p>
+<p>Movie API Endpoints:</p>
+<div style="--row-column-count: 4;" class="wp-block-ponyo-table style__default">
+<table class="responsive-table">
+<tbody class="wp-block-ponyo-table-body">
+<tr class="wp-block-ponyo-table-header">
+<th class="wp-block-ponyo-cell">
+<p>Method</p>
+</th>
+<th class="wp-block-ponyo-cell">
+<p>Endpoint</p>
+</th>
+<th class="wp-block-ponyo-cell">
+<p>Description</p>
+</th>
+<th class="wp-block-ponyo-cell empty">
+<p></p>
+</th>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>POST</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>/movies</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Add a new movie to the catalog</p>
+</td>
+<td class="wp-block-ponyo-cell empty">
+<p></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>GET</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>/movies</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Retrieve all movies, sorted by title</p>
+</td>
+<td class="wp-block-ponyo-cell empty">
+<p></p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>GET<br></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>/movies/search?q=…</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Search movies by title or description (fuzzy match)</p>
+</td>
+<td class="wp-block-ponyo-cell empty">
+<p></p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Before deploying this app to production, we want to make sure it functions correctly and is free from critical vulnerabilities.</p>
+<h2 class="wp-block-heading">Testing Code with Testcontainers: Recap</h2>
+<p>We verify the application against a real PostgreSQL instance by using <a href="https://testcontainers.com/cloud/" rel="nofollow noopener" target="_blank">Testcontainers</a> to spin up containers for both the database and the application. A key advantage of Testcontainers is that it creates these containers dynamically during test execution. Another feature of the Testcontainers libraries is the ability to start containers directly from a Dockerfile. This allows us to run the containerized application along with any required services, such as databases, effectively reproducing the local environment needed to test the application at the API or end-to-end (E2E) level. This approach provides an additional layer of quality assurance, bringing even more testing into the inner development loop.</p>
+<p>For a more detailed explanation of how Testcontainers enables proactive testing approach into the developer inner loop, refer to the<a href="https://www.docker.com/blog/shift-left-testing-with-testcontainers/"> introductory blog post</a>.</p>
+<p>Here’s a beforeAll setup that prepares our test environment, including PostgreSQL and the application under development, started from the Dockerfile :</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: jscript; title: ; notranslate">
+beforeAll(async () =&gt; {
+const network = await new Network().start();
+// 1. Start Postgres
+db = await new PostgreSqlContainer(&quot;postgres:17.4&quot;)
+.withNetwork(network)
+.withNetworkAliases(&quot;postgres&quot;)
+.withDatabase(&quot;catalog&quot;)
+.withUsername(&quot;postgres&quot;)
+.withPassword(&quot;postgres&quot;)
+.withCopyFilesToContainer(&#x5B;
+{
+source: path.join(__dirname, &quot;../dev/db/1-create-schema.sql&quot;),
+target: &quot;/docker-entrypoint-initdb.d/1-create-schema.sql&quot;
+},
+])
+.start();
+// 2.
+Build movie catalog API container from the Dockerfile
+const container = await GenericContainer
+.fromDockerfile(&quot;../movie-catalog&quot;)
+.withTarget(&quot;final&quot;)
+.withBuildkit()
+.build();
+// 3. Start movie catalog API container with environment variables for DB connection
+app = await container
+.withNetwork(network)
+.withExposedPorts(3000)
+.withEnvironment({
+PGHOST: &quot;postgres&quot;,
+PGPORT: &quot;5432&quot;,
+PGDATABASE: &quot;catalog&quot;,
+PGUSER: &quot;postgres&quot;,
+PGPASSWORD: &quot;postgres&quot;,
+})
+.withWaitStrategy(Wait.forListeningPorts())
+.start();
+}, 120000);
+</pre></div>
+<p>We can now test the movie catalog API:<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: jscript; title: ; notranslate">
+it(&quot;should create and retrieve a movie&quot;, async () =&gt; {
+const baseUrl = `http://${app.getHost()}:${app.getMappedPort(3000)}`;
+const payload = {
+title: &quot;Interstellar&quot;,
+director: &quot;Christopher Nolan&quot;,
+genres: &#x5B;&quot;sci-fi&quot;],
+releaseYear: 2014,
+description: &quot;Space and time exploration&quot;
+};
+const response = await axios.post(`${baseUrl}/movies`, payload);
+expect(response.status).toBe(201);
+expect(response.data.title).toBe(&quot;Interstellar&quot;);
+}, 120000);
+</pre></div>
+<p>This approach allows us to validate that:</p>
+<ul class="wp-block-list">
+<li>The application is properly containerized and starts successfully.</li>
+<li>The API behaves correctly in a containerized environment with a real database.<br></li>
+</ul>
+<p>However, that&#8217;s just one part of the quality story. Now, let’s turn our attention to the security aspects of the application under development.</p>
+<p></p>
+<h2 class="wp-block-heading">Introducing Docker Scout and Docker Hardened Images&nbsp;</h2>
+<p>To follow modern best practices, we want to <a href="https://docs.docker.com/get-started/workshop/02_our_app/" rel="nofollow noopener" target="_blank">containerize the app</a> and eventually deploy it to production. Before doing so, we must ensure the image is secure by using <a href="https://www.docker.com/products/docker-scout/">Docker Scout</a>.</p>
+<p>Our Dockerfile takes a multi-stage build approach and is based on the node:22-slim image.</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: yaml; title: ; notranslate">
+###########################################################
+# Stage: base
+# This stage serves as the base for all of the other stages.
+# By using this stage, it provides a consistent base for both
+# the dev and prod versions of the image.
+###########################################################
+FROM node:22-slim AS base
+WORKDIR /usr/local/app
+RUN useradd -m appuser &amp;&amp; chown -R appuser /usr/local/app
+USER appuser
+COPY --chown=appuser:appuser package.json package-lock.json ./
+###########################################################
+# Stage: dev
+# This stage is used to run the application in a development
+# environment. It installs all app dependencies and will
+# start the app in a dev mode that will watch for file changes
+# and automatically restart the app.
+###########################################################
+FROM base AS dev
+ENV NODE_ENV=development
+RUN npm ci --ignore-scripts
+COPY --chown=appuser:appuser ./src ./src
+EXPOSE 3000
+CMD &#x5B;&quot;npx&quot;, &quot;nodemon&quot;, &quot;src/app.js&quot;]
+###########################################################
+# Stage: final
+# This stage serves as the final image for production. It
+# installs only the production dependencies.
+###########################################################
+# Deps: install only prod deps
+FROM base AS prod-deps
+ENV NODE_ENV=production
+RUN npm ci --production --ignore-scripts &amp;&amp; npm cache clean --force
+# Final: clean prod image
+FROM base AS final
+WORKDIR /usr/local/app
+COPY --from=prod-deps /usr/local/app/node_modules ./node_modules
+COPY ./src ./src
+EXPOSE 3000
+CMD &#x5B; &quot;node&quot;, &quot;src/app.js&quot; ]
+</pre></div>
+<p>Let’s build our image with SBOM and provenance metadata. First, make sure that the containerd image store is <a href="https://docs.docker.com/desktop/features/containerd/?#enable-the-containerd-image-store" rel="nofollow noopener" target="_blank">enabled in Docker Desktop</a>. We’ll also use the buildx command ( a Docker CLI plugin that extends the docker build) with the &#8211;provenance=true &nbsp;and &#8211;sbom=true flags. These options attach<a href="https://docs.docker.com/build/metadata/attestations/" rel="nofollow noopener" target="_blank"> build attestations</a> to the image, which Docker Scout uses to provide more detailed and accurate security analysis.<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+docker buildx build --provenance=true --sbom=true -t movie-catalog-service:v1 .
+</pre></div>
+<p>Then set up a Docker organization with security policies and scan the image with Docker Scout:&nbsp;<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+docker scout config organization demonstrationorg
+docker scout quickview movie-catalog-service:v1
+</pre></div>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1200" height="551" src="https://www.docker.com/app/uploads/2025/08/dhi-figure1.jpg" class="attachment-full size-full" alt="Docker Scout cli quickview output for node:22 based movie-catalog-service image" srcset="https://www.docker.com/app/uploads/2025/08/dhi-figure1.jpg 1200w, https://www.docker.com/app/uploads/2025/08/dhi-figure1-653x300.jpg 653w, https://www.docker.com/app/uploads/2025/08/dhi-figure1-1110x510.jpg 1110w" sizes="(max-width: 1200px) 100vw, 1200px" title="- dhi figure1">
+</div>
+<p><em>Figure 1: Docker Scout cli quickview output for node:22 based movie-catalog-service image</em></p>
+<p><br>Docker Scout also offers a visual analysis via Docker Desktop.</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="2400" height="1514" src="https://www.docker.com/app/uploads/2025/08/dhi-figure2.jpg" class="attachment-full size-full" alt="Image layers and CVEs view in Docker Desktop for node:22 based movie-catalog-service image" srcset="https://www.docker.com/app/uploads/2025/08/dhi-figure2.jpg 2400w, https://www.docker.com/app/uploads/2025/08/dhi-figure2-476x300.jpg 476w, https://www.docker.com/app/uploads/2025/08/dhi-figure2-1110x700.jpg 1110w, https://www.docker.com/app/uploads/2025/08/dhi-figure2-1536x969.jpg 1536w, https://www.docker.com/app/uploads/2025/08/dhi-figure2-2048x1292.jpg 2048w" sizes="(max-width: 2400px) 100vw, 2400px" title="- dhi figure2">
+</div>
+<p><em>Figure 2: Image layers and CVEs view in Docker Desktop for node:22 based movie-catalog-service image</em></p>
+<p><br>In this example, no vulnerabilities were found in the application layer. However, several CVEs were introduced by the base node:22-slim image, including a high-severity CVE-2025-6020, a vulnerability present in Debian 12. This means that any Node.js image based on Debian 12 inherits this vulnerability. A common way to address this is by switching to an Alpine-based Node image, which does not include this CVE. However, Alpine uses musl libc instead of glibc, which can lead to compatibility issues depending on your application&#8217;s runtime requirements and deployment environment.</p>
+<p>So, what’s a more secure and compatible alternative?</p>
+<p>That’s where<a href="https://www.docker.com/products/hardened-images/"> Docker Hardened Images (DHI)</a> come in. These images follow a distroless philosophy, removing unnecessary components to significantly reduce the attack surface. The result? Smaller images that pull faster, run leaner, and provide a secure-by-default foundation for production workloads:</p>
+<ul class="wp-block-list">
+<li>Near-zero exploitable CVEs: Continuously updated, vulnerability-scanned, and published with signed attestations to minimize patch fatigue and eliminate false positives.</li>
+<li>Seamless migration: Drop-in replacements for popular base images, with -dev variants available for multi-stage builds.</li>
+<li>Up to 95% smaller attack surface: Unlike traditional base images that include full OS stacks with shells and package managers, distroless images retain only the essentials needed to run your app.</li>
+<li>Built-in supply chain security: Each image includes signed SBOMs, VEX documents, and SLSA provenance for audit-ready pipelines.<br></li>
+</ul>
+<p>For developers, DHI means fewer CVE-related disruptions, faster CI/CD pipelines, and trusted images you can use with confidence.</p>
+<h2 class="wp-block-heading">Making the Switch to Docker Hardened Images</h2>
+<p>Switching to a Docker Hardened Image is straightforward. All we need to do is replace the base image node:22-slim with a DHI equivalent.</p>
+<p>Docker Hardened Images come in two variants:</p>
+<ul class="wp-block-list">
+<li>Dev variant (demonstrationorg/dhi-node:22-dev) &#8211; includes a shell and package managers, making it suitable for building and testing.</li>
+<li>Runtime variant (demonstrationorg/dhi-node:22) &#8211; stripped down to only the essentials, providing a minimal and secure footprint for production.<br></li>
+</ul>
+<p>This makes them perfect for use in multi-stage Dockerfiles. We can build the app in the dev image, then copy the built application into the runtime image, which will serve as the base for production.</p>
+<p>Here’s what the updated Dockerfile would look like:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: yaml; title: ; notranslate">
+###########################################################
+# Stage: base
+# This stage serves as the base for all of the other stages.
+# By using this stage, it provides a consistent base for both
+# the dev and prod versions of the image.
+###########################################################
+# Changed node:22 to dhi-node:22-dev
+FROM demonstrationorg/dhi-node:22-dev AS base
+WORKDIR /usr/local/app
+# DHI comes with nonroot user built-in.
+COPY --chown=nonroot package.json package-lock.json ./
+###########################################################
+# Stage: dev
+# This stage is used to run the application in a development
+# environment. It installs all app dependencies and will
+# start the app in a dev mode that will watch for file changes
+# and automatically restart the app.
+###########################################################
+FROM base AS dev
+ENV NODE_ENV=development
+RUN npm ci --ignore-scripts
+# DHI comes with nonroot user built-in.
+COPY --chown=nonroot ./src ./src
+EXPOSE 3000
+CMD &#x5B;&quot;npx&quot;, &quot;nodemon&quot;, &quot;src/app.js&quot;]
+###########################################################
+# Stage: final
+# This stage serves as the final image for production. It
+# installs only the production dependencies.
+###########################################################
+# Deps: install only prod deps
+FROM base AS prod-deps
+ENV NODE_ENV=production
+RUN npm ci --production --ignore-scripts &amp;&amp; npm cache clean --force
+# Final: clean prod image
+# Changed base to dhi-node:22
+FROM demonstrationorg/dhi-node:22 AS final
+WORKDIR /usr/local/app
+COPY --from=prod-deps /usr/local/app/node_modules ./node_modules
+COPY ./src ./src
+EXPOSE 3000
+CMD &#x5B; &quot;node&quot;, &quot;src/app.js&quot; ]
+</pre></div>
+<p>Let’s rebuild and scan the new image:<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+docker buildx build --provenance=true --sbom=true -t movie-catalog-service-dhi:v1 .
+docker scout quickview movie-catalog-service-dhi:v1
+</pre></div>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1200" height="246" src="https://www.docker.com/app/uploads/2025/08/dhi-Figure3.jpg" class="attachment-full size-full" alt="Docker Scout cli quickview output for dhi-node:22 based movie-catalog-service image" srcset="https://www.docker.com/app/uploads/2025/08/dhi-Figure3.jpg 1200w, https://www.docker.com/app/uploads/2025/08/dhi-Figure3-730x150.jpg 730w, https://www.docker.com/app/uploads/2025/08/dhi-Figure3-1110x228.jpg 1110w" sizes="(max-width: 1200px) 100vw, 1200px" title="- dhi Figure3">
+</div>
+<p><em>Figure 3: Docker Scout cli quickview output for dhi-node:22 based movie-catalog-service image</em></p>
+<p></p>
+<p>As you can see, all critical and high CVEs are gone, thanks to the clean and minimal footprint of the Docker Hardened Image.</p>
+<p>One of the key benefits of using DHI is the security SLA it provides. If a new CVE is discovered, the DHI team commits to resolving:</p>
+<ul class="wp-block-list">
+<li>Critical and high vulnerabilities within 7 days of a patch becoming available,</li>
+<li>Medium and low vulnerabilities within 30 days.<br></li>
+</ul>
+<p>This means you can significantly reduce your CVE remediation burden and give developers more time to focus on innovation and feature development instead of chasing vulnerabilities.</p>
+<h2 class="wp-block-heading">Comparing images with Docker Scout</h2>
+<p>Let’s also look at the image size and package count advantages of using distroless Hardened Images.</p>
+<p>Docker Scout offers a helpful command docker scout compare , that allows you to analyze and compare two images. We’ll use it to evaluate the difference in size and package footprint between node:22-slim and dhi-node:22 based images.</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+docker scout compare local://movie-catalog-service:v1 --to local://movie-catalog-service-dhi:v1
+</pre></div>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1200" height="548" src="https://www.docker.com/app/uploads/2025/08/dhi-figure4.jpg" class="attachment-full size-full" alt="Comparison of the node:22 and dhi-node:22 based movie-catalog-service images" srcset="https://www.docker.com/app/uploads/2025/08/dhi-figure4.jpg 1200w, https://www.docker.com/app/uploads/2025/08/dhi-figure4-657x300.jpg 657w, https://www.docker.com/app/uploads/2025/08/dhi-figure4-1110x507.jpg 1110w" sizes="(max-width: 1200px) 100vw, 1200px" title="- dhi figure4">
+</div>
+<p><em>Figure 4: Comparison of the node:22 and dhi-node:22 based movie-catalog-service images</em></p>
+<p></p>
+<p>As you can see, the original node:22-slim based image was 80 MB in size and included 427 packages, while the dhi-node:22 based image is just 41 MB with only 123 packages.&nbsp;</p>
+<p>By switching to a Docker Hardened Image, we reduced the image size by nearly 50 percent and cut down the number of packages by more than three times, significantly reducing the attack surface.</p>
+<h2 class="wp-block-heading">Final Step: Validate with local API tests</h2>
+<p>Last but not least, after migrating to a DHI base image, we should verify that the application still functions as expected.</p>
+<p>Since we’ve already implemented Testcontainers-based tests, we can easily ensure that the API remains accessible and behaves correctly.</p>
+<p>Let’s run the tests using the npm test command.&nbsp;</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1200" height="757" src="https://www.docker.com/app/uploads/2025/08/dhi-figure5.jpg" class="attachment-full size-full" alt="Local API test execution results" srcset="https://www.docker.com/app/uploads/2025/08/dhi-figure5.jpg 1200w, https://www.docker.com/app/uploads/2025/08/dhi-figure5-476x300.jpg 476w, https://www.docker.com/app/uploads/2025/08/dhi-figure5-1110x700.jpg 1110w" sizes="(max-width: 1200px) 100vw, 1200px" title="- dhi figure5">
+</div>
+<p><em>Figure 5: Local API test execution results</em></p>
+<p></p>
+<p>As you can see, the container was built and started successfully. In less than 20 seconds, we were able to verify that the application functions correctly and integrates properly with Postgres.</p>
+<p>At this point, we can push the changes to the remote repository, confident that the application is both secure and fully functional, and move on to the next task.&nbsp;</p>
+<h2 class="wp-block-heading">Further integration with external security tools</h2>
+<p>In addition to providing a minimal and secure base image, Docker Hardened Images include a comprehensive set of attestations. These include a Software Bill of Materials (SBOM), which details all components, libraries, and dependencies used during the build process, as well as Vulnerability Exploitability eXchange (VEX). VEX offers contextual insights into vulnerabilities, specifying whether they are actually exploitable in a given environment, helping teams prioritize remediation.</p>
+<p>Let’s say you’ve committed your code changes, built the application, and pushed a container image. Now you want to verify the security posture using an external scanning tool you already use, such as Grype or Trivy. That requires vulnerability information in a compatible format, which Docker Scout can generate for you.</p>
+<p>First, you can view the list of available attestations using the docker scout attest command:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+docker scout attest list demonstrationorg/movie-catalog-service-dhi:v1 --platform linux/arm64
+</pre></div>
+<p>This command returns a detailed list of attestations bundled with the image. For example, you might see two OpenVEX files: one for the DHI base image and another for any custom exceptions (like no-dsa) specific to your image.</p>
+<p>Then, to integrate this information with external tools, you can export the VEX data into a vex.json file. Starting Docker Scout v1.18.3 you can use the docker scout vex get command to get the merged VEX document from all VEX attestations:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+docker scout vex get demonstrationorg/movie-catalog-service-dhi:v1 --output vex.json
+</pre></div>
+<p>This generates a vex.json file containing all VEX statements for the specified image. Tools that support VEX can then use this file to suppress known non-exploitable CVEs.</p>
+<p>To use the VEX information with Grype or Trivy, pass the &#8211;vex flag during scanning:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; title: ; notranslate">
+trivy image demonstrationorg/movie-catalog-service-dhi:v1 --vex vex.json
+</pre></div>
+<p>This ensures your security scanning results are consistent across tools, leveraging the same set of vulnerability contexts provided by Docker Scout.</p>
+<h2 class="wp-block-heading">Conclusion</h2>
+<p>Shifting left is about more than just early testing. It’s a proactive mindset for building secure, production-ready software from the beginning.</p>
+<p>This proactive approach combines:</p>
+<ul class="wp-block-list">
+<li>Real infrastructure testing using Testcontainers</li>
+<li>End-to-end supply chain visibility and actionable insights with Docker Scout</li>
+<li>Trusted, minimal base images through Docker Hardened Images<br></li>
+</ul>
+<p>Together, these tools help catch issues early, improve compliance, and reduce security risks in the software supply chain.</p>
+<p>Learn more and <a href="https://www.docker.com/products/hardened-images/#getstarted">request access to Docker Hardened Images!</a></p>

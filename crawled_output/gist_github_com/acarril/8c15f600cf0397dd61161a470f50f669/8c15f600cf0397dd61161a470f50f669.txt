@@ -1,0 +1,539 @@
+Create a bootable Windows USB using macOS · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+acarril/bootable-win-on-mac.md
+Created
+November 18, 2022 17:49
+Show Gist options
+Download ZIP
+Star
+425
+(425)
+You must be signed in to star a gist
+Fork
+68
+(68)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/acarril/8c15f600cf0397dd61161a470f50f669.js&quot;&gt;&lt;/script&gt;
+Save acarril/8c15f600cf0397dd61161a470f50f669 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+425
+Forks
+68
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/acarril/8c15f600cf0397dd61161a470f50f669.js&quot;&gt;&lt;/script&gt;
+Save acarril/8c15f600cf0397dd61161a470f50f669 to your computer and use it in GitHub Desktop.
+Download ZIP
+Create a bootable Windows USB using macOS
+Raw
+bootable-win-on-mac.md
+For some reason, it is surprisingly hard to create a bootable Windows USB using macOS. These are my steps for doing so, which have worked for me in macOS Monterey (12.6.1) for Windows 10 and 11. After following these steps, you should have a bootable Windows USB drive.
+1. Download a Windows disc image (i.e. ISO file)
+You can download Windows 10 or Windows 11 directly from Microsoft.
+2. Identify your USB drive
+After plugging the drive to your machine, identify the name of the USB device using diskutil list, which should return an output like the one below. In my case, the correct disk name is disk2.
+/dev/disk0 (internal, physical):
+#:
+TYPE NAME
+SIZE
+IDENTIFIER
+0:
+GUID_partition_scheme
+*500.3 GB
+disk0
+1:
+EFI EFI
+314.6 MB
+disk0s1
+2:
+Apple_APFS Container disk1
+500.0 GB
+disk0s2
+/dev/disk1 (synthesized):
+#:
+TYPE NAME
+SIZE
+IDENTIFIER
+0:
+APFS Container Scheme -
++500.0 GB
+disk1
+Physical Store disk0s2
+1:
+APFS Volume MacHDD - Data
+180.3 GB
+disk1s1
+2:
+APFS Volume MacHDD
+15.4 GB
+disk1s2
+3:
+APFS Snapshot com.apple.os.update-... 15.4 GB
+disk1s2s1
+4:
+APFS Volume Preboot
+481.8 MB
+disk1s3
+5:
+APFS Volume Recovery
+1.1 GB
+disk1s4
+6:
+APFS Volume VM
+1.1 GB
+disk1s5
+/dev/disk2 (external, physical):
+#:
+TYPE NAME
+SIZE
+IDENTIFIER
+0:
+FDisk_partition_scheme
+*15.5 GB
+disk2
+1:
+DOS_FAT_32 WINDOWS10
+15.5 GB
+disk2s1
+3. Format USB drive
+Format the drive with the following command, substituting disk2 with whatever is the one that corresponds in your machine.
+diskutil eraseDisk MS-DOS "WINDOWS10" MBR disk2
+4. Mount the Windows ISO and check its size
+Mount the ISO file in your system (usually by simply double-clicking it), and verify it's listed in /Volumes—the disk name usually starts with CCCOMA_. With the disk mounted, check the size of the sources/install.wim file with the following command:
+ls -lh /Volumes/CCCOMA_X64FRE_EN-US_DV9/sources/install.wim
+5. Copy (almost) all files to USB drive
+If sources/install.wim is less than 4GB in size, you can copy all the files from the mounted disk image onto the USB drive with the following command (notice the trailing slash in the first path!):
+rsync -avh --progress /Volumes/CCCOMA_X64FRE_EN-US_DV9/ /Volumes/WINDOWS10
+If sources/install.wim is more than 4GB, then we'll need to split the file before copying it. In the meantime, we can copy all the other files from the mounted image onto the USB drive with the following command (again, notice the trailing slash in the first path!):
+rsync -avh --progress --exclude=sources/install.wim /Volumes/CCCOMA_X64FRE_EN-US_DV9/ /Volumes/WINDOWS10
+6. Use wimlib to split and copy sources/install.wim
+If sources/install.wim is more than 4GB, it is too large to copy onto a FAT32-formatted drive. Microsoft's official solution is to split the file, and there is a free utility available in macOS and Linux to do so—wimlib. The tool can be installed with Homebrew:
+brew install wimlib
+After installing wimlib, split and copy sources/install.wim using the following command:
+wimlib-imagex split /Volumes/CCCOMA_X64FRE_EN-US_DV9/sources/install.wim /Volumes/WINDOWS10/sources/install.swm 3800
+Here, 3800 means that the file should be split in 3,800MB chunks.
+Load earlier comments...
+Copy link
+caiodv
+commented
+Nov 2, 2024
+This saved my life, I spent a whole saturday trying to get windows installed thinking the issue was some bios setting (all I've found through google said so) and this was it, can't believe it was the way I set up the bootable usb
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+diafour
+commented
+Nov 3, 2024
+@bluegroper Missing "sources" directory may be one of 2 things: either split performed before rsync, or a missing slash in the rsync command.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Alexwi1son
+commented
+Nov 14, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+This trick worked on my Intel MacBook Pro (i7 and 16GB RAM) on year ago. However, unable to get the splitting process finished on my new MacBook Air M3. Not sure what the problem is. Fortunately, I managed to create a Windows 11 bootable USB with the top ranked reply from Apple tech community:
+https://discussions.apple.com/thread/255200443?sortBy=rank
+If you had the same issue as me, I suggest giving it a try. No command prompt and less waiting time (~20 mins).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+husdup
+commented
+Nov 16, 2024
+It worked perfectly. thanks
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+sajjadjaved01
+commented
+Nov 24, 2024
+`#!/bin/bash
+Variables
+ISO_PATH="$HOME/Downloads/Win11_English_x64.iso"
+# Update with your ISO file path
+USB_NAME="WIN11_USB"
+# Desired name for the USB drive
+USB_SIZE=16
+# Minimum USB size in GB
+Check if ISO file exists
+if [ ! -f "$ISO_PATH" ]; then
+echo "ISO file not found at $ISO_PATH"
+exit 1
+fi
+List all disks and prompt user to select the USB drive
+echo "Available disks:"
+diskutil list
+read -p "Enter the identifier of your USB drive (e.g., disk2): " DISK_IDENTIFIER
+Confirm the selected disk
+read -p "You have selected /dev/$DISK_IDENTIFIER. All data on this drive will be erased. Continue? (y/n): " CONFIRM
+if [ "$CONFIRM" != "y" ]; then
+echo "Operation aborted."
+exit 1
+fi
+Unmount the disk
+diskutil unmountDisk /dev/$DISK_IDENTIFIER
+Format the USB drive as FAT32 with MBR
+diskutil eraseDisk MS-DOS "$USB_NAME" MBR /dev/$DISK_IDENTIFIER
+Mount the Windows 11 ISO
+hdiutil mount "$ISO_PATH"
+Get the mounted ISO volume name
+ISO_VOLUME=$(ls /Volumes | grep "CCCOMA_X64FRE")
+Copy files from ISO to USB, excluding install.wim
+rsync -avh --exclude=sources/install.wim /Volumes/"$ISO_VOLUME"/ /Volumes/"$USB_NAME"
+Install Homebrew if not present
+if ! command -v brew &> /dev/null; then
+echo "Homebrew not found. Installing Homebrew..."
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+Install wimlib
+brew install wimlib
+Split install.wim into smaller files
+wimlib-imagex split /Volumes/"$ISO_VOLUME"/sources/install.wim /Volumes/"$USB_NAME"/sources/install.swm 4000
+Unmount ISO and USB
+hdiutil unmount /Volumes/"$ISO_VOLUME"
+diskutil eject /dev/$DISK_IDENTIFIER
+echo "Bootable Windows 11 USB created successfully."
+`
+chmod +x create_win11_usb.sh
+./create_win11_usb.sh
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+bmarolleau
+commented
+Nov 24, 2024
+Hi, thanks for the guide.
+On MacOS Sonoma 14.3 , fat32 filesystem is read-only and rsync fails to write to the usb drive with the following message:
+failed: Read-only file system
+Anyone with the same issue?
+To solve the issue, (diskutil list returns my usb disk as disk5 /disk5s1), basically umount and mount with write option:
+sudo diskutil unmount disk5s1
+sudo mkdir /Volumes/WINDOWS10
+sudo mount -w -t msdos /dev/disk5s1 /Volumes/WINDOWS10
+then I used the rsync+wimlib commands as advised:
+rsync -avh --progress --exclude=sources/install.wim /Volumes/CCCOMA_X64FRE_FR-FR_DV9/ /Volumes/WINDOWS10
+wimlib-imagex split /Volumes/CCCOMA_X64FRE_FR-FR_DV9/sources/install.wim /Volumes/WINDOWS10/sources/install.swm 3800
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+amraboelela
+commented
+Nov 30, 2024
+In today's world, it's probably better to use GPT instead of MBR when partitioning USB drives. At least, this option should be mentioned. Newer PCs tend to use UEFI by default and while it's usually possible to enable the legacy boot mode, it's just easier to create a GUID Partition Table in the first place. So
+diskutil eraseDisk MS-DOS "WINDOWS10" GPT disk2
+might be a preferable way to go.
+This saved my life :) yes it only worked with me by using GPT option.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+diglopes
+commented
+Dec 8, 2024
+IT WORKED! Thank you, bro!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mordonez
+commented
+Dec 9, 2024
+Thanks! very well explained
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+armanafat
+commented
+Dec 12, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+if you had hard time finding the file in this </Volumes/...>, consider this that the file name can also start with CPBA .
+worked like a charm ! thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+emanuelcosta-dev
+commented
+Dec 14, 2024
+parallels sometimes has discounts https://prf.hn/l/znPzDkX, if you have chip m1,m2,m3 then you not have other alternatives, and https://hypestkey.com/product/windows-11-home/ - for windows 11 home retail keys microsoft partner, i play valorant without any problems with parallels
+For activation just use massgravel MAS:
+https://github.com/massgravel/Microsoft-Activation-Scripts
+Works perfectly for any version with just one command.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+dominik-air
+commented
+Dec 28, 2024
+Worked for a Windows 10 ISO on Apple Silicon MacBook. As others have mentioned above, make sure that you are copying files into the root directory of the usb disk.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+idhame
+commented
+Dec 30, 2024
+In today's world, it's probably better to use GPT instead of MBR when partitioning USB drives. At least, this option should be mentioned. Newer PCs tend to use UEFI by default and while it's usually possible to enable the legacy boot mode, it's just easier to create a GUID Partition Table in the first place. So
+diskutil eraseDisk MS-DOS "WINDOWS10" GPT disk2
+might be a preferable way to go.
+This saved my life :) yes it only worked with me by using GPT option.
+Be cautious when using GPT-formatted USB drives for fresh Windows 11 installations. Windows 11 installations can sometimes encounter issues when multiple drives are detected, particularly if the USB drive is also GPT-formatted. The installer might mistakenly identify the USB drive as a suitable system drive and place the crucial EFI partition on it. I have experienced this multiple times, resulting in a non-bootable PC unless the USB drive remains connected
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Serena1432
+commented
+Jan 11, 2025
+Just format as GPT ExFAT and the 4+ GB file fits just fine. What a waste of time.
+Then how can you boot into USB with exFAT partition? Most UEFI firmwares only supports booting into FAT32 one.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+QuocurIQ
+commented
+Jan 11, 2025
+I have been trying to do this for at least 10 years. DD, Unetbootin, Etcher and now this.
+Still no luck. Old BIOS based Sony Vaio says Operating System Not Found :( I can't believe that it works for you guys. I thought marking the partition as Active using FDISK would help, but that did not help either. Tried both MBR and GPT.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Serena1432
+commented
+Jan 11, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I have been trying to do this for at least 10 years. DD, Unetbootin, Etcher and now this. Still no luck. Old BIOS based Sony Vaio says Operating System Not Found :( I can't believe that it works for you guys. I thought marking the partition as Active using FDISK would help, but that did not help either. Tried both MBR and GPT.
+As I know this solution only supports UEFI. If the computer is MBR-based, you also have to find a way to write the Windows MBR into USB's boot sector.
+unetbootin is pretty old, balenaEtcher doesn't support flashing Windows images and so on. Installing a Windows VM may help, but I haven't try it yet as I don't have any MBR-based PCs.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+pradt
+commented
+Jan 12, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I have been trying to do this for at least 10 years. DD, Unetbootin, Etcher and now this. Still no luck. Old BIOS based Sony Vaio says Operating System Not Found :( I can't believe that it works for you guys. I thought marking the partition as Active using FDISK would help, but that did not help either. Tried both MBR and GPT.
+As I know this solution only supports UEFI. If the computer is MBR-based, you also have to find a way to write the Windows MBR into USB's boot sector.
+unetbootin is pretty old, balenaEtcher doesn't support flashing Windows images and so on. Installing a Windows VM may help, but I haven't try it yet as I don't have any MBR-based PCs.
+Yes windows vm, and pass through the USB works. That's how I normally make it on an Apple device in the past. Unfortunately it does require an additional step of installing vm sofware, and/or creating a VM for windows just to create a bootable usb.
+However, there are benefits with doing so :
+Remove the TPM requirement
+Remove the requirement to prevent the local account
+skipping the data collection questions etc..
+automatically creating a local account
+etc...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stormwatch
+commented
+Jan 22, 2025
+Thanks! It makes sense. I think there is a typo in the last command, it should be install.wim instead of install.swm, anyway thanks for your help!
+It is not a typo, swm is the correct extension, See Split a Windows Image wim file
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Paveldeg
+commented
+Jan 25, 2025
+Wouldn't just dd command work for copying Windoz ISO to the USB?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ryan-ohern
+commented
+Feb 20, 2025
+Thank you so much - your solution worked great for me! I did use GPT vs MBR, but it booted up a windows 11 iso right away after several hours fighting with terminal and dd.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+daveherrald
+commented
+Mar 3, 2025
+Worked perfectly. Just what I needed.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+valarauca
+commented
+Mar 14, 2025
+As of 2025 using exFAT & GPT works
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+russellkt
+commented
+Apr 8, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Worked great for me to install it to an old laptop for my son using my dated Macbook Pro ~2018 Sequoia 15.3.2.
+I did have to use GPT in order to boot off the usb.
+Also in the wimlib step, I substituted the Win11 install image instead of the Win10 install image.
+The only issue I had was with the windows install itself and I don't believe anything to do with these instructions.
+It kept failing on the last step of the install.
+Discovered it was because it was setting up two System partitions and then getting confused which one to use for the boot.
+Using the command prompt and diskpart I removed the partition 4 System.
+Then used
+bootrec /scanos
+which found the os install so proceeded with
+bcdboot E:\Windows /s C: /f UEFI
+rebooted and windows install continued.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+AlexandruTataru
+commented
+Apr 9, 2025
+Thank you for this page. I tried using dd to write the image a lot of times but your solution worked perfectly.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+zemfirag
+commented
+May 24, 2025
+parallels sometimes has discounts https://prf.hn/l/znPzDkX , if you have chip m1,m2,m3 then you not have other alternatives, and https://hypestkey.com/product/windows-11-home/ - for windows 11 home retail keys microsoft partner, i play valorant without any problems with parallels
+And they partnered with microsoft https://appsource.microsoft.com/en-us/marketplace/partner-dir/4e902d25-237b-480e-8eeb-480dfbc7eab8/overview
+Thanks for recommendation bro, this working
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+italopinto
+commented
+Jun 16, 2025
+As of 2025 using exFAT & GPT works
+Yeah! After a few hours this worked for me.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Auxy6858
+commented
+Jun 26, 2025
+Thank you, you beautiful, gorgeous, sexy man.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+bloggerstomper
+commented
+Jul 12, 2025
+I followed all the instructions and nothing gets copied to the USB drive.
+I run wimlib-imagex split /Volumes/CCCOMA_X64FRE_EN-US_DV9/sources/install.wim /Volumes/WINDOWS10/sources/install.swm 3800
+and it returns
+Splitting WIM: 4737 MiB of 4737 MiB (100%) written, part 2 of 2
+Finished splitting "/Volumes/CCCOMA_X64FRE_EN-US_DV9/sources/install.wim"
+But nothing gets copied to my USB.
+What am I doing wrong?
+Thank you!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+b23prodtm
+commented
+Aug 11, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+On older MacOS X the homebrew may not be available then, we can use MACPORTS:
+sudo port install wimlib
+It takes a long time (~30 mins) to compile and install, but that's all automated work.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+CyrilSLi
+commented
+Aug 25, 2025
+If you don't mind proprietary software and have a windows machine or VM with USB passthrough WinToUSB is an easy way to make portable WinToGo drives. I've used it several times with an Intel mac, not sure about apple silicon compatibility though.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

@@ -1,0 +1,312 @@
+Making efficient use of the libdispatch (GCD) · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+tclementdev/libdispatch-efficiency-tips.md
+Last active
+September 17, 2025 10:17
+Show Gist options
+Download ZIP
+Star
+1,028
+(1,028)
+You must be signed in to star a gist
+Fork
+97
+(97)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tclementdev/6af616354912b0347cdf6db159c37057.js&quot;&gt;&lt;/script&gt;
+Save tclementdev/6af616354912b0347cdf6db159c37057 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+52
+Stars
+1,027
+Forks
+97
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tclementdev/6af616354912b0347cdf6db159c37057.js&quot;&gt;&lt;/script&gt;
+Save tclementdev/6af616354912b0347cdf6db159c37057 to your computer and use it in GitHub Desktop.
+Download ZIP
+Making efficient use of the libdispatch (GCD)
+Raw
+libdispatch-efficiency-tips.md
+libdispatch efficiency tips
+The libdispatch is one of the most misused API due to the way it was presented to us when it was introduced and for many years after that, and due to the confusing documentation and API. This page is a compilation of important things to know if you're going to use this library. Many references are available at the end of this document pointing to comments from Apple's very own libdispatch maintainer (Pierre Habouzit).
+My take-aways are:
+You should create very few, long-lived, well-defined queues. These queues should be seen as execution contexts in your program (gui, background work, ...) that benefit from executing in parallel. An important thing to note is that if these queues are all active at once, you will get as many threads running. In most apps, you probably do not need to create more than 3 or 4 queues.
+Go serial first, and as you find performance bottle necks, measure why, and if concurrency helps, apply with care, always validating under system pressure. Reuse queues by default and add more if there's some measurable benefit to it. Do not attempt to go wide by default.
+Queues that target other (non-global) queues are fine and you can have many of those (the main point is having different labels). You can create such queues with DispatchQueue(label:target:).
+Don't use DispatchQueue.global(). Global queues easily lead to thread explosion: threads blocking on sleeps/waits/locks are considered inactive by the libdispatch which in turn will spawn new threads when other parts of your program dispatch. Note that it is impossible to guarantee that your threads are never going to block, as merely using the system libraries will cause it to happen. Global queues also do not play nice with qos/priorities. The libdispatch maintainer at Apple declared it "the worst thing that the dispatch API provides". Run your code on one of your custom queue instead (one of your well-defined execution context).
+Concurrent queues are not as optimized as serial queues. Use them if you measure a performance improvement, otherwise it's likely premature optimization.
+queue.async() is wasteful if the dispatched block is small (< 1ms), as it will most likely require a new thread due to libdispatch's overcommit behavior. Prefer locking to protect shared state (rather than switching the execution context).
+Some classes/libraries are better designed as synchronous APIs, reusing the execution context from their callers/clients (instead of creating their own private queues which can lead to terrible performance). That means using traditional locking for thread-safety.
+Locks are not as bas as people think they are. They still work extremely well to protect shared state, they are fast and keep the code synchronous which allows to avoid reentrancy problems altogether. See OSAllocatedUnfairLock and the brand new Mutex types.
+Do not block the current thread waiting on a semaphore or dispatch group after dispatching work. This is inefficient as the kernel can't know what thread will ultimately unblock the thread. Rather, continue work asynchronously in a completion handler that is executed once the asynchronous work ends or just do the work synchronously. If you are doing XPC, synchronous message sending is fine and can be achieved with synchronousRemoteObjectProxyWithErrorHandler().
+Do not use DispatchQueue.main in non-GUI programs and frameworks. Per the <dispatch/queue.h> header: "Because the main queue doesn't behave entirely like a regular serial queue, it may have unwanted side-effects when used in processes that are not UI apps (daemons). For such processes, the main queue should be avoided".
+If running concurrently, your work items need not to contend, else your performance sinks dramatically. Contention takes many forms. Locks are obvious, but it really means use of shared resources that can be a bottle neck: IPC/daemons, malloc (lock), shared memory, I/O, ...
+You don't need to be async all the way to avoid thread explosion. Using a small number of dispatch queues and not using DispatchQueue.global() is a better fix.
+The complexity (and bugs) of heavy async/callback designs also cannot be ignored. Synchronous code remains much easier to read, write and maintain.
+Utilizing more than 3-4 cores isn't something that is easy, most people who try actually do not scale and waste energy for a modicum performance win. It doesn't help that CPUs have thermal issues if you ramp up, e.g. Intel will turn off turbo-boost if you use enough cores.
+Measure the real-world performance of your product to make sure you are actually making it faster and not slower. Be very careful with micro benchmarks (they hide cache effects and keep thread pools hot), you should always have a macro benchmark to validate what you're doing.
+libdispatch is efficient but not magic. Resources are not infinite. You cannot ignore the reality of the underlying operating system and hardware you're running on. Not all code is prone to parallelization.
+@tclementdev
+References
+This long discussion on the swift-evolution mailing-list started it all (look for Pierre Habouzit).
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/date.html
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170904/date.html
+Use very few queues
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039368.html
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039405.html
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039410.html
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039420.html
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039429.html
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170904/039461.html
+Go serial first
+https://twitter.com/pedantcoder/status/1081658384577835009
+https://twitter.com/pedantcoder/status/1081659784841969665
+https://twitter.com/pedantcoder/status/904839926180569089
+https://twitter.com/pedantcoder/status/904840156330344449
+https://twitter.com/Catfish_Man/status/1081581652147490817
+Don't use global queues
+https://twitter.com/pedantcoder/status/773903697474486273
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039368.html
+Avoid concurrent queues in almost all circumstances
+https://forums.swift.org/t/how-to-currently-offload-stateless-blocking-work-hidden-executor-api/59128/2
+https://forums.swift.org/t/how-to-currently-offload-stateless-blocking-work-hidden-executor-api/59128/12
+https://twitter.com/pedantcoder/status/960915209584914432
+https://twitter.com/pedantcoder/status/960916427833163776
+Don't use async to protect shared state
+https://twitter.com/pedantcoder/status/820473404440489984
+https://twitter.com/pedantcoder/status/820473580819337219
+https://twitter.com/pedantcoder/status/820740434645221376
+https://twitter.com/pedantcoder/status/904467942208823296
+https://twitter.com/pedantcoder/status/904468363149099008
+https://twitter.com/pedantcoder/status/820473711606124544
+https://twitter.com/pedantcoder/status/820473923527589888
+Don't use async for small tasks
+https://twitter.com/pedantcoder/status/1081657739451891713
+https://twitter.com/pedantcoder/status/1081642189048840192
+https://twitter.com/pedantcoder/status/1081642631732457472
+https://twitter.com/pedantcoder/status/1081648778975707136
+Some classes/libraries should just be synchronous
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170904/039461.html
+Contention is a performance killer for concurrency
+https://twitter.com/pedantcoder/status/1081657739451891713
+https://twitter.com/pedantcoder/status/1081658172610293760
+To avoid deadlocks, use locks to protect shared state
+https://twitter.com/pedantcoder/status/744269824079998977
+https://twitter.com/pedantcoder/status/744269947723866112
+Don't use semaphores to wait for asynchronous work
+https://twitter.com/pedantcoder/status/1175062243806863360
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039405.html
+Synchronous IPC is not bad
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039405.html
+The NSOperation API has some serious performance pitfalls
+https://twitter.com/pedantcoder/status/1082097847653154817
+https://twitter.com/pedantcoder/status/1082111968700289026
+https://twitter.com/Catfish_Man/status/1082097921632264192
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039415.html
+Locks are not as bad as people think they are (from libdispatch's original designer)
+https://tclementdev.com/posts/libdispatch-david-tweets.png
+Avoid micro-benchmarking
+https://twitter.com/pedantcoder/status/1081660679054999552
+https://twitter.com/Catfish_Man/status/1081673457182490624
+Resources are not infinite
+https://twitter.com/pedantcoder/status/1081661310771712001
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039410.html
+https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20170828/039429.html
+Background QOS work is paused when low-power mode is enabled
+https://twitter.com/gregheo/status/1001501337907970048?s=12
+About dispatch_async_and_wait()
+https://twitter.com/pedantcoder/status/1135938715098857477
+Utilizing more than 3-4 cores isn't something that is easy
+https://twitter.com/pedantcoder/status/1140041360868704256
+A lot of iOS 12 perf wins were from daemons going single-threaded
+https://twitter.com/Catfish_Man/status/1081673457182490624
+https://twitter.com/Catfish_Man/status/1081581652147490817
+https://twitter.com/Catfish_Man/status/1081590712376774661
+https://twitter.com/Catfish_Man/status/1374436077591695364
+This page is the real deal
+https://twitter.com/pedantcoder/status/1175488750714937344
+Copy link
+snej
+commented
+Apr 27, 2018
+dispatch_async() is wasteful if the dispatched block is small
+Yes. Another reason, besides the one you gave, is that it always has to copy the block to the heap. That involves calling malloc (and incurring a future call to free), which is way, way more expensive than taking a lock or calling dispatch_sync.
+The concurrency pattern you're outlining here — a few queues with well-defined purposes that are invoked through dispatch_async — is very much like the Actor model. I've had very good results in my current project by building some base (C++) classes that implement this model on top of libdispatch. Each Actor object owns a dispatch queue. The methods that do the real work are all private, but each one has a corresponding public method that simply calls dispatch_async to delegate to the private method.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MadCoder
+commented
+Apr 27, 2018
+Each Actor object owns a dispatch queue. The methods that do the real work are all private, but each one has a corresponding public method that simply calls dispatch_async to delegate to the private method.
+If you do that you need to either have very few such actors, or target their internal queues to a shared one, else you created too much concurrency which goes exactly against what @tclementdev explains above ;)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+cleanbit
+commented
+Nov 26, 2020
+There is an interesting WWDC talk about this stuff.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+orospakr
+commented
+Nov 26, 2020
+Very handy writeup, thank you!
+A question, though: what is a "bottom queue"? Googling the term brings you back to this very gist.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tclementdev
+commented
+Nov 26, 2020
+@orospakr Bottom queues are queues that do not target another one of your queue, i.e. DispatchQueue(label: "...") is a bottom queue, DispatchQueue(label: "...", target: anotherQueue) is not.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Enricoza
+commented
+Jan 11, 2021
+Hi @tclementdev, thanks a lot for this list!
+I was reading the documentation of Dispatch Queue and it states:
+Instead of creating private concurrent queues, submit tasks to one of the global concurrent dispatch queues. For serial tasks, set the target of your serial queue to one of the global concurrent queues. That way, you can maintain the serialized behavior of the queue while minimizing the number of separate queues creating threads.
+Now, I could maybe see why it advocates for using global instead of private concurrent queues (the less queues the better), but I wanted to ask you what do you think about the "for serial tasks, set the target of your serial queue to one of the global concurrent queues"?
+Does it really make any difference if I'm using 3-4 "bottom queues" with no target or with global target?
+Or (I'm speculating) maybe is that even worse as we could loose some of the optimizations of the serial queues by using the global target?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tclementdev
+commented
+Jan 11, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hi @Enricoaz, targeting the global queues might make a difference (my understanding is that it may reduce the libdispatch behavior of overcommitting the number of available of cores with additional threads) but this is really poorly documented territory and also a widely unknown practice so I would be careful about relying on that. The general recommendation is to never dispatch directly to the global queues and instead use a small set of well-defined long-lived dispatch queues. If you do this then you can't ever cause thread-explosion because your set of dispatch queues bounds your program's concurrency and the number of threads that can possibly exist simultaneously in your program.
+Also one important thing to note is that you cannot guarantee that your code will never block: even if you take extra care not to, the system libraries and frameworks that you rely on will inevitably do it. This makes using the global queues impossible in practice.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+muukii
+commented
+Jan 19, 2021
+Don't use DispatchQueue.global()
+How about specifying qos? Is that the same?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tclementdev
+commented
+Jan 19, 2021
+@muukii, this is not related. You can attach a qos to you own queues at creation time and you can attach qos to dispatch work items as well (although it's probably better to do the former). No need to deal with global queues for that.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+muukii
+commented
+Jan 19, 2021
+@muukii, this is not related. You can attach a qos to you own queues at creation time and you can attach qos to dispatch work items as well (although it's probably better to do the former). No need to deal with global queues for that.
+got it. thank you!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+scott-vsi
+commented
+Mar 18, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Since everyone seems to be piling on: Grand Central Dispatch is a douchebag by Pierre Lebeaupin via Michael Tsai
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Kentzo
+commented
+May 21, 2021
+That's by Pierre Lebeaupin, not Michael Tsai.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+TaLinh
+commented
+Dec 17, 2024
+It's sad that some twitter links are gone forever now :(
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jcm93
+commented
+Mar 6, 2025
+Here's a Wayback Machine snapshot of the "GCD is a douchebag" blogpost, since the blog appears defunct.
+https://web.archive.org/web/20210620161440/http://wanderingcoder.net/2021/02/25/libdispatch-douchebag/
+Definitely contains useful reading.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

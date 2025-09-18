@@ -1,0 +1,243 @@
+skeetocrt example CRT · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+skeeto/Makefile
+Last active
+September 18, 2025 01:02
+Show Gist options
+Download ZIP
+Star
+2
+(2)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/skeeto/ba09636392f026562b9c52b60db64ae8.js&quot;&gt;&lt;/script&gt;
+Save skeeto/ba09636392f026562b9c52b60db64ae8 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+3
+Stars
+2
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/skeeto/ba09636392f026562b9c52b60db64ae8.js&quot;&gt;&lt;/script&gt;
+Save skeeto/ba09636392f026562b9c52b60db64ae8 to your computer and use it in GitHub Desktop.
+Download ZIP
+skeetocrt example CRT
+Raw
+README.md
+Example CRT
+Grab a copy of w64devkit. Then in
+this repository:
+$ make
+Then add it to your $PATH. Then (anywhere) you can build the example:
+$ skeeto-cc -o example.exe example.c
+$ ./example world
+Hello, world
+To build the example program using this mini CRT which only has printf,
+fputc, and fflush.
+Raw
+crt0.c
+#include <stdio.h>
+typedef typeof(sizeof(0))
+size_t;
+typedef typeof(L'.')
+wchar_t;
+enum {
+CP_UTF8 = 65001,
+};
+#define W32(r) __declspec(dllimport) r __stdcall
+W32(wchar_t **) CommandLineToArgvW(wchar_t *, int *);
+W32(wchar_t *)
+GetCommandLineW();
+W32(void *)
+GetProcessHeap();
+W32(void *)
+HeapAlloc(void *, int, size_t);
+W32(int)
+WideCharToMultiByte(int,int,wchar_t*,int,char*,int,void*,void*);
+int main(int argc, char **argv);
+void __main() {}
+int __stdcall mainCRTStartup()
+{
+wchar_t *cmd = GetCommandLineW();
+int argc = 0;
+wchar_t **wargv = CommandLineToArgvW(cmd, &argc);
+void *heap = GetProcessHeap();
+int size = sizeof(char*)*(argc + 1);
+char **argv = HeapAlloc(heap, 0, size);
+for (int i = 0; i < argc; i++) {
+int len = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, 0, 0, 0, 0);
+argv[i] = HeapAlloc(heap, 0, len);
+WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, argv[i], len, 0, 0);
+}
+argv[argc] = 0;
+int r = main(argc, argv);
+fflush(stdout);
+fflush(stderr);
+return r;
+}
+Raw
+example.c
+// $ skeeto-cc -o example.exe example.c
+#include <stdio.h>
+int main(int argc, char **argv)
+{
+printf("Hello, %s\n", argv[argc-1]);
+}
+Raw
+Makefile
+ALL = skeetocrt.dll skeetocrt.dll.a crt0.o
+all: $(ALL)
+skeetocrt.dll skeetocrt.dll.a: skeetocrt.c stdio.h
+cc -shared -g3 -fno-builtin -nostartfiles --entry=0 \
+-Wl,--out-implib=skeetocrt.dll.a -o skeetocrt.dll skeetocrt.c
+crt0.o: crt0.c stdio.h
+cc -c -g3 -fno-builtin -nostdlib -nostdinc -isystem . -o crt0.o crt0.c
+clean:
+rm -f $(ALL)
+Raw
+skeeto-cc.sh
+#!/bin/sh
+SYSROOT=$(cd -- $(dirname -- $0) && pwd)
+exec cc -nostdlib -nostdinc -isystem "$SYSROOT" -L"$SYSROOT" "$@" \
+"$SYSROOT"/crt0.o -lskeetocrt -lkernel32 -lshell32
+Raw
+skeetocrt.c
+#include <limits.h>
+#define W32(r) __declspec(dllimport) r __stdcall
+W32(void *) GetStdHandle(int);
+W32(int)
+WriteFile(void *, void *, int, int *, void *);
+typedef struct __FILE {
+int fd;
+int len;
+char *buf;
+char mem[1<<12];
+} FILE;
+FILE *__getstd(int fd)
+{
+static FILE std[3] = {
+{.fd=0, .buf=std[0].mem},
+{.fd=1, .buf=std[1].mem},
+{.fd=2, .buf=std[2].mem},
+};
+return fd>=0 && fd<=2 ? std+fd : 0;
+}
+int fflush(FILE *f)
+{
+if (f->len) {
+void *h = GetStdHandle(-10u - f->fd);
+int r = -!WriteFile(h, f->buf, f->len, &(int){0}, 0);
+f->len = 0;
+return r;
+}
+return 0;
+}
+int fputc(int c, FILE *f)
+{
+if (f->len == (int)sizeof(f->buf)) {
+if (fflush(f)) {
+return -1;
+}
+}
+f->buf[f->len++] = c;
+return 0;
+}
+int printf(char const *fmt, ...)
+{
+__builtin_va_list ap;
+__builtin_va_start(ap, fmt);
+FILE *f = __getstd(1);
+int len = 0;
+for (;;) {
+switch (*fmt) {
+case 0:
+__builtin_va_end(ap);
+return len;
+case '%':
+fmt++;
+switch (*fmt) {
+case 0: return -1;
+case '%':
+if (len==INT_MAX || fputc(*fmt++, f)) {
+return -1;
+}
+len++;
+break;
+case 's':
+fmt++;
+char *s = __builtin_va_arg(ap, char *);
+for (; *s; s++) {
+if (len==INT_MAX || fputc(*s, f)) {
+return -1;
+}
+len++;
+}
+}
+break;
+default:
+if (len==INT_MAX || fputc(*fmt++, f)) {
+return -1;
+}
+len++;
+}
+}
+}
+Raw
+stdio.h
+#pragma once
+#define stdout (__getstd(1))
+#define stderr (__getstd(2))
+typedef struct __FILE FILE;
+FILE *__getstd(int fd);
+int printf(char const *, ...);
+int fflush(FILE *);
+int fputc(int , FILE *);
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

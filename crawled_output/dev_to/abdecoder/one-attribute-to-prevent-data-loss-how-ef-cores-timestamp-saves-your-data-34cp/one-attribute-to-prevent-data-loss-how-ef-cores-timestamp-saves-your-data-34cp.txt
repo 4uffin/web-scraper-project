@@ -1,0 +1,333 @@
+Stop Overwrites with One Attribute: EF Core DbConcurrency Made Simple - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Abdullah D.
+Posted on Sep 17
+Stop Overwrites with One Attribute: EF Core DbConcurrency Made Simple
+#entityframeworkcore
+#webdev
+#dotnet
+#dataintegrity
+The Silent Data Loss Problem Every Multi-User App Faces
+Multi-user applications have a dangerous default behavior that many developers don't realize until it's too late. When multiple users modify the same data simultaneously, the last person to save wins, and everyone else's changes disappear without a trace.
+Silent data loss. No exceptions thrown, no error messages, no warnings - just data quietly vanishing.
+The good news? EF Core has a built-in solution that requires just one attribute.
+The Problem: When "Last Write Wins" Becomes "Everyone Loses"
+In multi-user applications, the default behavior is deceptively dangerous. When multiple users modify the same entity simultaneously, the last person to save wins, and everyone else's changes disappear without a trace.
+Here's how this common scenario unfolds:
+User A loads a product (Stock: 100, Price: $25.99, Name: "Widget")
+User B loads the same product (Stock: 100, Price: $25.99, Name: "Widget")
+User A changes the stock to 1000 (maybe bulk inventory adjustment)
+User B reduces stock to 75 via raw SQL (direct database update)
+User A saves their changes ✅
+Result: User A's stock value (1000) overwrites User B's stock change (75) 💥
+The key insight: Data loss occurs when both users modify the same field concurrently. If User A only changed the name and price (leaving stock untouched), User B's stock change would survive. But when both operations touch the same field, the EF Core save overwrites the direct database change.
+Note: This happens specifically when EF Core's SaveChanges() includes a field that was also modified by raw SQL or another concurrent operation.
+The Hero: One Attribute to Rule Them All
+Meet the [Timestamp] attribute - EF Core's built-in superhero for data integrity:
+public class Product
+{
+public int Id { get; set; }
+public string Name { get; set; }
+public int Stock { get; set; }
+public decimal Price { get; set; }
+[Timestamp]
+public byte[] RowVersion { get; set; } = new byte[8];
+// 🦸‍♂️ Your data guardian
+}
+Enter fullscreen mode
+Exit fullscreen mode
+That's it. One attribute. Eight bytes. Zero data loss.
+The Magic Behind the Scenes
+When you add [Timestamp] to a property, EF Core transforms from a passive bystander into an active protector:
+Without RowVersion (The Dangerous Way):
+-- User B's save overwrites everything
+UPDATE Products
+SET Name = 'Original Widget', Stock = 50, Price = 25.99
+WHERE Id = 1
+Enter fullscreen mode
+Exit fullscreen mode
+With RowVersion (The Safe Way):
+-- EF Core includes the version in the WHERE clause
+UPDATE Products
+SET Name = 'Premium Widget', Stock = 50, Price = 29.99
+WHERE Id = 1 AND RowVersion = 0x00000000000007D0
+Enter fullscreen mode
+Exit fullscreen mode
+If another user changed the data (updating the RowVersion), this query affects 0 rows, triggering a DbUpdateConcurrencyException. No silent data loss. Ever.
+See It In Action: The Demo That Will Change How You Think About Data
+I built a working demo that shows exactly what happens with and without concurrency control. Here's what you can test:
+🔴 The Dangerous Scenario
+POST /demo-concurrency-with-stock-change
+Enter fullscreen mode
+Exit fullscreen mode
+What happens: EF Core silently overwrites concurrent changes. Data loss occurs, and nobody knows.
+🟢 The Protected Scenario
+POST /demo-with-rowversion
+Enter fullscreen mode
+Exit fullscreen mode
+What happens: DbUpdateConcurrencyException is thrown. The conflict is detected and must be handled explicitly.
+🟡 The Edge Case
+POST /demo-concurrency-no-stock-change
+Enter fullscreen mode
+Exit fullscreen mode
+What happens: When EF Core doesn't modify a field, concurrent raw SQL changes survive. Interesting, but not reliable for production.
+Handling Conflicts Like a Pro
+When DbUpdateConcurrencyException occurs, you have three battle-tested strategies:
+1. Store Wins (Reload and Show Current Data)
+catch (DbUpdateConcurrencyException)
+{
+await context.Entry(product).ReloadAsync();
+// Show user the current database values
+// Let them decide what to do
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2. Client Wins (Force the Update)
+catch (DbUpdateConcurrencyException ex)
+{
+var entry = ex.Entries.Single();
+entry.OriginalValues.SetValues(entry.GetDatabaseValues());
+await context.SaveChangesAsync(); // Force save
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3. Smart Merge (Best of Both Worlds)
+catch (DbUpdateConcurrencyException ex)
+{
+var entry = ex.Entries.Single();
+var currentValues = entry.CurrentValues;
+var databaseValues = entry.GetDatabaseValues();
+// Example: Keep user's name/price changes, preserve database stock
+currentValues["Stock"] = databaseValues["Stock"];
+entry.OriginalValues.SetValues(databaseValues);
+await context.SaveChangesAsync();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Business Case: Why This Matters
+The Cost of Data Loss:
+E-commerce: Incorrect inventory leads to overselling
+Finance: Transaction amounts get corrupted
+Healthcare: Patient data becomes inconsistent
+Any Business: User trust erodes, reputation suffers
+The Cost of Implementation:
+Development Time: 5 minutes to add the attribute
+Performance Impact: ~1ms per operation
+Storage Cost: 8 bytes per row
+Maintenance: Zero - it just works
+ROI: Infinite. You can't put a price on data integrity.
+The Developer's Concurrency Checklist
+✅ Always Use RowVersion For:
+Multi-user applications
+Financial transactions
+Inventory management
+Any critical business data
+Long-running forms
+📋 Implementation Best Practices:
+Create a Base Entity:
+public abstract class BaseEntity
+{
+public int Id { get; set; }
+[Timestamp]
+public byte[] RowVersion { get; set; } = new byte[8];
+}
+// Now all your entities are protected
+public class Product : BaseEntity
+{
+public string Name { get; set; } = "";
+public int Stock { get; set; }
+public decimal Price { get; set; }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test Concurrent Scenarios:
+[Fact]
+public async Task Should_Detect_Concurrent_Updates()
+{
+// Load same entity in two contexts
+var product1 = await context1.Products.FindAsync(id);
+var product2 = await context2.Products.FindAsync(id);
+// Modify both
+product1.Name = "Version 1";
+product2.Stock = 50;
+// First save succeeds
+await context1.SaveChangesAsync();
+// Second save should throw
+await Assert.ThrowsAsync<DbUpdateConcurrencyException>(
+() => context2.SaveChangesAsync());
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Reality Check: Performance vs. Protection
+Aspect
+Without RowVersion
+With RowVersion
+Data Loss Risk
+❌ High
+✅ None
+Conflict Detection
+❌ Silent failure
+✅ Explicit exception
+Implementation Effort
+None
+1 attribute
+Performance Impact
+Baseline
++8 bytes, +~1ms
+Peace of Mind
+❌ Sleepless nights
+✅ Sleep like a baby
+Try It Yourself
+The complete demo is available on GitHub. Clone it, run it, and see the magic happen:
+git clone https://github.com/abdebek/efcore-db-concurrency-demo.git
+cd efcore-db-concurrency-demo
+dotnet restore
+dotnet run
+# Test the scenarios
+curl -X POST https://localhost:7112/demo-with-rowversion
+Enter fullscreen mode
+Exit fullscreen mode
+The Bottom Line
+In a world where data is your most valuable asset, can you afford NOT to protect it?
+The [Timestamp] attribute is:
+✅ Built into EF Core
+✅ Automatic and reliable
+✅ Zero maintenance
+✅ Battle-tested in production
+✅ The difference between data loss and data safety
+One attribute. Zero data loss. That's the power of [Timestamp].
+Have you experienced silent data loss in your applications? How did you solve it? Share your story in the comments below!
+🔗 Useful Resources:
+EF Core Concurrency Documentation
+Handling Concurrency Conflicts
+Demo Repository
+👏 Found this helpful? Give it a clap and follow for more practical development insights!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Abdullah D.
+Follow
+Helping businesses build a secure, reactive and real-time web apps.
+Joined
+Dec 24, 2020
+More from Abdullah D.
+Building True Micro-Frontends: Beyond iFrames with Module Federation
+#webdev
+#microfrontend
+#react
+#slidev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

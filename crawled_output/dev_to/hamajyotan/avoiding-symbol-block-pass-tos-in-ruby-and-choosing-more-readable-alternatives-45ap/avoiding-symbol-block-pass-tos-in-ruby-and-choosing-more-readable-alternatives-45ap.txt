@@ -1,0 +1,230 @@
+Avoiding Symbol Block-Pass (&:to_s) in Ruby and Choosing More Readable Alternatives - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Takashi SAKAGUCHI
+Posted on Sep 18
+Avoiding Symbol Block-Pass (&:to_s) in Ruby and Choosing More Readable Alternatives
+#ruby
+In Ruby, it’s common to see the shorthand syntax using symbols as block arguments, such as &:to_s.
+While this looks concise and elegant, it can be confusing for beginners and isn’t always well supported by IDEs or refactoring tools.
+Recently, more intuitive options like it and _1 have been introduced, which raises the question: should teams start unifying their style around them?
+This article explores the idea of intentionally avoiding the symbol block-pass syntax and shows a practical approach using RuboCop.
+The Evolution of Block Parameters
+Ruby has gone through several stages of block parameter evolution.
+# All of the following return ["1", "2", "3"]
+# The most primitive style
+[1, 2, 3].map { |i| i.to_s }
+# Since Ruby 1.9
+[1, 2, 3].map(&:to_s)
+# Since Ruby 2.7 (Numbered Parameters)
+[1, 2, 3].map { _1.to_s }
+# Since Ruby 3.4 (it parameter)
+[1, 2, 3].map { it.to_s }
+Enter fullscreen mode
+Exit fullscreen mode
+The primitive style
+The classic way requires explicitly naming a block parameter:
+[1, 2, 3].map { |i| i.to_s }
+Enter fullscreen mode
+Exit fullscreen mode
+Even though the variable name doesn’t matter, you still need to provide one.
+Symbol#to_proc style
+Ruby 1.9 introduced the shorthand using Symbol#to_proc:
+[1, 2, 3].map(&:to_s)
+Enter fullscreen mode
+Exit fullscreen mode
+Internally, :to_s.to_proc behaves like this:
+sym = :to_s
+blk = sym.to_proc
+# Roughly equivalent to:
+# ->(obj, *args, **kwargs, &block) { obj.public_send(:to_s, *args, **kwargs, &block) }
+blk.call(1)
+# => "1"
+Enter fullscreen mode
+Exit fullscreen mode
+When passed as a block (&:to_s), Ruby implicitly calls to_proc and executes the method.
+Numbered Parameters and it
+Later came Numbered Parameters (_1) in Ruby 2.7, and the it shorthand in Ruby 3.4, both expressing the idea that “the name doesn’t matter.”
+[1, 2, 3].map { _1.to_s }
+[1, 2, 3].map { it.to_s }
+Enter fullscreen mode
+Exit fullscreen mode
+Other languages also have similar constructs, like Kotlin’s it or Scala’s _.
+Why Avoid Symbol Block-Pass?
+The motivation behind these newer syntaxes is to make the “namelessness” of the parameter explicit.
+Both _1 and it solve this issue, and personally, I prefer it—it reads naturally, it’s the newest addition, and it aligns with current Ruby trends.
+The problem with Symbol#to_proc is that non-Ruby developers often struggle to understand it at a glance.
+Ruby is fun because it offers multiple ways to write the same thing, but if we want Ruby to stay beginner-friendly and appealing, readability matters.
+Also, _1 and it integrate better with IDEs and refactoring tools.
+That’s why I believe Symbol#to_proc should be limited to code golf or niche cases, and we should stop using it in everyday production code.
+A Custom RuboCop Cop
+To enforce this idea, here’s a custom RuboCop cop.
+It flags usages like array.map(&:to_s) and suggests replacing them with it (or _1).
+It works like the inverse of Style::SymbolProc.
+# To enable this custom cop, add the following to `.rubocop.yml`:
+#
+# require:
+#
+- path/to/custom/cop/avoid_symbol_block_pass.rb
+#
+# Custom/AvoidSymbolBlockPass:
+#
+Enabled: true
+#
+# --- Offense (NG) ---
+# array.map(&:to_s)
+# users.each(&:destroy)
+#
+# --- Allowed (OK) ---
+# array.map { it.to_s }
+# users.each { it.destroy }
+class RuboCop::Cop::Custom::AvoidSymbolBlockPass < RuboCop::Cop::Base
+MSG = "Avoid using Symbol#to_proc (`&:to_s`). Consider using `it` or `_1` instead."
+def on_block_pass(node)
+return unless node.children.first&.sym_type?
+add_offense(node)
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+Ruby provides multiple block syntaxes, each with historical context.
+Symbol#to_proc (&:to_s) is concise, but not beginner-friendly and not IDE-friendly.
+Prefer clearer alternatives like it (or _1).
+Use a RuboCop custom cop to enforce this style within your team.
+By shifting away from the symbol block-pass syntax, we can make Ruby codebases more approachable, consistent, and easier to maintain.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Takashi SAKAGUCHI
+Follow
+Software engineer. I like Rails and cigarettes.
+Favorite emoji -> 🐪
+Location
+Japan,Tottori
+Joined
+Apr 2, 2020
+More from Takashi SAKAGUCHI
+How to Get More Detailed Information When RSpec Tests Fail
+#ruby
+#rails
+Helpful Settings When Running RSpec with parallel_tests
+#ruby
+#rails
+Tame Your Flaky RSpec Tests by Fixing the Seed
+#ruby
+#rails
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

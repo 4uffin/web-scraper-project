@@ -1,0 +1,227 @@
+Arduino 4 DOF(degree of freedom) robotic arm code with comments for clarity · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+unrastand/4_dof_robotic_arm.ino
+Created
+September 17, 2025 11:11
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/unrastand/c36c14128cb50a8a87e1776b43758684.js&quot;&gt;&lt;/script&gt;
+Save unrastand/c36c14128cb50a8a87e1776b43758684 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/unrastand/c36c14128cb50a8a87e1776b43758684.js&quot;&gt;&lt;/script&gt;
+Save unrastand/c36c14128cb50a8a87e1776b43758684 to your computer and use it in GitHub Desktop.
+Download ZIP
+Arduino 4 DOF(degree of freedom) robotic arm code with comments for clarity
+Raw
+4_dof_robotic_arm.ino
+#include <Servo.h> // Include the Servo library to control hobby servos
+// Create Servo objects for each motor/actuator
+Servo rightServo;
+// Right-side servo (e.g. arm or wheel)
+Servo leftServo;
+// Left-side servo (e.g. arm or wheel)
+Servo clawServo;
+// Servo that operates the claw/gripper
+Servo baseServo;
+// Servo that rotates the base
+// Pin assignments for servos (change if wiring changes)
+const int servoRightPin = 3;
+const int servoLeftPin
+= 13;
+const int servoClawPin
+= 5;
+const int servoBasePin
+= 6;
+// Analog joystick (potentiometer) pin assignments
+// Naming suggests: potenR = right joystick, potenL = left joystick, x/y axes
+const int potenRx = A2;
+const int potenRy = A3;
+const int potenLx = A0;
+const int potenLy = A1;
+// Button pin assignments
+const int buttonL = 12;
+// Left button (used to change claw position in loop)
+int buttonLState = 0;
+// (unused) can hold current state if needed
+int buttonLOldState = 0;
+// (unused) can hold previous state for edge detection
+int buttonLeft = 2;
+// Another button used as a mode switch (see loop)
+const int buttonR = 8;
+// Right button (used to change claw position)
+int buttonRState = 0;
+// (unused) can hold current state if needed
+int buttonROldState = 0;
+// (unused) can hold previous state
+// Claw control variables
+int ClawPos = 90;
+// Current claw position (initially 90 degrees)
+int ClawIncrease = 2;
+// Amount to open the claw when right button pressed
+int ClawReduce = -2;
+// Amount to close the claw when left button pressed
+// Helper variables used in loop
+int analogRy = 0;
+// Stores analog reading from right joystick Y-axis
+int buttonLeftRead = 0;
+// Stores read value of the 'buttonLeft' pin
+void setup() {
+// attach each Servo object to the correct PWM pin
+rightServo.attach(servoRightPin);
+leftServo.attach(servoLeftPin);
+clawServo.attach(servoClawPin);
+baseServo.attach(servoBasePin);
+// configure potentiometer (analog) pins as inputs
+pinMode(potenRx, INPUT);
+pinMode(potenRy, INPUT);
+pinMode(potenLy, INPUT);
+pinMode(potenLx, INPUT);
+// configure button pins as inputs
+pinMode(buttonL, INPUT);
+pinMode(buttonR, INPUT);
+pinMode(buttonLeft, INPUT);
+Serial.begin(9600);
+// Optional: start serial for debugging
+// NOTE: the following two lines are redundant or incorrect for INPUT pins:
+// digitalWrite(buttonLeft, 0);
+// trying to drive a value on a pin configured as INPUT
+// For INPUT pins you usually either:
+//
+- leave them floating and use external pull-ups/pull-downs, OR
+//
+- enable internal pull-up with pinMode(pin, INPUT_PULLUP).
+// Keep them here only if you know your wiring requires it.
+digitalWrite(buttonLeft, 0);
+// The next analogWrite() calls attempt PWM on analog input pins — they
+// have no effect on typical Arduino boards (A0..A5 are analogInput pins).
+// These lines can be removed safely. They do not set analogRead default values.
+analogWrite(potenRx, 0);
+analogWrite(potenRy, 0);
+analogWrite(potenLx, 0);
+analogWrite(potenLy, 0);
+}
+void loop() {
+// High-level behavior:
+// - If 'buttonLeft' is pressed, read potenRy and use it to control baseServo.
+// - Buttons R and L increment/decrement the claw position.
+// - Joysticks potenRx, potenLx, potenLy control the right and left servos.
+// Read the mode-switch button (buttonLeft). If pressed, we enter a
+// while-loop that continuously maps the right-joystick Y (potenRy)
+// to the baseServo until the button is released.
+buttonLeftRead = digitalRead(buttonLeft);
+// While buttonLeft is held down, control the base with the right joystick
+while (buttonLeftRead == 1) {
+analogRy = analogRead(potenRy);
+// read right joystick Y-axis (0..1023)
+delay(500);
+// 500ms delay — slows the response
+// Map the analog reading to a servo position and write it to baseServo.
+// NOTE: map() arguments (2,178 -> 0,1023) are unusual:
+//
+- The input range 2..178 appears small relative to analogRead range 0..1023.
+//
+- The output range 0..1023 is NOT a valid servo angle (servo expects 0..180).
+// This will still compile but likely produces unexpected results.
+baseServo.write(map(analogRy, 2, 178, 0, 1023));
+delay(500);
+buttonLeftRead = digitalRead(buttonLeft);
+// re-check button for exit condition
+}
+// End of while - exit when buttonLeft is released
+// ---------- Claw control ----------
+// If buttonR is pressed, increase ClawPos (open more)
+if (digitalRead(buttonR) == 1) {
+ClawPos += ClawIncrease;
+delay(50);
+// small delay to debounce / slow repeating change
+}
+// If buttonL is pressed, decrease ClawPos (close more)
+if (digitalRead(buttonL) == 1) {
+ClawPos += ClawReduce;
+// ClawReduce is negative, so this reduces ClawPos
+delay(50);
+}
+// Write the new position to the claw servo
+clawServo.write(ClawPos);
+// ---------- Joystick control of arm/body ----------
+// Read joystick X/Y axes for the right and left joysticks
+int cursorRightReadx = analogRead(potenRx);
+// right joystick X-axis
+int cursorLeftReadx
+= analogRead(potenLx);
+// left joystick X-axis
+int cursorLeftReady
+= analogRead(potenLy);
+// left joystick Y-axis (read but unused below)
+delay(100);
+// small pause to stabilize readings
+// Map analog readings to servo positions for the right and left servos.
+// Again note the mapping ranges:
+//
+right: map(cursorRightReadx, 10, 178, 0, 1023)
+//
+left : map(cursorLeftReadx, 26, 176, 0, 1023)
+// The map() output 0..1023 is not a valid Servo angle — servo.write expects 0..180.
+// As written, this may saturate or behave unexpectedly depending on the Servo library.
+rightServo.write(map(cursorRightReadx, 10, 178, 0, 1023));
+leftServo.write(map(cursorLeftReadx, 26, 176, 0, 1023));
+delay(50);
+// small delay before next loop iteration
+}
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

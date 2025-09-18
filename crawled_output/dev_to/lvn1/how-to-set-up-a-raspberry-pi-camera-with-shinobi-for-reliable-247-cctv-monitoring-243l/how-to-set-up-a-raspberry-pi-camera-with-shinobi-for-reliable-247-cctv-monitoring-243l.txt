@@ -1,0 +1,347 @@
+How to set up a Raspberry Pi camera with Shinobi for reliable, 24/7 CCTV monitoring - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+lvn1
+Posted on Sep 17
+How to set up a Raspberry Pi camera with Shinobi for reliable, 24/7 CCTV monitoring
+#security
+#raspberrypi
+#linux
+#computervision
+This guide walks you through setting up a Raspberry Pi camera with Shinobi Open Source CCTV software. We'll address common hardware, networking, and performance issues to create a stable monitoring solution that actually works on resource constrained devices like the Raspberry Pi 2.
+Prerequisites
+Hardware: Raspberry Pi (tested on Pi 2), compatible CSI camera module (OV5647), reliable power supply, 32GB+ SD card
+Software: Fresh Raspberry Pi OS installation, SSH client, network access
+Network: Local network access and basic router configuration knowledge
+Step 1: Initial Raspberry Pi Setup
+Start with a proper foundation to avoid headaches later.
+Basic Configuration
+Flash Raspberry Pi OS: Use the official Raspberry Pi Imager for a clean Raspberry Pi OS Lite installation (headless) or with Desktop.
+Enable SSH: During imaging, enable SSH in the advanced options, or enable it post-boot with sudo raspi-config.
+First Boot: Connect via SSH and update everything:
+sudo apt-get update && sudo apt-get upgrade -y
+Enter fullscreen mode
+Exit fullscreen mode
+Camera Hardware Verification
+Before installing anything, verify your camera actually works:
+libcamera-hello -t 2000
+Enter fullscreen mode
+Exit fullscreen mode
+You should see a 2-second preview (on connected display) or the command should complete without "camera not found" errors. If this fails, check your ribbon cable connection - everything else depends on this working.
+Step 2: Installing Shinobi
+The official installer handles most of the heavy lifting, but you need to know the specific steps.
+Run the Official Installer
+Switch to root and run installer:
+sudo su
+sh <(curl -s https://cdn.shinobi.video/installers/shinobi-install.sh)
+Enter fullscreen mode
+Exit fullscreen mode
+Select "Ubuntu Touchless" when prompted - this works best for Raspberry Pi installations.
+Handle IPv6 prompt: If asked about disabling IPv6, choose "Yes" to avoid connectivity issues during installation.
+Critical Network Configuration Fix
+Here's the part most guides miss: Shinobi will only bind to IPv6 by default, making it inaccessible from other devices on your network.
+Edit the configuration file:
+sudo nano /home/Shinobi/conf.json
+Enter fullscreen mode
+Exit fullscreen mode
+Add the IP parameter (not "host") at the beginning of the JSON:
+{
+"ip": "192.168.20.15",
+"port": 8080,
+...
+Enter fullscreen mode
+Exit fullscreen mode
+Replace 192.168.20.15 with your actual Pi's IP address.
+Restart Shinobi:
+sudo pm2 restart camera
+Enter fullscreen mode
+Exit fullscreen mode
+Verify it's working:
+sudo netstat -tlnp | grep :8080
+Enter fullscreen mode
+Exit fullscreen mode
+You should see both tcp and tcp6 entries, not just tcp6.
+Initial Shinobi Setup
+Access the superuser panel: Open http://YOUR_PI_IP:8080/super in your browser.
+Default credentials:
+Username: admin@shinobi.video
+Password: admin
+Create your admin account through the superuser panel.
+Log into main interface: Access http://YOUR_PI_IP:8080 (without /super) using your new credentials.
+Change superuser credentials immediately in the Preferences tab for security.
+Step 3: Camera Streaming Pipeline
+Create a reliable video stream that Shinobi can actually connect to.
+Install Required Packages
+sudo apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad netcat-openbsd
+Enter fullscreen mode
+Exit fullscreen mode
+Create the Streaming Script
+Create the script file:
+nano /home/first/streamscript
+Enter fullscreen mode
+Exit fullscreen mode
+Add this pipeline (optimized for reliability over quality):
+#!/bin/bash
+# Reliable MJPEG stream using software encoding
+# Hardware encoding isn't available on older Pi models
+BOUNDARY="--boundary"
+PIPELINE="gst-launch-1.0 -q libcamerasrc ! video/x-raw,width=320,height=240,framerate=10/1 ! jpegenc ! multipartmux boundary=${BOUNDARY} ! filesink location=/dev/stdout"
+while true; do
+{
+echo -e "HTTP/1.0 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=${BOUNDARY}\r\n";
+${PIPELINE};
+} | nc -l -p 8090
+done
+Enter fullscreen mode
+Exit fullscreen mode
+Make it executable:
+chmod +x /home/first/streamscript
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4: Background Service Setup
+Set up automatic startup and crash recovery using systemd user services.
+Create the Service
+Create service directory:
+mkdir -p ~/.config/systemd/user/
+Enter fullscreen mode
+Exit fullscreen mode
+Create service file:
+nano ~/.config/systemd/user/shinobi-stream.service
+Enter fullscreen mode
+Exit fullscreen mode
+Add service configuration:
+[Unit]
+Description=Shinobi Camera Streamer
+Wants=graphical-session.target
+After=graphical-session.target
+[Service]
+ExecStart=/home/first/streamscript
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=default.target
+Enter fullscreen mode
+Exit fullscreen mode
+Enable and Start
+Run these commands without sudo (important for user services):
+systemctl --user daemon-reload
+systemctl --user enable shinobi-stream.service
+systemctl --user start shinobi-stream.service
+Enter fullscreen mode
+Exit fullscreen mode
+Enable Auto-Start on Boot
+This crucial step makes the service start even when you're not logged in:
+sudo loginctl enable-linger first
+Enter fullscreen mode
+Exit fullscreen mode
+Reboot your Pi to test everything starts correctly.
+Step 5: Configure Shinobi Monitor
+Connect Shinobi to your camera stream.
+Add new monitor: Click the + icon in Shinobi dashboard.
+Connection settings:
+Input Type: MJPEG
+Full URL Path: http://127.0.0.1:8090
+Stream settings:
+Frame Rate: 10
+Width: 320
+Height: 240
+Save and test: You should see live video immediately.
+Step 6: Performance Tuning
+Resource-constrained hardware requires careful balance between quality and performance.
+Understanding the Limitations
+Older Raspberry Pi models lack hardware video encoders that GStreamer can access. Everything runs on CPU, so optimization is critical.
+Tuning Parameters
+Adjust the PIPELINE variable in /home/first/streamscript:
+For better performance (lower CPU usage):
+PIPELINE="gst-launch-1.0 -q libcamerasrc ! video/x-raw,width=160,height=120,framerate=5/1 ! jpegenc quality=50 ! multipartmux boundary=${BOUNDARY} ! filesink location=/dev/stdout"
+Enter fullscreen mode
+Exit fullscreen mode
+For better quality (higher CPU usage):
+PIPELINE="gst-launch-1.0 -q libcamerasrc ! video/x-raw,width=640,height=480,framerate=15/1 ! jpegenc quality=90 ! multipartmux boundary=${BOUNDARY} ! filesink location=/dev/stdout"
+Enter fullscreen mode
+Exit fullscreen mode
+Monitor CPU usage with htop and adjust accordingly.
+Troubleshooting Common Issues
+"Can't Access from Other Devices"
+This is usually the IPv4/IPv6 binding issue:
+Check what Shinobi is listening on:
+sudo netstat -tlnp | grep :8080
+Enter fullscreen mode
+Exit fullscreen mode
+If you only see tcp6, check your config:
+sudo grep -A3 -B3 '"ip"' /home/Shinobi/conf.json
+Enter fullscreen mode
+Exit fullscreen mode
+Make sure you used "ip" not "host" parameter.
+"Stream Won't Start"
+Check service status:
+systemctl --user status shinobi-stream.service
+Enter fullscreen mode
+Exit fullscreen mode
+View service logs:
+journalctl --user -u shinobi-stream.service -f
+Enter fullscreen mode
+Exit fullscreen mode
+Test camera directly:
+libcamera-hello -t 2000
+Enter fullscreen mode
+Exit fullscreen mode
+"High CPU Usage"
+Lower resolution and framerate in your streamscript.
+Reduce JPEG quality by adding quality=50 to jpegenc.
+Check for multiple streams running accidentally.
+Security Considerations
+Network Security
+Change default Shinobi credentials immediately after setup
+Don't expose port 8080 to the internet via router port forwarding
+Use strong passwords for all accounts
+Consider firewall rules to limit access to specific IP ranges:
+sudo ufw allow from 192.168.0.0/16 to any port 8080
+Enter fullscreen mode
+Exit fullscreen mode
+System Security
+Change default Pi password if you haven't already
+Keep system updated with regular sudo apt update && sudo apt upgrade
+Monitor access logs in Shinobi's admin panel
+Final Notes
+This setup prioritizes reliability over fancy features. You'll have a stable, 24/7 monitoring solution that actually works on older hardware. The key insights that make this work:
+Use software encoding - hardware encoders aren't reliably available
+Fix the IPv4 binding issue - use "ip" parameter, not "host"
+Proper systemd service setup - ensures automatic recovery
+Conservative performance settings - prevents crashes under load
+Once you have this basic setup running reliably, you can experiment with higher resolutions, multiple cameras, or advanced Shinobi features.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+lvn1
+Follow
+Joined
+Jun 27, 2020
+Trending on DEV Community
+Hot
+New Framework Ripple? What about Others?
+#webdev
+#react
+#opensource
+#discuss
+Meme Monday
+#discuss
+#watercooler
+#jokes
+What was your win this week?
+#weeklyretro
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

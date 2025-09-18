@@ -1,0 +1,363 @@
+Crie um Laboratório SonarQube com Vagrant: Do Zero - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Marcos Vilela
+Posted on Sep 17
+Crie um Laboratório SonarQube com Vagrant: Do Zero
+#braziliandevs
+#devops
+#sonarqube
+#coding
+Você já precisou testar o SonarQube, já teve curiosidade, mas não queria instalar um ambiente Java completo ou bagunçar seu sistema? Ou talvez você esteja estudando DevOps e queira uma forma segura e replicável de praticar provisionamento de serviços? Este post é para você.
+conto como construir um laboratório de estudos totalmente automatizado usando Vagrant e VirtualBox. O objetivo é criar um ambiente limpo e isolado para aprivmorar, a prática sobre Infraestrutura como Código (IaC), automação com Bash Script e gerenciamento de serviços com SystemD. Ao final, você terá uma instância do SonarQube pronta para uso, como se estivesse gerenciando uma VPS real.
+As Ferramentas do Nosso Laboratório
+SonarQube: É a ferramenta líder de mercado para análise estática de código. Ele ajuda a identificar bugs, vulnerabilidades de segurança e "code smells", garantindo que a qualidade e a segurança do software sejam mantidas em alto nível. Ter um ambiente de testes é fundamental para explorar suas integrações com pipelines de CI/CD.
+Vagrant: Permite criar e gerenciar máquinas virtuais (VMs) de forma simples e declarativa. Com um único comando, vagrant up, todo o ambiente é provisionado. Isso garante reprodutibilidade, facilitando o compartilhamento com outros desenvolvedores e permitindo que você destrua e recrie o laboratório quantas vezes quiser.
+Estrutura do Projeto
+Nosso projeto terá três arquivos principais:
+Vagrantfile: O "cérebro" do Vagrant. Define as configurações da VM, como sistema operacional, rede, memória e quais scripts de provisionamento executar.
+provision.sh: O "braço" da automação. Um script shell que instala todas as dependências (como Java), baixa o SonarQube e o configura como um serviço do sistema.
+.env: Um arquivo de configuração para armazenar variáveis, como versões e URLs. Isso separa a configuração da lógica, facilitando atualizações futuras.
+Mão na Massa: Construindo o Laboratório
+Pré-requisitos
+Antes de começar, certifique-se de ter o Vagrant e o VirtualBox instalados em sua máquina.
+Instale o Vagrant: vagrantup.com/downloads
+Instale o VirtualBox: virtualbox.org/wiki/Downloads
+Iniciando o Projeto
+Crie uma pasta para o projeto e, dentro dela, execute o comando para gerar um Vagrantfile inicial:
+mkdir lab-sonarqube && cd lab-sonarqube
+vagrant init
+Enter fullscreen mode
+Exit fullscreen mode
+Configurando o Vagrantfile
+Substitua o conteúdo do Vagrantfile gerado como init pelo código abaixo.
+Vagrant.configure("2") do |config|
+# Define o hostname da VM para fácil identificação
+config.vm.hostname = "sonarqube-server"
+# Define a imagem base da VM. Usaremos Ubuntu 22.04 LTS da Bento.
+config.vm.box = "bento/ubuntu-22.04"
+# Redireciona a porta 9000 da VM para a porta 9000 do seu computador.
+# Isso permite acessar o SonarQube via http://localhost:9000
+config.vm.network "forwarded_port", guest: 9000, host: 9000
+# Sincroniza a pasta atual do projeto para /vagrant na VM
+config.vm.synced_folder ".", "/vagrant", disabled: true
+# Configurações específicas do provedor VirtualBox
+config.vm.provider "virtualbox" do |vb|
+# Aloca 2GB de RAM para a VM. SonarQube precisa de no mínimo isso.
+vb.memory = "2048"
+# Define o número de CPUs para a VM
+vb.cpus = 2
+end
+# Copia o arquivo de variáveis para dentro da VM antes de provisionar
+config.vm.provision "file", source: ".env", destination: "/home/vagrant/.env"
+# Executa o script de provisionamento para instalar e configurar tudo
+config.vm.provision "shell", path: "provision.sh"
+end
+Enter fullscreen mode
+Exit fullscreen mode
+Criando o Arquivo de Variáveis (.env)
+Crie o arquivo .env na mesma pasta. Usar variáveis torna a manutenção muito mais simples. Se o SonarQube lançar uma nova versão, basta atualizar este arquivo.
+SONAR_USER=sonarqube
+SONAR_GROUP=sonarqube
+SONAR_VERSION=9.9.0.65466
+SONAR_URL=https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.0.65466.zip
+SONAR_ZIP=sonarqube-9.9.0.65466.zip
+SONAR_HOME=/opt/sonarqube
+JAVA_BIN=/usr/bin/java
+SERVICE_FILE=/etc/systemd/system/sonarqube.service
+Nota: SonarQube 9.9 LTS requer Java 17. A imagem bento/ubuntu-22.04 já vem com uma versão compatível.
+Enter fullscreen mode
+Exit fullscreen mode
+O Coração da Automação: O Script provision.sh
+Este é o script que faz a mágica acontecer. Crie o arquivo provision.sh:
+#!/bin/bash
+set -euo pipefail
+set -a
+source .env
+set +a
+main() {
+if [[ $EUID -ne 0 ]]; then
+echo "Run as root."
+exit 1
+fi
+if ! getent group "$SONAR_GROUP" &>/dev/null; then
+sudo groupadd "$SONAR_GROUP"
+fi
+if ! id -u "$SONAR_USER" &>/dev/null; then
+sudo useradd --system --no-create-home -g "$SONAR_GROUP" "$SONAR_USER"
+fi
+sudo apt update
+sudo apt install -y make wget unzip openjdk-17-jdk -y
+# Instala SonarQube
+wget -O "$SONAR_ZIP" "$SONAR_URL"
+unzip -q "$SONAR_ZIP" -d /opt/
+mv "/opt/sonarqube-${SONAR_VERSION}" "$SONAR_HOME"
+rm "$SONAR_ZIP"
+chown -R "$SONAR_USER:$SONAR_GROUP" "$SONAR_HOME"
+touch "$SERVICE_FILE"
+echo > "$SERVICE_FILE"
+cat > "$SERVICE_FILE" <<EOT
+[Unit]
+Description=SonarQube service
+After=syslog.target network.target
+[Service]
+Type=simple
+User=$SONAR_USER
+Group=$SONAR_GROUP
+PermissionsStartOnly=true
+ExecStart=$JAVA_BIN -Xms512m -Xmx512m -Djava.net.preferIPv4Stack=true -jar $SONAR_HOME/lib/sonar-application-25.8.0.112029.jar
+StandardOutput=journal
+LimitNOFILE=131072
+LimitNPROC=8192
+TimeoutStartSec=5
+Restart=always
+SuccessExitStatus=143
+[Install]
+WantedBy=multi-user.target
+EOT
+# Instala SonarScanner
+wget -O "$SONAR_SCANNER_ZIP" "$SONAR_SCANNER_URL"
+unzip -q "$SONAR_SCANNER_ZIP" -d /opt/
+mv "/opt/sonar-scanner-${SONAR_SCANNER_VERSION}" "$SONAR_SCANNER_HOME"
+rm "$SONAR_SCANNER_ZIP"
+chown -R "$SONAR_USER:$SONAR_GROUP" "$SONAR_SCANNER_HOME"
+echo 'export PATH=$PATH:/opt/sonar-scanner-cli/bin' | sudo tee -a /etc/profile
+# Download and install n and Node.js:
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+# Verifica versão do Node.js:
+node -v # Deve mostrar "v22.18.0".
+# Verifica versão do npm:
+npm -v # Deve mostrar "10.9.3".
+systemctl daemon-reload
+systemctl enable sonarqube
+systemctl start sonarqube
+sleep 10
+systemctl status sonarqube --no-pager
+if systemctl is-active --quiet sonarqube; then
+echo "SonarQube iniciado com sucesso!"
+exit 0
+else
+echo "Falha ao iniciar o SonarQube. Veja o status acima para detalhes."
+exit 1
+fi
+}
+main "$@"
+Enter fullscreen mode
+Exit fullscreen mode
+Suba o Laboratório
+Com todos os arquivos no lugar, execute o comando mágico:
+vagrant up
+Enter fullscreen mode
+Exit fullscreen mode
+O Vagrant irá baixar a imagem do Ubuntu, criar a VM, executar o script provision.sh e configurar tudo. Este processo pode levar alguns minutos na primeira vez.
+Acesse o SonarQube
+Após o provisionamento, abra seu navegador e acesse http://localhost:9000. O SonarQube pode levar um ou dois minutos para iniciar completamente.
+O login padrão é:
+Usuário: admin
+Senha: admin
+Usando o SonarQube: Analisando seu Primeiro Projeto
+Com o laboratório no ar, vamos fazer uma análise de código simples. Para isso, usaremos o sonar-scanner, uma ferramenta de linha de comando que envia o código para o servidor SonarQube.
+Crie um Projeto de Exemplo (na sua máquina local):
+Vamos criar um arquivo Python com um "code smell" óbvio (uma variável não utilizada).
+# Crie uma pasta para o projeto de teste
+mkdir projeto-exemplo && cd projeto-exemplo
+# Crie um arquivo Python simples
+cat > app.py <<EOF
+import sys
+def main():
+message = "Olá, Mundo!" # Variável não utilizada (code smell)
+print("Executando o script...")
+unused_variable = 123
+return 0
+if __name__ == "__main__":
+sys.exit(main())
+EOF
+Enter fullscreen mode
+Exit fullscreen mode
+Gere um Token de Autenticação no SonarQube:
+Acesse http://localhost:9000.
+Vá em My Account > Security.
+Gere um novo token (ex: scanner-token) e copie o valor gerado.
+Crie o Arquivo de Configuração do Scanner:
+Na pasta projeto-exemplo, crie o arquivo sonar-project.properties:
+# Identificador único do projeto no SonarQube
+sonar.projectKey=meu-primeiro-projeto
+# Nome do projeto que aparecerá na interface
+sonar.projectName=Meu Primeiro Projeto Python
+# Versão do projeto
+sonar.projectVersion=1.0
+# Caminho para os arquivos de código-fonte
+sonar.sources=.
+# Endereço do seu servidor SonarQube
+sonar.host.url=http://localhost:9000
+# Token de autenticação que você gerou
+sonar.login=SEU_TOKEN_AQUI
+Substitua SEU_TOKEN_AQUI pelo token que você copiou.
+Enter fullscreen mode
+Exit fullscreen mode
+Execute a Análise:
+Você precisará ter o sonar-scanner instalado localmente ou pode executá-lo via Docker. Usar Docker é mais simples:
+# Certifique-se de que o Docker está rodando
+# Execute o scanner a partir da pasta do seu projeto
+docker run \
+--rm \
+-e SONAR_HOST_URL="http://localhost:9000" \
+-e SONAR_LOGIN="SEU_TOKEN_AQUI" \
+-v "$(pwd):/usr/src" \
+sonarsource/sonar-scanner-cli
+Enter fullscreen mode
+Exit fullscreen mode
+Após a execução, volte ao dashboard do SonarQube. Você verá seu "Meu Primeiro Projeto Python" listado, com um "code smell" identificado!
+Aprendizados e Dicas
+Infra como Código na Prática: Este laboratório é um exemplo perfeito de IaC. O Vagrantfile e o provision.sh definem e automatizam toda a infraestrutura, garantindo consistência.
+Debug de Provisionamento: Se algo der errado durante o vagrant up, use vagrant ssh para entrar na VM e verificar os logs (journalctl -u sonarqube.service) ou o status dos serviços (systemctl status sonarqube.service).
+Consumo de Recursos: O SonarQube consome bastante memória RAM. Os 2GB definidos no Vagrantfile são o mínimo. Se a interface ficar lenta, considere aumentar a memória para 4096.
+Conclusão
+Criar ambientes de teste automatizados é uma habilidade essencial para qualquer pessoa que trabalhe com desenvolvimento, DevOps ou infraestrutura. Com Vagrant, você ganha um playground seguro para experimentar, aprender, errar e recomeçar, sem impactar seu sistema principal. Agora você tem um ambiente SonarQube funcional para explorar a análise de qualidade de código e integrá-la aos seus projetos.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Marcos Vilela
+Follow
+🇧🇷 Conteúdo em português!
+🚀 Platform Engineer com experiência em Linux, Docker e IaC (Ansible/Terraform), automação, observabilidade, Nginx, WordPress e bash scripts! 💻
+SRE | DevOps
+Location
+Montes Claros, MG
+Education
+Unifavip - Wyden Educacional
+Work
+Analista Cloud
+Joined
+Oct 31, 2024
+More from Marcos Vilela
+Root Cause Analysis (RCA): entendendo a causa raiz de incidentes
+#devops
+#braziliandevs
+#rca
+#sre
+Como construí um pipeline CI/CD com GitHub Actions, Docker e Terraform (e o que aprendi no caminho)
+#braziliandevs
+#docker
+#terraform
+#cicd
+Atualizando do Debian 12 (Bookworm) para o Debian 13 (Trixie) de forma simples
+#debian
+#linux
+#braziliandevs
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,314 @@
+Associações polimórficas no Rails: como fazer, prós e contras - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Pedro Leonardo
+Posted on Sep 16
+Associações polimórficas no Rails: como fazer, prós e contras
+#ruby
+#rails
+#sql
+#development
+Recentemente, me deparei com uma situação no trabalho em que precisava implementar uma tabela que se relacionasse com várias outras tabelas diferentes, mas que possuía os mesmos campos em comum. Pesquisando sobre a melhor forma de lidar com isso no Rails, descobri as associações polimórficas
+Neste artigo, vamos aprender na prática como implementá-las e discutir suas vantagens, desvantagens e quando usar.
+O que são associações polimórficas?
+Uma associação polimórfica é um recurso do Rails que permite que um mesmo modelo pertença a mais de um outro modelo, usando uma estrutura genérica.
+Por exemplo, imagine que você tenha um sistema em que usuários e empresas podem ter contatos (e-mail, telefone). Em vez de criar duas tabelas (user_contacts e company_contacts), você pode ter uma tabela única de contacts que se relaciona com ambos.
+Criando a associação polimórfica
+Implementar uma associação polimórfica no Rails é simples. Vamos criar uma tabela contacts que poderá se relacionar tanto com users quanto com companies (ou qualquer outro modelo que precise de contatos).
+Migration
+class CreateContacts < ActiveRecord::Migration[7.1]
+def change
+create_table :contacts do |t|
+t.string :email
+t.string :phone
+t.references :contactable, polymorphic: true, null: false
+t.timestamps
+end
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+O t.references :contactable, polymorphic: true cria duas colunas:
+contactable_id (inteiro)
+contactable_type (string)
+Esses dois campos indicam quem é o dono do contato.
+Models
+class Contact < ApplicationRecord
+belongs_to :contactable, polymorphic: true
+end
+class User < ApplicationRecord
+has_many :contacts, as: :contactable
+end
+class Company < ApplicationRecord
+has_many :contacts, as: :contactable
+end
+Enter fullscreen mode
+Exit fullscreen mode
+Agora, tanto User quanto Company podem ter múltiplos contatos.
+Exemplo de uso
+user = User.create(name: "Pedro")
+company = Company.create(name: "ABC")
+user.contacts.create(email: "pedro@email.com", phone: "1111-1111")
+company.contacts.create(email: "contato@tech.com", phone: "2222-2222")
+puts user.contacts.first.email
+# => "pedro@email.com"
+puts company.contacts.first.phone
+# => "2222-2222"
+Enter fullscreen mode
+Exit fullscreen mode
+Com isso, conseguimos reutilizar a tabela contacts em diferentes contextos.
+Vantagens
+Reutilização: você cria uma única tabela para relacionar com vários modelos diferentes.
+Menos duplicação: evita criar várias tabelas para armazenar dados semelhantes.
+Flexibilidade: se amanhã surgir outro modelo que precise de contatos (ex: Suppliers), basta adicionar a associação.
+Integração Rails: o suporte nativo facilita bastante, sem precisar reinventar a roda.
+Desvantagens
+Consultas mais complexas: filtrar dados polimórficos pode gerar queries mais pesadas.
+Dificuldade em manter integridade: o Rails não cria foreign keys em colunas polimórficas (já que o campo pode apontar para várias tabelas diferentes).
+Escalabilidade: se a tabela crescer demais com dados de muitos modelos, pode virar um gargalo.
+Legibilidade: para quem não conhece o conceito, entender o contactable_type pode ser confuso.
+Quando usar?
+Use quando:
+Você tem dados idênticos que precisam estar disponíveis em múltiplos modelos (ex: contatos, endereços, imagens, comentários).
+A estrutura se repete bastante e faria pouco sentido criar tabelas separadas.
+Evite quando:
+Os dados variam muito entre os modelos (ex: se contatos de User e Company tivessem campos completamente diferentes).
+Você precisa de restrições fortes no banco (integridade referencial por foreign keys diretas).
+A tabela polimórfica tende a crescer demais, impactando performance.
+Alternativa às associações polimórficas
+Uma alternativa às associações polimórficas é criar os relacionamentos de forma explícita na tabela, adicionando colunas específicas como user_id, company_id, supplier_id, etc.
+Exemplo de migration sem polimorfismo:
+class CreateContacts < ActiveRecord::Migration[7.1]
+def change
+create_table :contacts do |t|
+t.string :email
+t.string :phone
+# Relacionamentos explícitos
+t.references :user, foreign_key: true
+t.references :company, foreign_key: true
+t.timestamps
+end
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+Prós dessa abordagem:
+Performance melhor: consultas são mais rápidas porque não dependem de um campo type.
+Integridade no banco: você consegue usar foreign keys diretamente, garantindo consistência.
+Legibilidade: é mais fácil entender a relação olhando apenas a tabela.
+Contras dessa abordagem:
+Pouca escalabilidade: se amanhã surgir outro modelo (ex: Supplier), você precisa alterar a tabela e adicionar mais colunas.
+Duplicação estrutural: quanto mais modelos diferentes, mais colunas redundantes terá na tabela.
+Essa opção costuma ser escolhida em cenários onde performance é prioridade e o número de modelos relacionados é previsível e limitado.
+Conclusão
+Associações polimórficas são uma ferramenta poderosa no Rails. Elas trazem simplicidade e reuso quando bem aplicadas, mas podem gerar complexidade desnecessária e até impactar performance em cenários de alto volume de dados.
+Uma alternativa válida é criar referências explícitas (user_id, company_id, etc.) em vez de usar o campo polimórfico. Essa abordagem melhora a performance e permite integridade via foreign keys, mas perde em flexibilidade e exige alterações na tabela sempre que surgir um novo modelo relacionado.
+No fim, não existe solução única:
+Se você precisa de flexibilidade e reuso → vá de associação polimórfica.
+Se você precisa de performance e integridade forte no banco → prefira chaves explícitas (_id).
+A escolha depende do contexto e das prioridades do projeto.
+Top comments (3)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Ernane Ferreira
+Ernane Ferreira
+Ernane Ferreira
+Follow
+A big dreamer, technology lover and software development enthusiast.
+Email
+ernane.junior25@gmail.com
+Location
+Rio Grande do Norte, Brazil
+Education
+University student of the interdisciplinary bachelor's degree in Science and Technology
+Pronouns
+Ele/dele
+Work
+Developer at Real Seguro Viagem
+Joined
+Mar 6, 2022
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+Muito bom! Eu já usei polimórficas, mas realmente esbarrei na parte de performance. Achei ótima a comparação com relacionamentos explícitos, ajudou a clarear quando faz sentido usar cada abordagem. Obrigado por isso!
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Thiago David
+Thiago David
+Thiago David
+Follow
+Joined
+May 23, 2023
+•
+Sep 16
+Dropdown menu
+Copy link
+Hide
+Diferente em! Nunca tinha visto alguém usar isso ai antes, vou dar uma olhada depois. Valeu de mais por compartilhar.
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Carlos Henrique
+Carlos Henrique
+Carlos Henrique
+Follow
+Joined
+May 21, 2023
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+Muito obrigado por compartilhar!
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Pedro Leonardo
+Follow
+always learning new things
+Location
+Fortaleza, Ceará
+Education
+Analysis and Development of Software and Postgraduate Student in Software Architecture
+Work
+Software Developer at Real Seguro Viagem
+Joined
+Sep 9, 2024
+More from Pedro Leonardo
+Email Verification with Sent Codes in Ruby on Rails without Devise
+#ruby
+#rails
+#tutorial
+#security
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

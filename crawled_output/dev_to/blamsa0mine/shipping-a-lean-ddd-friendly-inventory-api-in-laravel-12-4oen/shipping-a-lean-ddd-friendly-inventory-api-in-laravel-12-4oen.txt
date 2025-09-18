@@ -1,0 +1,299 @@
+Shipping a Lean DDD-Friendly Inventory API in Laravel 12 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+A0mineTV
+Posted on Sep 17
+Shipping a Lean DDD-Friendly Inventory API in Laravel 12
+#ddd
+#webdev
+#programming
+#laravel
+Building a Laravel API that stays true to domain-driven design (DDD) and clean architecture can feel like a juggling act. Between keeping the domain pure, offering a friendly HTTP layer, and wiring infrastructure concerns, the implementation tends to go sideways fast. This walkthrough captures how we delivered a new Inventory Item feature (register + fetch) on Laravel 12/PHP 8.4 with:
+four layered architecture (Domain → Application → Infrastructure → Interfaces/Http),
+Sanctum-protected endpoints and policies,
+write idempotency and rate limiting,
+eager‑loading friendly repositories (no Model::all()),
+Pest-powered unit + feature tests.
+Below is the journey, the folder layout, and the reasoning behind each layer so you can reuse (or remix) the approach in your own projects.
+1. The Domain Core: Entities, Value Objects, Policies
+Goal: Express ubiquitous language and rules without accidentally smuggling Laravel in.
+Key pieces live in app/Domain/Inventory/*:
+InventoryItem aggregate root enforces invariants (non-empty name, non-negative stock, discontinued ⇒ zero quantity) inside factory methods.
+Value Objects (Sku, Price) encapsulate formatting, normalization, and equality so the rest of the codebase never touches raw strings.
+InventoryItemStatus enum replaces stringly-typed state and keeps filtering safe.
+Repository interface (InventoryItemRepositoryInterface) returns domain entities or PaginatedInventoryItems (a tiny pagination DTO) so application code doesn’t leak Eloquent.
+Domain exceptions (InventoryItemNotFound, DuplicateSkuException, IdempotencyConflictException) standardize failure semantics.
+By keeping the domain tree framework-agnostic, tests/specifications read almost like business rules and stay fast.
+2. Application Layer: Orchestration & DTOs
+Goal: Coordinate use cases with minimal knowledge about delivery or storage.
+In app/Application/Inventory we added:
+CreateInventoryItemCommand (immutable input DTO) – the use case accepts a fully-formed command object.
+RegisterInventoryItemResult + InventoryItemData – the use case returns a serializable DTO, not the entity, preventing lazy loading accidents later.
+RegisterInventoryItem use case – orchestrates validation, repository calls, idempotency lookups, and stores new items within a transaction.
+Supporting contracts (ClockInterface, TransactionManagerInterface, IdempotencyServiceInterface) and ProcessedIdempotencyResult DTO ensure we can swap infrastructure implementations.
+Notice the use case itself remains framework-neutral but leverages the contracts it needs:
+public function __invoke(CreateInventoryItemCommand $command): RegisterInventoryItemResult
+{
+return $this->transactionManager->run(function () use ($command) {
+if ($stored = $this->idempotencyService->retrieve($command->userId, $command->idempotencyKey)) {
+if ($stored->requestHash !== $command->payloadHash) {
+throw IdempotencyConflictException::fromKey($command->idempotencyKey);
+}
+return new RegisterInventoryItemResult(
+InventoryItemData::fromArray($stored->responseBody),
+true,
+$stored->statusCode,
+);
+}
+// Prevent duplicate SKUs inside the transaction guard
+if ($this->repository->findBySku(Sku::fromString($command->sku))) {
+throw DuplicateSkuException::withSku($command->sku);
+}
+$item = InventoryItem::create(
+$command->id,
+Sku::fromString($command->sku),
+$command->name,
+$command->description,
+$command->quantity,
+$command->reorderLevel,
+Price::fromDecimal($command->price, $command->currency),
+InventoryItemStatus::from($command->status),
+$this->clock->now(),
+);
+$this->repository->save($item);
+$result = InventoryItemData::fromEntity($item);
+$this->idempotencyService->store(
+$command->userId,
+$command->idempotencyKey,
+$command->payloadHash,
+201,
+$result->toArray(),
+);
+return new RegisterInventoryItemResult($result, false, 201);
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3. Infrastructure Layer: Laravel-powered Adapters
+Goal: Provide concrete implementations for persistence and system concern contracts without leaking Eloquent upward.
+Highlights:
+InventoryItemModel is a plain Eloquent model + factory, but we override newFactory() to hook the custom factory and keep the naming consistent.
+InventoryItemRepository converts InventoryItemModel ↔ domain objects, handles pagination with user-controlled filters and sorts, and updates/creates records without calling ->all().
+DatabaseTransactionManager, SystemClock, DatabaseIdempotencyService fulfill the contracts used by the application layer.
+Container bindings in AppServiceProvider wire everything together.
+public function register(): void
+{
+$this->app->bind(InventoryItemRepositoryInterface::class, InventoryItemRepository::class);
+$this->app->bind(TransactionManagerInterface::class, DatabaseTransactionManager::class);
+$this->app->bind(ClockInterface::class, SystemClock::class);
+$this->app->bind(IdempotencyServiceInterface::class, DatabaseIdempotencyService::class);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+and the idempotency implementation uses the dedicated table (idempotency_keys) to replay identical requests instantly.
+4. Interfaces / HTTP: Requests, Controllers, Policies, Routes
+Goal: Keep controllers thin, validate early, map exceptions to HTTP codes, and protect the API surface.
+Main pieces in app/Interfaces/Http:
+StoreInventoryItemRequest handles validation, computes an SHA-256 payload hash, and ensures the Idempotency-Key header is present. It also authorizes via the InventoryItemPolicy.
+FilterInventoryItemsRequest parses filter/search/sort/pagination parameters into a single DTO-like array.
+InventoryItemController adapts HTTP requests to application commands/DTOs and returns InventoryItemResource responses.
+TransformDomainExceptions middleware catches known domain exceptions and converts them into JSON responses with HTTP codes (422/404/409).
+InventoryItemPolicy controls view, viewAny, create abilities using Sanctum token abilities (inventory:read, inventory:write).
+routes/api.php registers the inventory-items resource with Sanctum auth, throttle, and the middleware.
+We also added framework-level exception rendering (in bootstrap/app.php) to map domain exceptions to JSON responses globally – this keeps feature tests expressive without repeating try/catch blocks.
+$exceptions->render(function (DuplicateSkuException|IdempotencyConflictException $exception, Request $request) {
+if ($request->expectsJson()) {
+return new JsonResponse(['message' => $exception->getMessage()], 409);
+}
+return null;
+});
+Enter fullscreen mode
+Exit fullscreen mode
+5. Auth, Policies & Rate Limiting
+Sanctum is required for every HTTP route (Route::middleware('auth:sanctum', ...)) and the User model now uses HasApiTokens again.
+AppServiceProvider::boot() registers a rate limiter (inventory-items) and maps InventoryItemModel → InventoryItemPolicy.
+Each test uses Sanctum::actingAs() with the proper abilities.
+This means even in feature tests, the policy is enforced and we get a natural 403 if a token lacks inventory:write.
+6. Database Schema & Seeding
+Two migrations power the infrastructure:
+inventory_items table – UUID primary key, indexed SKU + status, currency + amount columns, timestamps.
+idempotency_keys table – stores (user, key, request_hash, response) to replay or detect conflicting requests.
+The factory + seeder (InventoryItemSeeder) allow quick data population:
+final class InventoryItemSeeder extends Seeder
+{
+public function run(): void
+{
+InventoryItemModel::factory()->count(20)->create();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+DatabaseSeeder calls this seeder after creating a demo user.
+7. Tests: Pest for Unit + Feature Coverage
+We rely on Pest to keep tests terse:
+Unit tests focus on value objects (Sku, Price) and the RegisterInventoryItem use case (including idempotency replay and duplicate SKU detection).
+Feature tests (tests/Feature/Http/Inventory/InventoryItemApiTest.php) run against a refreshed database, authenticate via Sanctum, and assert:
+successful registration returns 201 with the DTO payload and Idempotent-Replay: false header,
+replay with the same idempotency key returns 200 and Idempotent-Replay: true,
+validation errors yield 422,
+duplicate SKUs produce a 409 (after our exception handler addition),
+fetching a missing ID triggers a 404 courtesy of domain exception mapping.
+Every feature test resets the DB via RefreshDatabase, so the schema is migrated and clean each run.
+8. Lessons Learned & Next Steps
+Domain boundaries matter – once entities and value objects are pure, testing and refactoring become painless.
+Contracts > Facades in the application layer – relying on interfaces made the RegisterInventoryItem use case testable without mocking Laravel at all.
+Middleware + global exception rendering keeps controllers slim and pushes error semantics to the edge.
+Idempotency is worth the extra table – clients (mobile/web) can safely retry POSTs without spamming duplicates.
+Policies + abilities keep the HTTP layer enforceable; remember to register them in a service provider.
+Ideas to extend:
+Introduce more domain events (e.g., InventoryItemRegistered) to notify other bounded contexts asynchronously.
+Add PATCH endpoints for stock adjustments with transactional locking.
+Swap the idempotency layer to Redis when traffic grows to reduce table contention.
+Layer in CQRS read models (e.g., inventory_items_view) or caching for list endpoints.
+Closing Thoughts
+This pattern isn’t just academic DDD – it scales your API both technically and organizationally. By isolating domain rules, orchestrating via application services, and treating Laravel as the infrastructure/driver, you get a codebase that’s easier to maintain, test, and evolve.
+If you adopt similar layers, reach out with tweaks or enhancements. Happy shipping! 🚢
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+A0mineTV
+Follow
+💻 Freelance Web Developer specializing in PHP, Laravel, and Vue.js.
+🎯 Passionate about building elegant and efficient solutions.
+🚀 "Code with passion, share with purpose."
+Location
+France
+Work
+Freelance Web Dev - Fullstack
+Joined
+Nov 19, 2024
+More from A0mineTV
+Claude Code vs GPT‑5 Codex: which one should you use — and when ?
+#ai
+#openai
+#coding
+#programming
+Building a Modern Landing Page in Record Time: My Experience with Codex GPT
+#webdev
+#programming
+#vue
+#openai
+React Error Boundaries: Building Resilient Applications That Don't Crash
+#react
+#javascript
+#typescript
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

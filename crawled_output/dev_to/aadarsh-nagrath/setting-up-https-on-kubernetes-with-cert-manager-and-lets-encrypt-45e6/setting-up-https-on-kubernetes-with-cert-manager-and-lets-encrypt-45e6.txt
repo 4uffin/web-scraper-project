@@ -1,0 +1,352 @@
+Setting Up HTTPS on Kubernetes with cert-manager and Let's Encrypt - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Aadarsh Nagrath
+Posted on Sep 17
+Setting Up HTTPS on Kubernetes with cert-manager and Let's Encrypt
+In today's digital landscape, securing your web applications with HTTPS is non-negotiable. It ensures data privacy, builds user trust, and aligns with modern security standards. If you're running a Kubernetes cluster and want to enable HTTPS for your ingress using Let's Encrypt SSL certificates, cert-manager is your go-to tool for automating certificate management.
+This blog post provides a comprehensive, step-by-step guide to configuring HTTPS on a Kubernetes cluster with cert-manager and Let's Encrypt. We'll walk through the entire process, from verifying your setup to troubleshooting common issues, ensuring your domain (e.g., platform-dev.example.ai) is secured with a valid SSL certificate.
+Overview: What We're Building
+This guide outlines how to set up HTTPS for a Kubernetes ingress using cert-manager, a powerful Kubernetes add-on that automates the issuance and renewal of SSL certificates from Let's Encrypt. By the end of this tutorial, you'll have:
+A Kubernetes cluster with an nginx ingress controller.
+A domain (e.g., platform-dev.example.ai) mapped to your cluster's external IP (e.g., 34.75.54.5).
+An ingress configured for HTTPS with automatic SSL certificate management.
+Initial Setup Status
+Before diving in, let's clarify the starting point:
+Cluster: A Kubernetes cluster with an nginx ingress controller already deployed.
+Domain: A domain (e.g., platform-dev.example.ai) mapped to the external IP 34.75.54.5.
+Ingress: An existing ingress with a TLS section, but the certificate isn't functioning correctly.
+Goal: Enable HTTPS with automated SSL certificate issuance and renewal using cert-manager and Let's Encrypt.
+Prerequisites
+To follow this guide, ensure you have:
+A Kubernetes cluster with an nginx ingress controller installed.
+A registered domain name pointing to your cluster's external IP.
+kubectl configured with access to your cluster.
+Let’s get started with the setup process.
+Step 1: Verify cert-manager Installation
+The first step is to confirm whether cert-manager is installed in your Kubernetes cluster. cert-manager is a Kubernetes-native tool that simplifies certificate management by automating the process of obtaining, renewing, and managing SSL certificates.
+Run the following command to check for existing cert-manager pods:
+kubectl get pods -n cert-manager
+Enter fullscreen mode
+Exit fullscreen mode
+If cert-manager is installed, you should see three running pods:
+cert-manager-xxxxx
+cert-manager-cainjector-xxxxx
+cert-manager-webhook-xxxxx
+If these pods are not present, you need to install cert-manager. Use the following command to deploy the latest stable version (v1.13.0 at the time of writing):
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+After applying the manifest, re-run the kubectl get pods -n cert-manager command to verify that the three cert-manager pods are running. This ensures cert-manager is ready to manage certificates for your cluster.
+Step 2: Create a ClusterIssuer for Let's Encrypt
+A ClusterIssuer is a Kubernetes resource that defines how cert-manager should obtain certificates. In this case, we'll configure a ClusterIssuer to communicate with Let's Encrypt's production ACME server for issuing valid SSL certificates.
+First, check if a ClusterIssuer named letsencrypt-prod already exists:
+kubectl get clusterissuer letsencrypt-prod
+Enter fullscreen mode
+Exit fullscreen mode
+If it doesn't exist or isn't configured correctly, create one with the correct ACME server URL. Important: Many tutorials mistakenly use an incorrect ACME server URL. The correct URL is:
+✅ Correct: https://acme-v02.api.letsencrypt.org/directory
+❌ Incorrect: https://acme-v2.api.letsencrypt.org/directory
+To create the ClusterIssuer, apply the following configuration, replacing your-email@company.com with your actual email address (used for Let's Encrypt notifications):
+cat <<EOF | kubectl apply -f -
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+name: letsencrypt-prod
+spec:
+acme:
+server: https://acme-v02.api.letsencrypt.org/directory
+email: your-email@company.com
+privateKeySecretRef:
+name: letsencrypt-prod
+solvers:
+- http01:
+ingress:
+class: nginx
+EOF
+Enter fullscreen mode
+Exit fullscreen mode
+After applying, verify that the ClusterIssuer is ready:
+kubectl get clusterissuer letsencrypt-prod
+Enter fullscreen mode
+Exit fullscreen mode
+The output should show READY: True. If it’s not ready, we'll cover troubleshooting in Step 5.
+Step 3: Configure the Ingress for HTTPS
+Your Kubernetes ingress resource needs specific annotations and configurations to work with cert-manager and enable HTTPS. Below is the complete ingress configuration for your domain (e.g., platform-dev.example.ai), which routes traffic to two services: platform-ui and platform-api.
+Apply the following ingress configuration:
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+annotations:
+cert-manager.io/cluster-issuer: letsencrypt-prod
+nginx.ingress.kubernetes.io/enable-rewrite-log: "true"
+nginx.ingress.kubernetes.io/use-regex: "true"
+name: example-ingress
+namespace: platform-namespace
+spec:
+ingressClassName: nginx
+rules:
+- host: platform-dev.example.ai
+http:
+paths:
+- backend:
+service:
+name: platform-ui
+port:
+number: 80
+path: /
+pathType: Prefix
+- backend:
+service:
+name: platform-api
+port:
+number: 80
+path: /api
+pathType: Prefix
+tls:
+- hosts:
+- platform-dev.example.ai
+secretName: example-tls
+Enter fullscreen mode
+Exit fullscreen mode
+Key Points in the Configuration:
+Annotation: cert-manager.io/cluster-issuer: letsencrypt-prod tells cert-manager to use the letsencrypt-prod ClusterIssuer to issue a certificate.
+TLS Section: Specifies the domain (platform-dev.example.ai) and the secret (example-tls) where cert-manager will store the SSL certificate.
+Paths: Routes / to the platform-ui service and /api to the platform-api service, both on port 80.
+Namespace: Ensure the ingress is created in the correct namespace (platform-namespace).
+This configuration triggers cert-manager to request a certificate from Let's Encrypt and store it in the example-tls secret.
+Step 4: Verify Certificate Creation
+Once the ingress is configured, cert-manager will automatically request a certificate from Let's Encrypt. To monitor the certificate creation process, use the following commands:
+# Check certificate status
+kubectl get certificate -n platform-namespace
+# Get detailed certificate information
+kubectl describe certificate example-tls -n platform-namespace
+# Check certificate requests (for troubleshooting)
+kubectl get certificaterequest -n platform-namespace
+Enter fullscreen mode
+Exit fullscreen mode
+For a successful certificate, the output of kubectl get certificate should look like:
+NAME
+READY
+SECRET
+AGE
+example-tls
+True
+example-tls
+5m
+Enter fullscreen mode
+Exit fullscreen mode
+The READY: True status indicates that the certificate was issued successfully and is stored in the example-tls secret.
+Step 5: Troubleshooting Common Issues
+If something goes wrong, here are common issues and their solutions:
+1. ClusterIssuer Not Ready
+If the ClusterIssuer status is not READY: True, run:
+kubectl describe clusterissuer letsencrypt-prod
+Enter fullscreen mode
+Exit fullscreen mode
+Check the events or status for errors. The most common issue is an incorrect ACME server URL (e.g., using acme-v2 instead of acme-v02). Ensure the URL is https://acme-v02.api.letsencrypt.org/directory.
+2. Certificate Stuck in Pending
+If the certificate status shows as pending, investigate with:
+kubectl describe certificate example-tls -n platform-namespace
+kubectl logs -n cert-manager deployment/cert-manager
+Enter fullscreen mode
+Exit fullscreen mode
+Look for errors related to the ACME challenge process, such as HTTP-01 challenge failures.
+3. DNS Issues
+Ensure your domain resolves correctly to your cluster's external IP. Test DNS resolution from within the cluster:
+kubectl run test-dns --rm -it --restart=Never --image=busybox -- nslookup platform-dev.example.ai
+Enter fullscreen mode
+Exit fullscreen mode
+Verify connectivity to the Let's Encrypt ACME server:
+kubectl run test-connectivity --rm -it --restart=Never --image=curlimages/curl -- curl -I https://acme-v02.api.letsencrypt.org/directory
+Enter fullscreen mode
+Exit fullscreen mode
+Step 6: Verify HTTPS is Working
+Once the certificate is issued, test your HTTPS endpoint to confirm it’s working:
+# Test HTTPS response
+curl -I https://platform-dev.example.ai
+# Check certificate details
+openssl s_client -connect platform-dev.example.ai:443 -servername platform-dev.example.ai
+Enter fullscreen mode
+Exit fullscreen mode
+Key Success Indicators
+Your setup is successful if:
+✅ Certificate status is READY: True.
+✅ ClusterIssuer status is READY: True.
+✅ Ingress shows both ports 80 and 443.
+✅ The example-tls secret exists with certificate data.
+✅ The site is accessible via HTTPS.
+Certificate Lifecycle
+Validity: Let's Encrypt certificates are valid for 90 days.
+Auto-Renewal: cert-manager automatically renews certificates 30 days before expiration.
+Monitoring: Check the certificate’s renewal time in its status with kubectl describe certificate example-tls -n platform-namespace.
+Security Best Practices
+To ensure a secure and reliable setup:
+Email Configuration: Use a monitored email address for Let's Encrypt notifications to stay informed about certificate issues or renewals.
+Secret Management: cert-manager automatically manages TLS secrets, so avoid manual modifications.
+HTTP to HTTPS Redirect: Add the following annotation to your ingress to enforce HTTPS:
+nginx.ingress.kubernetes.io/ssl-redirect: "true"
+Enter fullscreen mode
+Exit fullscreen mode
+Final Configuration Summary
+For a successful HTTPS setup, ensure:
+cert-manager is installed and running.
+The ClusterIssuer uses the correct ACME server URL.
+The ingress includes the cert-manager annotation and TLS section.
+DNS is properly configured to point to your cluster’s external IP.
+Domain validation completes successfully.
+Troubleshooting Commands Reference
+For quick diagnostics, use these commands:
+# Check cert-manager components
+kubectl get pods -n cert-manager
+kubectl logs -n cert-manager deployment/cert-manager
+# Check certificates
+kubectl get certificate -A
+kubectl describe certificate example-tls -n platform-namespace
+# Check ClusterIssuer
+kubectl get clusterissuer
+kubectl describe clusterissuer letsencrypt-prod
+# Check ingress
+kubectl get ingress -A
+kubectl describe ingress example-ingress -n platform-namespace
+# Check secrets
+kubectl get secret example-tls -n platform-namespace -o yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+By following this guide, you’ve successfully configured HTTPS for your Kubernetes ingress using cert-manager and Let's Encrypt.
+Your domain (e.g., platform-dev.example.ai) is now secured with an automatically managed SSL certificate, ensuring secure communication for your users. With cert-manager handling renewals, you can focus on building your application while maintaining robust security.
+If you encounter any issues, refer to the troubleshooting commands or reach out to the Kubernetes or cert-manager community for support. Happy securing!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Aadarsh Nagrath
+Follow
+I code and shit <post/> 💻
+Connect me on https://twitter.com/aadarsh_nagrath
+Location
+India
+Education
+Chandigarh University
+Pronouns
+Man 🗿
+Joined
+Nov 2, 2022
+More from Aadarsh Nagrath
+How Big Titans Swipe Through Billions of usernames when you press Submit
+The Deep Dive: Why and How Projects Use Multiple Programming Languages
+Comprehensive Guide to gRPC
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

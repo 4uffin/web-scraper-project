@@ -1,0 +1,568 @@
+Export your Windows Bluetooth LE keys into Linux! · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+Mygod/export-ble-infos.py
+Last active
+September 17, 2025 08:55
+Show Gist options
+Download ZIP
+Star
+130
+(130)
+You must be signed in to star a gist
+Fork
+32
+(32)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Mygod/f390aabf53cf1406fc71166a47236ebf.js&quot;&gt;&lt;/script&gt;
+Save Mygod/f390aabf53cf1406fc71166a47236ebf to your computer and use it in GitHub Desktop.
+Code
+Revisions
+14
+Stars
+129
+Forks
+32
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Mygod/f390aabf53cf1406fc71166a47236ebf.js&quot;&gt;&lt;/script&gt;
+Save Mygod/f390aabf53cf1406fc71166a47236ebf to your computer and use it in GitHub Desktop.
+Download ZIP
+Export your Windows Bluetooth LE keys into Linux!
+Raw
+export-ble-infos.py
+#!/usr/bin/python3
+"""
+Copyright 2021 Mygod
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+What is this: Export your Windows Bluetooth LE keys into Linux!
+Thanks to:
+* http://console.systems/2014/09/how-to-pair-low-energy-le-bluetooth.html
+* https://gist.github.com/corecoding/eac76d3da20c7e427a1848b8aed8e334/revisions#diff-6eeb0d27c24cc10680e8574f75648585
+Usage:
+$ ./export-ble-infos.py <args>
+$ sudo bash -c 'cp -r ./bluetooth /var/lib && service bluetooth force-reload'
+$ rm -r bluetooth
+"""
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from configparser import ConfigParser
+from optparse import OptionParser
+default_template = """
+[General]
+Name=Designer Mouse
+Appearance=0x03c2
+AddressType=static
+SupportedTechnologies=LE;
+Trusted=true
+Blocked=false
+Services=00001800-0000-1000-8000-00805f9b34fb;00001801-0000-1000-8000-00805f9b34fb;0000180a-0000-1000-8000-00805f9b34fb;0000180f-0000-1000-8000-00805f9b34fb;00001812-0000-1000-8000-00805f9b34fb;
+[IdentityResolvingKey]
+Key=
+[LocalSignatureKey]
+Key=
+Counter=0
+Authenticated=false
+[LongTermKey]
+Key=
+Authenticated=0
+EncSize=16
+EDiv=
+Rand=
+[DeviceID]
+Source=2
+Vendor=1118
+Product=2053
+Version=272
+[ConnectionParameters]
+MinInterval=6
+MaxInterval=6
+Latency=60
+Timeout=300
+"""
+def main():
+parser = OptionParser()
+parser.add_option("-v", "--verbose", action='store_true', dest='verbose')
+parser.add_option("-s", "--system", dest="system", metavar="FILE",
+default="/mnt/Windows/System32/config/SYSTEM",
+help="SYSTEM file in Windows. Usually at /Windows/System32/config/system.")
+parser.add_option("-k", "--key", dest="key", metavar="KEY",
+default=r"ControlSet001\Services\BTHPORT\Parameters\Keys",
+help="Registry key for BT. [default: %default]")
+parser.add_option("-o", "--output", dest="output", metavar="DIR", default="bluetooth",
+help="Output directory. [default: %default]")
+parser.add_option("-t", "--template", dest="template", metavar="FILE", help="Template file.")
+parser.add_option("-a", "--attributes", dest='attributes', help="Additional attributes file to be copied.")
+options, args = parser.parse_args()
+if options.template:
+with open(options.template) as file:
+template = file.read()
+else:
+template = default_template
+out = tempfile.mktemp(".reg")
+reged = subprocess.Popen(["reged", "-x", options.system, '\\', options.key, out], stdout=sys.stderr)
+reged.wait()
+if reged.returncode:
+return reged.returncode
+dump = ConfigParser()
+with open(out) as file:
+reged_out = file.read()
+if options.verbose:
+print(reged_out)
+dump.read_string(reged_out.split('\n', 1)[1])
+os.unlink(out)
+for section in dump:
+path = section[len(options.key) + 2:].split('\\')
+assert not path[0]
+if len(path) == 3:
+path[1] = ':'.join([path[1][i:i + 2] for i in range(0, len(path[1]), 2)]).upper()
+path[2] = ':'.join([path[2][i:i + 2] for i in range(0, len(path[2]), 2)]).upper()
+print("Dumping {}/{}...".format(path[1], path[2]))
+config = ConfigParser()
+config.optionxform = str
+# See if device has been paired in Linux before
+existing_template = '/var/lib/bluetooth/{}/{}/info'.format(path[1], path[2])
+if (os.path.exists(existing_template)):
+with open(existing_template) as file:
+config.read_string(file.read())
+else:
+config.read_string(template)
+def read_reg(key, expected_type):
+def read_reg_actual(key, expected_type):
+actual_type, content = dump[section]['"{}"'.format(key)].split(':', 1)
+if expected_type == 'hex16':
+assert actual_type == 'hex'
+content = content.split(',')
+assert len(content) == 16
+return ''.join(content).upper()
+if expected_type == 'qword':
+assert actual_type == 'hex(b)'
+content = content.split(',')
+assert len(content) == 8
+return str(int(''.join(content[::-1]), 16))
+if expected_type == 'dword':
+assert actual_type == expected_type
+return str(int(content, 16))
+assert False
+result = read_reg_actual(key, expected_type)
+if options.verbose:
+print("{} of type {}: {}".format(key, expected_type, result))
+return result
+config['LongTermKey']['Key'] = read_reg('LTK', 'hex16')
+# KeyLength ignored for now
+config['LongTermKey']['Rand'] = read_reg('ERand', 'qword')
+config['LongTermKey']['EDiv'] = read_reg('EDIV', 'dword')
+if '"IRK"' in dump[section]:
+config['IdentityResolvingKey']['Key'] = read_reg('IRK', 'hex16')
+if '"CSRK"' in dump[section]:
+config['LocalSignatureKey']['Key'] = read_reg('CSRK', 'hex16')
+output_dir = os.path.join(options.output, path[1], path[2])
+os.makedirs(output_dir, exist_ok=True)
+with open(os.path.join(output_dir, 'info'), 'w') as file:
+config.write(file, False)
+if options.attributes:
+shutil.copyfile(options.attributes, os.path.join(output_dir, 'attributes'))
+if __name__ == "__main__":
+sys.exit(main())
+Load earlier comments...
+Copy link
+ryandward
+commented
+Dec 8, 2020
+Fantastic. I'm not really a Python guru, so I can't tell what's going on here, but it works 👍
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+kedde
+commented
+Jan 4, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Is it still working? I'm trying to use it, the result is the same of the one that I've generated by hand but my mouse cannot connect properly. Any help?
+Edit:
+It sounds that with Linux 5.9+ there are some "issues" with the Bluetooth stack. Removing [IdentityResolvingKey] Key=... fix the issue.
+Ref: https://wiki.archlinux.org/index.php/Bluetooth#Problems_with_all_BLE_devices_on_kernel_5.9+
+Thanks @thymbahutymba
+commented out this line(by adding the # sign) and my bluetooth keyboard now works both on windows and linux.
+# config['IdentityResolvingKey']['Key'] = read_reg('IRK', 'hex16')
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+SpeakingOfBrad
+commented
+Jan 28, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+This doesn't seem to be working for me. The script runs fine, and I see 'Designer Mouse' show up in my Bluetooth device list but it just won't connect to my mouse.
+I see in my info file for the mouse that the LocalSignatureKey is blank, is that normal? What do I have to do to get that key to fill in properly?
+It turns out that the default template doesn't have the right configuration for my mouse. I manually copied some of the keys from the scripts output into my mouse's info file and it worked.
+Then after checking the script a little closer I found that if you connect your device to Linux first, then connect it in Windows, and then come back to Linux and run the script, the script will apply the keys it grabbed from Windows and add them into your mouse's already existing info file. (I don't know if it's necessary, but I also turned off my mouse after pairing it in Windows and didn't turn it back on until after I ran the script and moved the files as directed.)
+Note: I had to run the script as root in order for the script to be able to find my mouse's already existing info file.
+$ sudo ./export-ble-infos.py -s /media/brad/Windows-SSD/Windows/System32/config/SYSTEM
+$ sudo bash -c 'cp -r ./bluetooth /var/lib && service bluetooth force-reload'
+$ sudo rm -r bluetooth
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lathiat
+commented
+Feb 3, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I found for the following line #L137:
+if "CSRK" in dump[section]:
+I need to change it to:
+if '"CSRK"' in dump[section]:
+At least for Python3.8/Ubuntu 20.04 and Windows 10.. unsure if that works
+on other combos.. i see the quoting logic exists in read_reg () though.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+parenne
+commented
+Feb 3, 2021
+In Windows 10 2h20 when connect Designer mouse no such keys in regedit.
+But on others version this method works good.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+DataUncertain
+commented
+Feb 7, 2021
+Very useful
+- thanks! Worked perfectly (Win 10/Ubuntu 18.04 on Dell XPS). Only problem I had was:
+FileNotFoundError: [Errno 2] No such file or directory: 'reged': 'reged'
+Solved by installing chntpw, then all good :)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+smac89
+commented
+Feb 11, 2021
+Is this supposed to be run from Windows or Linux?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jamincollins
+commented
+Feb 22, 2021
+@Mygod what license is this under?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Mygod
+commented
+Feb 25, 2021
+@jamincollins Hi I added APL-2.0 license for this. Cheers!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+fentras
+commented
+Mar 4, 2021
+This is exactly what I needed. Just ran the script, copied the values and it just works. Thank you so much!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Mygod
+commented
+Apr 15, 2021
+@lathiat Thanks! I took your patch.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+escape0707
+commented
+Aug 9, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+My new ROG GLADIUS III WL don't have an IRK on both Windows 10 and Linux, I did the same trick Mygod did to CSRK in L157 to make IRK optional and it works.
+Just for the record, I get KeyError: '"IRK"' when the script is parsing the dumped registry.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Mygod
+commented
+Aug 9, 2022
+@escape0707 Did you mean IRK?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+escape0707
+commented
+Aug 9, 2022
+@escape0707 Did you mean IRK?
+Oh, yes. Sorry for the confusion. I’ve corrected my original comment.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Mygod
+commented
+Aug 28, 2022
+@escape0707 Added your fix as suggested.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Farthing-0
+commented
+Dec 28, 2022
+Thank you! That's just what I need, and it works very well for my little manjaro laptop.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+caiobvilar
+commented
+Jan 11, 2023
+This used to work for me, but after upgrading to Fedora 37 (not sure if its related), the following fields appears on my info file:
+[RemoteSignatureKey]
+[PeripheralLongTermKey]
+[SlaveLongTermKey]
+Both [PeripheralLongTermKey] and [SlaveLongTermKey] with their own EDiv and ERand, but there's no corresponding Key on the Windows registry. Have you guys ever had this happen?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Sukid
+commented
+Apr 22, 2023
+THANK YOU SO MUCH, I had to change the windows path in the script but after that it worked like a charm. This is the only tool I've used so far that was able to sync my Logi M550L in both OSes.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Sukid
+commented
+Apr 22, 2023
+This used to work for me, but after upgrading to Fedora 37 (not sure if its related), the following fields appears on my info file:
+* [RemoteSignatureKey]
+* [PeripheralLongTermKey]
+* [SlaveLongTermKey]
+Both [PeripheralLongTermKey] and [SlaveLongTermKey] with their own EDiv and ERand, but there's no corresponding Key on the Windows registry. Have you guys ever had this happen?
+This script actually does account for this, can attest to it working.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Konfekt
+commented
+May 16, 2023
+I'm assuming that the path I see in the script isn't working.. i mout windows and linux but maybe it's not enough. I can see my windows file through: **/media/$user/OS ... and so on ..
+The MS Windows partition must be mounted to /mnt.
+Maybe this could be either made configurable or mentioned in the usage section?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Konfekt
+commented
+May 16, 2023
+Reading
+parser.add_option("-s", "--system", dest="system", metavar="FILE",
+default="/mnt/Windows/System32/config/SYSTEM",
+help="SYSTEM file in Windows. Usually at /Windows/System32/config/system.")
+it actually is by the -s option but the help entry suggests that the mount point is not.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+pramodhrachuri
+commented
+May 19, 2023
+Any guide on how to use this script?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Konfekt
+commented
+May 19, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Download it
+as export-ble-infos.py, and then run lsblk to find out your Microsoft Windows partition, say /dev/sdb1, mount it by sudo mount /dev/sdb1 /mnt and then run
+$ chmod a+x ./export-ble-infos.py
+$ ./export-ble-infos.py <args>
+$ sudo bash -c 'cp -r ./bluetooth /var/lib && service bluetooth force-reload'
+$ rm -r bluetooth
+to import all Bluetooth Low Energy devices, such as Microsoft Designer Mouse and Keyboard, from Microsoft Windows >= 10 to Linux.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+escape0707
+commented
+May 19, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@pramodhrachuri I mean it's literally written in the first screen you'll see when opening this page. If you can read others reply, you can read it too. https://gist.github.com/Mygod/f390aabf53cf1406fc71166a47236ebf#file-export-ble-infos-py-L24
+And also python ./export-ble-infos.py --help...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+st4r1ight
+commented
+Jun 23, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I was having a similar problem to SpeakingOfBrad in this comment, but with the added bonus issue that my keyboard would change its MAC address every time you connected it to a new device, so getting the script to use its Bluetooth file as a template required some extra work. Here is the full set of steps that I had to take for it to work.
+Pair the keyboard in Linux so that a template file is generated for the script to work with
+Reboot to Windows and pair the device in Windows. If your keyboard supports more than one device (like some keyboards with 3 connection modes), make sure that you use the same connection every time.
+Obtain the device's current MAC address on Windows. I was able to guess what it was because I only have one Bluetooth LE device (so it was the only one that showed up in the export). Otherwise this article may be of use.
+Reboot to Linux, and, if you haven't already, install chntpw and mount your Windows partition.
+List the currently paired Bluetooth devices with the bluetoothctl devices command. Write down the MAC address (six pairs of hexadecimal digits) of the device that is paired with Linux.
+Navigate to /var/lib/bluetooth/. Inside there will be a folder named for your computer's Bluetooth MAC address. cd into it and you will see folders named for Bluetooth MAC address. Rename the one that corresponds to your Linux MAC (that you obtained from bluetoothctl devices) to the device's Windows MAC address. You will probably want to be in a root shell for this (sudo -i) since /var/lib/bluetooth is not readable by the user.
+Run the export-ble-infos.py script WITH SUDO so that it can see your current Bluetooth devices.
+Copy the bluetooth folder that the script creates into /var/lib (sudo cp -r ./bluetooth/ /var/lib). cp will ask if you want to replace info files, say yes.
+Restart Bluetooth (systemctl restart bluetooth)
+Backup your Bluetooth folder so you never ever have to do that again.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+sir-farfan
+commented
+Jul 17, 2023
+Is there a script like this one for non-ble devices?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Konfekt
+commented
+Jul 17, 2023
+You could try bt-dualboot
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+sir-farfan
+commented
+Jul 17, 2023
+Thanks o:
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stevemphillips
+commented
+Nov 3, 2023
+I'm trying this and no output directory is created.
+Any idea what is wrong?
+This is the command and console output:
+steve@aragorn:~$ sudo python3 ./export-ble-infos.py -s /media/steve/BOOTCAMP/Windows/System32/config/SYSTEM
+reged version 0.1 140201, (c) Petter N Hagen
+Exporting to file '/tmp/tmpfkmkggfk.reg'...
+Exporting key 'Keys' with 1 subkeys and 0 values...
+Exporting key '5cf370809d45' with 0 subkeys and 3 values...
+Should the output directory be in my current directory or somewhere else?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+StfnJ
+commented
+Nov 26, 2024
+This used to work for me, but after upgrading to Fedora 37 (not sure if its related), the following fields appears on my info file:
+[RemoteSignatureKey]
+[PeripheralLongTermKey]
+[SlaveLongTermKey]
+Both [PeripheralLongTermKey] and [SlaveLongTermKey] with their own EDiv and ERand, but there's no corresponding Key on the Windows registry. Have you guys ever had this happen?
+In case someone ends up here as I did - I think PeripheralLongTermKey / SlaveLongTermKey can be left as is at least in some cases. That seemed to be the case for me (Keychron V6 Max keyboard, dualboot Windows 10 + Ubuntu 24), where switching the keys for LTK (along with Rand and EDiv) and IRK sufficed.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

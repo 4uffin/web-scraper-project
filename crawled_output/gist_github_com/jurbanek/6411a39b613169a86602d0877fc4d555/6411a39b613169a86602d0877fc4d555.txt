@@ -1,0 +1,188 @@
+Hyper-V Network Fix · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+jurbanek/Fix-HvNetwork.ps1
+Last active
+September 17, 2025 05:08
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/jurbanek/6411a39b613169a86602d0877fc4d555.js&quot;&gt;&lt;/script&gt;
+Save jurbanek/6411a39b613169a86602d0877fc4d555 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/jurbanek/6411a39b613169a86602d0877fc4d555.js&quot;&gt;&lt;/script&gt;
+Save jurbanek/6411a39b613169a86602d0877fc4d555 to your computer and use it in GitHub Desktop.
+Download ZIP
+Hyper-V Network Fix
+Raw
+Fix-HvNetwork.ps1
+<#
+.SYNOPSIS
+Apply a defined IP network to the Hyper-V Default Switch
+.DESCRIPTION
+Apply a defined IP network to the Hyper-V Default Switch
+After host restart, the Hyper-V Default Switch IP network changes to a non-deterministic value. The Default Switch
+provides DHCP and NAT services to allow VM's to communicate to the outside and Internet. The changing IP network
+presents challenges for VM's with static IP addresses on the Default Switch.
+This script defines a network (in the form of the actual interface IP and prefix length) and will add the network
+(as an additional IP address) to the Default Switch's VM-facing interface and restart necessary services.
+.NOTES
+Removing the current address and replacing it with a new one does not seem to function reliably given Hyper-V internals.
+The reliable way to provide static addressing (and still provide NAT for outside access) is by adding an IP address.
+Given specific services to be restarted, administrative privileges are required.
+At times the restart of the Internet Connection Sharing (ICS/SharedAccess) service fails, but the service does pick up
+the configuration changes. ICS is responsible for the NAT services.
+Windows 11 22H2 changed "vSwitch (Default Switch)" interface to be hidden by default. Get-NetAdapter now searches hidden
+adapters as well. To find your interface/adapter anme (if different), use Get-NetAdapter -IncludeHidden.
+.INPUTS
+None
+.OUTPUTS
+None
+.EXAMPLE
+#>
+[CmdletBinding()]
+Param()
+$Config = @{}
+# Desired IPv4 address assigned to Hyper-V default network interface. Represents the default gateway for the network
+$Config.Add('IPv4Address', '172.30.144.1')
+# Desired IPv4 netmask for Hyper-V default network. Hyper-V defaults to a 255.255.240.0, a /20
+$Config.Add('IPv4PrefixLength', 20)
+# Name of the Hyper-V default network interface
+$Config.Add('InterfaceAlias', 'vEthernet (Default Switch)')
+# Do not set the InterfaceIndex, will be determined at runtime based on the InterfaceAlias
+$Config.Add('InterfaceIndex', $null)
+# Duration to wait after restarting services
+$Config.Add('SleepSeconds', 12)
+# Verify running as Administrator (for service restarts) or error and stop
+try {
+$WindowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$WindowsPrincipal = New-Object -TypeName System.Security.Principal.WindowsPrincipal -ArgumentList $WindowsIdentity
+if($WindowsPrincipal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+Write-Information ($MyInvocation.MyCommand.Name + ': ' + $WindowsPrincipal.Identity.Name + ' running as Administrator') -InformationAction Continue
+}
+else {
+throw ($WindowsPrincipal.Identity.Name + ' NOT running as Administrator. Elevate and try again. Stop')
+}
+}
+catch {
+$Msg = $MyInvocation.MyCommand.Name + ': Error verifying running as Administrator. Stop' + "`n"
+$Msg += $_.Exception.Message
+Write-Error $Msg -ErrorAction Stop
+}
+# Determine the adapter/interface Index value or error and stop
+try {
+$NetAdapter = Get-NetAdapter -IncludeHidden -InterfaceAlias $Config.InterfaceAlias -ErrorAction Stop
+$Config.InterfaceIndex = $NetAdapter.InterfaceIndex
+Write-Information ($MyInvocation.MyCommand.Name + ': Found interface: ' + $Config.InterfaceAlias + '. Index: ' + $Config.InterfaceIndex) -InformationAction Continue
+}
+catch {
+$Msg = $MyInvocation.MyCommand.Name + ': Failed to locate interface: ' + $Config.InterfaceAlias + '. Stop' + "`n"
+$Msg += $_.Exception.Message
+Write-Error $Msg -ErrorAction Stop
+}
+# Determine if desired address is assigned
+try {
+if(Get-NetIPAddress -InterfaceIndex $Config.InterfaceIndex -IPAddress $Config.IPv4Address -PrefixLength $Config.IPv4PrefixLength -ErrorAction SilentlyContinue) {
+Write-Information ($MyInvocation.MyCommand.Name + ': Found : ' + $Config.IPv4Address + '/' + $Config.IPv4PrefixLength + '. No action required') -InformationAction Continue
+$RestartRequired = $false
+}
+else {
+Write-Information ($MyInvocation.MyCommand.Name + ': Did not find: ' + $Config.IPv4Address + '/' + $Config.IPv4PrefixLength + '. Adding') -InformationAction Continue
+New-NetIPAddress -IPAddress $Config.IPv4Address -PrefixLength $Config.IPv4PrefixLength -AddressFamily IPv4
+-InterfaceIndex $Config.InterfaceIndex -ErrorAction Stop | Out-Null
+$RestartRequired = $true
+}
+}
+catch {
+$Msg = $MyInvocation.MyCommand.Name + ': Failed to add address: ' + $Config.IPv4Address + '/' + $Config.IPv4PrefixLength + '. Stop' + "`n"
+$Msg += $_.Exception.Message
+Write-Error $Msg -ErrorAction Stop
+}
+# Restart Services - if vmms fails, stop. If ICS fails, not always an indication of failure - don't understand why
+if($RestartRequired) {
+try {
+Write-Information ($MyInvocation.MyCommand.Name + ': Restarting Hyper-V Virtual Machine Management Service') -InformationAction Continue
+Restart-Service -Name 'vmms' -ErrorAction Stop
+}
+catch {
+$Msg = $MyInvocation.MyCommand.Name + ': Error restarting Hyper-V Virtual Machine Management Service. Stop' + "`n"
+$Msg += $_.Exception.Message
+Write-Error $Msg -ErrorAction Stop
+}
+Write-Information ($MyInvocation.MyCommand.Name + ': Sleeping for ' + $Config.SleepSeconds + ' seconds') -InformationAction Continue
+Start-Sleep -Seconds $Config.SleepSeconds
+try {
+Write-Information ($MyInvocation.MyCommand.Name + ': Restarting Internet Connection Sharing (ICS) Service') -InformationAction Continue
+Restart-Service -Name 'SharedAccess' -ErrorAction Stop
+}
+catch {
+# Not using Write-Error to stop here given this is frequently NOT an error condition and the end of the script
+Write-Information $_.Exception.Message -InformationAction Continue
+Write-Information ($MyInvocation.MyCommand.Name + ': Error restarting Internet Connection Sharing (ICS) service. Verify VM connectivity anyway as the service frequently picks up the changes') -InformationAction Continue
+}
+}
+Copy link
+Author
+jurbanek
+commented
+Nov 1, 2022
+Windows 11 22H2 changed "vSwitch (Default Switch)" interface to be hidden by default. Get-NetAdapter now searches hidden
+adapters as well. To find your interface/adapter name (if different), use Get-NetAdapter -IncludeHidden.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

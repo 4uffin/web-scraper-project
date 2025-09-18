@@ -1,0 +1,791 @@
+Bypass Windows 11 Upgrade Assistant / PC Health Check / TPM and CPU Settings. Ignore PC Health Check results. · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+asheroto/README.md
+Last active
+September 17, 2025 21:11
+Show Gist options
+Download ZIP
+Star
+53
+(53)
+You must be signed in to star a gist
+Fork
+9
+(9)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/asheroto/5087d2a38b311b0c92be2a4f23f92d3e.js&quot;&gt;&lt;/script&gt;
+Save asheroto/5087d2a38b311b0c92be2a4f23f92d3e to your computer and use it in GitHub Desktop.
+Code
+Revisions
+10
+Stars
+52
+Forks
+9
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/asheroto/5087d2a38b311b0c92be2a4f23f92d3e.js&quot;&gt;&lt;/script&gt;
+Save asheroto/5087d2a38b311b0c92be2a4f23f92d3e to your computer and use it in GitHub Desktop.
+Download ZIP
+Bypass Windows 11 Upgrade Assistant / PC Health Check / TPM and CPU Settings. Ignore PC Health Check results.
+Raw
+README.md
+Bypass Windows 11 Upgrade Assistant / Setup Hardware Checks (TPM, CPU, RAM)
+This PowerShell script allows you to bypass TPM 2.0, unsupported CPU, and memory checks enforced by the Windows 11 Upgrade Assistant and setup.exe from Windows installation media. It eliminates common upgrade blocks such as:
+This PC doesn't currently meet Windows 11 system requirements.
+TPM 2.0 must be supported and enabled on this PC.
+The processor isn't currently supported for Windows 11.
+What It Does
+This script:
+Deletes legacy upgrade failure registry keys that may block future attempts.
+Simulates hardware compatibility by setting known override values (e.g., TPM, RAM, Secure Boot).
+Enables Microsoft's official upgrade bypass by setting AllowUpgradesWithUnsupportedTPMOrCPU to 1.
+Enables Upgrade Assistant to proceed by setting UpgradeEligibility to 1 under the current user.
+Registry Keys Modified or Removed
+Purpose
+Registry Path
+Action / Value
+Clear upgrade failure flags
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\CompatMarkers
+Deleted (if exists)
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Shared
+Deleted (if exists)
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TargetVersionUpgradeExperienceIndicators
+Deleted (if exists)
+Simulate compatibility
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\HwReqChk
+HwReqChkVars = MultiString (TPM, RAM, etc.)
+Bypass TPM/CPU check
+HKLM\SYSTEM\Setup\MoSetup
+AllowUpgradesWithUnsupportedTPMOrCPU = 1
+Enable Upgrade Assistant flow
+HKCU\Software\Microsoft\PCHC
+UpgradeEligibility = 1
+How to Use
+Option 1: Save and Execute Locally
+Save the script as:
+Windows11-Enable-Upgrade.ps1
+Open PowerShell as Administrator.
+Run the script:
+.\Windows11-Enable-Upgrade.ps1
+Option 2: Run Directly from the Web
+Click the "Raw" button at the top right of the script to view it as plain text.
+Copy the full Raw URL from your browser’s address bar.
+In Administrator PowerShell, run:
+irm "<paste raw url here>" | iex
+✅ This lets you execute the script immediately without saving it to disk.
+Disclaimer
+This script is provided as-is with no warranties. Use only in test environments, labs, or situations where your device policy allows. Bypassing Windows hardware requirements may result in reduced support, compatibility issues, or failed future updates. Proceed at your own risk.
+Raw
+Windows11-Enable-Upgrade.ps1
+<#
+.SYNOPSIS
+Bypasses Windows 11 hardware requirements for in-place upgrades.
+.DESCRIPTION
+This script modifies specific registry values to override system compatibility checks performed during
+Windows 11 upgrades. It removes legacy upgrade failure entries, simulates compatible hardware state,
+enables Microsoft's documented bypass policy for unsupported TPM or CPU configurations, and sets the
+UpgradeEligibility flag required by the Windows 11 Upgrade Assistant.
+This is intended for lab, evaluation, or controlled environments where hardware policy allows.
+.NOTES
+Author: asheroto
+Source: https://gist.github.com/asheroto/5087d2a38b311b0c92be2a4f23f92d3e
+Required: Run as Administrator
+.LICENSE
+Use at your own risk. No warranty expressed or implied.
+#>
+function Write-Section {
+<#
+.SYNOPSIS
+Displays a section header with borders using Write-Host and optional color.
+.DESCRIPTION
+Prints multi-line text surrounded by a hash border for readability.
+Supports output coloring via the Color parameter.
+.PARAMETER Text
+The text to display. Can include multiple lines.
+.PARAMETER Color
+(Optional) The color to use for the text and border. Defaults to White.
+.EXAMPLE
+Write-Section -Text "Starting Process"
+.EXAMPLE
+Write-Section -Text "Line 1`nLine 2" -Color Green
+#>
+param (
+[Parameter(Mandatory)]
+[string]$Text,
+[string]$Color = "White"
+)
+$lines = $Text -split "`n"
+$maxLength = ($lines | Measure-Object -Property Length -Maximum).Maximum
+$border = "#" * ($maxLength + 4)
+Write-Host ""
+Write-Host $border -ForegroundColor $Color
+foreach ($line in $lines) {
+Write-Host ("# " + $line.PadRight($maxLength) + " #") -ForegroundColor $Color
+}
+Write-Host $border -ForegroundColor $Color
+Write-Host ""
+}
+function Set-RegistryValueForced {
+<#
+.SYNOPSIS
+Adds or updates a registry value with error handling.
+.DESCRIPTION
+Creates the specified registry key if it does not exist and sets the provided value.
+Supports String, DWord, QWord, Binary, and MultiString types.
+Outputs an error message if the operation fails.
+.PARAMETER Path
+The full registry path (e.g., HKLM:\Software\Example).
+.PARAMETER Name
+The name of the registry value to create or update.
+.PARAMETER Type
+The type of the registry value (String, DWord, QWord, Binary, MultiString).
+.PARAMETER Value
+The value to set. For MultiString, provide an array of strings.
+.EXAMPLE
+Set-RegistryValueForced -Path "HKLM:\Software\Test" -Name "TestValue" -Type String -Value "OK"
+.EXAMPLE
+Set-RegistryValueForced -Path "HKLM:\Software\Test" -Name "Flags" -Type DWord -Value 1
+#>
+param (
+[string]$Path,
+[string]$Name,
+[string]$Type,
+[object]$Value
+)
+try {
+# Ensure the key exists
+if (-not (Test-Path -Path $Path)) {
+New-Item -Path $Path -Force | Out-Null
+}
+# Set the registry value
+Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
+} catch {
+Write-Output "Failed to set $Name in ${Path}: $($_.Exception.Message)"
+}
+}
+# Step 1: Clear old upgrade failure records
+Write-Host "Step 1: Clearing old upgrade failure records..." -ForegroundColor Yellow
+Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\CompatMarkers" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Shared" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TargetVersionUpgradeExperienceIndicators" -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host "Cleanup complete." -ForegroundColor Green
+# Step 2: Simulating hardware compatibility
+Write-Host "Step 2: Simulating hardware compatibility..." -ForegroundColor Yellow
+Set-RegistryValueForced -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\HwReqChk" -Name "HwReqChkVars" -Type MultiString -Value @(
+"SQ_SecureBootCapable=TRUE",
+"SQ_SecureBootEnabled=TRUE",
+"SQ_TpmVersion=2",
+"SQ_RamMB=8192"
+)
+Write-Host "Hardware compatibility values applied." -ForegroundColor Green
+# Step 3: Allow upgrades on unsupported TPM or CPU
+Write-Host "Step 3: Allowing upgrades on unsupported TPM or CPU..." -ForegroundColor Yellow
+Set-RegistryValueForced -Path "HKLM:\SYSTEM\Setup\MoSetup" -Name "AllowUpgradesWithUnsupportedTPMOrCPU" -Type DWord -Value 1
+Write-Host "Upgrade policy for unsupported hardware enabled." -ForegroundColor Green
+# Step 4: Set Upgrade Eligibility flag in HKCU
+Write-Host "Step 4: Setting upgrade eligibility flag..." -ForegroundColor Yellow
+Set-RegistryValueForced -Path "HKCU:\Software\Microsoft\PCHC" -Name "UpgradeEligibility" -Type DWord -Value 1
+Write-Host "Eligibility flag set." -ForegroundColor Green
+# Done
+Write-Section -Text "All operations completed successfully!`nYou can now upgrade using the Windows 11 Upgrade Assistant or setup.exe from installation media.`nNo restart required." -Color Cyan
+Load earlier comments...
+Copy link
+tommysmeg
+commented
+Feb 19, 2025
+I've tried that file from the link you gave, it says its downloading but doesn't install Windows 11 in the end ?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tommysmeg
+commented
+Feb 19, 2025
+I'm back it again, I've tried all the files, downloads OK but doesn't kick in and install, just goes straight back to the Windows 10 desktop
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+JustSuperHuman
+commented
+Feb 19, 2025
+Hey @tommysmeg - Those just disable the TPM / Upgrade checks - the rest of the install is normal.
+I just did a couple desktops by running those and then using the upgrade assistant.
+https://www.microsoft.com/en-us/software-download/windows11
+If you want to do a fresh install from disk, download a Windows 11 ISO and "burn" it to a USB w/ Rufus
+https://rufus.ie/en/
+There's a popup option to disable the checks built into this tool.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tommysmeg
+commented
+Feb 19, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Doesn't seem to work on the latest version of Win 10 pro, I have a full blooded OS of Win10 Pro and dont want to loose any apps or data, I have tried rufus works well but Win 11 still remove all installed apps.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tommysmeg
+commented
+Feb 19, 2025
+I have read that the Win 11 upgrade assistant doesn't remove your apps or data ( dont know how true that is ), I tried those bat files and reg files and it still says I need secure boot, so I edited the reg files needed added a few in to bypass those issues and it still comes up I need secure boot.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+JustSuperHuman
+commented
+Feb 19, 2025
+Win 11 upgrade assistant doesn't remove your apps or data:
+It's pretty true actually.
+I did it on a domain joined system remotely lol. Nothing at all lost, not even remote access.
+I don't think it's related to the version of Win 10 tbh.
+It's possible your system is booting in an older way (non-UEFI) - not really sure.
+I'd take a complete backup (either way) and wipe it 😎
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tommysmeg
+commented
+Feb 20, 2025
+Yer I tired the upgrade assistant and kept getting I need secure boot even thou I disabled those steps, I can boot both ways UEFI and non UEFI
+anyway I put it down to it can't be done on these machines so I'm going to give PCTrans ago, just putting the image onto the 2nd machine now so I can try it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+asheroto
+commented
+Feb 20, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Secure boot needs UEFI, but you shouldn't be able to boot either way (UEFI or BIOS), only one way. If you can boot either way, Windows may have some boot remnants from a prior OS which may be part of the problem.
+it's probably best to make a full backup then wipe it (remove partitions) and do a clean install. Then reinstall programs and pull in the files you need.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tommysmeg
+commented
+Feb 20, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I managed to get it all going but I had to use Rufus
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+PhoebeBaxter
+commented
+Mar 7, 2025
+•
+edited by asheroto
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+To bypass Windows 11 Upgrade Assistant checks, modify two registry values: set UpgradeEligibility to 1 in HKEY_CURRENT_USER\Software\Microsoft\PCHC, and AllowUpgradesWithUnsupportedTPMOrCPU to 1 in HKEY_LOCAL_MACHINE\SYSTEM\Setup\MoSetup. After running the registry file, you can upgrade without hardware checks using the Upgrade Assistant.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+iulianalbu
+commented
+Mar 30, 2025
+Thanks @PhoebeBaxter , worked with your suggestion. I was able to upgrade using Windows 11 Installation Assistant.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GharStev
+commented
+May 11, 2025
+super helpful thank you!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+pedroh-dev255
+commented
+Jun 6, 2025
+Comigo não rolou.
+PC ta com Windows 10 Pro em um dominio;
+Tem todos os requisitos menos o TMP 2.0;
+Fiz o processo de alterrar os registros, ele inicia a instalação pelo assistente de instalação, mas quando chega em 70% - 77% da 3° etapa,
+ele buga e "começa do 0" e depois da erro. falando que o PC não tem o TPM 2.0. Tristeza
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+asheroto
+commented
+Jun 6, 2025
+@pedroh-dev255
+Translation from Portuguese to English:
+Didn't work for me.
+The PC is running Windows 10 Pro on a domain;
+It meets all the requirements except for TPM 2.0.
+I went through the process of changing the registry settings — the installation assistant starts the upgrade, but when it gets to 70%–77% of the third stage,
+it crashes and "starts over," then gives an error saying the PC doesn't have TPM 2.0. Sad.
+English response:
+If it crashes, that sounds more like a compatibility issue with the CPU or other hardware components. You might check to see how old the hardware is.
+Translation from English to Portuguese:
+Se ele travar, isso parece mais um problema de compatibilidade com o processador ou outros componentes de hardware. Vale a pena verificar a idade do hardware.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+pedroh-dev255
+commented
+Jun 6, 2025
+Its an i3 10° Gen, 16Gb 3200Mt, 240Gb SSD NVME on an ASUS motherboard, only things the pc dont have is TPM 2.0
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+asheroto
+commented
+Jun 6, 2025
+Hrm, not sure. I've performed the process on several machines. You might try this link someone else posted:
+https://github.com/AveYo/MediaCreationTool.bat/blob/main/bypass11/Skip_TPM_Check_on_Dynamic_Update.cmd
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tommysmeg
+commented
+Jun 6, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Just a tip, In the end I got it going, now I've done it so many time's it just works, download the 11 ISO and burn it to USB using Rufus depending on your Windows 10 version, been UK, US or
+English International ISO, then the upgrade will allow you to keep all your files and apps, just have to know what version of Windows 10 your using. open the win 11 USB you created run the win 11 exe file from the USB using Windows explorer and upgrade that way.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+WiredWonder
+commented
+Jul 14, 2025
+Thank you for the simple no BS fix.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+cool-delete
+commented
+Jul 19, 2025
+# ===================================================================================
+# == Windows 11 24H2 就地升级绕过脚本 (PowerShell 最终修正版)
+# == 使用 --% 操作符来确保 reg.exe 命令的参数被正确传递
+# ===================================================================================
+# -----------------------------------------------------------------------------------
+# -- 步骤一：清理旧的失败记录 (Clear old failure records)
+# -----------------------------------------------------------------------------------
+Write-Host "步骤一：正在清理旧的升级失败记录..." -ForegroundColor Yellow
+# 使用 --% 确保 PowerShell 不会错误解析参数
+reg.exe --% delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\CompatMarkers" /f 2>$null
+reg.exe --% delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Shared" /f 2>$null
+reg.exe --% delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TargetVersionUpgradeExperienceIndicators" /f 2>$null
+Write-Host "清理完成。" -ForegroundColor Green
+# -----------------------------------------------------------------------------------
+# -- 步骤二：伪造一份完美的硬件报告 (Forge a perfect hardware report)
+# -----------------------------------------------------------------------------------
+Write-Host "步骤二：正在伪造硬件兼容性报告..." -ForegroundColor Yellow
+# 使用 --% 解决逗号被 PowerShell 错误解析的问题
+reg.exe --% add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\HwReqChk" /f /v HwReqChkVars /t REG_MULTI_SZ /s , /d "SQ_SecureBootCapable=TRUE,SQ_SecureBootEnabled=TRUE,SQ_TpmVersion=2,SQ_RamMB=8192,"
+Write-Host "伪造报告已写入。" -ForegroundColor Green
+# -----------------------------------------------------------------------------------
+# -- 步骤三：使用官方后门强制放行 (Use the official backdoor to force it)
+# -----------------------------------------------------------------------------------
+Write-Host "步骤三：正在启用官方升级后门..." -ForegroundColor Yellow
+# 移除了重复的 /f 参数，并使用 --% 确保健壮性
+reg.exe --% add "HKLM\SYSTEM\Setup\MoSetup" /v AllowUpgradesWithUnsupportedTPMOrCPU /t REG_DWORD /d 1 /f
+Write-Host "官方后门已启用。" -ForegroundColor Green
+# -----------------------------------------------------------------------------------
+# -- 完成
+# -----------------------------------------------------------------------------------
+Write-Host ""
+Write-Host "==============================================================================" -ForegroundColor Cyan
+Write-Host "== 所有操作已成功完成！
+==" -ForegroundColor Cyan
+Write-Host "== 您现在可以运行 Windows 11 24H2 的 setup.exe 进行就地升级。无需重启。 ==" -ForegroundColor Cyan
+Write-Host "==============================================================================" -ForegroundColor Cyan
+26100.4484 work!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+asheroto
+commented
+Jul 21, 2025
+Thanks @cool-delete. I've made some improvements on that script and switched from using a reg file to a PowerShell script.
+Let me know what you all think of the changes. 😎
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+JustSuperHuman
+commented
+Jul 21, 2025
+🔥🔥🔥
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blinkblinktwo
+commented
+Aug 16, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@asheroto
+One potential gotcha is that the "HKCU" path below is contextual:
+Enable Upgrade Assistant flow
+HKCU\Software\Microsoft\PCHC
+UpgradeEligibility = 1
+If logged into a standard user, and elevating a whole powershell session against and admin account and running the script, the HKCU "UpgradeEligibility = 1" will be set on the admin account HKCU and not the standard account that's eventually running setup.exe (upgrade assistant) -- even with the UAC admin elevation to run it.
+I had to run the script in an admin powershell session, then user powershell session (most things failed because permissions, but not the HKCU entry), and then reboot and try upgrade assistant -- then the standard user in-place upgrading worked when UAC elevated.
+It's probably because of UAC and how context and admin tokens work -- it seems like it's referencing the HKCU of the standard user when elevated by UAC to run setup.exe of upgrade assistant.
+https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/how-it-works
+Not sure how how old is "too old" for this script to work, but it worked fine to in-place upgrade a Dell Optiplex that failed because of a 7th gen intel Chip.
+Additionally, the TPM was firmware updated from v1.2->v2.0 using Dell updates, secureboot was enabled, TPM enabled, and UEFI enabled without legacy ROMs.
+Thanks for the script and compilation -- There's too much misinformation and chaos on this process out there on the internets.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+asheroto
+commented
+Aug 16, 2025
+@blinkblinktwo
+I didn't think of that. I suppose that issue would occur, but that is, unfortunately, the key that the software checks. I used Process Monitor to confirm. The options I see are to do what you did, or log off as a standard users and log in as an admin.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blinkblinktwo
+commented
+Aug 17, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@asheroto
+@blinkblinktwo
+I didn't think of that. I suppose that issue would occur, but that is, unfortunately, the key that the software checks. I used Process Monitor to confirm. The options I see are to do what you did, or log off as a standard users and log in as an admin.
+Oh, no problem.
+Figured it could be mentioned in case someone else had an issue.
+In the end, I just wacked it with a "hammer" and put the user-value on ALL local accounts.
+This way, the bypass script can just be run once as an admin, and then the following "setup.exe/upgrade assistant" execution context doesn't matter.
+In testing, this "hammer" below seems to do the trick for handling user-type keys -- and handles both logged in/out local accounts.
+Thanks, again.
+Some ideas: could also add an admin elevation check at the top of the script, and a pause at the bottom to read console messages before closing the window.
+# Admin rights check & auto-elevation
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+Write-Host "Restarting script as Administrator..."
+Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs
+exit
+}
+# Pause after script execution to read console messages.
+Write-Host "`nScript complete. Press Enter to close..."
+[void][System.Console]::ReadLine()
+Could parameterize the user-reg block below, and have a usage like:
+Set-RegistryValueAllUsers -SubKey "Software\Microsoft\PCHC" -Name "UpgradeEligibility" -Type DWord -Value 1
+function Set-RegistryValueAllUsers {
+[CmdletBinding()]
+param (
+[Parameter(Mandatory=$true)]
+[string]$SubKey,
+# e.g. "Software\Microsoft\PCHC"
+[Parameter(Mandatory=$true)]
+[string]$Name,
+# e.g. "UpgradeEligibility"
+[Parameter(Mandatory=$true)]
+[ValidateSet("String","ExpandString","Binary","DWord","QWord","MultiString")]
+[string]$Type,
+# e.g. "DWord"
+[Parameter(Mandatory=$true)]
+[object]$Value
+# e.g. 1
+)
+...
+...
+Setting the value for all user reg hives:
+# Path to desired user-type registry key
+$regSubKey = "Software\Microsoft\PCHC"
+$regName
+= "UpgradeEligibility"
+$regType
+= "DWORD"
+$regValue
+= 1
+# Get all Windows "NTUSER.DAT" local user profiles registry hives (skip system account)
+$profiles = Get-CimInstance Win32_UserProfile | Where-Object {
+($_.Special -eq $false) -and (Test-Path $_.LocalPath)
+}
+foreach ($profile in $profiles) {
+$sid
+= $profile.SID
+$path = "$($profile.LocalPath)\NTUSER.DAT"
+if ($profile.Loaded) {
+# User reg hive is already mounted (user is logged in -- write value to path HKEY_USERS, no unmount!)
+$fullKeyPath = "Registry::HKEY_USERS\$sid\$regSubKey"
+if (-not (Test-Path $fullKeyPath)) {
+New-Item -Path $fullKeyPath -Force | Out-Null
+}
+New-ItemProperty -Path $fullKeyPath `
+-Name $regName `
+-PropertyType $regType `
+-Value $regValue -Force | Out-Null
+Write-Host "Set for logged-IN user $($profile.LocalPath)"
+}
+else {
+# User reg hive is NOT loaded (load manually in HKEY_USERS, write value, then unmount!)
+Write-Host "Loading hive for logged-out user $($profile.LocalPath)"
+reg load "HKU\$sid" $path | Out-Null
+try {
+$fullKeyPath = "Registry::HKEY_USERS\$sid\$regSubKey"
+if (-not (Test-Path $fullKeyPath)) {
+New-Item -Path $fullKeyPath -Force | Out-Null
+}
+New-ItemProperty -Path $fullKeyPath `
+-Name $regName `
+-PropertyType $regType `
+-Value $regValue -Force | Out-Null
+Write-Host "Set for logged-OUT user $($profile.LocalPath)"
+}
+finally {
+reg unload "HKU\$sid" | Out-Null
+}
+}
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+asheroto
+commented
+Aug 18, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+That's an interesting idea, but the problem is that we cannot load an NTUSER.dat file into registry if the user is currently logged in. On computers that have multiple accounts, this could pose a problem. It's also a bit drastic, or as you said, hammer approach. We only need 1 admin user to run it, so we don't need to force values for all accounts.
+Since most folks will either have admin rights at home, or if at a workplace the IT staff will run an upgrade from an admin account or through an RMM, I don't know if there's a viable - and also safe - solution. You can't run an upgrade from a standard users' account anyway, unless you "Run as Other User", but that's usually reserved for small things. 😊
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blinkblinktwo
+commented
+Aug 18, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@asheroto
+Greetings,
+Ah, that use case should already be modeled -- The code works for multiple active users (GUI and console session), and multiple offline users.
+The if-else will check if the user is active, then switch path to "HKEY_USERS$sid" where the hive is already open for the active user(s).
+If not an active user, it loads the user's NTUSER.dat hive in "HKU$sid", does the stuff, then unloads the hive.
+I repurposed this for some others to use, and needed to fool-proof it -- A handful production machines need a crutch before replacement.
+Just a thought, as people running it might not understand the context problem, and tossed the admin-check at the top of the code.
+Thanks again -- take care.
+delta
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Dakotadavis89
+commented
+Aug 18, 2025
+I ran into black screen right after login on my laptop a few months back. I could move the mouse but nothing else loaded. Safe mode worked fine and that is how I started fixing it. I uninstalled the graphics driver from Device Manager and rebooted which allowed Windows to reinstall the default driver. That cleared the problem instantly and then I updated the driver from the manufacturer’s site. Another tip if it still happens is using Task Manager to restart Windows Explorer because many times the shell just fails to load. After locking down the drivers I also checked activation since missing updates can cause weird issues. I bought a license through Microsoftprokey and since then my updates run without interruptions. If your PC keeps showing black screens after login it is usually display driver or corrupted system file related.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+asheroto
+commented
+Aug 26, 2025
+@blinkblinktwo gotcha, sorry I didn't see that before. I'll work on implementing when I get a chance.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+playblusocial-lab
+commented
+Aug 27, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Your script worked Perfectly to prep and then
+Just downloaded and ran Create installation media for Windows 11 found >
+https://support.microsoft.com/en-us/windows/create-installation-media-for-windows-99a58364-8c02-206f-aa6f-40c3b507420d
+<<< Just used this in hopes it may not get cleaned out because of filers. >>> to create the USB stick needed for win 11 install.
+After flash sick created ne reboot required and just run the setup.exe from the flash stick and accepted any
+warnings
+about not going to supported but installed Win 11 and all seems windows 11 works well from there.
+Some games still may not work because needing either TPM 2.0 or Secure boot, but not my problem as I do not have time for games anyway.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blinkblinktwo
+commented
+Aug 30, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@blinkblinktwo gotcha, sorry I didn't see that before. I'll work on implementing when I get a chance.
+No worries.
+If it helps for reference, I just added a new function in the original script, and then modified step #4 with parameters to call it.
+Thanks again, take care.
+function Set-RegistryValueAllUsers {
+[CmdletBinding()]
+param (
+[Parameter(Mandatory=$true)]
+[string]$SubKey,
+# e.g. "Software\Microsoft\PCHC"
+[Parameter(Mandatory=$true)]
+[string]$Name,
+# e.g. "UpgradeEligibility"
+[Parameter(Mandatory=$true)]
+[ValidateSet("String","ExpandString","Binary","DWord","QWord","MultiString")]
+[string]$Type,
+# e.g. "DWord"
+[Parameter(Mandatory=$true)]
+[object]$Value
+# e.g. 1
+)
+# Path to desired user-type registry key
+$regSubKey = "Software\Microsoft\PCHC"
+$regName
+= "UpgradeEligibility"
+$regType
+= "DWORD"
+$regValue
+= 1
+# Get all Windows "NTUSER.DAT" local user profiles registry hives (skip system account)
+$profiles = Get-CimInstance Win32_UserProfile | Where-Object {
+($_.Special -eq $false) -and (Test-Path $_.LocalPath)
+}
+foreach ($profile in $profiles) {
+$sid
+= $profile.SID
+$path = "$($profile.LocalPath)\NTUSER.DAT"
+if ($profile.Loaded) {
+# User reg hive is already mounted (user is logged in -- write value to path HKEY_USERS, no unmount!)
+$fullKeyPath = "Registry::HKEY_USERS\$sid\$regSubKey"
+if (-not (Test-Path $fullKeyPath)) {
+New-Item -Path $fullKeyPath -Force | Out-Null
+}
+New-ItemProperty -Path $fullKeyPath `
+-Name $regName `
+-PropertyType $regType `
+-Value $regValue -Force | Out-Null
+Write-Host "Set for logged-IN user $($profile.LocalPath)"
+}
+else {
+# User reg hive is NOT loaded (load manually in HKEY_USERS, write value, then unmount!)
+Write-Host "Loading hive for logged-out user $($profile.LocalPath)"
+reg load "HKU\$sid" $path | Out-Null
+try {
+$fullKeyPath = "Registry::HKEY_USERS\$sid\$regSubKey"
+if (-not (Test-Path $fullKeyPath)) {
+New-Item -Path $fullKeyPath -Force | Out-Null
+}
+New-ItemProperty -Path $fullKeyPath `
+-Name $regName `
+-PropertyType $regType `
+-Value $regValue -Force | Out-Null
+Write-Host "Set for logged-OUT user $($profile.LocalPath)"
+}
+finally {
+reg unload "HKU\$sid" | Out-Null
+}
+}
+}
+}
+# Step 4: Set Upgrade Eligibility flag in HKCU/HKEY_USER for ALL logged in and out local users.
+Write-Host "Step 4: Setting upgrade eligibility flag..." -ForegroundColor Yellow
+Set-RegistryValueAllUsers -SubKey "Software\Microsoft\PCHC" -Name "UpgradeEligibility" -Type DWord -Value 1
+Write-Host "Eligibility flag set on ALL users." -ForegroundColor Green
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

@@ -1,0 +1,262 @@
+Install Nvidia driver on Proxmox · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+ngoc-minh-do/Proxmox-install-Nvidia-driver.md
+Last active
+September 17, 2025 19:02
+Show Gist options
+Download ZIP
+Star
+4
+(4)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ngoc-minh-do/fcf0a01564ece8be3990d774386b5d0c.js&quot;&gt;&lt;/script&gt;
+Save ngoc-minh-do/fcf0a01564ece8be3990d774386b5d0c to your computer and use it in GitHub Desktop.
+Code
+Revisions
+10
+Stars
+4
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ngoc-minh-do/fcf0a01564ece8be3990d774386b5d0c.js&quot;&gt;&lt;/script&gt;
+Save ngoc-minh-do/fcf0a01564ece8be3990d774386b5d0c to your computer and use it in GitHub Desktop.
+Download ZIP
+Install Nvidia driver on Proxmox
+Raw
+Proxmox-install-Nvidia-driver.md
+Install NVIDIA Driver on Proxmox with Secure Boot
+This guide walks you through installing the NVIDIA driver on Proxmox with Secure Boot enabled, including automatic signing of DKMS modules and troubleshooting tips.
+1. Check Secure Boot Status
+mokutil --sb-state
+If Secure Boot is enabled, kernel modules must be signed to load.
+2. Blacklist Nouveau Driver
+lsmod | grep nouveau
+To disable:
+cat <<EOF | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
+blacklist nouveau
+options nouveau modeset=0
+EOF
+update-initramfs -u -k all
+reboot
+3. Remove Existing NVIDIA/CUDA Drivers
+If installed via .run:
+sudo /usr/bin/nvidia-uninstall
+If installed via DKMS or APT:
+dkms remove -m nvidia -v 550.142 --all || true
+apt purge -y --auto-remove '^nvidia.*'
+Confirm:
+dpkg -l | grep -E 'nvidia|cuda'
+apt list --installed | grep -E 'nvidia|cuda'
+dkms status
+4. Install Required Packages
+apt install build-essential dkms software-properties-common
+apt install proxmox-default-headers
+apt install proxmox-headers-$(uname -r)
+Package
+Purpose
+build-essential
+Includes gcc, needed for building modules
+dkms
+Dynamically rebuilds kernel modules
+software-properties-common
+Enables add-apt-repository
+proxmox-default-headers
+Ensures headers stay in sync after upgrades
+proxmox-headers-$(uname -r)
+Kernel headers for current kernel
+5. Generate and Enroll a Machine Owner Key (MOK)
+openssl req -new -x509 \
+-newkey rsa:2048 -keyout /root/nvidia-driver.key \
+-outform DER -out /root/nvidia-driver.der \
+-nodes -days 36500 -subj "/CN=Nvidia Driver Kmod Signing MOK"
+mokutil --import /root/nvidia-driver.der
+# You'll be prompted to create a password. Enter it twice.
+Reboot and follow on-screen MOK Manager prompts to enroll the key.
+"Enroll MOK"
+"Continue".
+"Yes".
+Enter the password you set up just now.
+Select "OK" and the computer will reboot again.
+After reboot:
+cat /proc/keys | grep asymmetri
+6. Configure DKMS to Use Signing Script
+Create a custom dkms config file:
+cat > /etc/dkms/framework.conf.d/nvidia-signing.conf <<EOF
+sign_file=/root/sign-nvidia-driver.sh
+mok_signing_key=/root/nvidia-driver.key
+mok_certificate=/root/nvidia-driver.der
+EOF
+Create /root/sign-nvidia-driver.sh:
+#!/bin/bash
+# hash_algo=sha256
+hash_algo="$1"
+# private_key=/root/nvidia-driver.key
+private_key="$2"
+# x509_cert=/root/nvidia-driver.der
+x509_cert="$3"
+module="$4"
+sign_tool="/lib/modules/$(uname -r)/build/scripts/sign-file"
+if [[ ! -x "$sign_tool" ]]; then
+echo "[ERROR] sign-file tool not found at $sign_tool" >&2
+exit 1
+fi
+"$sign_tool" "$hash_algo" "$private_key" "$x509_cert" "$module" \
+&& echo "✅ Signed $module successfully." >&2 \
+&& exit 0
+echo "[ERROR] Failed to sign $module" >&2
+exit 1
+chmod +x /root/sign-nvidia-driver.sh
+7. Download and Install NVIDIA Driver
+Download from Download The Official NVIDIA Drivers | NVIDIA
+curl -O https://us.download.nvidia.com/XFree86/Linux-x86_64/550.142/NVIDIA-Linux-x86_64-550.142.run
+chmod +x NVIDIA-Linux-x86_64-550.142.run
+./NVIDIA-Linux-x86_64-550.142.run --dkms
+During the installation GUI:
+Choose the MIT/GPL (open source) kernel module type
+Sign kernel module: Yes
+Use existing key: Yes (provide key and cert paths)
+Ignore missing X libraries
+Register DKMS source: Yes
+When asked for nvidia-xconfig: No (headless system)
+Reboot:
+reboot
+8. Confirm Installation
+Confirm Nvidia drivers on the Proxmox host should now be installed
+nvidia-smi
+Check nvidia module in "installed" state with DKMS.
+dkms status
+Verify if module if signed
+modinfo nvidia | grep -i signer
+To Ensure that Secure Boot enabled
+mokutil --sb-state
+To view loaded NVIDIA Modules
+lsmod | grep nvidia
+Check enrolled MOK
+mokutil --list-enrolled
+Reference:
+https://wiki.debian.org/NvidiaGraphicsDrivers
+https://www.youtube.com/watch?v=lNGNRIJ708k
+https://github.com/dell/dkms#secure-boot
+https://gist.github.com/lijikun/22be09ec9b178e745758a29c7a147cc9
+https://pve.proxmox.com/wiki/NVIDIA_vGPU_on_Proxmox_VE
+https://us.download.nvidia.com/XFree86/Linux-x86_64/550.54.14/README/installdriver.html
+9. Troubleshooting DKMS or Secure Boot Failures
+Check DKMS log
+less /var/log/apt/term.log
+Search with /dkms
+Check Secure Boot rejections
+dmesg | grep -Ei 'nvidia|dkms|key|sign|secureboot'
+Manually re-sign a module
+/root/sign-nvidia-driver.sh sha256 \
+/root/nvidia-driver.key \
+/root/nvidia-driver.der \
+/lib/modules/$(uname -r)/updates/dkms/nvidia.ko
+Then reload the module:
+modprobe nvidia
+Verify
+nvidia-smi
+Force rebuild
+sudo dkms remove nvidia/550.142 -k $(uname -r)
+sudo dkms install nvidia/550.142 -k $(uname -r)
+Remove unused kernel headers
+uname -r
+sudo apt purge proxmox-headers-<old-kernel-version>
+Remove DKMS module for the old kernel
+dkms status
+sudo dkms remove nvidia/550.142 -k <old-kernel-version> --force
+10. Upgrade NVIDIA Driver
+Remove the old driver and install the new driver
+11. Enable NVIDIA Persistence Mode
+Create /etc/systemd/system/nvidia-persistenced.service:
+[Unit]
+Description=NVIDIA Persistence Daemon
+[Service]
+Type=forking
+ExecStart=/usr/bin/nvidia-persistenced --verbose
+ExecStartPost=/usr/bin/nvidia-smi
+ExecStopPost=/bin/rm -rf /var/run/nvidia-persistenced
+[Install]
+WantedBy=multi-user.target
+Enable and check:
+systemctl enable --now nvidia-persistenced
+systemctl status nvidia-persistenced
+ls -lah /dev/nvidia*
+12. (Optional) Enable DRM Kernel Mode
+Useful if you plan to run a GUI in LXC container.
+Method 1: modprobe config
+echo 'options nvidia-drm modeset=1' > /etc/modprobe.d/nvidia-drm.conf
+update-initramfs -u -k all
+reboot
+Method 2: GRUB config
+Edit /etc/default/grub, append bellow value to GRUB_CMDLINE_LINUX_DEFAULT variable:
+nvidia-drm.modeset=1
+Then:
+update-grub
+reboot
+Confirm DRM is active:
+cat /sys/module/nvidia_drm/parameters/modeset
+# Should return: Y
+Reference:
+https://us.download.nvidia.com/XFree86/Linux-x86_64/550.54.14/README/kms.html
+https://wiki.archlinux.org/title/NVIDIA#DRM_kernel_mode_setting
+https://wiki.archlinux.org/title/Kernel_mode_setting
+https://en.wikipedia.org/wiki/Direct_Rendering_Manager
+https://wiki.archlinux.org/title/Kernel_module#Using_modprobe
+https://wiki.archlinux.org/title/Kernel_parameters#GRUB
+Copy link
+szombi
+commented
+Sep 17, 2025
+Thanks, it's worked!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

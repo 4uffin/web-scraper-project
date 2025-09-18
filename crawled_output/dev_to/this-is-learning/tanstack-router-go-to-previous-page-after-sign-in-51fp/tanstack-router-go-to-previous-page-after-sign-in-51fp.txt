@@ -1,0 +1,302 @@
+TanStack Router: Go to Previous page after Sign In - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Leonardo Montini
+for This is Learning
+Posted on Sep 16
+• Originally published at leonardomontini.dev
+TanStack Router: Go to Previous page after Sign In
+#react
+#webdev
+#tutorial
+#javascript
+TanStack Router (6 Part Series)
+1
+TanStack Router: Setup & Routing in React
+2
+TanStack Router: Path Parameters & Loader
+...
+2 more parts...
+3
+TanStack Router: Query Parameters & Validators
+4
+TanStack Router: Authenticated routes & Guards
+5
+TanStack Router: Nesting & 404 pages
+6
+TanStack Router: Go to Previous page after Sign In
+Welcome back to the TanStack Router series, today going double digits with chapter 10!
+Let's fix a very common UX issue when implementing authentication flows. You navigate to a page then you're forced to sign in, but then you get redirected to the homepage. Maybe you set some filters or data, now everything is gone.
+In this article I will show two approaches to redirect users back to the page they were on right before signing in, keeping any query parameters intact. First the classic explicit redirect, then an alternative that can capture the previous location automatically.
+Video version here: https://youtu.be/MXffKeNfOvQ
+The problem in one sentence
+You sign in and get redirected to the homepage, losing the page and search parameters you had before.
+Approach 1: explicit redirect via search param
+This is the straightforward and reliable solution. We explicitly pass a redirectTo param everywhere the user can navigate to the sign in page and we use it to go back after signing in.
+Our Sign In form component will look like this, it defaults to the homepage or redirects to the provided URL after a successful sign in.
+export const SignInForm = ({ redirectTo = '/' }: { redirectTo?: string }) => {
+const navigate = useNavigate();
+const signIn = () => {
+// Your sign in logic here
+navigate({ to: redirectTo });
+};
+return (
+<form onSubmit={signIn}>
+{/* form fields */}
+<Button type="submit">Sign In</Button>
+</form>
+);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+But where does redirectTo come from? Let's add it as a search parameter to the sign in route.
+import { createFileRoute } from '@tanstack/react-router';
+import { SignInForm } from 'src/components/auth/sign-in-form';
+import { Layout } from 'src/components/layout';
+import { z } from 'zod';
+export const Route = createFileRoute('/sign-in')({
+component: RouteComponent,
+validateSearch: z.object({
+redirectTo: z.string().optional().catch('/'),
+}),
+// ...
+});
+function RouteComponent() {
+const { redirectTo } = Route.useSearch();
+return (
+<Layout>
+{/* ... */}
+<SignInForm redirectTo={redirectTo} />
+{/* ... */}
+</Layout>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What is that validateSearch doing? It uses Zod to parse the search parameters and extract redirectTo, defaulting it to / if not provided. Then in the component we read it with Route.useSearch() and pass it down to the SignInForm.
+If you want to learn more about handling search parameters with TanStack Router, check out my previous article: Handling Query Parameters.
+The next steps is to ensure that every link to the sign in page includes the redirectTo parameter. Here's an example in the Header component:
+import { useRouter } from '@tanstack/react-router';
+import { ButtonLink } from '../button-link';
+export const Header = () => {
+const router = useRouter();
+return (
+<header>
+{/* ... */}
+<ButtonLink to="/sign-in" search={{ redirectTo: router.state.location.href }}>
+Sign In
+</ButtonLink>
+{/* ... */}
+</header>
+);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+What is ButtonLink? It is just a styled wrapper around the Link component from TanStack Router. You can use Link directly if you prefer or learn how to create your own custom link component in a video I made about it: https://youtu.be/-kmf3ZYlduU
+With this, after a successful sign in you will land back on the original page including all the search parameters.
+Tradeoff of the explicit approach
+You must remember to add the redirectTo param in every link to the sign in page. Not a big issue though, and you can wrap it in a helper or custom hook like a "go to sign in" utility, but it is still one more thing to do.
+Approach 2: capture previous location automatically
+I also experimented with a small hook that tracks the previous location without passing any search parameters to the sign in page. I'm not entirely sure how stable and reliable this is, but it worked well in my tests so I thought it was worth sharing:
+function usePreviousLocation() {
+const router = useRouter();
+const [previousLocation, setPreviousLocation] = useState<string>('/');
+useEffect(() => {
+return router.subscribe('onResolved', ({ fromLocation }) => {
+setPreviousLocation(fromLocation?.href ?? '/');
+});
+}, []);
+return previousLocation;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This hook subscribes to the router's navigation events and captures the "from" location after each navigation. It stores it in state so it can be used later.
+With this alone you can forget about everything we already said, you'll no longer need to pass redirectTo in each navigation or handle search params. Just use the hook in your sign in form:
+export const SignInForm = () => {
+const navigate = useNavigate();
+const previousLocation = usePreviousLocation();
+const signIn = () => {
+// Your sign in logic here
+navigate({ to: previousLocation });
+};
+return (
+<form onSubmit={signIn}>
+{/* form fields */}
+<Button type="submit">Sign In</Button>
+</form>
+);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+Combine both for a robust UX
+The two approaches might also work well together. You can prefer the explicit redirectTo when provided, and fall back to the previously captured location when it is not. This covers both deliberate redirects and default behavior without extra effort.
+export const SignInForm = ({ redirectTo }: { redirectTo?: string }) => {
+const navigate = useNavigate();
+const previousLocation = usePreviousLocation();
+const signIn = () => {
+// Your sign in logic here
+navigate({ to: redirectTo ?? previousLocation });
+};
+return (
+<form onSubmit={signIn}>
+{/* form fields */}
+<Button type="submit">Sign In</Button>
+</form>
+);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+Notes
+This article focuses on TanStack Router, but the same idea works in TanStack Start too.
+If you are using authenticated routes or guards, you might also like this related article: Authenticated Routes and Guards.
+Conclusion
+That is it. With either the explicit redirect or the previous location approach, you can make your sign in flow return users to exactly where they left off, preserving query parameters and their context.
+If you have different ideas or improvements, let me know in a comment.
+Code is taken from the ConfHub project, you can find it here: https://github.com/Balastrong/confhub
+Thanks for reading this article, I hope you found it interesting!
+Let's connect more: https://leonardomontini.dev/newsletter
+Do you like my content? You might consider subscribing to my YouTube channel! It means a lot to me ❤️
+You can find it here:
+Feel free to follow me to get notified when new articles are out ;)
+Leonardo MontiniFollow
+Awarded GitHub Star since 2023 ⭐️ and Microsoft MVP since 2024 🔷 I talk about Open Source, GitHub, and Web Development.
+I also run a YouTube channel called DevLeonardo, see you there!
+TanStack Router (6 Part Series)
+1
+TanStack Router: Setup & Routing in React
+2
+TanStack Router: Path Parameters & Loader
+...
+2 more parts...
+3
+TanStack Router: Query Parameters & Validators
+4
+TanStack Router: Authenticated routes & Guards
+5
+TanStack Router: Nesting & 404 pages
+6
+TanStack Router: Go to Previous page after Sign In
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+This is Learning
+Follow
+Free, open and honest software education.
+Read our welcome letter which is an open invitation for you to join.
+Join us as a writer
+More from This is Learning
+TanStack Start: light, dark, and system theme without flickers
+#react
+#ssr
+#tailwindcss
+#tutorial
+Firestore Database: Your NoSQL Best Friend 🔥
+#firebase
+#google
+#webdev
+#nosql
+Secure Airtable Integration: Mastering OAuth 2.0 PKCE with Node.js 22 and Angular 20
+#webdev
+#programming
+#javascript
+#angular
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

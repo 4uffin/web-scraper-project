@@ -1,0 +1,221 @@
+Exposing a Kubernetes-Hosted MCP Server with ToolHive + ngrok (with Basic Auth) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Yolanda Robla Mota
+for Stacklok
+Posted on Sep 17
+Exposing a Kubernetes-Hosted MCP Server with ToolHive + ngrok (with Basic Auth)
+#ai
+#beginners
+#tutorial
+#kubernetes
+In the previous post, we tunneled a local MCP server with ngrok to expose internal services externally (for testing and integration, demo access, branch office access and other scenarios). Now let’s do the same for a Kubernetes-hosted workload managed by ToolHive. This is very much a production scenario in which exposed MCP servers are also exposed via Kubernetes clusters; but with ToolHive and ngrok, we can keep the approach simple. Once you’ve got ToolHive and ngrok up-and-running, just follow the steps below:
+1. Deploy ToolHive to your cluster, then the fetch MCP server
+Follow the ToolHive Kubernetes Operator quickstart to install the operator and deploy an MCP server in your cluster (I’m using the fetch server here). The operator turns MCP servers into first-class Kubernetes resources you can manage declaratively:
+kubectl apply -f https://raw.githubusercontent.com/stacklok/toolhive/refs/heads/main/examples/operator/mcp-servers/mcpserver_fetch.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+After applying your manifests/CRs, you’ll see Services like:
+kubectl get service -n toolhive-system
+# NAME
+TYPE
+CLUSTER-IP
+EXTERNAL-IP
+PORT(S)
+AGE
+# mcp-fetch-headless
+ClusterIP
+None
+<none>
+8080/TCP
+12m
+# mcp-fetch-proxy
+ClusterIP
+10.96.166.106
+<none>
+8080/TCP
+12m
+Enter fullscreen mode
+Exit fullscreen mode
+These are ClusterIP Services, which are intentionally in-cluster only (no host access yet). We’ll bridge them to the host next.
+2. Port-forward the Service to your laptop
+Use kubectl port-forward to map the Service’s port to localhost:8080 so you can reach it from your machine:
+kubectl -n toolhive-system port-forward svc/mcp-fetch-proxy 8080:8080
+Enter fullscreen mode
+Exit fullscreen mode
+Now http://127.0.0.1:8080 is a portal to the in-cluster Service.
+3. Add a simple ngrok Traffic Policy (HTTP Basic Auth)
+Before we open this to the internet, let’s require a username/password via ngrok Traffic Policy. Save a policy file like /tmp/policy.yaml:
+on_http_request:
+- actions:
+- type: basic-auth
+config:
+credentials:
+- stacklok:p4ssw0rd
+Enter fullscreen mode
+Exit fullscreen mode
+ngrok’s Basic Auth policy validates the Authorization: Basic … header, returning 200 OK when credentials match, and 401 Unauthorized otherwise
+Tip: echo -n 'stacklok:p4ssw0rd' | base64 helps you generate the header value locally.
+4. Launch the tunnel with ToolHive’s proxy
+With the Service forwarded to 127.0.0.1:8080, start a ToolHive tunnel pointing at that local address, telling ToolHive to use ngrok and your policy file:
+thv proxy tunnel http://127.0.0.1:8080 test \
+--tunnel-provider ngrok \
+--provider-args '{"auth-token":"${NGROK_TOKEN}","traffic-policy-file":"/tmp/policy.yaml"}'
+Enter fullscreen mode
+Exit fullscreen mode
+ToolHive will bring up an ngrok HTTPS endpoint and print the public URL for the fetch MCP server — something like:
+"fetch": {
+"url": "https://bf18062fef8a.ngrok-free.app/mcp",
+"description": "Fetch MCP server for testing",
+"headers": {
+"Authorization": "Basic c3RhY2tsb2s6cDRzc3cwcmQ="
+},
+"type": "http"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Send requests with the Authorization header and you’ll get through; omit it and you’ll see a 401 by design.
+Summarizing the benefits of this approach
+Kubernetes-native management: ToolHive’s operator defines and manages MCP servers as Kubernetes resources, which is great for multi-user and production workflows
+Safe local bridge: kubectl port-forward exposes the internal Service to your host without changing cluster networking.
+Hardened public edge: ngrok’s Traffic Policy adds Basic Auth at the edge so your tunnel isn’t wide open during tests/demos.
+With these few steps, you’ve taken a Kubernetes-hosted MCP server, bridged it to your localhost safely, and published it behind a secure, temporary ngrok URL. This is perfect for quick external tests, demos, or sharing an endpoint without touching production.
+We’re excited about the integration of ToolHive and ngrok and how it quickly and elegantly solves a problem that more enterprises will encounter as they adopt MCP. If you have questions or ideas, we’d love to hear from you. Please checkout ToolHive and ngrok, and connect with us on Discord.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Stacklok
+Follow
+Simple and Secure AI Tools
+ToolHive unlocks the full potential of your AI agents by effortlessly connecting them to the right tools at the right times.
+MCP-easy
+More from Stacklok
+Let's Make It Easy M-C-Peasy
+#mcp
+#ai
+#modelcontextprotocol
+#toolhive
+How-to Safely Expose your MCP Servers Externally Using ngrok and ToolHive
+#ai
+#beginners
+#tutorial
+#devops
+Spin Up MCP servers locally with ease, ToolHive now offers full Windows support
+#mcp
+#windows
+#toolhive
+#ai
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

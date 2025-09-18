@@ -1,0 +1,303 @@
+Solving Elm Router "Double Update" Problem - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Moremi Vannak
+Posted on Sep 16
+Solving Elm Router "Double Update" Problem
+#elm
+#functional
+I found some older discussions on this issue, but they did not really provide a clear answer:
+Understanding the "double update" behavior of Browser.application
+Routing when you are already there
+It turns out I discovered a simple solution, so I am writing it down in case I forget, or in case someone else finds it useful.
+Imagine we have an expensive parseAppRoute function that performs many effects. We do not want it to run twice: once for Navigate and again for UrlChanged. (I am ignoring LinkClicked in this explanation, since in my app I only use Navigate, but the principle is the same.)
+The idea is to keep track of a boolean flag called isInternal that indicates whether the URL change originated from inside the app or from an external action such as the browser's back/forward buttons. By default this flag is False, because back/forward navigation can happen at any time.
+Whenever I change the route from inside the app, I set isInternal to True. Then, when the follow-up UrlChanged message arrives, I check the flag:
+If it is True, I ignore the message and reset the flag to False.
+If it is False, I know the change came from the browser (back/forward), so I call parseAppRoute.
+This way we avoid calling handling the route change twice.
+On initial page load, the route is handled in init, so there is no issue there either.
+Here is an example implementation:
+parseAppRoute : String -> (Route, Cmd Msg)
+parseAppRoute url =
+let
+newRoute = urlStringToRoute url
+in
+(newRoute, getCmdFrom newRoute)
+cmdFromRoute : Route -> Cmd Msg
+cmdFromRoute route =
+-- perform expensive side effects
+init : Flags -> Url -> Nav.Key -> ( Model, Cmd Msg )
+init _ url key =
+let
+(initRoute, initCmd) = parseAppRoute url
+in
+( { route = initRoute
+, isInternal = False
+, key = key
+}
+, initCmd
+)
+-- UPDATE
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+case msg of
+UrlChanged url ->
+if model.isInternal then
+-- Ignore the UrlChanged that we triggered ourselves;
+-- then reset the flag.
+( { model | isInternal = False }, Cmd.none )
+else
+-- Triggered by browser back/forward navigation
+let
+(newRoute, newCmd) = parseAppRoute url
+in
+( { model | route = newRoute }, newCmd )
+Navigate route ->
+let
+href = toUrlString route
+newRouteCmd = cmdFromRoute route
+in
+( { model
+| isInternal = True -- Mark this as an internal change
+, route = route
+}
+, Cmd.batch [ Nav.pushUrl model.key href, newRouteCmd ]
+)
+LinkClicked req ->
+case req of
+Browser.Internal url ->
+-- Treat internal clicks like Navigate
+let
+(newRoute, newCmd) =
+parseAppRoute url
+in
+( { model | isInternal = True, route = newRoute }
+, Cmd.batch
+[ Nav.pushUrl model.key (Url.toString url)
+, newCmd
+]
+)
+Browser.External href ->
+( model, Nav.load href )
+None ->
+( model, Cmd.none )
+Enter fullscreen mode
+Exit fullscreen mode
+I hope to hear from others if they reach the same conclusion. Feel free to ask me anything as well.
+Top comments (3)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Jess Lee
+Jess Lee
+Jess Lee
+Follow
+Building DEV and Forem with everyone here. Interested in the future.
+Email
+jess@forem.com
+Location
+USA / TAIWAN
+Pronouns
+she/they
+Work
+Co-Founder & COO at Forem
+Joined
+Jul 29, 2016
+•
+Sep 16
+Dropdown menu
+Copy link
+Hide
+Thanks for sharing!
+Like comment:
+Like comment:
+3 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Dirk Johnson
+Dirk Johnson
+Dirk Johnson
+Follow
+I've been developing for over 3 decades. My latest passion is JAMStack based on Elm. I love strategy games. :)
+Location
+San Jose, CA
+Work
+Owner / Consultant at XetiCode LLC
+Joined
+Nov 5, 2019
+•
+Sep 16
+Dropdown menu
+Copy link
+Hide
+Very clean solution. Thanks for sharing this.
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Roshan Sharma
+Roshan Sharma
+Roshan Sharma
+Follow
+💻 Tech Enthusiast | Linux & Open Source Explorer
+🔧 Sharing insights on Ubuntu, Debian, Docker, and DevOps tools
+🐍 Passionate about Python, SQL & MySQL
+✍️ Writing tutorials, guides, and answers to m
+Joined
+Aug 19, 2025
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+Nice fix! Using the isInternal flag is smart
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Moremi Vannak
+Follow
+Enthusiastic Functional Programmer, specialized in Haskell, Elm, and Purescript.
+Location
+Phnom Penh, Cambodia
+Education
+Zaman University
+Work
+Serokell
+Joined
+Nov 4, 2017
+More from Moremi Vannak
+Global Message passing inside Purescript Halogen
+#purescript
+#halogen
+#javascript
+#functional
+Display and Edit Google Map in Elm
+#elm
+#googlemap
+#web
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

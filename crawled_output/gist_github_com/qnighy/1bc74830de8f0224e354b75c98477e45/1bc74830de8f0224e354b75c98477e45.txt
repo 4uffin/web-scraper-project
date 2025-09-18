@@ -1,0 +1,242 @@
+React Server Components 備忘録 · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+qnighy/rsc-memo.md
+Last active
+September 17, 2025 16:53
+Show Gist options
+Download ZIP
+Star
+5
+(5)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/qnighy/1bc74830de8f0224e354b75c98477e45.js&quot;&gt;&lt;/script&gt;
+Save qnighy/1bc74830de8f0224e354b75c98477e45 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+23
+Stars
+5
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/qnighy/1bc74830de8f0224e354b75c98477e45.js&quot;&gt;&lt;/script&gt;
+Save qnighy/1bc74830de8f0224e354b75c98477e45 to your computer and use it in GitHub Desktop.
+Download ZIP
+React Server Components 備忘録
+Raw
+rsc-memo.md
+本稿ではReact Server Componentsに関する基礎的な理解を深める。
+Related
+RSC RFC
+Server Module Conventions RFC
+Server Components - React
+use client directive
+Server and Client Components | Next.js
+@vitejs/plugin-rsc
+How React server components work: an in-depth guide | Plasmic Blog
+一言で理解するReact Server Components
+RSCとは
+RSCとは、サーバー・クライアントのハイブリッド構成のReactアプリにおいて、サーバーサイドのみで実行されるコンポーネントを識別するために導入されたシステムである。
+Server component: ビルド時またはサーバーサイドのみで実行される。
+Client component: 旧来のコンポーネント。クライアントサイドでもサーバーサイドでも (ビルド時でも?) 実行されうる。
+また旧来SSGやISRでclient componentをビルド時実行していた場合でも、Server component固有の機能を利用することで恩恵を得られる可能性がある。
+図: server 対 client
+図: フルスタックフレームワークの場合のレンダリングプロセス
+よくある誤解
+「React Server Components はSSRを置き換える」わけではない。
+SSRは同じコンポーネントツリーをサーバー(prerender)とブラウザ(hydration)で2回評価する仕組み。
+RSCはコンポーネントツリーの一部をサーバーのみで評価する仕組み。
+両者は必要に応じて組み合わせて利用されることが前提。
+そもそもRSCが必要ないユースケースもある。
+「"use server" は "use client" の逆」ではない。
+use server は Server Action という別機能(関連はしている)のもの。
+「"use client" をつけるとクライアント、つけないとサーバー」ではない。
+前半はおおむね正しいが、後半はちょっと違う。
+RSCの動機
+Server componentの導入によって期待される恩恵は以下の通り。
+Server componentはバンドルに含まれないため、バンドルサイズの最適化に貢献する。
+Server component内ではバックエンドロジックを記述することもできる。
+use client 境界はいわば動的にReact rootを選択する仕組みであるため、動的にrootを選択することで選択的なチャンク読み込みを自然に実現できる。
+Server componentは非同期処理に適したレンダリングパイプラインを持つため、並列リクエストを組みやすい。
+いっぽう、以下の恩恵を受けるためにserver componentを使う必要性は必ずしもない。
+初期レンダリングの効率化は、旧来のserver-side renderingでも実現できる。
+RSCの前提
+RSCは生のJavaScriptからは利用できない。RSCを利用するには、RSCに対応したバンドラーやメタフレームワーク (Next.jsやReact Routerなど) を利用する必要がある。
+これはRSCが実質的に、モジュール境界を活用した多段階計算乃至RPCのシステムになっているからである。
+RSC bundle
+RSCを行うためには、ルートとなるserver componentが入ったモジュールを起点に専用のバンドルを作る必要がある。これは他の用途 (SSR prerenderingやブラウザ向けコード) とは区別される。
+同じモジュールソースが、RSC bundleとclient component用のコードの両方に含まれることもある。
+RSC bundleの作成においては、以下の2つの特殊ルールが適用される。
+conditional exportsの解決において、 "react-server" conditionがオンになっている。
+インポートされたモジュールに "use client" directive が含まれている場合、実際にはそのモジュールを読み込まず、リモート呼び出し用のshim componentが含まれたコードで差し替える。
+この動作のため、 "use client" のついたモジュールからエクスポートできる値には制限がある。
+実際の変換例 (@vitejs/plugin-rsc のコードに基づく)
+// 変換前
+"use client";
+export const Greeting = () => {
+return <span>Hello, world!</span>
+};
+// 変換後
+import * as $$ReactServer from "@vitejs/plugin-rsc/react/rsc";
+export const Greeting = /* #__PURE__ */ $$ReactServer.registerClientReference(
+() => {
+throw new Error(
+"Unexpectedly client reference export '" +
+"Greeting" +
+"' is called on server"
+)
+},
+"...", // referenceKey (モジュールを特定するための文字列)
+"Greeting"
+);
+元の実装は完全に除去されている点に注意。かわりに、モジュールIDとエクスポート名があることで、client component側で実装を特定できるようになっている。
+参考: registerClientReference
+図: use client を使わない場合
+図: use client を使う場合
+server component と client component
+RSC bundle の存在を前提にすると、server componentとclient componentの定義はシンプルになる。
+RSC bundle内で呼び出されるコンポーネントのうち、リモート呼び出し用のshim componentでないものは全てserver componentである。
+それ以外は全てclient componentである。
+以上のように、あるコンポーネントがserver componentであるかどうかはそれがどう呼び出されたかに依存する。つまり、同じコードが使われかたに応じてserver componentになったりclient componentになったりすることも考えられる。
+server component でできることとできないこと
+server component でのみ可能
+async/await
+サーバーサイドであることを前提としたI/O処理 (DBサーバーへの接続など)
+server component ではできない
+useState
+useContext
+useEffect
+useCallback / useMemo
+server component と client component の相互呼び出し
+一言で言うと、server componentからclient componentを呼び出すことはできるが、逆はできない。これは以下の2つのケースに大別される。
+client component が server component を import した場合 → 前述の通り、 server component か否かは何からインポートされたかによって決まる。 client component から import したものは、ユーザーに意図に関わらず、全て client component になる。
+client component が server component (の要素) を props 経由で受け取った場合 → 受け取る前に server component が全て実行されてしまうので、 client component が実行された時点では server component の痕跡は残っていない。
+server component と項書き換え系
+Reactのレンダリングツリーに関する直観をさらに深めたい人のために、ここでは項書き換え系による説明を試みる。
+項とは
+項書き換え系における「項」とは、実行していない状態の関数呼び出しのことである。といっても何のことかわからないかもしれないが、これはReactと密接な関係がある。
+たとえば以下のような簡易的なReactコードを考える (これ自体はRSCとは関係ない)
+const Greeting = ({ name }) => {
+return <div>Hello, {name}!</div>
+};
+const Page = () => {
+return (
+<div>
+<h1>My homepage</h1>
+<Greeting name="John" />
+</div>
+);
+};
+上記のコードにおいて、 Greeting は単なる関数である。実は、以下のようにしても同じ結果を得られてしまうことに気付いただろうか？
+const Greeting = ({ name }) => {
+return <div>Hello, {name}!</div>
+};
+const Page = () => {
+return (
+<div>
+<h1>My homepage</h1>
+{/* 要素を作らずに、そのまま関数を呼び出す */}
+{Greeting({ name: "John "})}
+</div>
+);
+};
+もちろん、実際のReactコードでそうするべきではない理由は色々ある。ただ、この現象は重要な示唆を与えてくれる。つまり、Reactにおける要素とは、関数に見立てたコンポーネントを「まだ実行していない状態」とみなせることだ。このような状態の物体を項と呼ぶ。
+あえて、まだ実行していない状態の関数を残しておくことはもちろん重要な意味がある。それは、Reactに実行順序を管理させたいからだ。
+項の評価順序
+話を単純にするために、React以外の例を挙げてみる。たとえば以下はよくある算術計算の例だ。
+function square(x: number) {
+return x * x;
+}
+function double(x: number) {
+return x + x;
+}
+square(double(5));
+これは普通に計算すると square(double(5)) = square(10) = 100 となる。しかし、実は別の順序で実行してもよい。
+つまり、 square(double(5)) = double(5) * double(5) = 10 * 10 = 100 である。
+もちろん、普通のJavaScriptの関数である square は、途中式である double(5) をそのまま受け取ることはできない。だがその制約を無視すれば、このように計算順序を変えても同じ結果が得られることがある。
+こうした計算をプログラミング言語のレベルで行っているのはHaskellくらいだが、フレームワークのレベルではReactがまさにそれを行っているのである。
+なぜそれができるのか？ それは、Reactでは各関数が計算途中の状態であるReactElementやReactNodeを直接引き回せるようにできているからである。
+Reactが項を扱う理由
+Reactが項を扱う理由は大きく2つあると考えられる。
+再レンダリング時の評価戦略を最適化するため。
+レンダリングツリー上の位置を、状態を紐付けるための目印として使うため。
+ただし、RSCの議論においてはこれらはあまり重要ではない。 (主に初回レンダリングを中心とした議論になるため)
+項と値
+全ての項が簡約できるわけではない。最後まで簡約できない項は値 (value) と呼ばれる。たとえばプログラミング言語では 1, 2, 3 のような式はそれ以上簡約できない。
+Reactの場合、以下の項は値である。
+<div /> などのDOM対応要素
+テキストノード
+DOM対応要素の子ノードを並べるために使われるリスト
+値呼び・名前呼び・多段階計算
+評価戦略は色々あるが、ここではRSCと関係する分類を紹介したい。
+値呼び (call-by-value) または(弱)最左最内簡約は、多くのプログラミング言語で使われている戦略である。簡約規則に値しか入らないので計算上は扱いやすい。
+名前呼び (call-by-name) または(弱)最左最外簡約はReactで通常使われている戦略である。プログラミング言語の世界でも、理論上はよく出てくる。
+多段階計算 (multi-stage calculus) は、コードを部分評価して、残りのコードを別の環境で評価するための仕組みである。簡約基の相対的な位置だけではなく、準クオートとの関係によって評価順序が変わる。RSCを多段階計算とみなす考え方は@uhyoによって紹介された。
+Reactにおける評価順序は以下のように要約される。
+client component の評価順序は名前呼びである。
+server component の評価順序も名前呼びである。
+client component と server component が混在するときは多段階計算のセマンティクスが適用される。まずserver component呼び出しが全て評価され、その後client component呼び出しが評価される。
+評価順序が違うことで何が起こるのか
+RSCについて議論するにあたっては、各コンポーネントがもつ状態やUI副作用についてはほぼ考えなくてよい。そこで、ここではほぼ純粋なコンポーネントについて、評価順序の違いがどう影響するのかを考える。
+ざっくり言うと、項の評価結果が評価順序に依存せず一定であるためには、以下のような性質が必要になる。
+評価に副作用がないこと。
+パラメトリシティが成立すること。つまり、未評価かもしれない項の内部構造に依存するコードを書いていないこと。
+まず副作用について。RSCは古典的なReactの副作用と関係が薄いが、以下のような副作用は依然としてある。
+サーバーサイドのI/O副作用
+評価中のエラー
+したがって、こうした副作用が含まれるコンポーネントの挙動には注意が必要になる。具体的には親となるclient componentよりも先に、子となるserver componentが評価されるため、古典的なReactの名前呼びに慣れていると予期しない結果になる可能性がある。
+次にパラメトリシティについて。これは、client component 内で ReactNode や ReactElement の内部構造をチェックするような処理を行っている場合に問題になる。たとえば cloneElement に入れてpropsを変更してから利用するようなケースでは、要素が展開済みの場合と未展開の場合で結果が変わってしまう可能性がある。
+Raw
+rsc-rendering-process.png
+Raw
+server-vs-client.png
+Raw
+with-use-client.png
+Raw
+without-use-client.png
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

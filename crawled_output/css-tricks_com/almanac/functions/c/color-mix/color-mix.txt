@@ -1,0 +1,829 @@
+color-mix() | CSS-Tricks
+Skip to main content
+CSS-Tricks
+Articles
+Notes
+Links
+Guides
+Almanac
+Picks
+Shuffle
+Search
+color
+CSS Almanac → Functions → C → color-mix()
+color-mix()
+Sunkanmi Fafowora
+on
+Aug 12, 2025
+Get affordable and hassle-free WordPress hosting plans with Cloudways — start your free trial today.
+The CSS color-mix() function lets us mix two colors across a particular color space. It works by providing the color space where the mix will occur, the colors to mix, and how much of each color will be mixed.
+.element {
+color: color-mix(in oklab, red 20%, bisque 80%);
+}
+The mixing is done through a process called color interpolation, which is a fancy way of saying that it finds the exact color between two color points. To be precise, according to ColorAide, interpolation is a “type of estimation that finds new data points based on the range of a discrete set of known data points.”
+The color-mix() function is defined in the CSS Color Module Level 5 specification.
+Syntax
+color-mix() values are comma-separated. Only the color and percentage values are separated by spaces.
+color-mix() = color-mix( <color-interpolation-method> , [ <color> && <percentage [0,100]>? ]#)
+<color-interpolation-method> = in [ <rectangular-color-space> | <polar-color-space> <hue-interpolation-method>? ]
+<rectangular-color-space> =
+srgb
+|
+srgb-linear
+|
+display-p3
+|
+a98-rgb
+|
+prophoto-rgb
+|
+rec2020
+|
+lab
+|
+oklab
+|
+<xyz-space>
+<xyz-space> =
+xyz
+|
+xyz-d50
+|
+xyz-d65
+<polar-color-space> =
+hsl
+|
+hwb
+|
+lch
+|
+oklch
+<hue-interpolation-method> = [ shorter | longer | increasing | decreasing ] hue
+Arguments
+/* Color mixing in oklab */
+.element {
+color: color-mix(in oklab, red 20%, green 40%);
+}
+/* Color mixing in srgb */
+.element {
+color: color-mix(in srgb, red 70%, blue);
+}
+/* Color mixing in oklch using a longer hue */
+.element {
+color: color-mix(in oklch longer hue, orange, purple);
+}
+/* Color mixing hsl and oklch colors together in oklab */
+.element {
+color: color-mix(in oklab, hsl(0, 100%, 50%), oklch(0.7 0.1 120));
+}
+<color-interpolation-method>: Specifies the color space and the method used for mixing. It starts with the in keyword followed by one of the next color spaces:
+<rectangular-color-space>: Includes the srgb, srgb-linear, display-p3, a98-rgb, prophoto-rgb, rec2020, lab, oklab, xyz, xyz-d50, and xyz-d65 color spaces
+<polar-color-space>: Includes the hsl, hwb, lch, and oklch color spaces. When using a polar color space, we can also add a hue interpolation method.
+<hue-interpolation-method>: Specifies how CSS should find the midpoint between colors in a polar color space. This can either be the shorter hue, longer hue, increasing hue, or decreasing hue.
+<color>: Any acceptable color value.
+<percentage> (optional): Ranges from 0% to 100% and specifies the amount of color to mix. No color will be displayed if the value falls below or above the threshold.
+Basic usage
+Using color-mix(), you can mix any two colors in a particular color space. It takes three values separated by commas. First, the in keyword followed by the color space where the mix will be performed. Then, the two colors to mix, each with a percentage representing how much of each will be mixed.
+.element {
+background-color: color-mix(in oklch, red 60%, green 60%);
+}
+CodePen Embed Fallback
+For polar color spaces (e.g., hsl, hwb, lch and oklch), you have four options to further change how the mix is done, which we will inspect later.
+/* Shorter hue in oklch mixing blue and yellow */
+.element {
+background-color: color-mix(in oklch shorter hue, blue 60%, yellow 30%);
+}
+CodePen Embed Fallback
+Color interpolation is the main feature behind mixing colors in CSS. Again, it is the method for finding one or more colors between two color points. For example, here is what color interpolation looks like when finding the midpoint of two color points in oklab:
+Credit: ColorAide
+As you can see, in oklab a straight line is drawn between colors, and the point lying in between is the interpolated one.
+Calculating the results of color-mix()
+The resulting color from color-mix() can be a little tricky to predict just by reading the specification, since color percentages are said to be “normalized by normalizing mix percentages.” This sounds odd at first, but it essentially means color percentages should add up to 100%. Then, we have three cases:
+Color percentages sum up to more than 100%. Here, both percentages are summed, and each is multiplied by 100% / total sum such that the ending sum is 100%. For example, the following would all be equivalent:
+color-mix(in oklab, blue 75%, red 50%);
+/* Same as */
+color-mix(in oklab, blue 60%, red 40%);
+color-mix(in oklab, white 40%, black 80%);
+/* Same as */
+color-mix(in oklab, white 33.33%, black 66.66%);
+Color percentages sum up to less than 100%. Once again, both percentages are added up, and each percentage is multiplied by 100% / total sum. However, this time the alpha value of the resulting color will be the total sum, so it will be more transparent as the sum gets closer to 0%.
+/* purple (60% opacity) */
+color-mix(in lch, blue 20%, red 40%);
+/* gray (30% opacity)*/
+color-mix(in lch, white 10%, black 20%);
+Some color percentages aren’t specified. Lastly, if one percentage isn’t specified and the other is, then it will be 100% - specified such that the ending sum is 100%. If the specified percentage is over 100%, then no mixing occurs, and the unspecified color isn’t used. For example, these are all the same:
+color-mix(in lab, blue, red 50%);
+/* Same as */
+color-mix(in lab, blue 50%, red 50%);
+color-mix(in lab, white 25%, black);
+/* Same as */
+color-mix(in lab, white 25%, black 75%);
+There are also some gotchas you should be aware of when mixing colors:
+Avoid using calc() values as your percentages, as their results are generally unknown, and they don’t tend to be in the 0% to 100% range.
+If both percentages are omitted, then both default to 50%.
+If both percentages are set to 0%, then the function is invalid and no color would be displayed. After all, if there is no color to mix, what is there to display?
+We can choose how to interpolate the hue (sometimes)
+To mix the hue of two colors in rectangular color spaces, we draw a straight path between them and pick its midpoint. However, in polar color spaces, the hue is specified in a hue wheel, so we draw an arc line to get from one color to another instead.
+This arc can be either clockwise or counterclockwise, so we can choose which path suits us best. The paths used in determining the midpoint between two color values on the hue wheel can either be shorter hue, longer hue, increasing hue, or decreasing hue.
+shorter hue
+The shorter hue method, depending on where the two angles are, performs interpolation by taking the shorter hue arc between the two hue angles. For instance, the arcs between hue angles 0deg and 240deg on the color wheel would look something like this:
+Credit: ColorAide
+longer hue
+The longer hue method performs interpolation by taking the longer route between a starting and ending hue angles. Inadvertently, you get more unique colors this way.
+Credit: ColorAide
+Notice how the hue angle passes a longer route from 0deg to 240deg than when shorter hue is specified.
+increasing hue
+The increasing hue method sets the angle to progress increasingly, in a clockwise direction. That means even though the shortest path may be backwards, it will go forward (clockwise) around the hue wheel.
+Depending on the angles specified, this can either look like a shorter or longer hue interpolation method. If you have these two hue angles in hsl(), for example:
+/* First hue (50deg)*/
+hsl(50 20 10)
+/* Second hue (120deg) */
+hsl(120 20 10)
+To go from 50deg (yellow) to 120deg (green) using the increasing hue interpolation method, you would calculate it like this:
+(50 + 120) / 2 = 85
+The midpoint hue angle is 85 degrees (which is a yellowish-green color). If the second hue value is animated to, let’s say, 220 degrees (blue), the midpoint would be 135 degrees (which is a light green color):
+(50 + 220) / 2 = 135
+So what’s happening is that we are following the same arc direction rather than flipping it or going the opposite direction. This avoids weird flashes or stops during animation. Even so, the algorithm usually decides between the shorter or longer route, and if increasing hue is not set during animation, according to the spec, the algorithm may decide that the shorter route is better.
+decreasing hue
+The decreasing hue interpolation method sets the angle to progress decreasingly, in a counterclockwise direction. That means, even if the shortest path is forward, it will still go backwards (counterclockwise) along the hue wheel.
+In other words, if we have these two OKLCH color values with two different angles:
+/* First color */
+oklch(0.6 0.1 80)
+/* Second color */
+oklch(0.6 0.1 320)
+Then the midpoint would be calculated like this:
+Midpoint hue = (80 + 360 + 320) / 2
+= 760 / 2
+= 380
+= 20 (clamped to this value)
+The resulting OKLCH midpoint value becomes:
+oklch(0.6 0.1 20)
+If it is animated, the hue color just shifts (from 20deg to 40deg, for example).
+Demo
+CodePen Embed Fallback
+Specification
+The color-mix() function is defined in the CSS Color Module Level 5 specification, while color interpolation is defined in the CSS Color Module Level 4 specification. Both are currently in Editor’s Draft status at the time of writing. This means changes can still be made to this function in the future.
+Browser support
+More information
+ColorAide Documentation
+Related
+Almanac
+on
+May 2, 2025
+color()
+.element { color: color(rec2020 0.5 0.15 0.115 / 0.5); }
+color
+Sunkanmi Fafowora
+Almanac
+on
+Feb 22, 2025
+hsl()
+.element { color: hsl(90deg, 50%, 50%); }
+color
+Sunkanmi Fafowora
+Almanac
+on
+Mar 4, 2025
+lab()
+.element { color: lab(50% 50% 50% / 0.5); }
+color CSS functions
+Sunkanmi Fafowora
+Almanac
+on
+Mar 12, 2025
+lch()
+.element { color: lch(10% 0.215 15deg); }
+at-rules
+Sunkanmi Fafowora
+Almanac
+on
+Apr 29, 2025
+oklab()
+.element { color: oklab(25.77% 25.77% 54.88%; }
+color
+Sunkanmi Fafowora
+Almanac
+on
+May 10, 2025
+oklch()
+.element { color: oklch(70% 0.15 240); }
+color
+Gabriel Shoyombo
+Almanac
+on
+Feb 22, 2025
+rgb()
+.element { color: rgb(0 0 0 / 0.5); }
+color
+Sunkanmi Fafowora
+At-Rules
+A
+B
+C
+@charset
+@color-profile
+@container
+@counter-style
+D
+E
+F
+@font-face
+@font-feature-values
+@font-palette-values
+G
+H
+I
+@import
+J
+K
+@keyframes
+L
+@layer
+M
+@media
+color-gamut
+prefers-reduced-motion
+N
+@namespace
+O
+P
+@page
+@position-try
+@property
+Q
+R
+S
+@scope
+@starting-style
+@supports
+T
+U
+V
+@view-transition
+W
+X
+Y
+Z
+Functions
+A
+anchor()
+anchor-size()
+attr()
+B
+C
+calc-size()
+circle()
+clamp()
+color()
+color-mix()
+conic-gradient()
+counter()
+counters()
+cubic-bezier()
+D
+E
+ellipse()
+env()
+exp()
+F
+fit-content()
+G
+H
+hsl()
+I
+image()
+image-set()
+inset()
+J
+K
+L
+lab()
+lch()
+light-dark()
+linear()
+linear-gradient()
+M
+matrix()
+max()
+min()
+minmax()
+mod()
+N
+O
+oklab()
+oklch()
+P
+path()
+polygon()
+Q
+R
+radial-gradient()
+random()
+rem()
+repeating-radial-gradient()
+rgb()
+round()
+S
+scroll()
+shape()
+sibling-count()
+sibling-index()
+steps()
+symbols()
+T
+U
+url()
+V
+view()
+W
+X
+xywh()
+Y
+Z
+Properties
+A
+accent-color
+align-content
+align-items
+align-self
+all
+anchor-name
+anchor-scope
+animation
+animation-timeline
+appearance
+aspect-ratio
+B
+backdrop-filter
+backface-visibility
+background
+background-attachment
+background-clip
+background-color
+background-image
+background-origin
+background-position
+background-repeat
+background-size
+background-blend-mode
+bleed
+block-overflow
+block-size
+border
+border-block
+border-inline
+border-boundary
+border-collapse
+border-image
+border-image-outset
+border-image-repeat
+border-image-slice
+border-image-source
+border-image-width
+border-radius
+border-spacing
+bottom
+box-decoration-break
+box-shadow
+box-sizing
+break-after
+break-before
+break-inside
+C
+caption-side
+caret
+caret-color
+caret-shape
+clear
+clip-path
+color
+color-scheme
+column-count
+column-fill
+column-rule
+column-rule-color
+column-rule-style
+column-rule-width
+column-span
+column-width
+columns
+contain
+container
+container-name
+container-type
+content
+content-visibility
+counter-increment
+counter-reset
+counter-set
+cursor
+D
+direction
+display
+E
+empty-cells
+F
+field-sizing
+fill
+filter
+flex
+flex-basis
+flex-direction
+flex-flow
+flex-grow
+flex-shrink
+flex-wrap
+float
+font
+font-family
+font-size
+font-stretch
+font-style
+font-variant
+font-weight
+font-display
+font-feature-settings
+font-kerning
+font-optical-sizing
+font-palette
+font-size-adjust
+font-synthesis
+font-variant-alternates
+font-variant-emoji
+font-variant-numeric
+G
+gap
+column-gap
+row-gap
+grid
+grid-auto-columns
+grid-auto-flow
+grid-auto-rows
+grid-template
+grid-template-areas
+grid-template-columns
+grid-template-rows
+grid-area
+grid-column
+grid-column-end
+grid-column-start
+grid-row
+grid-row-end
+grid-row-start
+grid-row / grid-column
+H
+hanging-punctuation
+height
+hyphenate-character
+hyphenate-limit-chars
+hyphens
+I
+image-rendering
+initial-letter
+inline-size
+inset
+inset-block
+inset-block-end
+inset-block-start
+inset-inline
+inset-inline-end
+inset-inline-start
+interpolate-size
+isolation
+J
+justify-content
+justify-items
+justify-self
+K
+L
+left
+letter-spacing
+line-break
+line-clamp
+line-height
+list-style
+M
+margin
+margin-block
+margin-block-end
+margin-block-start
+margin-inline
+margin-inline-end
+margin-inline-start
+margin-trim
+mask
+mask-clip
+mask-composite
+mask-image
+mask-mode
+mask-origin
+mask-position
+mask-repeat
+mask-size
+mask-border
+mask-type
+max-height
+max-inline-size
+max-width
+min-height
+min-width
+mix-blend-mode
+N
+O
+object-fit
+object-position
+offset-anchor
+offset-distance
+offset-path
+offset-rotate
+opacity
+order
+orphans
+outline
+outline-color
+outline-style
+outline-width
+outline-offset
+overflow
+overflow-anchor
+overflow-clip-margin
+overflow-wrap
+overlay
+overscroll-behavior
+P
+padding
+padding-block
+padding-inline
+page-break
+paint-order
+perspective
+perspective-origin
+place-content
+place-items
+place-self
+pointer-events
+position
+position-anchor
+position-area
+position-try-fallbacks
+position-try-order
+position-visibility
+print-color-adjust
+Q
+quotes
+R
+resize
+right
+rotate
+S
+scale
+scroll-behavior
+scroll-margin
+scroll-marker-group
+scroll-padding
+scroll-snap-align
+scroll-snap-stop
+scroll-snap-type
+scrollbar
+scrollbar-color
+scrollbar-gutter
+scrollbar-width
+shape-image-threshold
+shape-margin
+shape-outside
+speak
+stroke
+stroke-dasharray
+stroke-dashoffset
+stroke-linecap
+stroke-linejoin
+stroke-width
+T
+tab-size
+table-layout
+text-align
+text-align-last
+text-box
+text-box-edge
+text-box-trim
+text-combine-upright
+text-decoration
+text-decoration-color
+text-decoration-line
+text-decoration-style
+text-decoration-thickness
+text-decoration-skip
+text-decoration-skip-ink
+text-emphasis
+text-indent
+text-justify
+text-orientation
+text-overflow
+text-rendering
+text-shadow
+text-stroke
+text-transform
+text-underline-offset
+text-underline-position
+text-wrap-mode
+text-wrap-style
+top / bottom / left / right
+touch-action
+transform
+transform-origin
+transform-style
+transition
+transition-behavior
+transition-delay
+transition-duration
+transition-property
+transition-timing-function
+translate
+U
+unicode-bidi
+unicode-range
+user-select
+V
+vertical-align
+view-timeline-name
+view-transition-name
+visibility
+W
+white-space
+widows
+width
+will-change
+word-break
+word-spacing
+writing-mode
+X
+Y
+Z
+z-index
+zoom
+Pseudo-Selectors
+A
+:active
+:any-link
+:autofill
+B
+::backdrop
+::before / ::after
+:blank
+C
+:checked
+:current
+D
+::details-content
+:default
+:defined
+:dir()
+:disabled
+E
+:empty
+:enabled
+F
+::file-selector-button
+::first-letter
+::first-line
+:first
+:first-child
+:first-of-type
+:focus
+:focus-visible
+:focus-within
+:fullscreen
+:future
+G
+H
+:has()
+:hover
+I
+:in-range
+:indeterminate
+:invalid
+:is
+J
+K
+L
+:lang()
+:last-child
+:last-of-type
+:left
+:link
+M
+::marker
+N
+:not
+:nth-child
+:nth-last-child
+:nth-last-of-type
+:nth-of-type
+O
+:only-child
+:only-of-type
+:open
+:optional
+:out-of-range
+P
+::placeholder
+:past
+:placeholder-shown
+:popover-open
+Q
+R
+:read-write / :read-only
+:required
+:right
+:root
+S
+::scroll-button()
+::scroll-marker
+::scroll-marker-group
+::selection
+T
+::target-text
+:target
+:target-current
+U
+:user-invalid
+V
+::view-transition
+::view-transition-group
+::view-transition-image-new
+::view-transition-image-old
+::view-transition-image-pair
+:valid
+:visited
+W
+:where
+X
+Y
+Z
+Selectors
+A
+Adjacent sibling
+[attribute]
+B
+C
+Chained
+Child
+Class
+D
+Descendant
+E
+F
+G
+General sibling
+H
+I
+ID
+J
+K
+L
+M
+N
+O
+P
+Q
+R
+S
+T
+Type
+U
+Universal
+V
+W
+X
+Y
+Z
+TOC
+Syntax
+Arguments
+Basic usage
+Calculating the results of color-mix()
+We can choose how to interpolate the hue (sometimes)
+Demo
+Specification
+Browser support
+More information
+Psst! Create a DigitalOcean account and get $200 in free credit for cloud-based hosting and services.
+This comment thread is closed. If you have important information to share, please contact us.
+CSS-Tricks is powered by DigitalOcean.
+Keep up to date on web dev
+with our hand-crafted newsletter
+DigitalOcean
+About DO
+Cloudways
+Legal stuff
+Get free credit!
+CSS-Tricks
+Contact
+Write for CSS-Tricks!
+Advertise with us
+Social
+RSS Feeds
+CodePen
+Mastodon
+Bluesky
+Back to Top

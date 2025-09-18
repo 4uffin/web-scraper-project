@@ -1,0 +1,661 @@
+Instructions for Docker swarm with GPUs · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+tomlankhorst/docker-swarm-gpu.md
+Last active
+September 17, 2025 20:03
+Show Gist options
+Download ZIP
+Star
+39
+(39)
+You must be signed in to star a gist
+Fork
+14
+(14)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tomlankhorst/33da3c4b9edbde5c83fc1244f010815c.js&quot;&gt;&lt;/script&gt;
+Save tomlankhorst/33da3c4b9edbde5c83fc1244f010815c to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+39
+Forks
+14
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tomlankhorst/33da3c4b9edbde5c83fc1244f010815c.js&quot;&gt;&lt;/script&gt;
+Save tomlankhorst/33da3c4b9edbde5c83fc1244f010815c to your computer and use it in GitHub Desktop.
+Download ZIP
+Instructions for Docker swarm with GPUs
+Raw
+docker-swarm-gpu.md
+Setting up a Docker Swarm with GPUs
+Installing Docker
+Official instructions.
+Add yourself to the docker group to be able to run containers as non-root (see Post-install steps for Linux).
+sudo groupadd docker
+sudo usermod -aG docker $USER
+Verify with docker run hello-world.
+Installing the NVidia Container Runtime
+Official instructions.
+Start by installing the appropriate NVidia drivers. Then continue to install NVidia Docker.
+Verify with docker run --gpus all,capabilities=utility nvidia/cuda:10.0-base nvidia-smi.
+Configuring Docker to work with your GPU(s)
+The first step is to identify the GPU(s) available on your system.
+Docker will expose these as 'resources' to the swarm.
+This allows other nodes to place services (swarm-managed container deployments) on your machine.
+These steps are currently for NVidia GPUs.
+Docker identifies your GPU by its Universally Unique IDentifier (UUID).
+Find the GPU UUID for the GPU(s) in your machine.
+nvidia-smi -a
+A typical UUID looks like GPU-45cbf7b3-f919-7228-7a26-b06628ebefa1.
+Now, only take the first two dash-separated parts, e.g.: GPU-45cbf7b3.
+Open up the Docker engine configuration file, typically at /etc/docker/daemon.json.
+Add the GPU ID to the node-generic-resources.
+Make sure that the nvidia runtime is present and set the default-runtime to it.
+Make sure to keep other configuration options in-place, if they are there.
+Take care of the JSON syntax, which is not forgiving of single quotes and lagging commas.
+{
+"runtimes": {
+"nvidia": {
+"path": "/usr/bin/nvidia-container-runtime",
+"runtimeArgs": []
+}
+},
+"default-runtime": "nvidia",
+"node-generic-resources": [
+"gpu=GPU-45cbf7b"
+]
+}
+Now, make sure to enable GPU resource advertisting by adding or uncommenting the following in /etc/nvidia-container-runtime/config.toml
+swarm-resource = "DOCKER_RESOURCE_GPU"
+Restart the service.
+sudo systemctl restart docker.service
+Initializing the Docker Swarm
+Initialize a new swarm on a manager-to-be.
+docker swarm init
+Add new nodes (slaves), or manager-nodes (shared masters).
+Run the following command on a node that is already part of the swarm:
+docker swarm join-token (worker|manager)
+Then, run the resulting command on a member-to-be.
+Show who's in the swarm:
+docker node ls
+A first deployment
+docker service create --replicas 1 \
+--name tensor-qs \
+--generic-resource "gpu=1" \
+tomlankhorst/tensorflow-quickstart
+This deploys a TensorFlow quick start image, that follows the quick start.
+Show active services:
+docker service ls
+Inspect the service
+$ docker service inspect --pretty tensor-qs
+ID:
+vtjcl47xc630o6vndbup64c1i
+Name:
+tensor-qs
+Service Mode:
+Replicated
+Replicas:
+1
+Placement:
+UpdateConfig:
+Parallelism:
+1
+On failure:
+pause
+Monitoring Period: 5s
+Max failure ratio: 0
+Update order:
+stop-first
+RollbackConfig:
+Parallelism:
+1
+On failure:
+pause
+Monitoring Period: 5s
+Max failure ratio: 0
+Rollback order:
+stop-first
+ContainerSpec:
+Image:
+tomlankhorst/tensorflow-quickstart:latest@sha256:1f793df87f00478d0c41ccc7e6177f9a214a5d3508009995447f3f25b45496fb
+Init:
+false
+Resources:
+Endpoint Mode:
+vip
+Show the logs
+$ docker service logs tensor-qs
+...
+tensor-qs.1.3f9jl1emwe9l@tlws
+| 2020-03-16 08:45:15.495159: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcublas.so.10.0
+tensor-qs.1.3f9jl1emwe9l@tlws
+| 2020-03-16 08:45:15.621767: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcudnn.so.7
+tensor-qs.1.3f9jl1emwe9l@tlws
+| Epoch 1, Loss: 0.132665216923, Accuracy: 95.9766693115, Test Loss: 0.0573637597263, Test Accuracy: 98.1399993896
+tensor-qs.1.3f9jl1emwe9l@tlws
+| Epoch 2, Loss: 0.0415383689106, Accuracy: 98.6949996948, Test Loss: 0.0489368513227, Test Accuracy: 98.3499984741
+tensor-qs.1.3f9jl1emwe9l@tlws
+| Epoch 3, Loss: 0.0211332384497, Accuracy: 99.3150024414, Test Loss: 0.0521399155259, Test Accuracy: 98.2900009155
+tensor-qs.1.3f9jl1emwe9l@tlws
+| Epoch 4, Loss: 0.0140329506248, Accuracy: 99.5716705322, Test Loss: 0.053688980639, Test Accuracy: 98.4700012207
+tensor-qs.1.3f9jl1emwe9l@tlws
+| Epoch 5, Loss: 0.00931495986879, Accuracy: 99.7116699219, Test Loss: 0.0681483447552, Test Accuracy: 98.1500015259
+Copy link
+mdailey
+commented
+May 31, 2020
+It seems that the swarm-resource option is now deprecated in the latest nvidia-container-runtime package. On Ubuntu 16.04 with nvidia-container-runtime package version 3.2.0-1 and nvidia-container-toolkit package version 1.1.1-1, uncommenting the swarm-resource line in /etc/nvidia-container-runtime/config.toml breaks my swarm services.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+RafaelWO
+commented
+Aug 11, 2020
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I got this solution to work with some changes:
+Change "gpu=GPU-45cbf7b" to "NVIDIA-GPU=GPU-45cbf7b" in the file /etc/docker/daemon.json
+Start the service with the arg --generic-resource "NVIDIA-GPU=0"
+References:
+https://docs.docker.com/engine/reference/commandline/dockerd/#miscellaneous-options
+https://docs.docker.com/engine/reference/commandline/service_create/#create-services-requesting-generic-resources
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+julienschuermans
+commented
+Feb 22, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I got this solution to work with some changes:
+Change "gpu=GPU-45cbf7b" to "NVIDIA-GPU=GPU-45cbf7b" in the file /etc/docker/daemon.json
+Start the service with the arg --generic-resource "NVIDIA-GPU=0"
+References:
+https://docs.docker.com/engine/reference/commandline/dockerd/#miscellaneous-options
+https://docs.docker.com/engine/reference/commandline/service_create/#create-services-requesting-generic-resources
+Thanks
+@RafaelWO, this worked for me!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+maaft
+commented
+Mar 31, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hi! I have multiple GPUs on my server and added 2 out of 8 to node-generic-ressources in /etc/docker/daemon.json.
+When I deploy my image with: docker service create --replicas 2 --name swarm-test --generic-resource "NVIDIA-GPU=1" swarm-test both containers use the same GPU.
+Furthermore, nvidia-smi still shows all 8 GPUs (although only 2 are present in daemon.json). Is this file somehow ignored?
+Instead I want each replica to use a dedicated GPU. How can I achieve this?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+nanotower
+commented
+Apr 16, 2021
+Swarm with nvidia it´s a mess. Poor documentation and even today we haven´t any straight steps to make it work properly.
+I have two instances in google compute engine, both
+with nvidia tesla t4. Suddenly one doesn´t work. Cuda in swarm is gone. The other one, with exactly the same config, it´s working.
+I have checked nvidia uuid "with nvidia-smi -a" and both have changed it. daemon.json has an older uuid in both vms, but one is working and the other don´t.
+¿Can someone explain it?
+I can understand that google can change the hardware across start and stop cycles. But why it´s working if daemon has a different uuid?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+PaSteEsc
+commented
+Jul 20, 2021
+Hi! I have multiple GPUs on my server and added 2 out of 8 to node-generic-ressources in /etc/docker/daemon.json.
+When I deploy my image with: docker service create --replicas 2 --name swarm-test --generic-resource "NVIDIA-GPU=1" swarm-test both containers use the same GPU.
+Furthermore, nvidia-smi still shows all 8 GPUs (although only 2 are present in daemon.json). Is this file somehow ignored?
+Instead I want each replica to use a dedicated GPU. How can I achieve this?
+hey @maaft. did you find any solution?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+rkasigi
+commented
+Sep 2, 2021
+Thank You!
+It is worked on:
+AWS g4dn.xlarge
+Ubuntu 20.04.2 LTS
+Docker 20.10.8
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+rogerbramon
+commented
+Sep 16, 2021
+Thanks! Very useful. In my case I had to use the complete UUID, otherwhise it was not able to identify the GPU.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+edwardnguyen1705
+commented
+Oct 2, 2021
+Hello,
+Have you ever tried to create a service/node running on 2 GPUs: "NVIDIA-GPU=1,2"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coltonbh
+commented
+Feb 26, 2023
+Amazing documentation. Thank you! I ripped it off and added another approach I've used for GPU support on Swam at the link below. Credit to this Gist for collecting the documentation and commentary :)
+https://gist.github.com/coltonbh/374c415517dbeb4a6aa92f462b9eb287
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+nie3e
+commented
+Apr 15, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Can i somehow mark one GPU to be able to use multiple times?
+This doesn't work:
+"node-generic-resources": [
+"NVIDIA-GPU=GPU-9c9e183c",
+"NVIDIA-GPU=GPU-9c9e183c",
+"NVIDIA-GPU=GPU-9c9e183c",
+"NVIDIA-GPU=GPU-9c9e183c"
+]
+Trying:
+docker service create --replicas 2
+--name tensor-qs
+--generic-resource "NVIDIA-GPU=1"
+tomlankhorst/tensorflow-quickstart
+Gives:
+overall progress: 1 out of 2 tasks
+1/2: no suitable node (insufficient resources on 1 node)
+2/2: running
+[==================================================>]
+Quick edit:
+My GPU UUID is GPU-9c9e183c-e6f4-1ebd-d775-2cf59c99bb1b
+and if i modify daemon.json to this:
+"node-generic-resources": [
+"NVIDIA-GPU=GPU-9c9e183c",
+"NVIDIA-GPU=GPU-9c9e183c-e6f4-1ebd-d775-2cf59c99bb1b",
+"NVIDIA-GPU=GPU-9c9e183c-e",
+]
+it is fine
+Edit: Nope, it's not fine
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+rznas
+commented
+Feb 23, 2024
+The above mentioned things did not work for me.
+As main discussion for the swarm-resource = "DOCKER_RESOURCE_GPU", the GPU part is the generic-resource name (capitalize form of the name) and the gpu uuid should be mentioned completely (GPU-d8eaf8be-5e85-1a6d-6f9f-82fda3dbb7d1).
+So in my case,
+in /etc/docker/daemon.json:
+{
+"runtimes": {
+"nvidia": {
+"path": "/usr/bin/nvidia-container-runtime",
+"runtimeArgs": []
+}
+},
+"default-runtime": "nvidia",
+"node-generic-resources": [
+"NVIDIAGPU=GPU-d8eaf8be-5e85-1a6d-6f9f-82fda3dbb7d1"
+]
+}
+in /etc/nvidia-container-runtime/config.toml:
+swarm-resource = "DOCKER_RESOURCE_NVIDIAGPU"
+in service definition: --generic-resource "NVIDIAGPU=1"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lyze237
+commented
+Apr 26, 2024
+Hey @nie3e did you ever figure out how to share a gpu across multiple containers?
+I've tried modifying it the way you mentioned:
+{
+"default-runtime": "nvidia",
+"runtimes": {
+"nvidia": {
+"path": "/usr/bin/nvidia-container-runtime",
+"runtimeArgs": []
+}
+},
+"node-generic-resources": [
+"GPU=GPU-53dea362-0606-18ae-bbc7-02e855807511",
+"GPU=GPU-53dea362"
+]
+}
+but I either got the same error that it can't find a suitable node or the following one:
+starting container failed: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error running hook #1: error running hook: exit status 1, stdout: , stderr: Auto-detected mode as 'legacy' nvidia-container-cli: device error: GPU-53dea362: unknown device: unknown
+Any ideas?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+nie3e
+commented
+Apr 26, 2024
+@lyze237 Hello. Unfortunately not :( If I need to share one GPU I am using docker compose for now, and list every service separately.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coltonbh
+commented
+May 6, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@lyze237 you can share GPUs across containers by not requesting them as resources--which can allocate a resource to only a single container--but just running them without declaring resources but using all GPUs (all GPUs are seen by default in all containers on a node) and then if you want to limit which ones a container uses specify the same NVIDIA_VISIBLE_DEVICE numbers as environment variables for those containers (assuming you don't want the containers to use all the GPUs). This would be Solution 1 that I wrote up here: https://gist.github.com/coltonbh/374c415517dbeb4a6aa92f462b9eb287
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Anduin2017
+commented
+Feb 13, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I tried everything but all failed..
+anduin@proart:/swarm-vol/Box$ sudo docker stack deploy -c ./stacks/ollama/docker-compose.yml ollama
+services.web.deploy.resources.reservations Additional property generic_resources is not allowed
+I also tried
+version: '3.7'
+services:
+test:
+image: nvidia/cuda:10.2-base
+command: nvidia-smi
+deploy:
+resources:
+reservations:
+devices:
+- driver: nvidia
+count: 1
+capabilities: [gpu, utility]
+If
+you deploy it, docker will say devices is not allowed in swarm mode.
+> docker stack deploy -c docker-compose.yml gputest
+services.test.deploy.resources.reservations Additional property devices is not allowed
+However, I recently found a trick that allows you to run a container with GPU without need to edit any config file!
+Before starting, I created a distributed attachable network, so my other containers managed by docker swarm can talk to the ollama container:
+function create_network() {
+network_name=$1
+subnet=$2
+known_networks=$(sudo docker network ls --format '{{.Name}}')
+if [[ $known_networks != *"$network_name"* ]]; then
+networkId=$(sudo docker network create --driver overlay --attachable --subnet $subnet --scope swarm $network_name)
+echo "Network $network_name created with id $networkId"
+fi
+}
+create_network proxy_app 10.234.0.0/16
+Then I deploy the following docker-compose file with docker swarm:
+(I used ollama_warmup to demostrate how other containers interact with this ollama. You can replace that with other containers obviously.)
+version: "3.6"
+services:
+ollama_starter:
+image: hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker:latest
+volumes:
+- /var/run/docker.sock:/var/run/docker.sock
+# Kill existing ollama and then start a new ollama
+entrypoint:
+- "/bin/sh"
+- "-c"
+- |
+echo 'Starter is starting ollama...' && \
+(docker kill ollama_server || true) && \
+docker run \
+--tty \
+--rm \
+--gpus=all \
+--network proxy_app \
+--name ollama_server \
+-v /swarm-vol/ollama/data:/root/.ollama \
+-e OLLAMA_HOST=0.0.0.0 \
+-e OLLAMA_KEEP_ALIVE=200m \
+-e OLLAMA_FLASH_ATTENTION=1 \
+-e OLLAMA_KV_CACHE_TYPE=q8_0 \
+-e GIN_MODE=release \
+hub.aiursoft.cn/ollama/ollama:latest
+ollama_warmup:
+depends_on:
+- ollama_starter
+image: alpine
+networks:
+- proxy_app
+entrypoint:
+- "/bin/sh"
+- "-c"
+- |
+apk add curl && \
+sleep 40 && \
+while true; do \
+curl -v http://ollama_server:11434/api/generate -d '{"model": "deepseek-r1:32b"}'; \
+sleep 900; \
+done
+deploy:
+resources:
+limits:
+memory: 128M
+labels:
+swarmpit.service.deployment.autoredeploy: 'true'
+networks:
+proxy_app:
+external: true
+volumes:
+ollama-data:
+driver: local
+driver_opts:
+type: none
+o: bind
+device: /swarm-vol/ollama/data
+And it worked!
+Now I am running ollama with deepseek in Docker! And GPU is supported!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Omega-Centauri-21
+commented
+Mar 8, 2025
+I tried everything but all failed..
+anduin@proart:/swarm-vol/Box$ sudo docker stack deploy -c ./stacks/ollama/docker-compose.yml ollama
+services.web.deploy.resources.reservations Additional property generic_resources is not allowed
+I also tried
+version: '3.7'
+services:
+test:
+image: nvidia/cuda:10.2-base
+command: nvidia-smi
+deploy:
+resources:
+reservations:
+devices:
+- driver: nvidia
+count: 1
+capabilities: [gpu, utility]
+If you deploy it, docker will say devices is not allowed in swarm mode.
+> docker stack deploy -c docker-compose.yml gputest
+services.test.deploy.resources.reservations Additional property devices is not allowed
+However, I recently found a trick that allows you to run a container with GPU without need to edit any config file!
+Before starting, I created a distributed attachable network, so my other containers managed by docker swarm can talk to the ollama container:
+function create_network() {
+network_name=$1
+subnet=$2
+known_networks=$(sudo docker network ls --format '{{.Name}}')
+if [[ $known_networks != *"$network_name"* ]]; then
+networkId=$(sudo docker network create --driver overlay --attachable --subnet $subnet --scope swarm $network_name)
+echo "Network $network_name created with id $networkId"
+fi
+}
+create_network proxy_app 10.234.0.0/16
+Then I deploy the following docker-compose file with docker swarm:
+(I used ollama_warmup to demostrate how other containers interact with this ollama. You can replace that with other containers obviously.)
+version: "3.6"
+services:
+ollama_starter:
+image: hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker:latest
+volumes:
+- /var/run/docker.sock:/var/run/docker.sock
+# Kill existing ollama and then start a new ollama
+entrypoint:
+- "/bin/sh"
+- "-c"
+- |
+echo 'Starter is starting ollama...' && \
+(docker kill ollama_server || true) && \
+docker run \
+--tty \
+--rm \
+--gpus=all \
+--network proxy_app \
+--name ollama_server \
+-v /swarm-vol/ollama/data:/root/.ollama \
+-e OLLAMA_HOST=0.0.0.0 \
+-e OLLAMA_KEEP_ALIVE=200m \
+-e OLLAMA_FLASH_ATTENTION=1 \
+-e OLLAMA_KV_CACHE_TYPE=q8_0 \
+-e GIN_MODE=release \
+hub.aiursoft.cn/ollama/ollama:latest
+ollama_warmup:
+depends_on:
+- ollama_starter
+image: alpine
+networks:
+- proxy_app
+entrypoint:
+- "/bin/sh"
+- "-c"
+- |
+apk add curl && \
+sleep 40 && \
+while true; do \
+curl -v http://ollama_server:11434/api/generate -d '{"model": "deepseek-r1:32b"}'; \
+sleep 900; \
+done
+deploy:
+resources:
+limits:
+memory: 128M
+labels:
+swarmpit.service.deployment.autoredeploy: 'true'
+networks:
+proxy_app:
+external: true
+volumes:
+ollama-data:
+driver: local
+driver_opts:
+type: none
+o: bind
+device: /swarm-vol/ollama/data
+And it worked!
+Now I am running ollama with deepseek in Docker! And GPU is supported!
+Will have to say it works, but I am stuck!
+Could you help me solve it? @Anduin2017
+I ran the stack deploy from my manager node and the service was deployed on a worker node. So how do I send the request to ollama response?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coltonbh
+commented
+Mar 8, 2025
+Just FYI @Omega-Centauri-21, swarm modes does not support the devices key, which is why you cannot deploy your basic setup on swarm but it work with docker compose. You have to hack around this lack of support for devices swarm in various ways, as @Anduin2017 is trying to do. For an overview of GPU support in swarm and various ways to work with it you can check out my Gist: https://gist.github.com/coltonbh/374c415517dbeb4a6aa92f462b9eb287
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Omega-Centauri-21
+commented
+May 18, 2025
+thanks @coltonbh , will check it out soon.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Ahson-Shaikh
+commented
+May 23, 2025
+Hey, everyone. I need a little help.
+I'm trying to use Nvidia with my Docker Swarm, but the problem is, I don't want to keep the nvidia runtime as default as other non-GPU needed containers will also share the same GPU.
+Is that possible to keep the GPU limited to few services and run other containers using the runc.
+Note: I want to achieve this inside the Docker Swarm, not on Docker-CLI containers. Any help would be greatly appreciated. Also if someone can route me to correct documentation if that's possible.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

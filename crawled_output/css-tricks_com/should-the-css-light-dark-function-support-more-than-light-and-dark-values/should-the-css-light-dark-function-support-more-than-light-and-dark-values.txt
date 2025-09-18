@@ -1,0 +1,188 @@
+Should the CSS light-dark() Function Support More Than Light and Dark Values? | CSS-Tricks
+Skip to main content
+CSS-Tricks
+Articles
+Notes
+Links
+Guides
+Almanac
+Picks
+Shuffle
+Search
+color CSS functions
+Should the CSS light-dark() Function Support More Than Light and Dark Values?
+Sunkanmi Fafowora
+on
+Sep 2, 2025
+Get affordable and hassle-free WordPress hosting plans with Cloudways — start your free trial today.
+One of the newer CSS features that has piqued my interest: the light-dark() function. And I’ve been closely following it ever since it became Baseline back in May 2024.
+The light-dark() function, briefly
+If you don’t know, the light-dark() function takes two color arguments: one for light mode and one for dark mode. Hence, the name light-dark(). It toggles between the two light and dark values based on a user’s preferences. Sara Joy has a wonderful article where you can get a much more detailed explanation.
+The key thing is that the function requires you to use the color-scheme property to activate those two color modes:
+:root {
+color-scheme: light dark;
+}
+.element {
+color: light-dark(brown, black);
+}
+And, depending on the user’s preference, one of those two modes is applied.
+Just two modes?
+That said, I’ve been wondering for a while now: Should the light-dark() function support more than light and dark color modes?
+I wrote about light-dark() for the CSS-Tricks Almanac. During my research, I found myself wishing the function could do more, specifically that it lacks support for other types of color schemes that a user might prefer, such as grayscale, high contrast, and low contrast.
+Does light-dark() even need a high-contrast mode?
+I’d say both yes and no. Let’s go back in time to when light-dark() was initially proposed somewhere around 2022. Emilio Cobos asked for a function to support light and dark mode changes, and it was added to the specifications.
+Done and handled, right? Not so fast. The ticket was indeed closed when Jacob Miller chimed in:
+Just saw this from @bramus‘s post, and I suspect that things are already closed / there’s no changing things now, but I see this as an approach that doesn’t actually solve for the issues people are facing with theming, and does so in a way that will create a trap for them when pursuing proper theming support.
+[…]
+We shouldn’t ship single-purpose tools for the browser, but rather ones that scale and we can build upon.
+Good thing he chimed in, because that prompted Bramus to reopen the ticket:
+I think this was mistakingly done so. The end goal is to have something like schemed-value(), with light-dark() being an intermediary step towards the final solution.
+That’s a big deal! Bramus is saying that the light-dark() function is an intermediary solution on the way to a  schemed-value() function. In other words, shipping light-dark() was never the intended end goal. It’s a step along the way to this other more robust schemed-value() feature.
+Custom color schemes
+Bramus has already written a bunch about the schemed-value() concept. It could look something like this:
+:root {
+color-scheme: dark light custom;
+}
+body {
+color: schemed-value(
+light lightblue, /* Value used for light color-scheme */
+dark crimson, /* Value used for dark color-scheme */
+--custom green /* Value used for --custom color-scheme */
+);
+}
+This isn’t possible with light-dark(). In fact, before the function can support more than two modes, the color-scheme property has to be extended with more than the light and dark values. Only then can light-dark() be extended because, remember, light-dark() needs the color-scheme property in order to do its thing.
+Specifically, we’d need color-scheme to accept some sort of “custom” color scheme value. Tab Atkins provides a possible example in the ticket. The idea is to register a custom color scheme using a @color-scheme at-rule that defines the scheme’s properties, such as what particular color keywords are mapped to, and then use that color scheme’s ident on the color-scheme property that is declared on the root element:
+@color-scheme --high-contast {
+base-scheme: dark;
+canvascolor: black;
+canvastext: white;
+accentcolor: white;
+/* other properties set to specific colors */
+}
+html {
+color-scheme: --high-contrast;
+}
+With that in place, the custom color scheme can be used as its own standalone value in the forthcoming schemed-value() function:
+@color-scheme --high-contast {
+/* ... */
+}
+html {
+color-scheme: --high-contrast light dark;
+}
+body {
+color: schemed-value(--high-contrast, black, white);
+}
+Breaking it all down:
+We register a custom color scheme (e.g. --high-contrast) in a @color-scheme at-rule.
+We define the color scheme’s properties in the at-rule, such as whether its base theme is light or dark and what certain values color keywords map to.
+We declare the custom color scheme on the color-scheme property at the root level (i.e., html { color-scheme: --high-contrast;}).
+We apply the custom color scheme by declaring it on color-related properties by way of the schemed-value() function.
+So, not only will light-dark() change, the CSS color-scheme property will most likely have its own at-rule to allow for custom color-scheme values.
+We need more color theme support, but not in light-dark()
+This begs my earlier question: Does the light-dark() function really need to support more than two color scheme modes? Bramus has an answer:
+When schemed-value() ever becomes a thing, light-dark() would become syntactic sugar for it.
+A-ha! This means light-dark() doesn’t need to support multiple modes because schemed-value() has the power to extend light-dark() by its own virtue:
+light-dark(<color>, <color>); = schemed-value(light <color>, dark <color>);
+Is light-dark() an intermediary step? Yes, it is. And should it be extended to support multiple modes, including custom color schemes? It certainly could, but it doesn’t have to be. Instead, we can register and define a custom color scheme in an at-rule and make sure the color-scheme property can read it. That way, we get the simplicity of a two-mode function that can be further abstracted to support additional custom modes, if needed.
+In fact, it goes beyond color schemes. There is even an open ticket to extend light-dark() for images, and the discussions surrounding it seem to agree on a new function specifically designed for it.
+What about custom functions?
+But, wait! Doesn’t a lot of this sound a lot like what we’ve been hearing about the work happening with custom functions? Indeed, Tab came back with a possible approach using the if() function, and the Chris Lilley retagged the ticket as a result. That’s when Bramus demonstrated how we could reasonably replicate the light-dark() function with a custom CSS function:
+:root {
+/* ensures light mode comes first */
+--scheme: light;
+/* dark mode is set here */
+@media (prefers-color-scheme: dark) {
+--scheme: dark;
+}
+}
+/* custom function returns any two values depending on whether system is in light or dark mode */
+@function --light-dark(--light-color, --dark-color) {
+result: if(style(--scheme: dark): var(--dark-color) ; else: var(--light-color));
+}
+p {
+font-size: --light-dark(
+2rem,
+2.5rem
+); /* returns 2rem if system is in light mode and 2.5rem if system is in dark mode */
+}
+Nothing is set in stone! The only thing we know for sure is that we have a working light-dark() function and it’s Baseline widely available for use. Custom functions a work in progress and only available in Chromium-based browsers at the time I’m writing this.
+The path forward
+I’ve been exploring everything color-related for a while now, and I’d like to know your thoughts: Are you excited about the upcoming changes to light-dark()? Do you think light-dark() should support more color modes like high contrast?
+Let me know your thoughts in the comment section below. Feel free to also comment on any of the W3C GitHub comment threads linked in this post to share your thoughts and concerns for the coming new features.
+More on light-dark()
+Almanac
+on
+Jul 8, 2025
+light-dark()
+html { color: light-dark(#000, #fff); }
+accessibility color
+Sunkanmi Fafowora
+Article
+on
+Oct 29, 2024
+Come to the light-dark() Side
+dark mode functions UI/IX Design
+Sara Joy
+Article
+on
+Jun 5, 2025
+Exploring the CSS contrast-color() Function… a Second Time
+accessibility color CSS functions
+Daniel Schwarz
+Article
+on
+Jun 26, 2025
+Poking at the CSS if() Function a Little More: Conditional Color Theming
+CSS functions
+Daniel Schwarz
+TOC
+The light-dark() function, briefly
+Just two modes?
+Custom color schemes
+We need more color theme support, but not in light-dark()
+What about custom functions?
+The path forward
+More on light-dark()
+Psst! Create a DigitalOcean account and get $200 in free credit for cloud-based hosting and services.
+Comments
+Sasha Firsov Permalink to comment# September 2, 2025
+The colors support is way beyond of what you touched in the article.
+It starts from honoring the light/dark mode in browsers (https://bugzilla.mozilla.org/show_bug.cgi?id=1983200) to support the consumer semantic theming (https://github.com/EPA-WG/custom-element-dist/discussions/14).
+And of course, whole range of things inbetween w3c needs to look at.
+If you curious to pursue the chage, would be glad to discuss further.
+Reply
+Max Battcher Permalink to comment# September 4, 2025
+The other direction where light-dark() is just a stepping stone is in form controls styling. Today light-dark() is the easiest hint to the browser that things like form controls should switch to dark mode themes when appropriate.
+That path actually has the next steps in the standards process, the “CSS Form Control Styling Level 1” working draft and most notably the “Basic Appearance” set by “appearance: base;”. The interesting concept there is that opting into the “Basic Appearance” switches the form controls out of trying to appear “native” and to a simpler, shared easily style-able (and susceptible to smart cascades) appearance. It should make it far easier to get the form controls to match your color theme (while not sacrificing accessibility, the “Basic Appearance” controls still have all the behaviors you’d expect of them as standard form controls).
+Reply
+indiealexh Permalink to comment# September 13, 2025
+I feel like a separate function is needed to support things like high contrast.
+E.g. light-dark(contrast(#333333,#000000), contrast(#DDDDDD,#FFFFFF))
+My logic being, not everyone wants multiple themes / light dark themes for their site, but providing an accessibility improvement option maybe desirable.
+And it means if your colors are already high (AAA) contrast, you don’t have to provide any values.
+Reply
+Leave a Reply Cancel replyYour email address will not be published. Required fields are marked *Comment * Name *
+Email *
+Website
+Save my name, email, and website in this browser for the next time I comment.
+Copy and paste this code: micuno *
+Leave this field empty
+Δ
+CSS-Tricks is powered by DigitalOcean.
+Keep up to date on web dev
+with our hand-crafted newsletter
+DigitalOcean
+About DO
+Cloudways
+Legal stuff
+Get free credit!
+CSS-Tricks
+Contact
+Write for CSS-Tricks!
+Advertise with us
+Social
+RSS Feeds
+CodePen
+Mastodon
+Bluesky
+Back to Top

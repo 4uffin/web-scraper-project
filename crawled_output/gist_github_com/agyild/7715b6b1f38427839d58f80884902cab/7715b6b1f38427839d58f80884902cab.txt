@@ -1,0 +1,241 @@
+Qualcomm Snapdragon Game Super Resolution (GSR) v1 for mpv · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+agyild/SGSR.glsl
+Created
+July 13, 2025 17:50
+Show Gist options
+Download ZIP
+Star
+2
+(2)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/agyild/7715b6b1f38427839d58f80884902cab.js&quot;&gt;&lt;/script&gt;
+Save agyild/7715b6b1f38427839d58f80884902cab to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+2
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/agyild/7715b6b1f38427839d58f80884902cab.js&quot;&gt;&lt;/script&gt;
+Save agyild/7715b6b1f38427839d58f80884902cab to your computer and use it in GitHub Desktop.
+Download ZIP
+Qualcomm Snapdragon Game Super Resolution (GSR) v1 for mpv
+Raw
+SGSR.glsl
+//============================================================================================================
+//
+//
+//
+Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
+//
+SPDX-License-Identifier: BSD-3-Clause
+//
+//============================================================================================================
+// Snapdragon Game Super Resolution (GSR) v1 by Qualcomm
+// ported to mpv by agyild
+// Changelog
+// 2025-07-13 - Initial release
+// - Now operates on the luma channel (instead of green) for improved accuracy.
+// - Removed the redundant "Operation mode" variable.
+// - Optimized code for readability and a minor performance gain.
+//!PARAM UseEdgeDirection
+//!DESC Enables the direction-aware upscaling algorithm. This is critical for quality, as it preserves sharp edges by avoiding blurring across them. Disabling it falls back to a simpler, faster, but much blurrier filter, a trade-off intended for low-power mobile devices. Otherwise, this should be kept enabled for the best result.
+//!TYPE DEFINE
+//!MINIMUM 0
+//!MAXIMUM 1
+1
+//!PARAM EdgeThreshold
+//!DESC Controls the sensitivity of the edge detection. The sharpening logic is only applied to areas considered an "edge". Higher values increase performance by processing fewer pixels but may miss subtle details. Lower values process more of the image, increasing detail at the cost of performance and potentially amplifying noise.
+//!TYPE CONSTANT float
+//!MINIMUM 1.0
+//!MAXIMUM 16.0
+4.0
+//!PARAM EdgeSharpness
+//!DESC Controls the strength of the sharpening effect applied to detected edges. Higher values create a sharper, more pronounced image but can introduce "ringing" or halo artifacts if set too high. This setting has no impact on performance.
+//!TYPE CONSTANT float
+//!MINIMUM 1.0
+//!MAXIMUM 2.0
+2.0
+//!HOOK LUMA
+//!BIND HOOKED
+//!DESC Snapdragon Game Super Resolution (GSR) v1
+//!WHEN OUTPUT.w OUTPUT.h * HOOKED.w HOOKED.h * / 1.0 >
+//!WIDTH OUTPUT.w
+//!HEIGHT OUTPUT.h
+//!COMPONENTS 1
+// Shader code
+float fastLanczos2(float x)
+{
+float wA = x - 4.0;
+float wB = x * wA - wA;
+wA *= wA;
+return wB * wA;
+}
+#if (UseEdgeDirection == 1)
+vec2 weightY(float dx, float dy, float c, vec3 data)
+#else
+vec2 weightY(float dx, float dy, float c, float data)
+#endif
+{
+#if (UseEdgeDirection == 1)
+float std = data.x;
+vec2 dir = data.yz;
+float edgeDis = ((dx * dir.y) + (dy * dir.x));
+float x = fma(edgeDis * edgeDis, (clamp(c * c * std, 0.0, 1.0) * 0.7 - 1.0), (dx * dx + dy * dy));
+#else
+float std = data;
+float x = fma((dx * dx + dy * dy), 0.55, clamp(abs(c) * std, 0.0, 1.0));
+#endif
+float w = fastLanczos2(x);
+return vec2(w, w * c);
+}
+vec2 edgeDirection(vec4 left, vec4 right)
+{
+vec2 delta;
+delta.x = (right.x - left.z) + (right.w - left.y);
+delta.y = (right.x - left.z) - (right.w - left.y);
+return delta * inversesqrt(dot(delta, delta) + 3.075740e-05);
+}
+vec4 hook()
+{
+vec4 color = HOOKED_texOff(0);
+vec2 imgCoord = ((HOOKED_pos * HOOKED_size) + vec2(-0.5, 0.5));
+vec2 imgCoordPixel = floor(imgCoord);
+vec2 coord = (imgCoordPixel * HOOKED_pt);
+vec2 pl = (imgCoord + (-imgCoordPixel));
+vec4 left = HOOKED_gather(coord, 0);
+float edgeVote = abs(left.z - left.y) + abs(color.x - left.y)
++ abs(color.x - left.z) ;
+if (edgeVote > (EdgeThreshold / 255))
+{
+coord.x += HOOKED_pt.x;
+vec4 right = HOOKED_gather(coord + vec2(HOOKED_pt.x, 0.0), 0);
+vec4 upDown;
+upDown.xy = HOOKED_gather(coord + vec2(0.0, -HOOKED_pt.y), 0).wz;
+upDown.zw
+= HOOKED_gather(coord+ vec2(0.0, HOOKED_pt.y), 0).yx;
+float mean = (left.y + left.z + right.x + right.w) * 0.25;
+left -= vec4(mean);
+right -= vec4(mean);
+upDown -= vec4(mean);
+color.w = color.x - mean;
+float sum = dot(abs(left) + abs(right) + abs(upDown), vec4(1.0));
+float sumMean = 1.014185e+01 / sum;
+float std = sumMean * sumMean;
+#if (UseEdgeDirection == 1)
+vec3 data = vec3(std, edgeDirection(left, right));
+#else
+float data = std;
+#endif
+vec2 aWY
+= weightY(pl.x,
+pl.y + 1.0, upDown.x, data);
+aWY += weightY(pl.x - 1.0, pl.y + 1.0, upDown.y, data);
+aWY += weightY(pl.x - 1.0, pl.y - 2.0, upDown.z, data);
+aWY += weightY(pl.x,
+pl.y - 2.0, upDown.w, data);
+aWY += weightY(pl.x + 1.0, pl.y - 1.0,
+left.x, data);
+aWY += weightY(pl.x,
+pl.y - 1.0,
+left.y, data);
+aWY += weightY(pl.x,
+pl.y,
+left.z, data);
+aWY += weightY(pl.x + 1.0, pl.y,
+left.w, data);
+aWY += weightY(pl.x - 1.0, pl.y - 1.0,
+right.x, data);
+aWY += weightY(pl.x - 2.0, pl.y - 1.0,
+right.y, data);
+aWY += weightY(pl.x - 2.0, pl.y,
+right.z, data);
+aWY += weightY(pl.x - 1.0, pl.y,
+right.w, data);
+float finalY = aWY.y / aWY.x;
+float maxY = max(max(left.y, left.z), max(right.x, right.w));
+float minY = min(min(left.y, left.z), min(right.x, right.w));
+float deltaY = clamp(EdgeSharpness * finalY, minY, maxY) - color.w;
+//smooth high contrast input
+deltaY = clamp(deltaY, -23.0 / 255.0, 23.0 / 255.0);
+color.x = clamp((color.x + deltaY), 0.0, 1.0);
+}
+color.w = 1.0;
+return color;
+}
+Copy link
+Author
+agyild
+commented
+Jul 13, 2025
+Usage
+Requires vo=gpu-next.
+Add the following to mpv.conf:
+vo=gpu-next
+glsl-shader=~~/shaders/SGSR.glsl
+The user variables have support for tunable parameters. See the code for a description of each variable.
+glsl-shader-opts=SGSR/EdgeThreshold=4.0
+glsl-shader-opts=SGSR/EdgeSharpness=2.0
+Personal notes
+SGSR v1 was designed by Qualcomm for mobile devices as a spatial upscaler where anything better than nothing (i.e., point and linear upsampling) is acceptable, and where people don't look at the pixels closely, so adjust your expectations accordingly. Compared to FSR, it runs in a single pass, should be more performant, and has similar results to FSR with lossy early exit optimization. Users who run mpv in resource-constrained environments might benefit from it as a cheap Lanczos-like upscaling alternative.
+A higher quality temporal upscaling version of this filter exists as SGSR 2, however, due to the current limitations of video streams and mpv, porting it is not feasible.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+HedioKojima
+commented
+Jul 19, 2025
+Thank you very much. It's sufficient for light use. Its effect is no less than that of ewa_lanczossharp, but it consumes much less energy.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

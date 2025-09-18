@@ -1,0 +1,870 @@
+sibling-index() | CSS-Tricks
+Skip to main content
+CSS-Tricks
+Articles
+Notes
+Links
+Guides
+Almanac
+Picks
+Shuffle
+Search
+CSS Almanac → Functions → S → sibling-index()
+sibling-index()
+Mojtaba Seyedi
+on
+Jun 3, 2025
+Get affordable and hassle-free WordPress hosting plans with Cloudways — start your free trial today.
+Experimental: Check browser support before using this in production.
+The sibling-index() CSS function returns the position of an element among its siblings, starting from 1. It’s similar to :nth-child(), but instead of using it in selectors, you can now use the index directly within CSS functions and calculations.
+ul li {
+transform: translateX(calc(sibling-index() * 10px));
+}
+Syntax
+<sibling-index()> = sibling-index()
+The sibling-index() function takes no arguments and returns an <integer>.
+Use cases
+1. Staggered transitions
+A common use case is creating staggered animations. Previously, this required specifying delays for each element using :nth-child() selectors. With sibling-index(), you can achieve this only with one line of code.
+To show how this works, I’m adding staggered animation to a CodePen I made nine years ago. Here is the old Pen — back from the days of FontAwesome, Facebook, and Google+.
+CodePen Embed Fallback
+Let’s add a 100ms (1 × 100ms) delay to the first child, 200ms (2 × 100ms) to the second, and so on.
+.menu-item {
+transition-delay: calc(sibling-index() * 100ms);
+}
+To exclude the first element from the delay:
+.menu-item {
+transition-delay: calc(sibling-index() - 1 * 100ms);
+}
+See it in action:
+CodePen Embed Fallback
+At the time, this only works behind the Experimental Web Platform features flag in Chromium-based browsers. Here is a video so you can see how it turns out:
+2. Dynamic styling
+You can also use sibling-index() to apply dynamic styles, such as varying background colors based on the element’s index:
+.menu-item {
+background-color: hsl(calc((sibling-index() - 1) * 90), 70%, 60%);
+}
+In my previous examples, the menu items can have different background colors:
+CodePen Embed Fallback
+Here is the result if you your browser doesn’t support this function yet:
+3. Positioning elements
+You can get fancier, too, like laying 40 dots out in a circle by calculating angles and positions using sibling-index().
+dot {
+--angle: calc(sibling-index() * 9deg); /* 360deg / 40 dots */
+--radius: 120px;
+position: absolute;
+width: 10px;
+height: 10px;
+background: hsl(calc(sibling-index() * 9), 100%, 60%);
+border-radius: 50%;
+top: calc(50% + sin(var(--angle)) * var(--radius));
+left: calc(50% + cos(var(--angle)) * var(--radius));
+transform: translate(-50%, -50%);
+}
+CodePen Embed Fallback
+Additional examples
+The use cases are endless! Knowing an element’s index can make all kinds of things easier to calculate. Here are a couple of cool examples I came across.
+Andrew Bone uses sibling-index() to build a boustrophedon layout — that’s a zigzag pattern where items snake left to right, then right to left on the next row (like mowing a lawn or reading boustrophedon-style writing). He uses the element’s index to calculate which row it should land on using:
+grid-row: round(up, calc(sibling-index() / 3));
+This divides the index by three (for three columns), then rounds up to figure out which row the item belongs in. That gives a consistent layout even as you add or remove items. It’s all done in CSS, no JavaScript required.
+CodePen Embed Fallback
+Fabio Giolito uses it to calculate the right angle for each image in his carousel — super handy when you’re spreading items around a circle.
+CodePen Embed Fallback
+sibling-index() works on the DOM tree, not the flat tree
+The specification states:
+These functions, to match selectors like :nth-child(), operate on the DOM tree, rather than the flat tree like most CSS values do. They may, in the future, have variants that support counting flat tree siblings.
+But what does that actually mean? Let’s look at an example of a web component to break it down:
+<fancy-section>
+<div>Slotted 1</div>
+<div>Slotted 2</div>
+<div>Slotted 3</div>
+</fancy-section>
+<script>
+class FancySection extends HTMLElement {
+constructor() {
+super();
+this.attachShadow({ mode: 'open' }).innerHTML = `
+<section>
+<slot></slot>
+<div>Internal</div>
+</section>
+<style>
+div {
+margin-left: calc(sibling-index() * 50px);
+}
+</style>
+`;
+}
+}
+customElements.define('fancy-section', FancySection);
+</script>
+At a glance, it looks like we have four <div>s visible in the page:
+Three coming from the light DOM and slotted into the component
+One internal <div> inside the shadow DOM coming from JavaScript
+You might expect the sibling-index() of the internal <div> to be 4 (the fourth visible div). But it’s actually 2, and here’s why:
+When the browser renders a web component, it creates two trees:
+The DOM tree: the actual parent/child relationships in markup
+The flat tree: what you see, with slots filled and components expanded
+The sibling-index() function works on the DOM tree, which means it doesn’t see slotted content as siblings of internal elements. It only considers elements that are siblings in the same tree scope.
+So, the DOM structure inside the <section> from the example is this:
+<section>
+<slot></slot>
+<!-- First child -->
+<div>Internal</div>
+<!-- Second child -->
+</section>
+Only two elements exist in this shadow DOM:
+The <slot>
+The internal <div>
+That means the internal <div> is the second sibling, and:
+margin-left: calc(sibling-index() * 50px); /* 2 * 50px = 100px */
+Even though it visually appears after three slotted divs, those are not its siblings in the DOM tree.
+CodePen Embed Fallback
+As you see, sibling-index() is tree-scoped, meaning it operates within the DOM tree that the element belongs to and won’t cross boundaries like Shadow DOM or slots. When used on pseudo-elements or in different tree contexts (such as ::part, ::slotted, or :host), it resolves based on the originating real element within the same tree. If the rule and the element come from different trees, the function resolves to 0 to avoid leaking internal structure. Here are some examples borrowed from the specifications:
+#target::before {
+/* Based on the sibling-index() of #target */
+width: calc(sibling-index() * 10px);
+}
+#target::before::marker {
+/* Based on the sibling-index() of #target */
+width: calc(sibling-index() * 10px);
+}
+::slotted(*)::before {
+/* Based on the sibling-index() of the slotted element - outer tree */
+width: calc(sibling-index() * 10px);
+}
+::part(my-part) {
+/* 0px - inner tree */
+width: calc(sibling-index() * 10px);
+}
+:host {
+/* Based on the hosts sibling-index() - outer tree */
+width: calc(sibling-index() * 10px);
+}
+Future possibility: Filter siblings with the of selector
+The specification also states:
+These functions may, in the future, be extended to accept an of <complex-real-selector-list> argument, similar to :nth-child(), to filter on a subset of the children.
+That means you might be able to do something like this in the future:
+li {
+transform: translateY(calc(sibling-index(of .on-sale) * 10px));
+}
+In this example, only list items with the .on-sale class are counted when calculating the index. So, the first .on-sale item gets 10px, the second gets 20px, and so on — regardless of where they are in the full list.
+<ul>
+<li>Regular item</li>
+<li class="on-sale">Sale item 1</li>
+<li>Regular item</li>
+<li class="on-sale">Sale item 2</li>
+<li class="on-sale">Sale item 3</li>
+</ul>
+Without the of filter, Sale item 2 would be considered the fourth sibling. But with sibling-index(of .on-sale), it becomes the second filtered sibling — a more useful number when styling only specific types of elements.
+Specification
+The sibling-index() function is part of CSS Values and Units Module Level 5, which is currently in Working Draft status at the time of writing. That means a lot can change between now and when the feature becomes a formal Candidate Recommendation for implementation.
+Browser support
+As of June 2025, sibling-index() is only supported in Chromium-based browsers (like Chrome and Edge), and even then, you’ll need to enable the Experimental Web Platform features flag at chrome://flags to try it out. It’s not production-ready yet, but it’s a great time to experiment and explore what it can do.
+Track the progress of the Chrome’s implementation over at Chrome Platform Status. You can check Firefox’s work in Bugzilla Ticket #1953973.
+More information
+Let the Stagger Experiments Begin (Adam Argyle)
+Possible Future CSS: Tree-Counting Functions and Random Values (Roman Komarov)
+Related tricks!
+Article
+on
+Mar 5, 2025
+How to Wait for the sibling-count() and sibling-index() Functions
+CSS functions
+Juan Diego Rodríguez
+Article
+on
+Apr 4, 2025
+A New “Web” Readiness Report
+browser resource
+Juan Diego Rodríguez
+Article
+on
+Apr 9, 2021
+Child and Sibling Selectors
+CSS
+Chris Coyier
+Article
+on
+Sep 1, 2020
+A Call for ::nth-everything
+nth-letter
+Chris Coyier
+Article
+on
+May 26, 2022
+How nth-child Works
+Chris Coyier
+Article
+on
+Jun 17, 2021
+Useful :nth-child Recipes
+Chris Coyier
+Related
+Almanac
+on
+Jan 28, 2025
+:first-child
+.element:first-child { }
+Sara Cope
+Almanac
+on
+Sep 13, 2024
+:first-of-type
+p:first-of-type { text-indent: 1rem; }
+first-of-type
+Sara Cope
+Almanac
+on
+Jan 28, 2025
+:last-child
+.element:last-child { }
+Sara Cope
+Almanac
+on
+Sep 13, 2024
+:last-of-type
+p:last-of-type { font-size: 0.75em; }
+Sara Cope
+Almanac
+on
+Jan 28, 2025
+:nth-child
+.element:nth-child(3n - 1) { }
+Sara Cope
+Almanac
+on
+Jun 11, 2025
+:nth-last-child
+li:nth-last-child(2) { }
+Sara Cope
+Almanac
+on
+Jan 28, 2025
+:nth-last-of-type
+.element:nth-last-of-type(2n + 1){ }
+Sara Cope
+Almanac
+on
+Jan 28, 2025
+:nth-of-type
+.element:nth-of-type(2n + 1) { }
+Sara Cope
+Almanac
+on
+Jan 28, 2025
+:only-child
+.element:only-child { }
+:only-child
+Sara Cope
+At-Rules
+A
+B
+C
+@charset
+@color-profile
+@container
+@counter-style
+D
+E
+F
+@font-face
+@font-feature-values
+@font-palette-values
+G
+H
+I
+@import
+J
+K
+@keyframes
+L
+@layer
+M
+@media
+color-gamut
+prefers-reduced-motion
+N
+@namespace
+O
+P
+@page
+@position-try
+@property
+Q
+R
+S
+@scope
+@starting-style
+@supports
+T
+U
+V
+@view-transition
+W
+X
+Y
+Z
+Functions
+A
+anchor()
+anchor-size()
+attr()
+B
+C
+calc-size()
+circle()
+clamp()
+color()
+color-mix()
+conic-gradient()
+counter()
+counters()
+cubic-bezier()
+D
+E
+ellipse()
+env()
+exp()
+F
+fit-content()
+G
+H
+hsl()
+I
+image()
+image-set()
+inset()
+J
+K
+L
+lab()
+lch()
+light-dark()
+linear()
+linear-gradient()
+M
+matrix()
+max()
+min()
+minmax()
+mod()
+N
+O
+oklab()
+oklch()
+P
+path()
+polygon()
+Q
+R
+radial-gradient()
+random()
+rem()
+repeating-radial-gradient()
+rgb()
+round()
+S
+scroll()
+shape()
+sibling-count()
+sibling-index()
+steps()
+symbols()
+T
+U
+url()
+V
+view()
+W
+X
+xywh()
+Y
+Z
+Properties
+A
+accent-color
+align-content
+align-items
+align-self
+all
+anchor-name
+anchor-scope
+animation
+animation-timeline
+appearance
+aspect-ratio
+B
+backdrop-filter
+backface-visibility
+background
+background-attachment
+background-clip
+background-color
+background-image
+background-origin
+background-position
+background-repeat
+background-size
+background-blend-mode
+bleed
+block-overflow
+block-size
+border
+border-block
+border-inline
+border-boundary
+border-collapse
+border-image
+border-image-outset
+border-image-repeat
+border-image-slice
+border-image-source
+border-image-width
+border-radius
+border-spacing
+bottom
+box-decoration-break
+box-shadow
+box-sizing
+break-after
+break-before
+break-inside
+C
+caption-side
+caret
+caret-color
+caret-shape
+clear
+clip-path
+color
+color-scheme
+column-count
+column-fill
+column-rule
+column-rule-color
+column-rule-style
+column-rule-width
+column-span
+column-width
+columns
+contain
+container
+container-name
+container-type
+content
+content-visibility
+counter-increment
+counter-reset
+counter-set
+cursor
+D
+direction
+display
+E
+empty-cells
+F
+field-sizing
+fill
+filter
+flex
+flex-basis
+flex-direction
+flex-flow
+flex-grow
+flex-shrink
+flex-wrap
+float
+font
+font-family
+font-size
+font-stretch
+font-style
+font-variant
+font-weight
+font-display
+font-feature-settings
+font-kerning
+font-optical-sizing
+font-palette
+font-size-adjust
+font-synthesis
+font-variant-alternates
+font-variant-emoji
+font-variant-numeric
+G
+gap
+column-gap
+row-gap
+grid
+grid-auto-columns
+grid-auto-flow
+grid-auto-rows
+grid-template
+grid-template-areas
+grid-template-columns
+grid-template-rows
+grid-area
+grid-column
+grid-column-end
+grid-column-start
+grid-row
+grid-row-end
+grid-row-start
+grid-row / grid-column
+H
+hanging-punctuation
+height
+hyphenate-character
+hyphenate-limit-chars
+hyphens
+I
+image-rendering
+initial-letter
+inline-size
+inset
+inset-block
+inset-block-end
+inset-block-start
+inset-inline
+inset-inline-end
+inset-inline-start
+interpolate-size
+isolation
+J
+justify-content
+justify-items
+justify-self
+K
+L
+left
+letter-spacing
+line-break
+line-clamp
+line-height
+list-style
+M
+margin
+margin-block
+margin-block-end
+margin-block-start
+margin-inline
+margin-inline-end
+margin-inline-start
+margin-trim
+mask
+mask-clip
+mask-composite
+mask-image
+mask-mode
+mask-origin
+mask-position
+mask-repeat
+mask-size
+mask-border
+mask-type
+max-height
+max-inline-size
+max-width
+min-height
+min-width
+mix-blend-mode
+N
+O
+object-fit
+object-position
+offset-anchor
+offset-distance
+offset-path
+offset-rotate
+opacity
+order
+orphans
+outline
+outline-color
+outline-style
+outline-width
+outline-offset
+overflow
+overflow-anchor
+overflow-clip-margin
+overflow-wrap
+overlay
+overscroll-behavior
+P
+padding
+padding-block
+padding-inline
+page-break
+paint-order
+perspective
+perspective-origin
+place-content
+place-items
+place-self
+pointer-events
+position
+position-anchor
+position-area
+position-try-fallbacks
+position-try-order
+position-visibility
+print-color-adjust
+Q
+quotes
+R
+resize
+right
+rotate
+S
+scale
+scroll-behavior
+scroll-margin
+scroll-marker-group
+scroll-padding
+scroll-snap-align
+scroll-snap-stop
+scroll-snap-type
+scrollbar
+scrollbar-color
+scrollbar-gutter
+scrollbar-width
+shape-image-threshold
+shape-margin
+shape-outside
+speak
+stroke
+stroke-dasharray
+stroke-dashoffset
+stroke-linecap
+stroke-linejoin
+stroke-width
+T
+tab-size
+table-layout
+text-align
+text-align-last
+text-box
+text-box-edge
+text-box-trim
+text-combine-upright
+text-decoration
+text-decoration-color
+text-decoration-line
+text-decoration-style
+text-decoration-thickness
+text-decoration-skip
+text-decoration-skip-ink
+text-emphasis
+text-indent
+text-justify
+text-orientation
+text-overflow
+text-rendering
+text-shadow
+text-stroke
+text-transform
+text-underline-offset
+text-underline-position
+text-wrap-mode
+text-wrap-style
+top / bottom / left / right
+touch-action
+transform
+transform-origin
+transform-style
+transition
+transition-behavior
+transition-delay
+transition-duration
+transition-property
+transition-timing-function
+translate
+U
+unicode-bidi
+unicode-range
+user-select
+V
+vertical-align
+view-timeline-name
+view-transition-name
+visibility
+W
+white-space
+widows
+width
+will-change
+word-break
+word-spacing
+writing-mode
+X
+Y
+Z
+z-index
+zoom
+Pseudo-Selectors
+A
+:active
+:any-link
+:autofill
+B
+::backdrop
+::before / ::after
+:blank
+C
+:checked
+:current
+D
+::details-content
+:default
+:defined
+:dir()
+:disabled
+E
+:empty
+:enabled
+F
+::file-selector-button
+::first-letter
+::first-line
+:first
+:first-child
+:first-of-type
+:focus
+:focus-visible
+:focus-within
+:fullscreen
+:future
+G
+H
+:has()
+:hover
+I
+:in-range
+:indeterminate
+:invalid
+:is
+J
+K
+L
+:lang()
+:last-child
+:last-of-type
+:left
+:link
+M
+::marker
+N
+:not
+:nth-child
+:nth-last-child
+:nth-last-of-type
+:nth-of-type
+O
+:only-child
+:only-of-type
+:open
+:optional
+:out-of-range
+P
+::placeholder
+:past
+:placeholder-shown
+:popover-open
+Q
+R
+:read-write / :read-only
+:required
+:right
+:root
+S
+::scroll-button()
+::scroll-marker
+::scroll-marker-group
+::selection
+T
+::target-text
+:target
+:target-current
+U
+:user-invalid
+V
+::view-transition
+::view-transition-group
+::view-transition-image-new
+::view-transition-image-old
+::view-transition-image-pair
+:valid
+:visited
+W
+:where
+X
+Y
+Z
+Selectors
+A
+Adjacent sibling
+[attribute]
+B
+C
+Chained
+Child
+Class
+D
+Descendant
+E
+F
+G
+General sibling
+H
+I
+ID
+J
+K
+L
+M
+N
+O
+P
+Q
+R
+S
+T
+Type
+U
+Universal
+V
+W
+X
+Y
+Z
+TOC
+Syntax
+Use cases
+Additional examples
+sibling-index() works on the DOM tree, not the flat tree
+Future possibility: Filter siblings with the of selector
+Specification
+Browser support
+More information
+Related tricks!
+Psst! Create a DigitalOcean account and get $200 in free credit for cloud-based hosting and services.
+This comment thread is closed. If you have important information to share, please contact us.
+CSS-Tricks is powered by DigitalOcean.
+Keep up to date on web dev
+with our hand-crafted newsletter
+DigitalOcean
+About DO
+Cloudways
+Legal stuff
+Get free credit!
+CSS-Tricks
+Contact
+Write for CSS-Tricks!
+Advertise with us
+Social
+RSS Feeds
+CodePen
+Mastodon
+Bluesky
+Back to Top

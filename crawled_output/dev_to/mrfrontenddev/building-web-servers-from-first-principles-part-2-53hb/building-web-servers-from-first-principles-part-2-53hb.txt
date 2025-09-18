@@ -1,0 +1,392 @@
+Building Web Servers from First Principles (Part 2) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Boluwatife Adewusi
+Posted on Sep 17
+Building Web Servers from First Principles (Part 2)
+#go
+#backend
+#tutorial
+Building a web server (7 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+...
+3 more parts...
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+6
+Building Web Servers from First Principles (Part 6)
+7
+Building Web Servers from First Principles (Part 7)
+In Chapter 1, we built a server that responded with "hello world" to every request. That's like having an API that returns the same response whether your frontend calls /api/users, /api/products, or /api/login. Not very useful!
+Today, we'll fix this by making our server route-aware - different paths will return different responses, just like a real API.
+What We've Built So Far
+From Chapter 1, we have a basic server that:
+✅ Listens on port 3000
+✅ Responds to HTTP requests
+❌ Returns the same response for every path
+The Problem Frontend Developers Face
+When you write JavaScript like this:
+// Different endpoints, different data expected
+const users = await fetch('/api/users').then(r => r.json())
+const products = await fetch('/api/products').then(r => r.json())
+const profile = await fetch('/api/profile').then(r => r.json())
+Enter fullscreen mode
+Exit fullscreen mode
+You expect different responses from each endpoint. Our current server can't handle this - it would return "hello world" for all three calls.
+Inspecting the Request Path
+The solution starts with examining what the client is actually requesting. Let's modify our ServeHTTP method to look at the request path:
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+path := r.URL.Path
+log.Printf("%s %s", r.Method, path)
+// For now, let's just echo back what was requested
+message := fmt.Sprintf("You requested: %s", path)
+w.WriteHeader(http.StatusOK)
+w.Write([]byte(message))
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Let's test this incremental change:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+In another terminal, try different paths:
+curl http://localhost:3000/users
+curl http://localhost:3000/products
+curl http://localhost:3000/api/login
+Enter fullscreen mode
+Exit fullscreen mode
+Expected Responses:
+You requested: /users
+You requested: /products
+You requested: /api/login
+Enter fullscreen mode
+Exit fullscreen mode
+Great! Now our server knows what path was requested. But we still need to return different content for different paths.
+Building Route Logic with Switch Statements
+Here's where most tutorials jump straight to a routing library. But let's first understand why those libraries exist by building routing logic ourselves.
+The most straightforward approach is a switch statement:
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+path := r.URL.Path
+log.Printf("%s %s", r.Method, path)
+w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+w.WriteHeader(http.StatusOK)
+switch path {
+case "/hello":
+hello(w)
+case "/goodbye":
+goodbye(w)
+case "/time":
+getTime(w)
+default:
+welcome(w)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Now we need to create those handler functions. Let's add them to our server.go:
+func welcome(w http.ResponseWriter) {
+w.Write([]byte("Welcome to our Go Webserver!"))
+}
+func hello(w http.ResponseWriter) {
+w.Write([]byte("Hello, World!"))
+}
+func goodbye(w http.ResponseWriter) {
+w.Write([]byte("Goodbye, see you later!"))
+}
+func getTime(w http.ResponseWriter) {
+message := fmt.Sprintf("Current Time: %s", time.Now().Format("2006-01-02 15:04:05"))
+w.Write([]byte(message))
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Don't forget to import the time package at the top of your file:
+import (
+"fmt"
+"log"
+"net/http"
+"time"
+// Add this line
+)
+Enter fullscreen mode
+Exit fullscreen mode
+Testing Our Route-Aware Server
+Let's test our newly route-aware server:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+Try these different endpoints:
+curl http://localhost:3000/hello
+curl http://localhost:3000/goodbye
+curl http://localhost:3000/time
+curl http://localhost:3000/
+curl http://localhost:3000/unknown-path
+Enter fullscreen mode
+Exit fullscreen mode
+Expected Responses:
+Hello, World!
+Goodbye, see you later!
+Current Time: 2024-09-14 15:30:45
+Welcome to our Go Webserver!
+Welcome to our Go Webserver!
+Enter fullscreen mode
+Exit fullscreen mode
+Perfect! Our server now behaves like a real API - different paths return different responses.
+What We've Accomplished
+We now have:
+✅ Path-aware routing (different responses for different URLs)
+✅ Clean handler separation (each route has its own function)
+✅ Default route handling (catch-all for unknown paths)
+✅ Request logging (see what's being requested)
+The Problems We're Creating
+While our switch statement approach works, it's already showing some issues that will become painful as we scale:
+1. Method Blindness
+Our server doesn't distinguish between HTTP methods. Try this:
+curl -X POST http://localhost:3000/hello
+curl -X DELETE http://localhost:3000/hello
+curl -X PUT http://localhost:3000/hello
+Enter fullscreen mode
+Exit fullscreen mode
+All return the same response! In a real API, GET /users and POST /users should do very different things.
+2. Growing Switch Statement
+Imagine adding 20 more routes:
+switch path {
+case "/hello":
+hello(w)
+case "/goodbye":
+goodbye(w)
+case "/time":
+getTime(w)
+case "/users":
+getUsers(w)
+case "/products":
+getProducts(w)
+case "/orders":
+getOrders(w)
+// ... 15 more cases
+default:
+welcome(w)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This becomes unwieldy quickly - like having one massive if-else chain in your frontend code.
+3. No Dynamic Paths
+What if your frontend needs to call /users/123 or /products/456? We'd need a case for every possible ID, which is impossible.
+4. Handler Signatures
+Our handler functions only take a ResponseWriter. Real APIs need access to the full Request to read query parameters, headers, and request bodies.
+Quick Fix: Adding HTTP Method Support
+Before we move on, let's quickly add basic HTTP method support to see how the complexity grows:
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+path := r.URL.Path
+method := r.Method
+log.Printf("%s %s", method, path)
+w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+w.WriteHeader(http.StatusOK)
+// Now we need to check BOTH path AND method
+switch method {
+case "GET":
+s.handleGET(w, r, path)
+case "POST":
+s.handlePOST(w, r, path)
+default:
+http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+}
+func (s *Server) handleGET(w http.ResponseWriter, r *http.Request, path string) {
+switch path {
+case "/hello":
+hello(w)
+case "/goodbye":
+goodbye(w)
+case "/time":
+getTime(w)
+default:
+welcome(w)
+}
+}
+func (s *Server) handlePOST(w http.ResponseWriter, r *http.Request, path string) {
+switch path {
+case "/hello":
+w.Write([]byte("Hello via POST!"))
+default:
+http.Error(w, "Not found", http.StatusNotFound)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test the different methods:
+curl -X GET http://localhost:3000/hello
+# Returns: Hello, World!
+curl -X POST http://localhost:3000/hello
+# Returns: Hello via POST!
+curl -X PUT http://localhost:3000/hello
+# Returns: Method not allowed
+Enter fullscreen mode
+Exit fullscreen mode
+See how quickly this is getting complex? We're already at nested switch statements, and we only have a few routes!
+What's Next?
+In Chapter 3, we'll solve these growing pains by building a proper router - a separate component responsible for matching paths and methods to handlers. This will give us:
+Clean separation of concerns (routing logic separate from business logic)
+Support for different HTTP methods
+A foundation for dynamic routes like /users/:id
+Better organization as our API grows
+Think of it like moving from one giant JavaScript file to a properly structured application with separate modules.
+Challenge: Before Chapter 3, try adding a few more routes to see how unwieldy the switch statement becomes. Add routes like /api/users, /api/products, and /api/orders for both GET and POST methods.
+Building a web server (7 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+...
+3 more parts...
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+6
+Building Web Servers from First Principles (Part 6)
+7
+Building Web Servers from First Principles (Part 7)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Boluwatife Adewusi
+Follow
+I am a full stack developer with over half a decade of experience journaling my journey so that you don't make the same mistakes I made.
+Joined
+Jun 5, 2024
+More from Boluwatife Adewusi
+Building Web Servers from First Principles (Part 7)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 6)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 5)
+#go
+#backend
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

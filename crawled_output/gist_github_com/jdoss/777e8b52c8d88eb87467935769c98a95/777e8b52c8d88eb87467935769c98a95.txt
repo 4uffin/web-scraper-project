@@ -1,0 +1,525 @@
+Decrypt LUKS volumes with a TPM on Fedora Linux · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+jdoss/LUKS_and_TPM2_with_Fedora.md
+Last active
+September 18, 2025 00:44
+Show Gist options
+Download ZIP
+Star
+81
+(81)
+You must be signed in to star a gist
+Fork
+15
+(15)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/jdoss/777e8b52c8d88eb87467935769c98a95.js&quot;&gt;&lt;/script&gt;
+Save jdoss/777e8b52c8d88eb87467935769c98a95 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+7
+Stars
+81
+Forks
+15
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/jdoss/777e8b52c8d88eb87467935769c98a95.js&quot;&gt;&lt;/script&gt;
+Save jdoss/777e8b52c8d88eb87467935769c98a95 to your computer and use it in GitHub Desktop.
+Download ZIP
+Decrypt LUKS volumes with a TPM on Fedora Linux
+Raw
+LUKS_and_TPM2_with_Fedora.md
+Decrypt LUKS volumes with a TPM on Fedora Linux
+This guide allows you to use the TPM on your computer to decrypt your LUKS encrypted volumes. If you are worried about a cold boot attack on your hardware please DO NOT use this guide with your root volume!
+Preflight Checks
+Verify that you have a TPM in your computer:
+# systemd-cryptenroll --tpm2-device=list
+PATH
+DEVICE
+DRIVER
+/dev/tpmrm0 MSFT0101:00 tpm_crb
+Note: If you have more than one TPM in your computer you will need to change --tpm2-device=auto to the exact TPM you want to use: --tpm2-device=/dev/tpmrm0 and rd.luks.options=tpm2-device=/dev/tpmrm0 in GRUB_CMDLINE_LINUX.
+Verify that you are booted into SecureBoot.
+# mokutil --sb-state
+SecureBoot disabled
+If you see that it is disabled you will need to enable it in the BIOS. You should enable SecureBoot before you start.
+Note: Enabling SecureBoot will cause third party kernel modules (such as NVIDIA drivers) to fail to load. You can work around this by using something like this to automatically sign the drivers built by akmod.
+If you use the RPM Fusion repo for NVIDIA drivers you can use their support for automatically signing locally built kmod with a self generated key.
+Find your LUKS encrypted volumes
+# blkid -t TYPE=crypto_LUKS
+/dev/nvme0n1p3: UUID="0818cd36-a007-11ec-aaab-7c10c93c41b1" TYPE="crypto_LUKS" PARTUUID="c362bcd2-87"
+/dev/nvme1n1p1: UUID="15bc3342-a007-11ec-a502-7c10c93c41b1" TYPE="crypto_LUKS" PARTUUID="e8ead241-02"
+Enroll your encrypted volumes
+# systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+4+7+8+9 /dev/nvme0n1p3
+# systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+4+7+8+9 /dev/nvme1n1p1
+This will ask for your volume's passphrase. If you'd like to automate this in a script you may set the PASSWORD environment variable to your LUKS passphrase.
+When setting --tpm2-pcrs=0+2+4+7+8+9 the following items are these are validated at boot time:
+0: System firmware executable
+2: Kernel
+4: Bootloader
+7: Secure boot state
+8: Cmdline
+9: Initrd
+PCR 0,2,4,7,8,9 verifies the firmware, kernel, bootloader, secure boot state, cmdline and initrd before releasing the decryption key. If you are using PCR 2 and multiple kernels you will need to enroll a key for each kernel. If you have updated the firmware, kernel, or bootloader, and cmdline then auto volume decryption on your next reboot will fail. As long as you have a password set on your LUKS volumes you will be prompted to have to enter it to decrypt them and you will need to wipe the old key and enroll a new key if anything changes.
+Remove all TPM2 keys and enroll a new key
+systemd-cryptenroll /dev/nvme0n1p3 --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=0,2,4,7,8,9
+systemd-cryptenroll /dev/nvme1n1p1 --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=0,2,4,7,8,9
+Edit /etc/crypttab
+Add tpm2-device=auto,discard to the end of each LUKS device line in /etc/crypttab
+# cat /etc/crypttab
+luks-014aa5a6-a007-11ec-a054-7c10c93c41b1 UUID=0818cd36-a007-11ec-aaab-7c10c93c41b1 - tpm2-device=auto,discard
+luks-0e9e99f6-a007-11ec-8130-7c10c93c41b1 UUID=15bc3342-a007-11ec-a502-7c10c93c41b1 - tpm2-device=auto,discard
+Edit /etc/default/grub
+Edit /etc/default/grub and add rd.luks.options=tpm2-device=auto to GRUB_CMDLINE_LINUX.
+GRUB_CMDLINE_LINUX="rd.driver.blacklist=nouveau modprobe.blacklist=nouveau nvidia-drm.modeset=1 rd.luks.uuid=luks-014aa5a6-a007-11ec-a054-7c10c93c41b1 rd.luks.uuid=luks-0e9e99f6-a007-11ec-8130-7c10c93c41b1 rd.luks.options=tpm2-device=auto rhgb quiet rd.driver.blacklist=nouveau"
+Recovery Key Enrollment (optional)
+If you have a safe place to store a recovery key you can generate and add one for each LUKS volume. It will show the recovery key phrase on screen and generate a QR code you may scan off screen.
+systemd-cryptenroll --recovery-key /dev/nvme0n1p3
+systemd-cryptenroll --recovery-key /dev/nvme1n1p1
+Verify and reboot!
+Verify that you have the TPM added to the encrypted volumes:
+# systemd-cryptenroll /dev/nvme0n1p3
+SLOT TYPE
+0 password
+1 tpm2
+2 recovery
+# systemd-cryptenroll /dev/nvme1n1p1
+SLOT TYPE
+0 password
+1 tpm2
+2 recovery
+and now you can reboot and your TPM should unlock your encrypted drives!
+Sources:
+https://gist.github.com/chrisx8/cda23e2d1fa3dcda0d739bc74f600175
+https://bugzilla.redhat.com/show_bug.cgi?id=1976462
+https://www.freedesktop.org/software/systemd/man/systemd-cryptenroll.html
+https://wiki.archlinux.org/title/Trusted_Platform_Module#systemd-cryptenroll
+https://man7.org/linux/man-pages/man5/dracut.conf.5.html
+https://0pointer.net/blog/unlocking-luks2-volumes-with-tpm2-fido2-pkcs11-security-hardware-on-systemd-248.html
+https://github.com/larsks/akmod-sign-modules
+https://rpmfusion.org/Howto/Secure%20Boot
+Load earlier comments...
+Copy link
+chrsin
+commented
+Jun 15, 2023
+After using this script for a while I'm experiencing the following:
+"Please enter current passphrase for disk /dev/nvme0n1p3: ************
+Failed to add new TPM2 key to /dev/nvme0n1p3: No space left on device"
+I've built a small script to automate some of it:
+#!/bin/bash
+#Enrolls luks into tpm so you don't have to type password everytime you boot
+#Script is inspired by the excellent instructions at https://gist.github.com/jdoss/777e8b52c8d88eb87467935769c98a95
+set -e
+DEVID=$(sudo blkid -t TYPE=crypto_LUKS | awk '{print $1;}' | sed 's/://')
+if [ $DEVID ]
+then
+echo Device id is: $DEVID
+else
+echo No encrypted devices found
+exit 1
+fi
+for DEVICE in $DEVID
+do
+echo "Enrolling $DEVICE for tpm"
+sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+4+7 $DEVICE
+echo "Done... Generating a recovery key for $DEVICE"
+sudo systemd-cryptenroll --recovery-key $DEVICE
+done
+I can't figure out how to mount the device. I just get:
+"mount: /mnt: unknown filesystem type 'crypto_LUKS'.
+dmesg(1) may have more information after failed mount system call."
+Does anyone know how to solve this issue?
+Thanks in advance
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+chrsin
+commented
+Jul 4, 2023
+Was able to clear it using the command
+systemd-cryptenroll --wipe-slot=tpm2
+After that I could add new keys again
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+Jul 14, 2023
+Was able to clear it using the command systemd-cryptenroll --wipe-slot=tpm2 After that I could add new keys again
+For the full capabilities see the manual page!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Blaimi
+commented
+Oct 8, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+DO NOT SKIP PCR8 !!!! (Hash of the kernel command line, Supported by grub and systemd-boot)
+If you don't use PCR8, Malory can add init=/bin/bash to the kernel's cmdline in grub and has a root-shell with decrypted harddisk. From here any user-password can be reset. reboot -> login with new password -> full access!!!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+jdoss
+commented
+Oct 9, 2023
+@Blaimi Good point and nice catch. I updated the Gist with your suggestion.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+Oct 9, 2023
+DO NOT SKIP PCR8 !!!! (Hash of the kernel command line, Supported by grub and systemd-boot)
+If you don't use PCR8, Malory can add init=/bin/bash to the kernel's cmdline in grub and has a root-shell with decrypted harddisk. From here any user-password can be reset. reboot -> login with new password -> full access!!!
+This is irrelevant when using unified kernel images, as the kernel ignores the command line if the image is booted from a secure boot environment. Of course as an additional security policy sure, but your statement is factually wrong if using signed images. If you are not using one, bootkits will bypass any TPM policy check anyways.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+77Lomitko
+commented
+Oct 28, 2023
+First, I would like to thank you for this wonderful guide. It is straightforward and saved me a lot of time.
+in my case, something of great importance is missing - do not forget to acctually recreate grub config so that it reflects the change to GRUB_CMDLINE_LINUX
+(in /etc/default/grub).
+In my case, that would be
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+that needs to be done before the tpm enrollment. (as doing it after effectively violates the 8 part. ).
+__
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Blaimi
+commented
+Nov 8, 2023
+I had to run dracut -f on a fresh fc39 installation. I did not need to change it's configuration, but a rebuild of the initrd was necessary (maybe because of the change in crypttab??)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+fdobrovolny
+commented
+Nov 15, 2023
+Using the grubby seems to be the right way to add the parameters?
+grubby --update-kernel=ALL --args="rd.luks.options=tpm2-device=auto"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Blaimi
+commented
+Nov 15, 2023
+PCR8 and non-ui reboots or update-installations
+During the investigation why the system doesn't unlock when I reboot via ssh without any login, I played around with grub-setenv list and systemd-analyze pcrs. PCR8 does not only hash the cmdline like explained in ArchWiki but also the commands executed in grub (see grub docs). PCR8 is indeed the only register which changes when adding init=/bin/bash to the cmdline.
+grubenv
+PCR8 does not contain the cmdline only but every command which is executed by grub. This register changes it's content everytime when the grub-env vars boot_success and/or boot_indeterminate are changing because it changes the way grub executes the commands. And because boot_success is only set when a user-session is running for two minutes (systemctl status --user grub-boot-success.{service,timer}) or when rebooting via the gdm-ui (0001-Fedora-Set-grub-boot-flags-on-shutdown-reboot.patch) a reboot via ssh will not set boot_success. This also explains why two reboots are necessary after an update to fix the unlock because this also plays with boot_indeterminate (systemctl cat grub-boot-indeterminate.service).
+TL;DR;
+I disabled the grub-scripts which are responsible for the autohide and timeout-changes and set a countdown timeout of 1 second:
+sudo chmod -x /etc/grub.d/08_fallback_counting /etc/grub.d/12_menu_auto_hide /etc/grub.d/14_menu_show_once /etc/grub.d/10_reset_boot_success
+sudo sed -n -e '/^GRUB_TIMEOUT=/!p' -e '$aGRUB_TIMEOUT=1' -i /etc/default/grub
+sudo sed -n -e '/^GRUB_TIMEOUT_STYLE=/!p' -e '$aGRUB_TIMEOUT_STYLE=countdown' -i /etc/default/grub
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+# then reboot and enroll
+PCR9
+PCR9 should also be added to the list. The initrd is not measured in PCR8, so an attacker could manipulate it, e.g. with a simple initrd which only prints the luks headers on the screen or uploads it somewhere.
+envfile and boot_indeterminate
+PCR9 not only get changed when the initrd changes but when any file changes which is read by grub, booting when executing updates asks for the password because of the change in grubenv. To prevent this, execute systemctl disable grub-boot-indeterminate.service.
+cmdline
+The additinal parameter in the cmdline is not necessary.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Yrlish
+commented
+Dec 22, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+If you have updated the firmware, kernel, or bootloader, and cmdline then auto volume decryption on your next reboot will fail.
+Does this mean that for every kernel update through dnf the boot and decryption will break? And that I manually have to add new keys to tpm?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+Dec 23, 2023
+If you have updated the firmware, kernel, or bootloader, and cmdline then auto volume decryption on your next reboot will fail.
+Does this mean that for every kernel update through dnf the boot and decryption will break? And that I manually have to add new keys to tpm?
+It completely depends on your encryption's PCR configuration. See more at man systemd-cryptenroll.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Blaimi
+commented
+Dec 31, 2023
+Does this mean that for every kernel update through dnf the boot and decryption will break? And that I manually have to add new keys to tpm?
+If you have PCR 8 and/or 9 configured: yes. I strongly recommend this because of comment #4717836.
+Fedora/RedHat is currently working on a Unified Kernel Image which can also boot without grub. This makes the contents of the PCRs predictable after a update before the reboot has happened and enables the possibility to add the new decryption key without breaking auto-unlock after updates. This prediction is not possible to do with the current implementation of grub and I assume never will.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Jarartur
+commented
+May 16, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I can't get it to work on my thinkpad T14 gen 1. It just shows my normal encryption passphrase prompt (not the recovery key but the original passphrase). Everything from the steps above goes correctly and systemd-cryptenroll /dev/nvme0n1p3 shows tpm2.
+Anyone experienced something like this?
+EDIT:
+For anyone wondering: I had to re-run systemd-cryptenroll /dev/nvme0n1p3 --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=0,2,4,7,8 after the dracut -f. Now it automatically works.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+May 16, 2024
+I can't get it to work on my thinkpad T14 gen 1. It just shows my normal encryption passphrase prompt (not the recovery key but the original passphrase). Everything from the steps above goes correctly and systemd-cryptenroll /dev/nvme0n1p3 shows tpm2. Anyone experienced something like this?
+EDIT: For anyone wondering: I had to re-run systemd-cryptenroll /dev/nvme0n1p3 --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=0,2,4,7,8 after the dracut -f. Now it automatically works.
+This because you either did not run on or it failed for some reason during the UKI generation and the information to unlock the volume via this method was not included.
+An other option is that one of the PCRS failed the TPM policy, resulting in the fallback passphrase encryption.
+@Jarartur Also, FYI, I am not sure which systemd version you are using, but PCR 8 is not defined in systemd-cryptenroll's manpage, so you should not use it. Maybe PCR 9 would make sense, but you would have to re-enroll the TPM keys on each initrd update. Also, upon a bootloader update beacuse of PCR 4.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Blaimi
+commented
+May 16, 2024
+@Jarartur Also, FYI, I am not sure which systemd version you are using, but PCR 8 is not defined in systemd-cryptenroll's manpage, so you should not use it. Maybe PCR 9 would make sense, but you would have to re-enroll the TPM keys on each initrd update. Also, upon a bootloader update beacuse of PCR 4.
+Please see comments 4717836 and 4761939 for an explanation why you should never skip PCR8 and 9 when you use grub or any bootloader where you can change the kernel cmdline or with an unencrypted /boot where the initrd can be replaced with a malicious one. Yes, this entails that the key needs to be enrolled after nearly every upgrade.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+jdoss
+commented
+May 17, 2024
+There have been a lot of comments on this gist with some good feedback and advice. I updated the guide to included PCR9 as a result.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+May 19, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@Blaimi As long as you are using secure boot and the bootloader loads a UKI as long as it is not specifically disabled in the kernel, you can not change the kernel command line, the kernel will ignore and cmdline values passed to it, this is by design. This applies across all bootloaders, including GRUB(2), as this is handled by the kernel. Using this PCR would only be relevant if you are not booting a UKI, but then the loaded initramfs can be taken over anyway. I guess if you are booting a pure modified kernel without an initramfs which handles everything on an embedded system, this would make sense, but you would not use GRUB or anything else there anyway and UEFI is nonexistent basically there :) Thus, making this irrelevant in any sensible situation.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Blaimi
+commented
+May 21, 2024
+Yes, if you are using a UKI … but even fedora 40, which brought us the ability for UKI, is not using them by default.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+May 21, 2024
+Well, it is described in the beggining that this will not protect against cold boot attacks. But I would also point out (albeit there are many easier ways), as long as the initramfs is not verified against verity, replacing it can be done remotely by a malicious program to gain persistance and it will probably be unnoticed by the user.
+I would personally point out that not even the LUKS encrypted non-root volumes are safe in this scenario.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Blaimi
+commented
+May 22, 2024
+I want to protect my data against "ooops, I forgot my laptop in the train". And to have some comfort when booting (by not having to type the password), I accept that a computer forensic may get access with a significant effort. Adding init=/bin/bash to the kernelcmd and replacing the user password is the first thing I would try, even on unencrypted systems. This is even the recommended method to recover a forgotten root password in Linux Foundation's LFCS certification. Manipulating the initrd needs a lot more time but is also very trivial. A good example for adding custom scripts, even with networking, is dracut-sshd which can be used to unlock LUKS volumes via network when starting the machine via wake on lan.
+Adding PCR8 prevents the attac with init=/bin/bash, and PCR9 prevents initrd manipulation on current default installations of fedora which use grub with initrds and not an UKI.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+neverping
+commented
+Jul 28, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I am on Fedora 40.
+It worked with me after doing the following changes I saw in Fedora Magazine.
+https://fedoramagazine.org/automatically-decrypt-your-disk-using-tpm2/
+sudo systemd-cryptenroll /dev/nvme0n1xxx --tpm2-device=auto --tpm2-pcrs=1,4,5,7,9
+Then on /etc/crypttab:
+luks-xxx UUID=yyy - tpm2-device=auto,tpm2-pcrs=1,4,5,7,9
+Finally:
+dracut -fv --regenerate-all
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+64-bitman
+commented
+Aug 19, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Note for systemd-boot users: dont include PCR 8 (thats a grub thing, see https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html) use PCR 12
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+Aug 22, 2024
+@Blaimi
+I want to protect my data against "ooops, I forgot my laptop in the train".
+I completely get that. Still, it is more common for a normal user to get compromised remotely rather than an IRL evil maid attack. And protecting against remote attacks protects the system against physical attacks as well.
+Also, I would point out that TPM-based encryption has two flaws:
+SHA-1 banks: Easily guessable by modern day computer, unless DA lockout is configured. But DA lockout can happen in unexpected situations, that is why in my tests I found Ubuntu with TPM based FDE impossible when dual booting Windows.
+No firmware TPM: If TPM lines are exposed you can get easily compromised anyway, see this great vid by stacksmashing. I would personally set a TPM pin (however, I would note that stable versions of Systemd seem to confuse FIDO2 and TPM2 PIN prompt texts if both is set up) or if you really need TPM2 fully unattended unlocking, go for a chip which has a firmware TPM, so lines are not exposed.
+Adding PCR8 prevents the attac with init=/bin/bash, and PCR9 prevents initrd manipulation on current default installations of fedora which use grub with initrds and not an UKI.
+This is ok, but not portable, see above me:
+Note for systemd-boot users: dont include PCR 8 (thats a grub thing, see https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html) use PCR 12
+Also, this relies on the TPM measurement, instead of the fixed functionality of the kernel to actually ignore kernel parameters and if you are looking for a standard way to store that go for PCR 12. But I would only do this for non-tinkering users, where the kernel CMD never changes and this is more relevant for OEMs or embedded systems.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+DragonSWDev
+commented
+Sep 22, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@IPlayZed It seems that PCR8 also works with rEFInd. I used PCR8 on my setup and it was working fine, when I modified kernel command line parameters in refind.conf it asked me for the password after reboot. It started working again when I restored command line to the previous one. I couldn't find anything in rEFInd documentation about that though.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+Sep 22, 2024
+@DragonSWDev Hey, that is good to know. This means that the 3 main bootloaders follow the standards :)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+Feb 15, 2025
+via email
+Go figure... It is always the same with every Linux desktop distribution. Everything is so slow on the uptake. Only Ubuntu does something similar and of course they had to reinvent the wheel and put everything into their Snap format. Besides, even the LTS installments break after and update unless you use their very specific test hardware...
+Börcsök Balázs Róbert
+Sent with [Proton Mail](https://proton.me/mail/home) secure email.
+…
+On Friday, February 14th, 2025 at 18:00, computerquip-work ***@***.***> wrote:
+@computerquip-work commented on this gist.
+---------------------------------------------------------------
+WARNING: This is a rant.
+It kinda sucks that most of this isn't available out of the box (especially for servers) and it requires so much manual setup. For the most part, it's all possible to automate after some work but re-enrollment is a downright pain.
+I suspect there's a bug in re-enrollment actually. Originally, I thought you could do something like systemd-cryptenroll <device> --unlock-tpm2-device=auto --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=8,9 but this results in no TPM being enrolled despite what the output of this command says. Re-enrollment seems to always require a password to be input (for any amount of security anyways).
+I also don't understand why we need to specify the PCR numbers in 4 (5? Maybe even 6?) different locations. If you mismatch even one of them, it causes confusing problems.
+And lastly, I don't understand why some PCRs always trigger prompt on boot? If I use PCR 7, that basically never changes at all, why does this trigger prompt on boot? If I use literally anything other than 8 or 9 with a GRUB based setup, it triggers prompt on boot.
+—
+Reply to this email directly, [view it on GitHub](https://gist.github.com/jdoss/777e8b52c8d88eb87467935769c98a95#gistcomment-5439489) or [unsubscribe](https://github.com/notifications/unsubscribe-auth/AFBHIHEXTZZWZRWGO42NL332PYOMLBFKMF2HI4TJMJ2XIZLTSKBKK5TBNR2WLJDUOJ2WLJDOMFWWLO3UNBZGKYLEL5YGC4TUNFRWS4DBNZ2F6YLDORUXM2LUPGBKK5TBNR2WLJDHNFZXJJDOMFWWLK3UNBZGKYLEL52HS4DFVRZXKYTKMVRXIX3UPFYGLK2HNFZXIQ3PNVWWK3TUUZ2G64DJMNZZDAVEOR4XAZNEM5UXG5FFOZQWY5LFVEYTCNJSHA3TANRVU52HE2LHM5SXFJTDOJSWC5DF).
+You are receiving this email because you commented on the thread.
+Triage notifications on the go with GitHub Mobile for [iOS](https://apps.apple.com/app/apple-store/id1477376905) or [Android](https://play.google.com/store/apps/details?id=com.github.android).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+hueychen27
+commented
+Jul 2, 2025
+How can I set this up with a pin as well?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IPlayZed
+commented
+Jul 23, 2025
+@hueychen27 what do you mean by pin?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+hueychen27
+commented
+Jul 23, 2025
+TPM pin
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

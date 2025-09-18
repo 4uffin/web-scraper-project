@@ -1,0 +1,70 @@
+Joining Together AI and Introducing CodeSandbox SDK - CodeSandboxSign InTry for freeFeaturesUse Casesdeployed_codeCodeSandbox SDKProgrammatically spin up dev environments.play_arrowSandpackLive coding in the browser.bookStorybook IntegrationGive a code playground to every story.code_blocksCode in SandboxesPrototype your ideas in record time.schoolLearn & ExperimentTry frameworks and experiment new tools.SDKResourcescodeTemplatesFind inspiration for your next project.articleBlogRead news and insights from our team.diversity_4CommunityEngage with other community members.new_releasesChangelogCheck out our latest features and fixes.DocsSupportPricingNew CodeSandbox is now part of Together AI! We have joined forces to launch CodeSandbox SDK and bring code interpretation to generative AI.Learn more arrow_back Blog chevron_right News Dec 12, 2024Joining Together AI and Introducing CodeSandbox SDKWe are starting a new chapter for CodeSandbox, building better tooling for our community.Ives van HoorneshareShareThis might be the most important blog post I’ve written since our launch of CodeSandbox back in 2017. Today, I’m excited to announce that CodeSandbox has joined Together AI!
+But first, let’s address the elephant in the room: CodeSandbox will continue to run as normal. We’ll keep working on CodeSandbox, and sandboxes and devboxes will continue to run as before. In fact, with the backing of Together AI, we’re making private sandboxes & devboxes part of the Free plan!
+Finally, I’m thrilled to announce the launch of our new product, CodeSandbox SDK! Let’s dive into what this means—but first, some history.
+A CodeSandbox history primer
+CodeSandbox started back in 2017 as a React playground. The goal was to make it very easy to share code examples without having to download & run code on your own computer.
+While it took a couple of months to take off, suddenly we saw hundreds, then thousands of people using CodeSandbox to build and share code examples—as students working from our student dorms, we couldn’t believe what we were seeing! So we started expanding the type of projects we could run. We added support for Angular, Vue, Preact, and Svelte, and people discovered more new use cases that we didn’t think of initially. They started using us to learn how to code, do job interviews, bug reports, workshops, and even development. At this point, our main goal became to make coding more accessible.
+Our growth continued through 2018, and then I had a big decision to make: continue my studies, accept a job offer from Facebook, accept an acquisition offer for CodeSandbox, or work on CodeSandbox full-time. You can guess which decision we went with! We raised a seed round in 2019 and started building a team.
+One common feedback we heard from our users was that CodeSandbox worked for small examples, but not for development. At the time, we were running all sandboxes completely in the browser and this fell short when scaling to bigger and more complicated projects.
+So we started to explore running sandboxes on the server. First, we used Container Sandboxes, this felt sluggish because every time someone forked a sandbox, we had to create a new container and start all processes from scratch. But in 2021, we discovered Firecracker. Firecracker can spin up so-called microVMs: VMs with a very quick boot-up time, small memory footprint, and the unique functionality to pause VMs, snapshot memory to disk, and resume from that state later. This felt perfect for running our sandboxes.
+We started building on top of Firecracker. We’ve built a technique to efficiently snapshot/restore memory snapshots and we’ve made it possible to live clone a VM within a few seconds (using Copy-on-Write).
+Everything we created—from UI/UX, to orchestrator, even down to kernel patches—was built to create the fastest experience for snapshotting and cloning sandboxes. It’s incredibly powerful, but we were only using it for CodeSandbox.
+By 2024, we reached 4.5 million monthly users and AI became an important tool for many developers. It does not just make developers faster, it also makes development more accessible. With the explosive growth of AI, suddenly there were mountains of AI-generated code that needed a secure environment to run in. While CodeSandbox was initially built for code written by humans, incidentally it’s also perfect for running code written by LLMs.
+Why Together AI?
+A few months ago, I was talking with Vipul, the Co-Founder & CEO of Together AI, and we agreed that the number one use case of AI models is code generation. Together AI has quickly grown into the leading hosting platform for AI and they give developers access to 200+ generative AI models and tooling to manage their entire AI lifecycle, including training, fine-tuning, and inference. However, all of their users need a solution to execute that AI-generated code securely.
+The infrastructure we were building at CodeSandbox was a natural fit for Together AI to offer secure AI sandboxes as a service. This is exciting for us because it’s far more powerful to have your code execution solution hosted in the same place as your LLM or agent. We can leverage the infrastructure of Together AI to build a more powerful solution for running sandboxed code close to the LLM—and with more resources, we can continue growing CodeSandbox SDK and provide sandboxes and devboxes to our community.
+We saw a massive opportunity here to make CodeSandbox the backbone of executing all AI-generated code. So we are excited to release CodeSandbox SDK to achieve this.
+CodeSandbox SDK
+With CodeSandbox SDK, you can programmatically spin up (AI) sandboxes. These sandboxes run inside a microVM, using our existing infrastructure. This gives you:
+Memory snapshot/restore (checkpointing).
+VM cloning from a live VM or snapshot in 3 seconds.
+FS persistence (with git version control built-in).
+Environment customization using Docker & Docker Compose (Dev Containers).
+Stability: at CodeSandbox we worked on this infra for the past 4 years, and we start and resume 2 million VMs on a weekly basis.
+Let’s look at the API to see how it works:
+import { CodeSandbox } from "@codesandbox/sdk";
+const sdk = new CodeSandbox();
+// Create a sandbox
+const sandbox = await sdk.sandbox.create();
+// Write our beautiful HTML page
+await sandbox.fs.writeTextFile("./index.html", "<h1>Hello World</h1>");
+// Run some code, like a static server on port 3000
+const shellInfo = sandbox.shells.run("npx -y serve -l 3000 .");
+// Wait for port to open
+const portInfo = await sandbox.ports.waitForPort(3000);
+// Every opened port has a preview URL you can access. If the sandbox
+// is hibernated, we'll resume the VM whenever the port is accessed.
+console.log(portInfo.getPreviewUrl()); // -> https://abcdef-3000.csb.app
+// And, we can clone(!) the sandbox! This takes 1-3s
+const sandbox2 = await sandbox.fork();
+// Sandbox 2 will have the same processes running, as clones
+const portInfo2 = sandbox2.ports.getOpenedPort(3000);
+console.log(portInfo2.getPreviewUrl()); // -> https://fedcba-3000.csb.app
+// Finally, we can snapshot & hibernate sandboxes
+await sandbox.hibernate();
+await sandbox2.hibernate();
+With this API, you can build a wide range of different products. You can build:
+Your own CodeSandbox ;)
+A code interpreter tool that runs code written by an LLM in an isolated, secure environment.
+A CI runner that snapshots final state, so you can inspect it when tests fail.
+A coding agent which supports checkpointing by using sandbox.fork() .
+And similar to the original version of CodeSandbox, there are probably many more use cases we’re not even thinking about. For instance, Superblocks is using CodeSandbox SDK in their internal application platform for apps and AI agents, and has shared some good feedback with us.
+"Our collaboration with CodeSandbox has been remarkable from day one. At Superblocks, we're focused on redefining the future of internal software development and management with AI, and CodeSandbox SDK provides the critical dev environment infrastructure that brings our vision to life. A huge shoutout to the entire CSB team." — Ran Ma, Co-Founder & CTO of Superblocks
+The good news is that you can also start playing with the SDK today! Follow our quickstart guide—all you need is to get your API token and install the SDK by calling:
+npm install @codesandbox/sdk
+What’s coming to CodeSandbox SDK?
+There’s a lot that we want to still build for CodeSandbox SDK, including:
+Ability to generate signed URLs to private previews.
+Snapshot tagging for easy deployment of snapshots built using the snapshot builder.
+Ability to create sessions inside a sandbox, each with their own permissions.
+Integration with Sandpack (interactive code playgrounds), where Sandpack can run VMs.
+Also, if you want to use the SDK, or have feedback, don’t hesitate to reach out or open an issue on GitHub!
+Moving forward, together
+Pfew, we’ve had quite a journey so far! I’m super excited about starting this new chapter for CodeSandbox.
+AI is—and will continue to be—important for the development lifecycle, not just to make people more productive but also to make coding more accessible. I’m thrilled we’re now in a really strong position to make it easier than ever to build tooling for AI workflows. We’ll have more resources to build and grow CodeSandbox SDK, as well as our sandboxes and devboxes.
+Finally, we want to give a huge thank you to everyone in our community for their unrelenting support—many of whom have been around since we were "just" a React playground.
+We’re thrilled to have you with us for this new chapter, no matter what you're building. Stay tuned!arrow_back Return to all articles codesandboxsdkKeep reading about
+News .
+News May 20, 2025CodeSandbox SDK Official ReleaseOur bigger, better infra is ready for prime time.codesandbox
+News May 23, 2024CodeSandbox is Now SOC 2 CompliantAnother milestone that shows our commitment to keeping your code and data secure.codesandbox
+News Jan 30, 2024Introducing CodeSandbox CDECodeSandbox CDE is now live, bringing instant cloud development environments and usage-based billing.codesandboxcdeUse CasesCodeSandbox SDKCode in SandboxesStorybook IntegrationLearn & ExperimentEcosystemFeaturesVS Code ExtensionSandpackStatusPricingExploreDiscoverChangelogDocumentationBlogCompanyAboutSupportCareersBrand kitCopyright © 2025 CodeSandbox BV, a Together AI company. All rights reserved.Terms of UsePrivacy & Cookie PolicyGithubTwitterCommunityYouTube

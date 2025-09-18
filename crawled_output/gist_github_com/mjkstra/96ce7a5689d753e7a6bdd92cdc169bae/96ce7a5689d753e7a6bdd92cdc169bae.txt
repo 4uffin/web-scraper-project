@@ -1,0 +1,908 @@
+A modern, updated installation guide for Arch Linux with BTRFS on an UEFI system · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+mjkstra/arch_linux_installation_guide.md
+Last active
+September 18, 2025 00:34
+Show Gist options
+Download ZIP
+Star
+626
+(626)
+You must be signed in to star a gist
+Fork
+96
+(96)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/mjkstra/96ce7a5689d753e7a6bdd92cdc169bae.js&quot;&gt;&lt;/script&gt;
+Save mjkstra/96ce7a5689d753e7a6bdd92cdc169bae to your computer and use it in GitHub Desktop.
+Code
+Revisions
+68
+Stars
+625
+Forks
+96
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/mjkstra/96ce7a5689d753e7a6bdd92cdc169bae.js&quot;&gt;&lt;/script&gt;
+Save mjkstra/96ce7a5689d753e7a6bdd92cdc169bae to your computer and use it in GitHub Desktop.
+Download ZIP
+A modern, updated installation guide for Arch Linux with BTRFS on an UEFI system
+Raw
+arch_linux_installation_guide.md
+Modern Arch linux installation guide
+Table of contents
+Introduction
+Preliminary Steps
+Main installation
+Disk partitioning
+Disk formatting
+Disk mounting
+Packages installation
+Fstab
+Context switch to our new system
+Set up the time zone
+Set up the language and tty keyboard map
+Hostname and Host configuration
+Root and users
+Grub configuration
+Unmount everything and reboot
+Automatic snapshot boot entries update
+Virtualbox support
+Aur helper and additional packages installation
+Finalization
+Video drivers
+Amd
+32 Bit support
+Nvidia
+Intel
+Setting up a graphical environment
+Option 1: KDE Plasma
+Option 2: Hyprland [WIP]
+Adding a display manager
+Gaming
+Gaming clients
+Windows compatibility layers
+Generic optimizations
+Overclocking and monitoring
+Additional notes
+Things to add
+Introduction
+The goal of this guide is to help new users set up a modern and minimal installation of Arch Linux with BTRFS on an UEFI system. I'll start from the basic terminal installation and then set up video drivers, a desktop environment and provide basic gaming configuration. This guide is thought to be read alongside the wiki, so that it if something ever changes you can fix it but it's not necessary unless my guide becomes outdated. Also I will mention external references to justify some choices that I've made so that curious users can delve into the details.
+Note that:
+I won't prepare the system for secure boot because the procedure of custom key enrollment in the BIOS is dangerous and can lead to a bricked system. If you are wondering why not using the default OEM keys in the BIOS, it's because they will make secure boot useless by being most likely not enough secure.
+I won't encrypt the system because I don't need it and because encryption always adds a little bit of overhead in the boot phase leading to a slower to varying degrees start-up, depending on your configuration. However it may be important for you so if you really wanna go this way I recommend reading the wiki page in this regards and must perform the documented steps IMMEDIATELY AFTER disk partitioning. Also note that you must set the type of partition to a LUKS partition instead of a standard Linux partition when partitioning with fdisk.
+I'll skip the Arch ISO installation media preparation.
+I'll use a wired connection, so no wireless configuration steps will be shown. If you want to connect to wifi, you can either launch wifi-menu from the terminal which is a TGUI or use iwctl.
+Preliminary steps
+First set up your keyboard layout
+# List all the available keyboard maps and filter them through grep, in this case i am looking for an italian keyboard, which usually starts with "it", for english filter with "en"
+ls /usr/share/kbd/keymaps/**/*.map.gz | grep it
+# If you prefer you can scroll the whole list like this
+ls /usr/share/kbd/keymaps/**/*.map.gz | less
+# Or like this
+localectl list-keymaps
+# Now get the name without the path and the extension ( localectl returns just the name ) and load the layout. In my case it is simply "it"
+loadkeys it
+Check that we are in UEFI mode
+# If this command prints 64 or 32 then you are in UEFI
+cat /sys/firmware/efi/fw_platform_size
+Check the internet connection
+ping -c 5 archlinux.org
+Check the system clock
+# Check if ntp is active and if the time is right
+timedatectl
+# In case it's not active you can do
+timedatectl set-ntp true
+# Or this
+systemctl enable systemd-timesyncd.service
+Main installation
+Disk partitioning
+I will make 2 partitions:
+Number
+Type
+Size
+1
+EFI
+512 Mb
+2
+Linux Filesystem
+99.5Gb (all of the remaining space )
+# Check the drive name. Mine is /dev/nvme0n1
+# If you have an hdd is something like sdax
+fdisk -l
+# Now you can either go and partition your disk with fdisk and follow the steps below,
+# or if you want to do things yourself and make it easier, use cfdisk ( an fdisk TUI wrapper ) which is
+# much more user friendly. A reddit user suggested me this and it's indeed very intuitive to use.
+# If you choose cfdisk you will have to invoke it the same way as I did with fdisk below, but
+# you don't need to follow my commands blindly as with fdisk below, just navigate the UI with the arrows
+# and press enter to get inside menus, remember to write changes before quitting.
+# Invoke fdisk to partition
+fdisk /dev/nvme0n1
+# Now press the following commands, when i write ENTER press enter
+g
+ENTER
+n
+ENTER
+ENTER
+ENTER
++512M
+ENTER
+t
+ENTER
+ENTER
+1
+ENTER
+n
+ENTER
+ENTER
+ENTER # If you don't want to use all the space then select the size by writing +XG ( eg: to make a 10GB partition +10G )
+p
+ENTER # Now check if you got the partitions right
+# If so write the changes
+w
+ENTER
+# If not you can quit without saving and redo from the beginning
+q
+ENTER
+Disk formatting
+For the file system I've chosen BTRFS which has evolved quite a lot in the recent years. It is most known for its Copy on Write feature which enables it to make system snapshots in a blink of a an eye and to save a lot of disk space, which can be even saved to a greater extent by enabling built-in compression. Also it lets the user create subvolumes which can be individually snapshotted.
+# Find the efi partition with fdisk -l or lsblk. For me it's /dev/nvme0n1p1 and format it.
+mkfs.fat -F 32 /dev/nvme0n1p1
+# Find the root partition. For me it's /dev/nvme0n1p2 and format it. I will use BTRFS.
+mkfs.btrfs /dev/nvme0n1p2
+# Mount the root fs to make it accessible
+mount /dev/nvme0n1p2 /mnt
+Disk mounting
+I will lay down the subvolumes on a flat layout, which is overall superior in my opinion and less constrained than a nested one. What's the difference ? If you're interested this section of the old sysadmin guide explains it.
+# Create the subvolumes, in my case I choose to make a subvolume for / and one for /home. Subvolumes are identified by prepending @
+# NOTICE: the list of subvolumes will be increased in a later release of this guide, upon proper testing and judgement. See the "Things to add" chapter.
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+# Unmount the root fs
+umount /mnt
+For this guide I'll compress the btrfs subvolumes with Zstd, which has proven to be a good algorithm among the choices
+# Mount the root and home subvolume. If you don't want compression just remove the compress option.
+mount -o compress=zstd,subvol=@ /dev/nvme0n1p2 /mnt
+mkdir -p /mnt/home
+mount -o compress=zstd,subvol=@home /dev/nvme0n1p2 /mnt/home
+Now we have to mount the efi partition. In general there are 2 main mountpoints to use: /efi or /boot but in this configuration i am forced to use /efi, because by choosing /boot we could experience a system crash when trying to restore @ ( the root subvolume ) to a previous state after kernel updates. This happens because /boot files such as the kernel won't reside on @ but on the efi partition and hence they can't be saved when snapshotting @. Also this choice grants separation of concerns and also is good if one wants to encrypt /boot, since you can't encrypt efi files. Learn more here
+mkdir -p /mnt/efi
+mount /dev/nvme0n1p1 /mnt/efi
+Packages installation
+# This will install some packages to "bootstrap" methaphorically our system. Feel free to add the ones you want
+# "base, linux, linux-firmware" are needed. If you want a more stable kernel, then swap linux with linux-lts
+# "base-devel" base development packages
+# "git" to install the git vcs
+# "btrfs-progs" are user-space utilities for file system management ( needed to harness the potential of btrfs )
+# "grub" the bootloader
+# "efibootmgr" needed to install grub
+# "grub-btrfs" adds btrfs support for the grub bootloader and enables the user to directly boot from snapshots
+# "inotify-tools" used by grub btrfsd deamon to automatically spot new snapshots and update grub entries
+# "timeshift" a GUI app to easily create,plan and restore snapshots using BTRFS capabilities
+# "amd-ucode" microcode updates for the cpu. If you have an intel one use "intel-ucode"
+# "vim" my goto editor, if unfamiliar use nano
+# "networkmanager" to manage Internet connections both wired and wireless ( it also has an applet package network-manager-applet )
+# "pipewire pipewire-alsa pipewire-pulse pipewire-jack" for the new audio framework replacing pulse and jack.
+# "wireplumber" the pipewire session manager.
+# "reflector" to manage mirrors for pacman
+# "zsh" my favourite shell
+# "zsh-completions" for zsh additional completions
+# "zsh-autosuggestions" very useful, it helps writing commands [ Needs configuration in .zshrc ]
+# "openssh" to use ssh and manage keys
+# "man" for manual pages
+# "sudo" to run commands as other users
+pacstrap -K /mnt base base-devel linux linux-firmware git btrfs-progs grub efibootmgr grub-btrfs inotify-tools timeshift vim networkmanager pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber reflector zsh zsh-completions zsh-autosuggestions openssh man sudo
+Fstab
+# Fetch the disk mounting points as they are now ( we mounted everything before ) and generate instructions to let the system know how to mount the various disks automatically
+genfstab -U /mnt >> /mnt/etc/fstab
+# Check if fstab is fine ( it is if you've faithfully followed the previous steps )
+cat /mnt/etc/fstab
+Context switch to our new system
+# To access our new system we chroot into it
+arch-chroot /mnt
+Set up the time zone
+# In our new system we have to set up the local time zone, find your one in /usr/share/zoneinfo mine is /usr/share/zoneinfo/Europe/Rome and create a symbolic link to /etc/localtime
+ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
+# Now sync the system time to the hardware clock
+hwclock --systohc
+Set up the language and tty keyboard map
+Edit /etc/locale.gen and uncomment the entries for your locales. Each entry represent a language and its formats for time, date, currency and other country related settings. By uncommenting we will mark the entry to be generated when the generate command will be issued, but note that it won't still be active. In my case I will uncomment ( ie: remove the # ) en_US.UTF-8 UTF-8 and it_IT.UTF-8 UTF-8 because I use English as a display language and Italian for date, time and other formats.
+# To edit I will use vim, feel free to use nano instead.
+vim /etc/locale.gen
+# Now issue the generation of the locales
+locale-gen
+Since the locale is generated but still not active, we will create the configuration file /etc/locale.conf and set the locale to the desired one, by setting the LANG variable accordingly. In my case I'll write LANG=it_IT.UTF-8 to apply Italian settings to everything and then override only the display language to English by setting ( on a new line ) LC_MESSAGES=en_US.UTF-8. ( if you want formats and language to stay the same DON'T set LC_MESSAGES
+). More on this here
+touch /etc/locale.conf
+vim /etc/locale.conf
+Now to make the current keyboard layout permanent for tty sessions , create /etc/vconsole.conf and write KEYMAP=your_key_map substituting the keymap with the one previously set here. In my case KEYMAP=it
+vim /etc/vconsole.conf
+Hostname and Host configuration
+# Create /etc/hostname then choose and write the name of your pc in the first line. In my case I'll use Arch
+touch /etc/hostname
+vim /etc/hostname
+# Create the /etc/hosts file. This is very important because it will resolve the listed hostnames locally and not over Internet DNS.
+touch /etc/hosts
+Write the following ip, hostname pairs inside /etc/hosts, replacing Arch with YOUR hostname:
+127.0.0.1 localhost
+::1 localhost
+127.0.1.1 Arch
+# Edit the file with the information above
+vim /etc/hosts
+Root and users
+# Set up the root password
+passwd
+# Add a new user, in my case mjkstra.
+# -m creates the home dir automatically
+# -G adds the user to an initial list of groups, in this case wheel, the administration group. If you are on a Virtualbox VM and would like to enable shared folders between host and guest machine, then also add the group vboxsf besides wheel.
+useradd -mG wheel mjkstra
+passwd mjkstra
+# The command below is a one line command that will open the /etc/sudoers file with your favourite editor.
+# You can choose a different editor than vim by changing the EDITOR variable
+# Once opened, you have to look for a line which says something like "Uncomment to let members of group wheel execute any action"
+# and uncomment exactly the line BELOW it, by removing the #. This will grant superuser priviledges to your user.
+# Why are we issuing this command instead of a simple vim /etc/sudoers ?
+# Because visudo does more than opening the editor, for example it locks the file from being edited simultaneously and
+# runs syntax checks to avoid committing an unreadable file.
+EDITOR=vim visudo
+Grub configuration
+Now I'll deploy grub
+grub-install --target=x86_64-efi --efi-directory=/efi --bootloader-id=GRUB
+Generate the grub configuration ( it will include the microcode installed with pacstrap earlier )
+grub-mkconfig -o /boot/grub/grub.cfg
+Unmount everything and reboot
+# Enable newtork manager before rebooting otherwise, you won't be able to connect
+systemctl enable NetworkManager
+# Exit from chroot
+exit
+# Unmount everything to check if the drive is busy
+umount -R /mnt
+# Reboot the system and unplug the installation media
+reboot
+# Now you'll be presented at the terminal. Log in with your user account, for me its "mjkstra".
+# Enable and start the time synchronization service
+timedatectl set-ntp true
+Automatic snapshot boot entries update
+Each time a system snapshot is taken with timeshift, it will be available for boot in the bootloader, however you need to manually regenerate the grub configuration, this can be avoided thanks to grub-btrfs, which can automatically update the grub boot entries.
+Edit the grub-btrfsd service and because I will rely on timeshift for snapshotting, I am going to replace ExecStart=... with ExecStart=/usr/bin/grub-btrfsd --syslog --timeshift-auto. If you don't use timeshift or prefer to manually update the entries then lookup here
+sudo systemctl edit --full grub-btrfsd
+# Enable grub-btrfsd service to run on boot
+sudo systemctl enable grub-btrfsd
+Virtualbox support
+Follow these steps if you are running Arch on a Virtualbox VM.
+This will enable features such as clipboard sharing, shared folders and screen resolution tweaks
+# Install the guest utils
+pacman -S virtualbox-guest-utils
+# Enable this service to automatically load the kernel modules
+systemctl enable vboxservice.service
+Note: the utils will only work after a reboot is performed.
+Warning: the utils seems to only work in a graphical environment.
+Aur helper and additional packages installation
+To gain access to the arch user repository we need an aur helper, I will choose yay which also works as a pacman wrapper ( which means you can use yay instead of pacman ). Yay has a CLI, but if you later want to have an aur helper with a GUI you can install pamac ( a Manjaro software, so use at your own risk ), however note that front-ends like pamac and also any store ( KDE discovery, Ubuntu store etc. ) are not officially supported and should be avoided, because of the high risk of performing partial upgrades. This is also why later when installing KDE, I will exclude the KDE discovery store from the list of packages.
+To learn more about yay read here
+Note: you can't execute makepkg as root, so you need to log in your main account. For me it's mjkstra
+# Install yay
+sudo pacman -S --needed git base-devel && git clone https://aur.archlinux.org/yay.git && cd yay && makepkg -si
+# Install "timeshift-autosnap", a configurable pacman hook which automatically makes snapshots before pacman upgrades.
+yay -S timeshift-autosnap
+Learn more about timeshift autosnap here
+Finalization
+# To complete the main/basic installation reboot the system
+reboot
+After these steps you should be able to boot on your newly installed Arch Linux, if so congrats !
+The basic installation is complete and you could stop here, but if you want to to have a graphical session, you can continue reading the guide.
+Video drivers
+In order to have the smoothest experience on a graphical environment, Gaming included, we first need to install video drivers. To help you choose which one you want or need, read this section of the arch wiki.
+Note: skip this section if you are on a Virtual Machine
+Amd
+For this guide I'll install the AMDGPU driver which is the open source one and the recommended, but be aware that this works starting from the GCN 3 architecture, which means that cards before RX 400 series are not supported. ( I have an RX 5700 XT )
+# What are we installing ?
+# mesa: DRI driver for 3D acceleration.
+# xf86-video-amdgpu: DDX driver for 2D acceleration in Xorg. I won't install this, because I prefer the default kernel modesetting driver.
+# vulkan-radeon: vulkan support.
+# libva-mesa-driver: VA-API h/w video decoding support.
+# mesa-vdpau: VDPAU h/w accelerated video decoding support.
+sudo pacman -S mesa vulkan-radeon libva-mesa-driver mesa-vdpau
+32 Bit support
+If you want to add 32-bit support, we need to enable the multilib repository on pacman: edit /etc/pacman.conf and uncomment the [multilib] section ( ie: remove the hashtag from each line of the section. Should be 2 lines ). Now we can install the additional packages.
+# Refresh and upgrade the system
+yay
+# Install 32bit support for mesa, vulkan, VA-API and VDPAU
+sudo pacman -S lib32-mesa lib32-vulkan-radeon lib32-libva-mesa-driver lib32-mesa-vdpau
+Nvidia
+In summary if you have an Nvidia card you have 2 options:
+NVIDIA proprietary driver
+Nouveau open source driver
+The recommended is the proprietary one, however I won't explain further because I don't have an Nvidia card and the process for such cards is tricky unlike for AMD or Intel cards. Moreover for reason said before, I can't even test it.
+Intel
+Installation looks almost identical to the AMD one, but every time a package contains the radeon word substitute it with intel. However this does not stand for h/w accelerated decoding, and to be fair I would recommend reading the wiki before doing anything.
+Setting up a graphical environment
+I'll provide 2 options:
+KDE-plasma
+Hyprland
+On top of that I'll add a display manager, which you can omit if you don't like ( if so, you have additional configuration steps to perform ).
+Option 1: KDE-plasma
+KDE Plasma is a very popular DE which comes bundled in many distributions. It supports both the older Xorg and the newer Wayland protocols. It's user friendly, light and it's also used on the Steam Deck, which makes it great for gaming. I'll provide the steps for a minimal installation and add some basic packages.
+# plasma-desktop: the barebones plasma environment.
+# plasma-pa: the KDE audio applet.
+# plasma-nm: the KDE network applet.
+# plasma-systemmonitor: the KDE task manager.
+# plasma-firewall: the KDE firewall.
+# plasma-browser-integration: cool stuff, it lets you manage things from your browser like media currently played via the plasma environment. Make sure to install the related extension on firefox ( you will be prompted automatically upon boot ).
+# kscreen: the KDE display configurator.
+# kwalletmanager: manage secure vaults ( needed to store the passwords of local applications in an encrypted format ). This also installs kwallet as a dependency, so I don't need to specify it.
+# kwallet-pam: automatically unlocks secure vault upon login ( without this, each time the wallet gets queried it asks for your password to unlock it ).
+# bluedevil: the KDE bluetooth manager.
+# powerdevil: the KDE power manager.
+# power-profiles-daemon: adds 3 power profiles selectable from powerdevil ( power saving, balanced, performance ). Make sure that its service is enabled and running ( it should be ).
+# kdeplasma-addons: some useful addons.
+# xdg-desktop-portal-kde: better integrates the plasma desktop in various windows like file pickers.
+# xwaylandvideobridge: exposes Wayland windows to XWayland-using screen sharing apps ( useful when screen sharing on discord, but also in other instances ).
+# kde-gtk-config: the native settings integration to manage GTK theming.
+# breeze-gtk: the breeze GTK theme.
+# cups, print-manager: the CUPS print service and the KDE front-end.
+# konsole: the KDE terminal.
+# dolphin: the KDE file manager.
+# ffmpegthumbs: video thumbnailer for dolphin.
+# firefox: the web browser.
+# kate: the KDE text editor.
+# okular: the KDE pdf viewer.
+# gwenview: the KDE image viewer.
+# ark: the KDE archive manager.
+# pinta: a paint.net clone written in GTK.
+# spectacle: the KDE screenshot tool.
+# dragon: a simple KDE media player. A more advanced alternative based on libmpv is Haruna.
+sudo pacman -S plasma-desktop plasma-pa plasma-nm plasma-systemmonitor plasma-firewall plasma-browser-integration kscreen kwalletmanager kwallet-pam bluedevil powerdevil power-profiles-daemon kdeplasma-addons xdg-desktop-portal-kde xwaylandvideobridge kde-gtk-config breeze-gtk cups print-manager konsole dolphin ffmpegthumbs firefox kate okular gwenview ark pinta spectacle dragon
+Now don't reboot your system yet. If you want a display manager, which is generally recommended, head to the related section in this guide and proceed from there otherwise you'll have to manually configure and launch the graphical environment each time (which I would advise to avoid).
+Option 2: Hyprland [WIP]
+Note: this section needs configuration and is basically empty, I don't know when and if I will expand it but at least you have a starting point.
+Hyprland is a tiling WM that sticks to the wayland protocol. It looks incredible and it's one of the best Wayland WMs right now. It's based on wlroots the famous library used by Sway, the most mature Wayland WM there is. I don't know if I would recommend this to beginners because it's a totally different experience and it may not be better. Moreover it requires you to read the wiki for configuration but it also features a master tutorial. The good part is that even if it seems discouraging, it's actually an easy read because it is written beautifully.
+# Install hyprland from tagged releases and other utils:
+# swaylock: the lockscreen
+# wofi: the wayland version of rofi, an application launcher, extremely configurable
+# waybar: a status bar for wayland wm's
+# dolphin: a powerful file manager from KDE applications
+# alacritty: a beautiful and minimal terminal application, super configurable
+pacman -S --needed hyprland swaylock wofi waybar dolphin alacritty
+# wlogout: a logout/shutdown menu
+yay -S wlogout
+Adding a display manager
+Display managers are useful when you have multiple DE or WMs and want to choose where to boot from or select the display protocol ( Wayland or Xorg ) in a GUI fashion, also they take care of the launch process. I'll show the installation process of SDDM, which is highly customizable and compatible.
+Note: hyprland does not support any display manager, however SDDM is reported to work flawlessly from the wiki
+# Install SDDM
+sudo pacman -S sddm
+# Enable SDDM service to make it start on boot
+sudo systemctl enable sddm
+# If using KDE I suggest installing this to control the SDDM configuration from the KDE settings App
+pacman -S --needed sddm-kcm
+# Now it's time to reboot the system
+reboot
+Gaming
+Gaming on linux has become a very fluid experience, so I'll give some tips on how to setup your arch distro for gaming.
+Before going further I'll assume that you have installed the video drivers, also make sure to install with pacman, if you haven't done it already: lib32-mesa, lib32-vulkan-radeon and additionally lib32-pipewire ( Note that the multilib repository must be enabled, here I've explained how to do it ).
+Let's break down what is needed to game:
+Gaming client ( eg: Steam, Lutris, Bottles, etc..)
+Windows compatibility layers ( eg: Proton, Wine, DXVK, VKD3D )
+Optionally we can have:
+Generic optimization ( eg: gamemode )
+Overclocking and monitoring software ( eg: CoreCtrl, Mangohud )
+Custom kernels
+Gaming clients
+I'll install Steam and to access games from other launchers I'll use Bottles, which should be installed through flatpak.
+# Install steam and flatpak
+sudo pacman -S steam flatpak
+# Install bottles through flatpak
+flatpak install flathub com.usebottles.bottles
+Windows compatibility layers
+Proton is the compatibility layer developed by Valve, which includes DXVK( DirectX 9-10-11 to Vulkan), VKD3D ( DirectX 12 to Vulkan ) and a custom version of Wine. It is embedded in Steam and can be enabled for non native games direclty in Steam: Steam > Settings > Compatibility > Enable Steam Play for all other titles. A custom version of proton, Proton GE exists and can be used as an alternative if something is broken or doesn't perform as expected. Can be either downloaded manually or through yay as below.
+# Installation through yay
+yay -S proton-ge-custom-bin
+Generic optimizations
+We can use gamemode to gain extra performance. To enable it read here
+# Install gamemode
+sudo pacman -S gamemode
+Overclocking and monitoring
+To live monitor your in-game performance, you can use mangohud. To enable it read here.
+In order to easily configure mangohud, I'll use Goverlay.
+# Install goverlay which includes mangohud as a dependency
+sudo pacman -S goverlay
+To overclock your system, i suggest installing corectrl if you have an AMD Gpu or TuxClocker for NVIDIA.
+Additional notes
+On KDE disabling mouse acceleration is simple, just go to the settings via the GUI and on the mouse section enable the flat acceleration profile. If not using KDE then read here
+To enable Freesync or Gsync you can read here, depending on your session ( Wayland or Xorg ) and your gfx provider ( Nvidia, AMD, Intel ) the steps may differ. On a KDE wayland session, you can directly enable it from the monitor settings under the name of adaptive sync
+Some considerations if you are thinking about switching to a custom kernel:
+You have to manually recompile it each time there is a new update unless you use a precompiled kernel from pacman or aur such as linux-zen.
+There is no such thing as the best kernel, all kernels make tradeoffs ( eg: latency for throughtput ) and this it why it's generally advised to stick with the generic one.
+If you are mainly a gamer you MAY consider the TKG or CachyOS kernel. These kernels contain many optimizations and are highly customizable, however the TKG kernel has to be compiled ( mainly it's time consuming, not hard ), while CachyOS kernel comes already packaged and optimized for specific hardware configurations, and can be simply installed with pacman upon adding their repos to pacman.conf. Some users have reported to experience a smoother experience with lower latency, however I couldn't find consistent information about this and it seems that is all backed by a personal sensation and not a result obtained through objective measurements ( Also this is difficult because in Linux there can be countless configuration variables and it also depends by the graphic card being used ).
+Some recommended reads:
+How to build your KDE environment
+Gaming on Wayland ( old article but still relevant )
+Improving Linux Gaming Performance
+Arch linux system maintenance
+Arch linux general recommendations
+Things to add
+Additional pacman configuration ( paccache, colors, download packages simultaneously )
+Reflector configuration
+Snapper: a more advanced snapshot program as a timeshift alternative.
+Overhaul the subvolumes partitioning into a richer set including @log @cache @tmp @snapshots. This way they they won't be included when snapshotting the root subvolume ( ie: @ ).
+Better fstab structure
+Load earlier comments...
+Copy link
+sloven-c
+commented
+Dec 15, 2024
+Thank you so much!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+davidjuhl
+commented
+Jan 5, 2025
+I am so used to device, partition, format and mount the device.
+Maybe I'm thinking to hard about this, but what does the subvolume @ mean? @home? Why has someone decided to name a subvolume with a @?
+what should I think about when creatinfd additional subvolumes? What should I be thinking about when creating snapshots? , so I can take advantage of it.
+I'm sure it is the grub-btrfs, but I can't really figure out what it is doing no matter how much I read.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mjkstra
+commented
+Jan 5, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I am so used to device, partition, format and mount the device. Maybe I'm thinking to hard about this, but what does the subvolume @ mean? @home? Why has someone decided to name a subvolume with a @? what should I think about when creatinfd additional subvolumes? What should I be thinking about when creating snapshots? , so I can take advantage of it. I'm sure it is the grub-btrfs, but I can't really figure out what it is doing no matter how much I read.
+Have you ever used LVM ( logical volumes ) ? btrfs subvolumes are a very similar concept, however the main difference is that LVM is not a file system and can create logical volumes ( think about them as logical partitions ) that span across multiple physical devices. Btrfs subvolumes on the other hand work at a file system level, so only on one drive unless you are using it on top of LVM or RAID.
+Typically they are more versatile and integrated with the filesystem, because you can leverage BTRFS capabilities to manage subvolumes: quick snapshotting and restore, all done efficiently time-wise but also space-wise, thanks to copy on write ( files aren't actually copied when snapshotting unless they have been modified with respect to at least another existing snapshot, this is also why too many snapshot OVER TIME can lead to high disk space occupation, because of more files being "locked" by the snapshots ). You should choose which subvolumes to create based on what you want to actually be snapshotted, so when you snapshot you can produce slimmer snapshots that won't grow much over time ( as mentioned earlier, the overhead of snapshots only shows overtime, as you collect new files and delete old files, and not immediately ). For example a minimalist may prefer to only backup essential things under / and may create a subvolume for each path that doesn't want to have in its snapshot ( if / is the @ subvolume and @/var/cache is a nested subvolume, snapshotting @ won't be recursive on the nested @/var/cache, or as I showed in the guide you can create a standalone subvolume @cache and mount it at /var/cache ( flat layout ) ).
+Edit: about the @ in the subvolume, it's simply a notation to indicate that it's a subvolume. I don't think it is necessarily needed
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+davidjuhl
+commented
+Jan 5, 2025
+I'll get it.
+I am using a vm, so I can make big mistakes.
+I'm really not a computer guy.
+I have a day job, and I thank you for the response.
+I think I need some sort of idiot proof picture.
+There are times when saying I don't get it works.
+if / is the @ subvolume and @/var/cache is a nested subvolume, snapshotting @ won't be recursive on the nested @/var/cache, or as I showed in the guide you can create a standalone subvolume @cache and mount it at /var/cache ( flat layout ).
+This is true because
+@/var/cache is a subvolume.
+So if a subvolume is like a logical volume, but with directories.
+I don't need to make a subvolume to make a snapshot just to make a backup before I try something I don't know about to make a backup to revert to.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mjkstra
+commented
+Jan 5, 2025
+I'll get it. I am using a vm, so I can make big mistakes. I'm really not a computer guy. I have a day job, and I thank you for the response. I think I need some sort of idiot proof picture. There are times when saying I don't get it works.
+if / is the @ subvolume and @/var/cache is a nested subvolume, snapshotting @ won't be recursive on the nested @/var/cache, or as I showed in the guide you can create a standalone subvolume @cache and mount it at /var/cache ( flat layout ). This is true because @/var/cache is a subvolume. So if a subvolume is like a logical volume, but with directories. I don't need to make a subvolume to make a snapshot just to make a backup before I try something I don't know about to make a backup to revert to.
+Subvolumes should be created ideally when you setup your system, because otherwise if you create them later you have to manually copy the contents in the location where you want to mount the subvolume into the subvolume. This can be done by mounting the subvolume in another path and then manually copying files from the ideal path to the temporary path, then delete everything and mount the subvol on the ideal path.
+If you want to do silly stuff you should first snapshot your root subvolume (@) and then try your stuff. Afterwards if you need you can rollback to that snapshot. Btw on my machine I am not using grub-btrfs anymore and I've switched to systemd-boot. When I encounter problems I boot with an arch installation media usb stick and manually change the default subvolume via the barebones btrfs-utils package instead of using timeshift or snapper.
+Also if you are not a computer guy could you tell me why you have decided to start with arch linux ? It demands a lot of effort to understand Arch and it is only for people who have time and willingness to study it. This is also why I always recommend to read the Arch principles in order to understand if this distro is for you. To be honest I think that Arch is the best linux distro so it's worth spending time on understanding it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Bigstool
+commented
+Jan 7, 2025
+I guess the use of grub-btrfs should be discouraged in general as it can bring serious side effects that are not immediately noticeable. The snapshots are writable, hence when booting into a snapshot, any changes will persist and modify the snapshot. What's worse, restoring a snapshot using timeshift will automatically make a "before restoring" snapshot. Suppose you are restoring a snapshot when booted into a snapshot. In that case, it will trigger grub-btrfsd and overwrite the current boot configuration, causing the "Arch Linux" and "Advanced options for Arch Linux" entries to point to the current snapshot (instead of /@/boot/). It might be a better idea to access timeshift and restore snapshots from an installation media USB stick.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mjkstra
+commented
+Jan 10, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@Bigstool
+The snapshots are writable, hence when booting into a snapshot, any changes will persist and modify the snapshot
+Are you sure ? Because snapshots should be read only by default. Also if you manage your subvolumes the right way ( like having a separate subvolume for /var ) you won't have problems into booting in read-only snapshots or you can use a package to boot read only snapshots with overlay-fs which lets you write but at reboot everything vanishes ( the behaviour is the same of an usb installation media )
+What's worse, restoring a snapshot using timeshift will automatically make a "before restoring" snapshot
+Yes, but have you checked if this behaviour is configurable ?
+Suppose you are restoring a snapshot when booted into a snapshot. In that case, it will trigger grub-btrfsd and overwrite the current boot configuration, causing the "Arch Linux" and "Advanced options for Arch Linux" entries to point to the current snapshot (instead of /@/boot/)
+This isn't relevant and it shouldn't create that effect.
+Whenever you restore a snapshot with timeshift this is what it basically does:
+Rename the current root subvol into a temporary name ( the end effect is like taking a snapshot ).
+Rename the restore snapshot to match the name of the current subvolume.
+Mount the restore snapshot in a temporary location and run grub install on there so that the grub.efi file now reads the grub configuration from the restore snapshot.
+At reboot the bootloader runs and read the configuration from the restored subvolume and then boots it.
+Then when the initramfs reads the fstab, it will mount the restore subvolume correctly since it has been renamed, assuming that your fstab mounts subvols by name and not by id. Otherwise before rebooting you should have manually edited your fstab.
+Also it's true that grub-btrfsd may regenerate the grub configuration automatically, however this is not relevant because it runs on the original subvolume so it modifies the configuration that is stored there, which is not considered in the restore procedure. This is because the grub.efi executable in /efi is pointing to read grub conf files from the restore subvolume, because timeshift installed it previously via grub-install.
+It might be a better idea to access timeshift and restore snapshots from an installation media USB stick.
+Go for it then, I personally haven't tried this. Right now I am using the barebones btrf-progs with systemd-boot, so I am not relying anymore on grub and backup/restore progs
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Bigstool
+commented
+Jan 10, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@mjkstra
+Are you sure ? Because snapshots should be read only by default.
+This is true at least for the setup as instructed by the current guide (Timeshift + Btrfs with subvolumes @ and @home). As you have pointed out and as mentioned in the readme of grub-btrfs, it should be tricky to boot a read-only snapshot without a separate subvolume for /var/log or /var. It is good to know that packages like Snapper make read-only snapshots by default.
+Yes, but have you checked if this behaviour is configurable ?
+This behavior can be desirable, as the user may later wish to un-restore the snapshot.
+This isn't relevant and it shouldn't create that effect.
+My apologies that this is indeed not the cause of this effect. I did some further experiments and found that this effect can be reproduced as follows with grub-btrfsd enabled, ExecStart set as ExecStart=/usr/bin/grub-btrfsd --syslog --timeshift-auto, and a Timeshift snapshot A. Boot into snapshot A through the grub-btrfs entry in the grub menu, restore snapshot A using Timeshift, then reboot as normal. The linux and initrd fields of the Arch Linux and Advanced options for Arch Linux entries in /boot/grub/grub.cfg will point to /timeshift-btrfs-snapshots/<time of snapshot A>/@/boot instead of /@/boot.
+A step-by-step rundown of what happens:
+Create snapshot A.
+Boot into snapshot A, the grub.cfg in snapshot A still points to /@/boot.
+Open Timeshift. This triggers grub-btrfsd and updates grub.cfg to point to /timeshift-btrfs-snapshots/<time of snapshot A>/@/boot. Since the snapshot is writable, this change persists.
+Restore snapshot A with grub.cfg already changed.
+Reboot normally through the Arch Linux entry in the grub menu. grub.cfg still points to /timeshift-btrfs-snapshots/<time of snapshot A>/@/boot instead of /@/boot.
+The rationale for booting into snapshot A to restore itself is that the system may not be bootable in its current state due to some breakage. Since the snapshots are available in the boot menu, doing so can be a common choice. However, this might not be a good practice in the current setup and I would say that reminding new readers to be aware of this issue can be a beneficial addition to the guide.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+davidjuhl
+commented
+Jan 10, 2025
+I didn't start with Arch Linux.
+It was Red Hat, SuSE, gentoo, and then Debian(UBUNTU).
+Each one had there own obstacles.
+It was the only one I didn't try.
+It appears to install faster because it is shell based.
+Gentoo was the hardest, and really don't see why you need to put in the effort.
+I find Arch more flexible.
+I haven't had it go crazy on me, and I can make scripts to install a full desktop after partitioning my disks.
+The reason I looked into Linux was privacy.
+I even looked into unix.
+My router is a pfense one with openvpn server enabled, and added an additiional wireguard server on my private network.
+I don't believe me needing to use the internet(banking, buy something, whatever) constitutes people collecting my data.
+I don't know how successful I am in seeking privacy, but I do hope I am at least obsuring where I live.
+It beats volenteering your information.
+Just educating myself.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+elvisisvan
+commented
+Jan 12, 2025
+here from your reddit post can you elaborate on the audio aspect of this?
+how to get the best audio quality out of my speakers (dolby audio, dts, etc.) ??
+i use a lenovo thinkpad x1 laptop so it would be nice if you can crater your expertise specific to these mobile computers
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+sallymanda
+commented
+Jan 21, 2025
+Should there be something in here regarding enabling smartd?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mavetek
+commented
+Feb 2, 2025
+I would write a note in the timeshift-autosnap section, because my bootloader got corrupted and I had to recreate the bootload with the USB stick. Not fun. Check out Antynea/grub-btrfs#288 (comment)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+th0mcat
+commented
+Feb 27, 2025
+For Option 1: KDE-plasma:
+Looks like xwaylandvideobridge was moved to AUR.
+https://aur.archlinux.org/packages/xwaylandvideobridge
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+artiomvisc
+commented
+Mar 5, 2025
+I restored from a previous snapshot and it broke my pacman and yay installation.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+elbowz
+commented
+Mar 27, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Btw on my machine I am not using grub-btrfs anymore and I've switched to systemd-boot. When I encounter problems I boot with an arch installation media usb stick and manually change the default subvolume via the barebones btrfs-utils
+Hi @mjkstra, thanks for sharing your setup! I want to make sure I understand the implications: since systemd-boot requires kernels/initramfs to reside on the FAT32 ESP (eg. /efi), this means they can’t be included in Btrfs snapshots of the root subvolume. This could create a version mismatch if restoring a snapshot (e.g., a rolled-back root subvolume might pair an older kernel in /usr/lib/modules with the newer kernel/initramfs on the ESP).
+Or is this a non-issue in your workflow? Or have I misunderstood something? Thanks in advance!
+P.S. One possible workaround might involve creating a hook to copy kernels/initramfs to the ESP during snapshot creation/restoration, though this feels a bit hacky
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mjkstra
+commented
+Mar 27, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hi, @elbowz
+since systemd-boot requires kernels/initramfs to reside on the FAT32 ESP (eg. /efi), this means they can’t be included in Btrfs snapshots of the root subvolume. This could create a version mismatch if restoring a snapshot
+Yes, in that case it's a problem. However it's not necessary to have the kernel and initramfs on the efi for systemd-boot to work. You can create an XBOOTLDR partition to act as /boot and format it the way you want (even BTRFS) and then potentially make snapshots of this partition.
+Or, as you said:
+One possible workaround might involve creating a hook to copy kernels/initramfs to the ESP during snapshot creation/restoration
+Also if you want to go this way, you can create an UKI file which is an efi file that comprises kernel, initramfs and systemd-boot stub
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+elbowz
+commented
+Mar 28, 2025
+Thanks for your answer, @mjkstra, but I’m uncertain about the XBOOTLDR + BTRFS solution. Based on the link you shared, I noticed this statement:
+systemd-boot does not do a file system check like it does for the ESP. Hence, it is possible to use any file system that your UEFI implementation can read
+However, after further research, it appears that BTRFS might not be supported here, and only FAT32 (as usual) works for this purpose. I’m not entirely sure about this, though.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mjkstra
+commented
+Mar 30, 2025
+@elbowz
+Yes, this is because by default systemd-boot typically works only with Fat file systems. However if you provide the UEFI drivers to it by placing them at <esp-path>/EFI/systemd/drivers/ then it should load the kernel and initramfs without problems. (Try in a vm first because you never know, also you have to deal with the task of finding an UEFI btrfs driver, but eventually you should find one)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+elbowz
+commented
+Mar 31, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Grazie!
+Update: If anyone is interested, I tried creating an XBOOTLDR partition using BTRFS, but systemd-boot (with the btrfs_x64.efi driver) doesn't seem to detect it. I might have made a mistake in my setup, but there's also an open issue regarding this: #36588.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+PAMinerva
+commented
+Apr 6, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+As explained here, grub cannot write to btrfs,
+so you can't set GRUB_SAVEDEFAULT=true in /etc/default/grub to make it remember the last selected entry.
+Is there any workaround for this limitation, as far as you know? This feature is really convenient, and it honestly bugs me quite a bit to have to give it up.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mjkstra
+commented
+Apr 14, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@PAMinerva
+Is there any workaround for this limitation, as far as you know? This feature is really convenient, and it honestly bugs me quite a bit to have to give it up.
+I don't know, but you can try systemd-boot instead of grub. However I am not sure if it will work
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+dozaltay
+commented
+May 7, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hey, thanks for the guide. Could you update the guide with the home and / folders separated? Or could you add it as an option as well? I want to install Hyprland and the guide needs more configuration as you say :/ can you add those too please?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+egigoka
+commented
+Jun 9, 2025
+If anyone wants to encrypt root volume, mount EFI partition to /boot and not /efi, so intramfs will be unencrypted on /boot and you don't need to add less secure keys to your luks that grub can read. Though I'm a noob and I can be wrong, but that mount caused me many hours of troubleshooting.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+renkastle
+commented
+Jun 13, 2025
+For anyone doing it on a laptop and needing wifi I did the following:
+https://gist.github.com/mjkstra/96ce7a5689d753e7a6bdd92cdc169bae#packages-installation - Added iwd dhcpcd
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+raphka2
+commented
+Jun 21, 2025
+Great writeup @mjkstra, really very much appreciated, i learned a lot and this guide helped me convert a BIOS install to an EFI arch install with limited know how.
+I also began to get the grub-btrfsd warnings.
+This was happening when running paru to update the OS.
+However there is a workaround without moving away from grub & grub-btrfsd is here to stop the conflict:
+Antynea/grub-btrfs#288 (comment)
+""
+After enabling and starting grub-btrfsd.service you can add timeshift-autosnap-apt but you need to edit /etc/timeshift-autosnap-apt.conf to set the parameter: updateGrub=false
+This allows grub-btrfsd.service to update grub without any conflict with timeshift-autosnap-apt.
+""
+Not sure what the tradeoff is here, just posting so save people time and effort.
+Really hope you keep this guide updated with your new setups and experience as this is super useful to new Arch people and a fantastic starting point / troubleshooting resource.
+Thanks again.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+IA-1a
+commented
+Jul 19, 2025
+I’ve recently been trying to get Arch set up on an old Ideapad 130 15-AST. I have been following this guide and it has been working quite well. On my first attempt I installed the large amount of suggested packages for KDE and was met with a GNU GRUB minimal bash-like shell when I rebooted. I looked up what to do and found advice to run “exit”. I tried that and it brought me to BIOS where the only option was Grub. That just brought me back to the shell. Another suggestion was to run “reboot”. It rebooted into the shell. I also tried following the GeeksforGeeks guide but to no avail. Just plain “boot” was suggested as well but that gave me the error “error: you need to load the kernel first.” I couldn’t find a “load kernel” command so I just gave up and plugged the bootable USB back in to try again.
+On my second attempt, I only got the necessary packages for KDE; the setup worked and KDE Plasma ran. I installed sddm and Hyprland along with the ML4W Hyprland config (which worked nicely) but couldn’t find/use waybar so I decided to reboot to go into KDE and set it up for Hyprland. I ran "shutdown" but shortly after that I decided that it might be better to run with sudo so I ran “shutdown -c” followed by “sudo shutdown” and it shut down with no apparent problems.
+When I hit the power button to turn it on I was once again met with the GNU GRUB minimal bash-like shell. I tried “exit” but it just took me to BIOS. “boot” wanted the kernel loaded first and reboot brought me right back there. I plugged in the bootable USB again and tried to use “arch-chroot…” and “mount /dev/sda /mnt” without full knowledge of what they did. None of it worked. Help getting back into the system would be much appreciated because I did quite like the setup.
+(I am using GNU GRUB version 2:2.12.r292.g73d1c959-1 according to the shell)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+sharkbytezz
+commented
+Jul 25, 2025
+Hey, this guide helped me every step of the way for installing Arch for the very first time (especially with btrfs) and I just want to thank you for writing this.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+OS-Scratch
+commented
+Aug 1, 2025
+You’re the best! This guide helped me to get started with Arch and I just can’t express my gratitude for this guide!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+TheGreatSage
+commented
+Aug 21, 2025
+@IA-1a
+Help getting back into the system would be much
+I get kicked back into the grub shell all the time if yay fails an update for whatever reason. I have not tracked down why that is. Anyways this is the steps I usually have to follow to get back in.
+Note, I don't know what I'm doing and I'm not a grub expert; This might not work for you. It works for me and has saved me a few times. I also don't recommend using this unless your really stuck. Again, I have no idea what I'm doing.
+Step 1: Find boot volume
+set pager=1
+# Check LS should see multiple (hd#)
+ls
+# Check root If you lucky you should see something like @/ @home
+ls /
+# Check set for defaults
+# If grub isn't mangled it should have something like root=(hd#,gpt#) and prefix=(hd#,gpt#)/@/boot/grub
+set
+Step 1-A: If root and prefix are not setup
+# Look through the ls (hd#) to find your boot volume.
+ls (hd#,gpt#)/
+# It will have the @/ folder
+set root=(hd#,gpt#)
+set prefix(hd#,gpt#)/@/boot/grub
+Step 2: Load linux.
+# Load modules, not actually sure what is really required here.
+insmod part_gpt
+insmod part_msdos
+insmod btrfs
+insmod linux
+# Set linux image
+# The root=/dev/nvme# is hard to use because I forget what drive I use.
+# I end up using root=UUID=# and getting the UUID with `ls (hd#,gpt#)` (no ending /)
+# The rootflags=subvol=@ is really important for btrfs, took me forever to find that.
+linux /@/boot/vmlinux-image root=/dev/nvme# ro rootflags=subvol=@
+# Set init image
+initrd /@/boot/initramfs-linux.img
+# Boot
+boot
+Step 3: Rebuild grub.
+# This is done in your normal shell
+grub-install --traget=x86_64-efi --efi-directory=/efi --bootloader-id=GRUB
+grub-mkconfig -o /booot/grub/grub.cfg
+Note if you are in grub-rescue you have to get back into the normal grub. I don't remember the full commands but part of it is:
+insmod normal
+normal
+I'd like to figure out why yay will break the the snapshots if it fails, which seems to pretty common when updating multiple AUR electron packages. It's probably just something not configured right but havn't looked super hard into it. I followed this guide to setup my system and for the most part it's been smooth sailing.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+rotkudnoK
+commented
+Sep 6, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hi @mjkstra. I followed the instructions, but at this part after reboot the only option I have in grub is to boot into uefi. Any idea what could be causing this?
+Edit: nvm, I'm just dumb and didn't include "linux" and "linux-firmware" in pacstrap...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

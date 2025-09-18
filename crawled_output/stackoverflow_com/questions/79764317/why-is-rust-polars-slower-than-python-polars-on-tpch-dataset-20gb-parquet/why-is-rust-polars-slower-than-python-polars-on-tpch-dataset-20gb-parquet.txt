@@ -1,0 +1,378 @@
+Why is Rust Polars slower than Python Polars on TPCH dataset (20GB Parquet)? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Why is Rust Polars slower than Python Polars on TPCH dataset (20GB Parquet)? [duplicate]
+Ask Question
+Asked
+3 days ago
+Modified
+2 days ago
+Viewed
+94 times
+-1
+This question already has answers here:
+Why is my Rust program slower than the equivalent program in another language?
+(1 answer)
+Why is that pola.rs rust-code considerably slower than the python version?
+(1 answer)
+Closed 3 days ago.
+I’m experimenting with Polars (both Python and Rust) to run TPCH queries on large Parquet datasets (~10GB, multiple files).
+Surprisingly, I’m observing that Python Polars is faster than Rust Polars, even though I expected Rust to be faster.
+Dataset
+Table: lineitem (from TPCH benchmark)
+Size: ~20GB split into multiple Parquet files like:
+F:\test_data\lineitem\lineitem_0_10000000.parquet
+# tpch_generate_partitioned.py
+import duckdb
+import os
+import time
+import math
+# ========== Configuration ==========
+scale_factor = 30
+# TPC-H scale factor
+children = 20
+# Number of steps to split the data generation
+output_dir = r"F:\test_data"
+# Root output directory (e.g., F:\test_data\lineitem\...)
+db_path = os.path.join(output_dir, "tpch.duckdb")
+# Persistent DuckDB file
+temp_dir = r"F:\duckdb_tmp"
+# Temporary directory for DuckDB spill (ensure sufficient disk space)
+tables = ['customer', 'lineitem', 'orders', 'partsupp', 'part', 'supplier', 'nation', 'region']
+# ===================================
+os.makedirs(output_dir, exist_ok=True)
+os.makedirs(temp_dir, exist_ok=True)
+conn = duckdb.connect(database=db_path, read_only=False)
+try:
+temp_dir_sql = temp_dir.replace('\\', '/')
+conn.execute(f"SET temp_directory = '{temp_dir_sql}'")
+conn.execute("SET preserve_insertion_order = false")
+try:
+conn.execute("INSTALL tpch;")
+except Exception as e:
+print("INSTALL tpch may already be installed or network unavailable (ignored):", e)
+conn.execute("LOAD tpch;")
+print(f"Preparing to generate TPC-H SF={scale_factor} in {children} steps, database: {db_path}")
+cumulative = {t: 0 for t in tables}
+for step in range(children):
+suffix = f"_part{step}"
+print(f"\n=== Step {step+1}/{children}: CALL dbgen(sf={scale_factor}, children={children}, step={step}, suffix='{suffix}') ===")
+t0 = time.time()
+conn.execute(f"CALL dbgen(sf={scale_factor}, children={children}, step={step}, suffix='{suffix}');")
+dt = time.time() - t0
+print(f"
+Generation completed (took {dt:.1f}s), exporting data to Parquet and releasing tables...")
+for table in tables:
+part_table = f"{table}{suffix}"
+exists = conn.execute(f"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{part_table}';").fetchone()[0]
+if exists == 0:
+try:
+cnt = conn.execute(f"SELECT COUNT(*) FROM {part_table};").fetchone()[0]
+except Exception:
+cnt = 0
+else:
+cnt = conn.execute(f"SELECT COUNT(*) FROM {part_table};").fetchone()[0]
+if cnt == 0:
+print(f"
+Table {part_table} has no data, skipping")
+try:
+conn.execute(f"DROP TABLE IF EXISTS {part_table};")
+except Exception:
+pass
+continue
+start = cumulative[table]
+end = start + cnt - 1
+table_dir = os.path.join(output_dir, table)
+os.makedirs(table_dir, exist_ok=True)
+out_fname = f"{table}_{start}_{end}.parquet"
+out_path = os.path.join(table_dir, out_fname)
+out_path_sql = out_path.replace("\\", "/")
+print(f"
+Exporting {part_table} ({cnt:,} rows) -> {out_path_sql} ...", end="", flush=True)
+t1 = time.time()
+conn.execute(f"COPY {part_table} TO '{out_path_sql}' (FORMAT PARQUET);")
+print(f" Done ({time.time() - t1:.1f}s)")
+cumulative[table] += cnt
+conn.execute(f"DROP TABLE IF EXISTS {part_table};")
+print(f"Step {step+1} completed, total time: {time.time() - t0:.1f}s")
+print("\nAll steps completed. Final row counts per table:")
+for table in tables:
+print(f"
+{table}: {cumulative[table]:,} rows")
+print("\nTask completed. Parquet files saved to:", output_dir)
+finally:
+conn.close()
+CODE
+import polars as pl
+import time
+file_path = r"F:\test_data\lineitem\*.parquet"
+print("Starting group-by aggregation analysis (Python Polars)...")
+start = time.time()
+df = pl.scan_parquet(file_path)
+result = (
+df.group_by("l_returnflag", "l_linestatus")
+.agg([
+pl.col("l_quantity").sum().alias("sum_qty"),
+pl.col("l_extendedprice").sum().alias("sum_base_price"),
+pl.col("l_extendedprice").sum().alias("sum_disc_price"),
+# modify if discount is applied
+pl.col("l_extendedprice").mean().alias("avg_price"),
+pl.col("l_quantity").mean().alias("avg_qty"),
+pl.col("l_discount").mean().alias("avg_disc"),
+pl.count().alias("count_order"),
+])
+.collect()
+)
+print(result)
+print(f"Total execution time: {time.time() - start:.2f}s")
+CODE RUST
+use polars::prelude::*;
+use std::time::Instant;
+fn main() -> PolarsResult<()> {
+std::env::set_var("POLARS_MAX_THREADS", "32"); // Set thread count based on CPU
+let file_path = r"F:\test_data\lineitem\*.parquet";
+println!("Starting group-by aggregation analysis (Rust Polars)...");
+let start = Instant::now();
+let args = ScanArgsParquet {
+cache: true,
+parallel: ParallelStrategy::Auto,
+rechunk: false,
+low_memory: false,
+use_statistics: true,
+..Default::default()
+};
+let df = LazyFrame::scan_parquet(file_path, args)?;
+let grouped = df
+.group_by_stable([col("l_returnflag"), col("l_linestatus")])
+.agg([
+col("l_quantity").sum().alias("sum_qty"),
+col("l_extendedprice").sum().alias("sum_base_price"),
+col("l_extendedprice").mean().alias("avg_price"),
+col("l_quantity").mean().alias("avg_qty"),
+col("l_discount").mean().alias("avg_disc"),
+col("l_extendedprice").count().alias("count_order"),
+])
+.collect()?;
+println!("{:?}", grouped);
+println!("Total execution time: {:?}", start.elapsed());
+Ok(())
+}
+TIME
+PYTHON Total execution time: 6.72s
+RUST Total execution time: 10.6621531s
+PY
+RUST
+This way, the question is:
+Clear about dataset and workload.
+Shows minimal reproducible code in both Rust and Python.
+Explains what I expected vs. what I observed.
+Asks why and how to optimize.
+pythonrustpython-polarsrust-polarspolars
+Share
+Improve this question
+Follow
+edited 2 days ago
+jqurious
+23.5k55 gold badges2222 silver badges4141 bronze badges
+asked Sep 14 at 12:35
+AnanyaAnanya
+11
+New contributor
+Ananya is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+3
+1
+Native Rust code will basically always be faster than native Python code, but Polars isn't native Python. As soon as you're using libraries that backend into C or Fortran for the heavy lifting, all bets are off. That said, the notes about being sure you're using a release build on the Rust side (as described in the linked catch-all duplicate) are appropriate.
+Charles Duffy
+–
+Charles Duffy
+2025-09-14 15:25:21 +00:00
+Commented
+Sep 14 at 15:25
+2
+py-polars is also built with additional lto/jemalloc settings which may be relevant. There are details in the post+comments: stackoverflow.com/questions/79445413
+jqurious
+–
+jqurious
+2025-09-15 08:57:45 +00:00
+Commented
+2 days ago
+1
+group_by_stable is a more expensive algorithm than group_by. Also make sure you compiled in release mode with the right CPU flags (e.g. RUSTFLAGS="-C target-cpu=x86-64-v3"). And there's the allocator situation as well.
+orlp
+–
+orlp
+2025-09-15 14:22:57 +00:00
+Commented
+2 days ago
+Add a comment
+|
+Related questions
+2199
+Why is reading lines from stdin much slower in C++ than Python?
+3068
+Why is "1000000000000000 in range(1000000000000001)" so fast in Python 3?
+1712
+Why do Python classes inherit object?
+Related questions
+2199
+Why is reading lines from stdin much slower in C++ than Python?
+3068
+Why is "1000000000000000 in range(1000000000000001)" so fast in Python 3?
+1712
+Why do Python classes inherit object?
+1388
+Why do people write "#!/usr/bin/env python" on the first line of a Python script?
+672
+Why doesn't println! work in Rust unit tests?
+800
+Why is [] faster than list()?
+389
+Why are Rust executables so huge?
+940
+Why does Python code run faster in a function?
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+pythonrustpython-polarsrust-polarspolars
+See similar questions with these tags.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+stackoverflow.ai - rebuilt for attribution
+Spevacus has joined us as a Community Manager
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+19
+Why is my Rust program slower than the equivalent program in another language?
+4
+Why is that pola.rs rust-code considerably slower than the python version?
+Hot Network Questions
+Did alignment charts of old use to have Law on the right (and when did that change)?
+TikZ bounding box not calculated properly in standalone class
+How to clear specific byte values inside a 64-bit value without looping
+What is the probability that a plane through three random points on the surface of the Earth intersects the Moon?
+why the "e" and "m" in the last terms look different from those in the first terms
+How can I find out which new carrier settings are available after switching the SIM card?
+Does a "Minimal" Grothendieck Universe Avoid Russell-Style Paradoxes?
+Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure aluminum?
+What is supposed to make judicial branch make its best effort to judge cases in accordance with laws?
+Is there any way to disable or minimize the impact of the “Liquid Glass” UI feature of macOS 26, iOS 26 and watchOS 26?
+Color GeoPath according to current distance traveled
+Is there a reason to do multiple tricks off a jump?
+Continue the spiral
+Explicit proof that tangent bundle of the 2-sphere, TS^2, is parallelizable
+What is a "mob" character in the context of Isekai works?
+A man you don't meet every day
+MC33063 step-down converter strange behavior on Ct capacitor
+A question regarding a family of one-relator groups
+When can you stealth in terms of "other senses"?
+Drawing vertical and horizontal vectors along a Bézier curve (without local rotation)
+Why are my fluorescent light fixtures and LED replacements turning on intermittently?
+What is the legal ramification, if any, of this traffic sign in Sofia, Bulgaria?
+Memory mapped file interface for linux
+NFSv4 mounts using different network for data traffic then given in mount command
+more hot questions
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

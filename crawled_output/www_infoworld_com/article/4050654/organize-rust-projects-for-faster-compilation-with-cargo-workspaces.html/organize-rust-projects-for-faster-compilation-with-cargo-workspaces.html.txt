@@ -1,0 +1,165 @@
+Organize Rust projects for faster compilation with Cargo workspaces | InfoWorld
+Topics
+Spotlight: IT CareersVideosNewslettersResources
+AboutAbout UsAdvertiseContact UsEditorial Ethics PolicyFoundry CareersNewslettersContribute to InfoWorldReprintsPoliciesTerms of ServicePrivacy PolicyCookie PolicyCopyright NoticeMember PreferencesAbout AdChoicesE-commerce Affiliate RelationshipsYour California Privacy RightsOur NetworkCIOComputerworldCSONetwork WorldMoreNewsFeaturesBlogsBrandPostsEventsVideosEnterprise Buyer’s Guides
+Close
+AnalyticsArtificial IntelligenceGenerative AICareersCloud ComputingData ManagementDatabasesEmerging TechnologyTechnology IndustrySecuritySoftware Development Microsoft .NETDevelopment ToolsDevopsOpen SourceProgramming LanguagesJavaJavaScriptPythonIT LeadershipEnterprise Buyer’s Guides
+Back
+Close
+Back
+Close
+Popular Topics
+Artificial IntelligenceCloud ComputingData ManagementSoftware Development
+Search
+Topics
+Spotlight: IT CareersVideosNewslettersResourcesAboutPoliciesOur NetworkMore
+Back
+Topics
+AnalyticsArtificial IntelligenceGenerative AICareersCloud ComputingData ManagementDatabasesEmerging TechnologyTechnology IndustrySecuritySoftware DevelopmentMicrosoft .NETDevelopment ToolsDevopsOpen SourceProgramming LanguagesJavaJavaScriptPythonIT LeadershipEnterprise Buyer’s Guides
+Back
+AboutAbout UsAdvertiseContact UsEditorial Ethics PolicyFoundry CareersNewslettersContribute to InfoWorldReprints
+Back
+PoliciesTerms of ServicePrivacy PolicyCookie PolicyCopyright NoticeMember PreferencesAbout AdChoicesE-commerce Affiliate RelationshipsYour California Privacy Rights
+Back
+Our NetworkCIOComputerworldCSONetwork World
+Back
+MoreNewsFeaturesBlogsBrandPostsEventsVideosEnterprise Buyer’s Guides
+Home
+Software Development
+Organize Rust projects for faster compilation with Cargo workspaces
+by									Serdar Yegulalp
+Senior Writer
+Organize Rust projects for faster compilation with Cargo workspaces
+how-to
+Sep 10, 20257 minsProgramming LanguagesRustSoftware Development
+Use Rust’s project management utility to split your projects into manageable subprojects for faster compile times.
+Credit: 															Jamesboy Nuchaikong / Shutterstock
+Simple projects in the Rust language are typically made up of a single crate. But the cargo project management utility for Rust lets you split a project into workspaces, which are smaller packages within the main package.
+Splitting an existing project into workspaces—essentially subprojects—takes some planning, as you’ll need to figure out what duties will be handled by the code in each workspace. But it’s a powerful way to divide and conquer a Rust project along logical lines. It also helps speed up compile times, a common gripe for Rust developers.
+Setting up workspaces in a Rust project
+When you initialize a new project, or crate, with cargo, the default behavior is to treat the newly initialized project as a single crate. If you want to set up a workspace directory with multiple crates in it, you need to take a slightly different approach.
+Create the main directory
+Start by creating the directory you want the workspace to live in, subcrates and all. In that directory, create a new Cargo.lock file which contains just the following:
+[workspace]
+resolver = "3"
+This tells cargo the top-level directory is a workspace, and not a standalone crate. The “resolver” in that file refers to the version number for Cargo’s resolver algorithm, which determines how to perform dependency resolution between Rust crates. The most recent version of the algorithm is 3, so any new projects started in the most recent edition of Rust should use that. (If you are migrating an older project to workspaces, with a different resolver number, leave it alone.)
+Create the main crate
+Next, navigate into that directory at the command line, and use cargo new to create the project’s main crate:
+cargo new the_project
+You’ll now see another directory inside the main one, named the_project, with its own Cargo.toml file and src directory.
+If you look at the Cargo.toml file in the outermost directory, you should see a new line in the [workspace] section:
+members = ["the_project"]
+Each crate in the workspace gets automatically registered here when you use cargo new in the top level of the workspace.
+If your workspace is for a library rather than an executable, you don’t need to change much. Simply set up the main crate for your project with cargo new <crate_name> --lib.
+Create dependent crates
+Next, you’ll want to set up the crates that are dependencies for the main crate. To do this, use cargo new in the top-level directory as before, but with the --lib flag:
+cargo new subcrate1 --lib
+cargo new subcrate2 --lib
+This ensures those crates are compiled as dependencies for the main crate, not as programs by themselves.
+Adding dependencies in workspaces
+When you create a workspaced project with cargo, you need to manually describe how the crates depend on each other. In our case, we have a main crate that lists all the other crates as dependencies.
+When you edit the Cargo.toml file for your main crate, you can add the other crates as dependencies by just specifying their names and where to find them relative to the main crate:
+[dependencies]
+subcrate1 = { path = "../subcrate1" }
+subcrate2 = { path = "../subcrate2" }
+You’ll have to add a line like this manually for every dependency, as none are autogenerated.
+If you have one subcrate that depends on another subcrate, you can describe their dependencies in the same way. So, if subcrate1 depended on subcrate3, you’d list subcrate3 in subcrate1’s dependencies.
+Working with code in workspaces
+If you open the src directory for the main subcrate in your workspace, you’ll see it has a main.rs file and a main() function autogenerated there. That serves as your entry point for the program.
+The other src directories will contain a lib.rs file, and sample functions and test fixtures. Those functions can be called from within your project just by using proper namespacing. For instance, if we had subcrate1 and a function in it named fn1, we’d just use subcrate1::fn1() to call it from anywhere in our main project. Your editor’s autosuggestion feature should pick up hints like this automatically.
+The compilation benefits of subcrates
+When you build a project that’s been split into subcrates, using cargo build in the top-level directory, one of the first things you’ll likely notice is how things compile faster as you make changes.
+When you make a change to any one crate in a workspaced project, by default only that crate gets recompiled. If the interfaces to all its interdependent crates are the same, they don’t need to be changed; you can just re-link them as-is.
+The only thing that always has to be recompiled is the entry point. This is another reason to keep the entry point relatively slender, as that further reduces the build time required.
+These compilation speedups persist across sessions, since the compilation artifacts for the subcrates are cached. Note, however, that if you use cargo clean to remove them, you’ll have to recompile everything.
+Also note that subcrates are cached by their build profiles. If you’ve been making multiple rebuilds with the debug profile, you’ll see the benefits of the caching with each rebuild. But if you switch to the release profile, everything will have to be recompiled before any caching benefits show up.
+If you want to compile only a single crate in your work-spaced project, use cargo build -p <crate_name>. Normally you shouldn’t need to do this, as rustc is smart enough to figure out what needs recompiling.
+Planning a project for a workspace
+The hardest part about workspaces isn’t the setup, it’s figuring out how to split up your project into multiple crates along logical lines.
+If your program’s already set up with a good separation of concerns, this shouldn’t be too hard. For instance, a program with a UI can be split three ways between its entry point (which could also handle things like command-line switches), the UI, and the controlling logic.
+For a new project, it’s easier to plan this kind of separation ahead of time. But splitting up an existing project into subcrates may be more complex, since you may need to rework the program’s internal separation of concerns before breaking different functions into their own crates. Don’t try to do that all at once. Instead, you can migrate functions gradually into subcrates, one at a time. That way, you gradually discover the setup that best complements your project’s intentions.
+Related content
+how-to
+Rust tutorial: Get started with the Rust language By Serdar Yegulalp
+Sep 17, 2025 15 mins
+Development Tools
+Programming Languages
+Rust
+analysis
+Is AI the 4GL we’ve been waiting for? By Matthew Tyson
+Sep 17, 2025 7 mins
+Generative AI
+No Code and Low Code
+Programming Languages
+opinion
+Software developers aren’t buying it By Nick Hodges
+Sep 17, 2025 5 mins
+Careers
+Developer
+Development Tools
+news
+Visual Studio 2026 doubles down on AI-assisted coding By Paul Krill
+Sep 16, 2025 2 mins
+Development Tools
+Integrated Development Environments
+Visual Studio
+Other Sections
+Resources
+Videos
+Spotlight: IT Careers
+by
+Serdar Yegulalp
+Senior Writer
+Follow Serdar Yegulalp on X
+Serdar Yegulalp is a senior writer at InfoWorld. A veteran technology journalist, Serdar has been writing about computers, operating systems, databases, programming, and other information technology topics for 30 years. Before joining InfoWorld in 2013, Serdar wrote for Windows Magazine, InformationWeek, Byte, and a slew of other publications. At InfoWorld, Serdar has covered software development, devops, containerization, machine learning, and artificial intelligence, winning several B2B journalism awards including a 2024 Neal Award and a 2025 Azbee Award for best instructional content and best how-to article, respectively. He currently focuses on software development tools and technologies and major programming languages including Python, Rust, Go, Zig, and Wasm. Tune into his weekly Dev with Serdar videos for programming tips and techniques and close looks at programming libraries and tools.
+More from this author
+analysisMaking good choices: How to get the best from Python tools Sep 12, 2025 3 minsfeatureNative UI vs. web UI: How to choose Sep 3, 2025 6 minsanalysisNew tools make Python app distribution easier than ever Aug 29, 2025 3 minsfeaturePyApp: An easy way to package Python apps as executables Aug 20, 2025 7 minsanalysisThe truth about Python’s AI-powered popularity surge Aug 15, 2025 2 minshow-toHow to code sign binaries on Windows Aug 6, 2025 12 minsfeatureFirst look: Guided code generation with Kiro Jul 30, 2025 8 minsanalysisWhat you can do now with Python 3.14 RC1 Jul 25, 2025 3 mins
+Show me morePopularArticlesVideos
+news
+MongoDB adds vector search to self-managed editions to power generative AI apps By Anirban GhoshalSep 17, 20253 mins
+DatabasesNoSQL Databases
+feature
+The rise of AI-ready private clouds By Mark CusackSep 17, 202511 mins
+ContainersKubernetesMachine Learning
+news
+JDK 25: The new features in Java 25 By Paul KrillSep 16, 202513 mins
+JavaProgramming LanguagesSoftware Development
+video
+Easier Chrome browser automation with PyDoll Sep 16, 20254 mins
+Python
+video
+How to use Rust workspaces to speed up compile times Sep 9, 20253 mins
+Python
+video
+Getting encryption wrong (and getting it right, too) Sep 2, 20257 mins
+Python
+Sponsored Links
+Empower your cybersecurity team with expert insights from Palo Alto Networks.
+Solve your most complex IT challenges with solutions that simplify your modernization journey.
+Secure AI by Design: Unleash the power of AI and keep applications, usage and data secure.
+About
+About Us
+Advertise
+Contact Us
+Editorial Ethics Policy
+Foundry Careers
+Reprints
+Newsletters
+BrandPosts
+Policies
+Terms of Service
+Privacy Policy
+Cookie Policy
+Copyright Notice
+Member Preferences
+About AdChoices
+E-commerce Affiliate Relationships
+Your California Privacy Rights
+Privacy Settings
+Our Network
+CIO
+Computerworld
+CSO
+Network World
+FacebookXYouTubeGoogle NewsLinkedIn
+© 2025 IDG Communications, Inc. All Rights Reserved.

@@ -1,0 +1,371 @@
+How we integrate best practices in Java - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Anna Voronina
+Posted on Sep 17
+How we integrate best practices in Java
+#java
+#cpp
+#json
+#programming
+This is a story of rewriting an application for DI containers, parsing dependencies, drawing schemas to avoid getting lost, and quietly praying to every possible deity that nothing suddenly crashes. We published the first article about PVS-Studio.
+Background
+Seven years ago, though. Those were the days when the now-unrelenting Java 8 legacy had just been released.
+Since then, the whole Java analyzer development team changed. we got a period the project just idled and we just fix bugs and freezes, and enhance plugins.
+As a result, Java development standards were violated. The code tangled up with:
+a ton of static methods
+sentence-like methods (doThisAndThisBeforeThat)
+global states
+a plethora of Singletons
+and comments longer than the code itself.
+In addition, the code style was a mix of C# and C++, of course, avoiding development standards.
+One of the first tasks across the entire code base was to clean the code style mess. We used Google Java Style with a few (and pretty standard for the industry) changes, like using four spaces instead of two.
+Thanks to the many automatic formatting tools, this was an easy thing. But rewriting the architecture was another story, it seemed like something impossible. So, we decided to make architectural changes incrementally and as the need arose.
+And well, this need did arise. We began developing a taint module that required an annotation mechanism (user-defined, but more on that below).
+So, what are annotations anyway? In our case, annotations are a set of markups for static analysis like @NotNull and @Nullable. But we need something more advanced, something with a bit more functionality.
+Look at the example. Here are annotations from the first article about the Java static analyzer:
+Class("java.lang.Math")
+- Function("max", Type::Int32, Type::Int32)
+.Pure()
+.Set(FunctionClassification::NoDiscard)
+.Requires(NotEquals(Arg1, Arg2)
+.Returns(Arg1, Arg2, [](const Int &v1, const Int &v2)
+{ return v1.Max(v2); })
+Enter fullscreen mode
+Exit fullscreen mode
+This annotation describes Math.max like:
+have no side effects
+the return method value must be used
+the first and second arguments must not be repeated.
+Not obvious from just looking at the code, but the Java analyzer's annotation mechanism was written in C++ and annotations are closely related to the data-flow mechanism, which the C++ module also provides because the Java analyzer was developed using a shared internal library from the C++ analyzer. So, let's call this entire C++ part as simply native.
+Now, back to the taint module. We want to mark up various methods and their parameters as sources or sinks of tainted data, and we cope with such a minor extension of the annotation mechanism—but not without problems. Errors and odd behaviors occurred. Debugging the native part is a little bit tough; we have to switch between Java and C++ debuggers, and we didn't even know C++.
+But later on, we face again the need to expand this mechanism. The mechanism for detecting tainted data demands the support of user-defined annotations, for example, for their internal libraries. It means that we need JSON-based user annotations. At that point, it's clear: the old native module has to go. Time to get serious and write a new module in pure Java.
+We also decide it's time to bring in a DI (Dependency Injection) framework and build the new module on top of it. Of course, that means connect it with the main module—which, naturally, also has to be rewritten to use DI. And that's where our two-part story begins: rewriting the old module and writing a new one.
+But first, we should answer questions: why do we want DI and which framework we should choose?
+Guice (pronounced 'juice')
+Dependency Injection
+DI containers are common in Java, partly due to the widespread use of the Spring Framework. They even became part of Jakarta back in Java EE 8 (later Jakarta EE 8).
+Spring is awesome, we all know it, but we're developing a CLI, not a web app. It's excessively heavy and brings too many redundant dependencies. Yet, moving to Spring would mean rewriting the entire application. Yeah, it's a curious challenge, but let's be honest: it's pointless because we're only interested in one Spring part, it's the IoC container.
+And that's where Guice is coming, a Google's DI framework without redundant stuff. It's a good, popular, and stable alternative.
+Dagger
+Yes, we must mention Dagger—we don't forget about it. However, we need to parse dependencies at runtime. Since the application is desktop-based, the reflection usage doesn't cause any problems.
+What does a dependency declaration look like in Guice? It differs slightly from the usual Spring and requires a little more code, but it's still quite simple.
+Meet Guice
+Next, let's take a look at the basics with Guice. If you want to learn more, there's a detailed guide here. The followings are just for quick reference to spot what we're working with.
+Everything starts with the AbstractModule class. To create a module, extend it and write the configure method:
+public class AnnotationModule extends AbstractModule {
+@Override
+public void configure() {
+}
+Enter fullscreen mode
+Exit fullscreen mode
+}
+To define a dependency in the container, use the bind method with the dependency class argument:
+public class AnnotationModule extends AbstractModule {
+@Override
+public void configure() {
+bind(AnnotationProcessor.class);
+....
+}`
+}
+Enter fullscreen mode
+Exit fullscreen mode
+After that, calling Guice.createInjector enables loading the application, or in our case, just a module:
+var injector = Guice.createInjector(new AnnotationModule());
+var processor = injector.getInstance(AnnotationProcessor.class);
+Enter fullscreen mode
+Exit fullscreen mode
+If AnnotationProcessor contains a no-args constructor, the injector creates the object. If it has dependencies, this constructor should be marked with @Inject:
+public class AnnotationProcessor {
+private final Dependency dependency;
+@Inject
+Public AnnotationProcessor(Dependency dependency) {
+this.dependency = dependency;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+In this case, when executing the code, the program will crash with an exception, since Dependency isn't in the dependency graph. Therefore, we need to declare it here as well:
+public class AnnotationModule extends AbstractModule {
+@Override
+public void configure() {
+bind(AnnotationProcessor.class);
+bind(Dependency.class);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Now, calling injector.getInstance(AnnotationProcessor.class) will return an object with the initialized dependency field.
+If we need to add an interface implementation to the dependency graph (which is often the case), bind looks like this:
+bind(MyInterface.class).to(MyInterfaceImpl.class);
+Enter fullscreen mode
+Exit fullscreen mode
+Instead of using bind in the module, we can
+use @Provides and create a dependency in the method:
+public class AnnotationModule extends AbstractModule {
+@Override
+public void configure() {
+bind(Dependency.class);
+}
+// instead of bind(AnnotationProcessor.class)
+@Provides
+public AnnotationProcessor provideProcessor(Dependency dependency) {
+return new AnnotationProcessor(dependency);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This option is equivalent to the previous one with the bind call, but enables describing more complex initialization logic. Google recommends using @Provides instead of DSL. But this article recommends exactly the opposite—DSL instead of @Provides. Eh, we have to choose the preferred option by tossing a coin.
+Onward
+That concludes the introduction; a new friend has been chosen. After exploring the framework in theory, we finally go to the code refactoring. And like any good story, it unfolds in two acts:
+architectural planning and writing the new module;
+the desperate attempt to stay sane while adapting the legacy.
+Act 1. New module
+Difficulty: Easy. And maybe even peaceful because we think in advance about how components should interact with each other, and how it all looks in Guice. Spoiler: the next act won't be that peaceful.
+Let's return to designing our static analyzer. Our goal is to traverse the analyzed source code model and add annotations to each element (e.g., method call) according to certain rules.
+So, we need a new module that contains the following classes:
+annotation providers: know which elements to mark up and how;
+annotation processors: traverse the model and generate the markup;
+interaction service: interface for obtaining the final model markup.
+In provider implementations, we get two additional modules. We'll discuss them below.
+JSON annotation parser
+We need JSON parsing for user annotations. This module should only do:
+file parsing
+validation
+conversion.
+Some internal DSL for declarative annotations in Java
+The key feature here (and what we lack in simple JSON markup) is lambda expressions, which describe the modification of the virtual value in the C++ programming language.
+At this stage, we're not rewriting data-flow analysis but only maintaining taint one. So, no need to overcomplicate things with Math.max. Let's look at something simpler, like marking up a Statement:
+ofClass(java.sql.Statement.class).includeSubtypes()
+.ofMethod("execute").anyParameters().flags(SQL_INJECTION_SINK)
+.ofMethod("executeUpdate").anyParameters().flags(SQL_INJECTION_SINK)
+.ofMethod("executeQuery").anyParameters().flags(SQL_INJECTION_SINK)
+.ofMethod("executeLargeUpdate").anyParameters().flags(SQL_INJECTION_SINK)
+.ofMethod("addBatch").anyParameters().flags(SQL_INJECTION_SINK)
+.finish()
+Enter fullscreen mode
+Exit fullscreen mode
+This annotation marks up all calls to the execute, executeUpdate, executeQuery, executeLargeUpdate, and addBatch methods on the java.sql.Statement type as potential sinks of tainted data.
+Designing such an API devotes a separate story. We even had to learn what the Curiously Recurring Template Pattern (CRTP) is, although it's usually used in C++. Here, it helped ensure a set of operations in the call chain without accidentally creating an invalid object. Maybe one day we talk about the pattern and the process of creating a Fluent API in more detail.
+Binding
+It's time to bind these modules. Here we use the Guice's Multibinder.
+But like for what? To create a list of annotation providers, of course. We don't want to create a regular dependency with list where we can call add whenever we want in the app because it leads to global state we're trying to avoid.
+For example, we could annotate the model and then expand the annotation provider list... Sounds like not so good code style, right? Multibinder helps fix the list at module creation while still allowing extensions.
+In the annotation module, it looks like this:
+public class AnnotationModule extends AbstractModule {
+@Override
+public void configure() {
+Multibinder.newSetBinder(
+binder(),
+new TypeLiteral<AbstractProcessor<? extends CtElement>>() {}
+);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+By declaring this dependency in the main module (AnnotationModule), we can create an annotation processor that depends on this list:
+public class AnnotationProcessor {
+private final Set<Processor<? extends CtElement>> processors
+@Inject
+public AnnotationProcessor(
+Set<AbstractProcessor<? extends CtElement>> processors) {
+this.processors = Set.copyOf(processors);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This processor doesn't know which annotations it'll use and even where they come from. It shouldn't bother the processor.
+We bind it and get:
+public class AnnotationModule extends AbstractModule {
+@Override
+public void configure() {
+bind(AnnotationProcessor.class).in(Singleton.class);
+Multibinder.newSetBinder(
+binder(),
+new TypeLiteral<AbstractProcessor<? extends CtElement>>() {}
+);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+How can we modify the list of annotation providers? By creating an appropriate provider:
+@ProvidesIntoSet
+public AbstractProcessor<? extends CtElement> provideAnnotations() { .... }
+Enter fullscreen mode
+Exit fullscreen mode
+The result is an architecture where each module declares providers in this way, and they end up in a common collection, which then goes into AnnotationProcessor. And once the main module that runs AnnotationProcessor is configured, this list becomes immutable.
+Thus, if we suddenly get a third source of annotations, supporting it'll be a matter of creating a new module or even just a provider that simply returns another object.
+This option also streamlines the testing of individual components because our new module doesn't have a user annotation provider, only means for handling them. And annotations from DSL are also located in a separate module.
+The following scheme shows this:
+This gives us a structure where UserAnnotationProcessingModule behaves like a plugin.
+AnalyzerModule decides which specific annotation formats to support.
+Multibinder collects modules that use the mentioned @ProvidesIntoSet and thus extends AnnotationModule, even though they themselves aren't directly aware of this.
+Here's an interesting point: AnnotationModule can be replaced with something completely different that also creates MultiBinder, and everything will continue to work.
+Further functionality expansion is trivial. Let's imagine that we want to load annotations from a network resource: just drop in a NetworkAnnotationModule and we get:
+Within this imaginary module, we can obtain the data about where to download annotations and how to process them—all independently.
+We'll explain why our plugins are installed in AnalyzerModule in the next block, where we return to the main module.
+Act 2. I used to be an adventurer like you...
+Let's step away from schemes for a moment. After all this wonderful life, it's time to return to the main module. This module was not designed with DI containers in mind. Somewhere there are long chains of dependencies. Very long. And elsewhere, we just stumble on Singletons. Accordingly, the process begins with drawing a scheme of these components, and figuring out what can be separated.
+Yes, we have really drawn this schema, though I won't show it. With it, we were able to change a lot during the refactoring process.
+First, obviously, thanks to DI, we don't need to pass any dependencies through constructor arguments if the components don't require them directly.
+Second, some classes were basically playing the role of Guice's Provider. Take dynamic rule loading, for example: it collects all subclasses of a certain class in a certain package. Replacing these classes was almost too easy thing.
+@Provides
+@Named("rules")
+private List<PvsStudioRule> provideRules() {
+var rules = new ArrayList<PvsStudioRule>();
+String packageName = PvsStudioRule.class.getPackage().getName();
+var reflections = new Reflections(packageName);
+var ruleClasses = reflections.getSubTypesOf(PvsStudioRule.class);
+....
+return rules;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+All these changes were fairly simple—and honestly, even pleasant. Yeah, we can spend a long time, roasting legacy code and writing a new one, like an investment to criticize in the future, but it's not very interesting. It's better to see what new functionality needs to be added here.
+Now back to Multibinder, as it's time to create a mechanism for loading user annotations. This is a separate module because we're working with user data—error handling (if any) must be done here. That's why the annotation module must be so abstracted from real events.
+It doesn't care who called what or when. It can report problems, sure, but how to handle them is not its job.
+It's the core that knows CLI arguments for annotation files, or determines the logic for auto-loading all .annotations.json files.
+Here we create the previously mentioned Guice module UserAnnotationProcessingModule, which provides a new processor via @ProvidesIntoSet: adding a dependency to the set created via Multibinder. And it's this module that finally has the following input data:
+analyzer configuration
+project context.
+The analyzer configuration (which includes data from CLI arguments) is used to see if the user has specified paths to annotation files.
+The project context is used to obtain the .PVS-Studio directory and retrieve all .annotations.json files within.
+Since it's the main module that called the annotation-loading mechanism, it also handles errors. The specific implementation of handling these errors is the generation of the V019 warnings.
+This is exactly why we split their responsibilities. The annotation module can't know how to create analyzer warnings or how to handle them to make them appear in the report or GUI. And thanks to these separate modules, we can easily replace warning generation with, let's say, the usual warning output to stdout.
+Result
+Life has become easier and better, and the core has been powered by dependencies Enterprise-grade standards.
+More seriously: we invested a lot of internal effort into properly designing the new module. Indeed, we could've spent less time on this, continued writing code as is, and got the same working thing. Unfortunately, as practice shows, every time we try to extend the code to handle cases where "oh, we didn't consider this scenario" leads to new errors, and the time required for each new feature starts growing exponentially.
+That's all! We improved the analyzer, it's better and stronger now, and you can try it here.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Anna Voronina
+Follow
+PR-manager | PVS-Studio
+Joined
+Jun 29, 2023
+More from Anna Voronina
+Combating headcrabs in the Source SDK codebase
+#gamedev
+#cpp
+What's new in Java 25
+#java
+#openjdk
+What if your elephant thinks it is bug?
+#cpp
+#php
+#testing
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

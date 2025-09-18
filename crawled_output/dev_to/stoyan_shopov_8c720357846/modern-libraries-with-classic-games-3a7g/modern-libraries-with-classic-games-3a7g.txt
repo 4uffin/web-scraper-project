@@ -1,0 +1,398 @@
+Modern Libraries with Classic Games - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Stoyan Shopov
+Posted on Sep 17
+Modern Libraries with Classic Games
+#pixijs
+#javascript
+#solitaire
+#gamedev
+Building solitairex.io with PixiJS — and how a tiny ticker change fixed our PageSpeed score
+When we launched solitaire online, we wanted buttery‑smooth animations and green Core Web Vitals. Our first build looked and felt great, but Google PageSpeed Insights wasn’t impressed. The culprit was subtle: our render loop (PixiJS’s ticker) was running from the moment the page loaded—even before the user interacted. That constant requestAnimationFrame work (even while idle) inflated CPU usage in Lighthouse’s lab run and dragged down metrics.
+The fix was a one‑liner conceptually: don’t start the ticker until the user interacts. Below is how our PixiJS app is set up, why PixiJS was the right choice for a web card game, and how we wired the ticker to “start on first click/touch/key” to keep PageSpeed happy without compromising gameplay.
+Why PixiJS for a canvas game?
+For Solitaire, we need pixel‑perfect graphics, fast drag‑and‑drop, and a responsive stage that scales from phones to 4K monitors. PixiJS gives us:
+GPU‑accelerated 2D rendering (WebGL) with automatic batching for sprites, textures, and text.
+A scene graph with Containers instead of manually redrawing everything each frame on a 2D canvas.
+Pointer & interaction system (pointer/touch/mouse with normalized coordinates), perfect for dragging cards.
+Resolution awareness via resolution and autoDensity, so the game looks crisp on high‑DPR displays.
+A predictable game loop via app.ticker and a clean Application lifecycle (async init, resize, etc.).
+A healthy ecosystem (filters, bitmap fonts, spine runtimes, texture packing) we can adopt incrementally.
+Could we have built this with plain <canvas>? Sure—but we’d be rebuilding much of Pixi’s renderer, event system, batching, and scaling logic. Pixi let us ship faster and spend our time on game design rather than boilerplate rendering code.
+Our bootstrap (simplified)
+Here’s the core of our setup class as it appears in production. Note the two important parts:
+autoStart: false so the ticker doesn’t run after init.
+We also call this.app.ticker.stop() for extra safety.
+async setup() {
+try {
+// Create PixiJS application
+this.app = new PIXI.Application();
+// Initialize with proper size and settings
+await this.app.init({
+background: 0xffffff,
+resolution: window.devicePixelRatio || 1,
+autoDensity: true,
+antialias: true,
+resizeTo: document.getElementById('sudoku-canvas'),
+autoStart: false
+});
+document.getElementById('sudoku-canvas').appendChild(this.app.view);
+this.app.ticker.stop();
+// Initialize game
+this.initGame();
+// Single resize handler with debounce
+this.setupResponsiveHandling().then(() => {
+if (this.game) {
+this.app.renderer.render(this.app.stage);
+}
+});
+// 👉 PageSpeed fix: only start the ticker after user interacts
+this.startTickerOnFirstInteraction();
+// Bonus: pause when tab is hidden
+this.setupVisibilityPause();
+} catch (error) {
+console.error('Error setting up application:', error);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The container ID is sudoku-canvas because we share scaffolding across several games. It’s just the wrapper element for the Pixi canvas.
+The PageSpeed problem we hit
+Lighthouse (what PageSpeed runs in lab) loads your page with no user input. If your render loop is already spinning, it:
+Keeps the main thread busy with continuous frame callbacks.
+Can create or amplify Total Blocking Time (lab metric) by reducing idle time for the main thread.
+Increases CPU time and sometimes causes extra layout/paint work in the background.
+For an idle Solitaire board, there’s no need to run a 60fps loop before the player actually touches the game. So we adopted a “render on demand until interaction” approach.
+The fix: start the ticker only after the user interacts
+This is the entire pattern:
+Don’t start the ticker in init (autoStart: false, then ticker.stop() just in case).
+Render once when layout or assets change.
+Start app.ticker on the first user gesture (pointer, touch, or key).
+Pause when the tab is hidden; resume only if the user has previously interacted.
+1) Render-on-demand before interaction
+We render a single frame whenever something changes pre‑interaction (initial layout, resize). No loop needed:
+renderOnce = () => {
+this.app.renderer.render(this.app.stage);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+2) Start on first interaction
+We attach a few low‑overhead listeners. once: true automatically cleans them up after firing.
+startTickerOnFirstInteraction() {
+let interacted = false;
+const start = () => {
+if (!interacted) {
+interacted = true;
+if (!this.app.ticker.started) {
+this.app.ticker.start();
+}
+}
+};
+// Use pointerdown/touchstart for earliest signal; keydown covers keyboard users.
+window.addEventListener('pointerdown', start, { once: true, passive: true });
+window.addEventListener('touchstart',
+start, { once: true, passive: true });
+window.addEventListener('keydown',
+start, { once: true });
+}
+Enter fullscreen mode
+Exit fullscreen mode
+3) Pause when the tab is hidden (battery- and metric-friendly)
+setupVisibilityPause() {
+let hasInteracted = false;
+const markInteracted = () => { hasInteracted = true; };
+window.addEventListener('pointerdown', markInteracted, { once: true, passive: true });
+window.addEventListener('touchstart',
+markInteracted, { once: true, passive: true });
+window.addEventListener('keydown',
+markInteracted, { once: true });
+document.addEventListener('visibilitychange', () => {
+if (document.hidden) {
+this.app.ticker.stop();
+} else if (hasInteracted) {
+// Only resume the loop if the user has actually engaged with the game
+this.app.ticker.start();
+} else {
+// Still idle: render one frame if layout changed
+this.renderOnce();
+}
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This prevents “wasted” frames on background tabs and saves battery on mobile.
+Responsive handling (debounced) without waking the loop
+Your snippet calls setupResponsiveHandling() and then triggers a single render. Here’s a minimal implementation that keeps PageSpeed happy by not starting the ticker:
+setupResponsiveHandling() {
+return new Promise((resolve) => {
+const el = document.getElementById('sudoku-canvas');
+let tid = null;
+const handle = () => {
+const w = el.clientWidth;
+const h = el.clientHeight;
+// Resize the renderer to the container
+this.app.renderer.resize(w, h);
+// Draw exactly one frame
+this.renderOnce();
+};
+const onResize = () => {
+clearTimeout(tid);
+tid = setTimeout(handle, 120); // debounce
+};
+// For modern browsers, ResizeObserver is ideal:
+const ro = new ResizeObserver(onResize);
+ro.observe(el);
+// Call once after init
+handle();
+resolve();
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Other small, high‑leverage tweaks
+Clamp resolution on high‑DPR devices. Ultra‑high DPR can increase GPU load with minimal visual benefit. Consider:
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+await this.app.init({ resolution: DPR, /* ... */ });
+Enter fullscreen mode
+Exit fullscreen mode
+Spritesheets & texture atlases. Fewer textures = fewer GPU switches, less memory pressure.
+Lazy-load audio & non-critical assets. Keep the initial payload light for faster LCP.
+Turn off filters when idle. Expensive filters (blur, glow) are gorgeous, but don’t waste cycles pre‑interaction.
+SEO tie‑in: why this matters
+Core Web Vitals influence search visibility, especially on mobile. For games, it’s easy to accidentally burn CPU in the background because a render loop feels harmless. Starting the ticker on the first click/touch/keystroke keeps Lighthouse lab metrics sane (lower CPU usage, lower TBT), and in the field it makes INP and battery usage better as well. The experience remains identical for real users—there’s simply no “invisible” work before they play.
+Full example (consolidated)
+Below is a compact version that you can drop into your class. It uses your original snippet, plus the PageSpeed‑friendly interaction gate and visibility pause:
+class SolitaireApp {
+app = null;
+game = null;
+async setup() {
+try {
+this.app = new PIXI.Application();
+await this.app.init({
+background: 0xffffff,
+resolution: window.devicePixelRatio || 1,
+autoDensity: true,
+antialias: true,
+resizeTo: document.getElementById('sudoku-canvas'),
+autoStart: false
+});
+document.getElementById('sudoku-canvas').appendChild(this.app.view);
+// Hard stop to guarantee no loop pre-interaction
+this.app.ticker.stop();
+this.initGame();
+await this.setupResponsiveHandling();
+if (this.game) this.app.renderer.render(this.app.stage);
+this.startTickerOnFirstInteraction();
+this.setupVisibilityPause();
+} catch (err) {
+console.error('Error setting up application:', err);
+}
+}
+initGame() {
+// Build stage, load assets, add containers/sprites, etc.
+// Add ticker callbacks, e.g.:
+// this.app.ticker.add((dt) => this.game.update(dt));
+}
+renderOnce = () => {
+this.app.renderer.render(this.app.stage);
+};
+setupResponsiveHandling() {
+return new Promise((resolve) => {
+const el = document.getElementById('sudoku-canvas');
+let tid = null;
+const handle = () => {
+const w = el.clientWidth;
+const h = el.clientHeight;
+this.app.renderer.resize(w, h);
+if (!this.app.ticker.started) this.renderOnce();
+};
+const onResize = () => {
+clearTimeout(tid);
+tid = setTimeout(handle, 120);
+};
+const ro = new ResizeObserver(onResize);
+ro.observe(el);
+handle();
+resolve();
+});
+}
+startTickerOnFirstInteraction() {
+let interacted = false;
+const start = () => {
+if (!interacted) {
+interacted = true;
+if (!this.app.ticker.started) this.app.ticker.start();
+}
+};
+window.addEventListener('pointerdown', start, { once: true, passive: true });
+window.addEventListener('touchstart',
+start, { once: true, passive: true });
+window.addEventListener('keydown',
+start, { once: true });
+}
+setupVisibilityPause() {
+let hasInteracted = false;
+const markInteracted = () => { hasInteracted = true; };
+window.addEventListener('pointerdown', markInteracted, { once: true, passive: true });
+window.addEventListener('touchstart',
+markInteracted, { once: true, passive: true });
+window.addEventListener('keydown',
+markInteracted, { once: true });
+document.addEventListener('visibilitychange', () => {
+if (document.hidden) {
+this.app.ticker.stop();
+} else if (hasInteracted) {
+this.app.ticker.start();
+} else {
+this.renderOnce();
+}
+});
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Takeaways
+PixiJS is a great fit for web card games: GPU speed, clean APIs, and a strong ecosystem.
+Lighthouse penalizes background work. A running ticker is work.
+Pattern: autoStart: false → render on demand → start ticker on first interaction → pause on hidden tab.
+You keep the same player experience while improving Core Web Vitals and PageSpeed scores.
+If you’d like, I can adapt this into a polished blog draft for your engineering site (with diagrams and before/after screenshots) or tailor it for your other games (Sudoku, Mahjong) so the same pattern carries across your stack.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Stoyan Shopov
+Follow
+Joined
+Sep 17, 2025
+Trending on DEV Community
+Hot
+Introducing: @traversable/valibot
+#typescript
+#javascript
+#webdev
+#opensource
+How We Built An AI-Assisted Dependency Vulnerability Scanner
+#kiro
+#kirohackathon
+#productivity
+#kirodotdev
+Automate GitHub Security Reviews with Glama’s AI Automation and MCP Servers
+#ai
+#beginners
+#tutorial
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,148 @@
+SwiftUI: Peek at/extract hidden environment values · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+IanKeen/EnvironmentValues.swift
+Last active
+September 17, 2025 18:16
+Show Gist options
+Download ZIP
+Star
+16
+(16)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/IanKeen/bf47ebe3470ae7de8e3feac061704a55.js&quot;&gt;&lt;/script&gt;
+Save IanKeen/bf47ebe3470ae7de8e3feac061704a55 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+5
+Stars
+16
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/IanKeen/bf47ebe3470ae7de8e3feac061704a55.js&quot;&gt;&lt;/script&gt;
+Save IanKeen/bf47ebe3470ae7de8e3feac061704a55 to your computer and use it in GitHub Desktop.
+Download ZIP
+SwiftUI: Peek at/extract hidden environment values
+Raw
+_Example.swift
+// expose hidden environment members like so:
+extension EnvironmentValues {
+public var foregroundColor: Color? { value(forKey: "ForegroundColorKey") }
+public var accentColor: Color? { value(forKey: "AccentColorKey") }
+}
+// then you can use them like any others:
+@Environment(\.foregroundColor) var foregroundColor
+// You can see all the available values with something like:
+@Environment(\.dumpEnvironment) var dump
+//Then
+let _ = dump
+Raw
+EnvironmentValues.swift
+import Foundation
+import SwiftUI
+extension EnvironmentValues {
+public func value<T>(_: T.Type = T.self, forKey key: String) -> T? {
+guard let value = first(where: { name($0, equals: key) }) else {
+print("No EnvironmentValue with key '\(key)' found.")
+return nil
+}
+let valueMirror = Mirror(reflecting: value)
+let environmentValue = valueMirror.descendant("value", "some")
+if let result = environmentValue as? T {
+return result
+} else if let value = valueMirror.children.first?.value, let result = value as? T {
+return result
+} else {
+print("EnvironmentValue with key '\(key)' mismatch. Expected \(T.self), found \(type(of: environmentValue))")
+return nil
+}
+}
+private func name(_ value: Any, equals key: String) -> Bool {
+let parts = String(describing: type(of: value)).components(separatedBy: .init(charactersIn: "<>"))
+return parts.contains(key)
+}
+}
+extension EnvironmentValues: Sequence {
+public func makeIterator() -> AnyIterator<Any> {
+let mirror = Mirror(reflecting: self)
+guard let plist = mirror.children.first(where: { $0.label?.contains("plist") ?? false })?.label else {
+print("Unable to find EnvironmentValue elements from", mirror.children.map(\.label))
+return .init { nil }
+}
+var current = mirror.descendant(plist, "elements", "some")
+return .init {
+guard let value = current else { return nil }
+defer {
+let next = Mirror(reflecting: value).superclassMirror
+current = next?.descendant("after", "some")
+}
+return value
+}
+}
+}
+extension EnvironmentValues {
+public var dumpEnvironment: Bool {
+self.forEach { print($0) }
+return true
+}
+}
+extension Mirror {
+public func dump(indent: Int = 0) {
+let i = String(repeating: " ", count: indent)
+for item in children {
+print(i, "\(item.label ?? "<none>"):\(type(of: item.value))", item.value as Any)
+let mirror = Mirror(reflecting: item.value)
+if let m = mirror.superclassMirror {
+m.dump(indent: indent + 1)
+} else {
+mirror.dump(indent: indent + 1)
+}
+}
+}
+}
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

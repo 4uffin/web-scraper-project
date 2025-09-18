@@ -1,0 +1,361 @@
+From 1.2GB to 54MB: My Docker Image Went on a Diet - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Hasan Ashab
+Posted on Sep 17
+From 1.2GB to 54MB: My Docker Image Went on a Diet
+#docker
+#devops
+#performance
+#containers
+When I first containerized my Node.js app, I felt pretty good about myself. I had a Dockerfile, I built it, and it worked.
+Then I checked the size.
+1.2GB. For a single Node.js service.
+That’s when reality hit me. My image wasn’t lean—it was obese. It slowed down builds, bloated my CI/CD pipeline, took forever to push to the registry, and ate storage like there was no tomorrow.
+So, I put my Docker image on a strict diet. After a few rounds of optimizations, it went from 1.2GB → 250MB → 54MB.
+Here’s the story of how I cut the fat—and how you can too.
+Step 1: The Heavyweight Start
+Here’s what my original Dockerfile looked like:
+FROM node:16
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+CMD ["node", "server.js"]
+Enter fullscreen mode
+Exit fullscreen mode
+Looks innocent, right? But it had several problems:
+node:16 is Debian-based and heavy (~350MB).
+npm install installed everything—dev and production dependencies.
+No .dockerignore, so logs, git history, and node_modules sneaked into the image.
+The result? A 1.2GB monster that slowed everything down.
+Step 2: Choosing a Leaner Base
+The first fix was swapping node:16 for node:16-alpine.
+FROM node:16-alpine
+Enter fullscreen mode
+Exit fullscreen mode
+That one-line change cut my image down to ~250MB.
+Lesson: Your base image choice can make or break your build.
+⚠️ Caveat: Alpine uses musl instead of glibc. If your app has native modules (sharp, bcrypt, canvas), you may need extra packages.
+Step 3: Multi-Stage Builds
+My app uses TypeScript, so I had build tools sitting inside the final image. Big mistake. They added hundreds of MBs I didn’t need in production.
+Enter multi-stage builds:
+# Stage 1: Builder
+FROM node:16-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+# Stage 2: Runtime
+FROM node:16-alpine
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY package*.json ./
+RUN npm ci --only=production
+CMD ["node", "dist/server.js"]
+Enter fullscreen mode
+Exit fullscreen mode
+Now, the final image contains only:
+Compiled JavaScript (dist/)
+Production dependencies
+No dev dependencies. No build cache. No clutter.
+This dropped my image to ~120MB.
+Step 4: Prune and Ignore Junk
+Another culprit: files that had no business being in production.
+I added a .dockerignore:
+node_modules
+npm-debug.log
+Dockerfile
+.dockerignore
+.git
+.gitignore
+*.md
+tests
+Enter fullscreen mode
+Exit fullscreen mode
+And I cleaned up caches in the Dockerfile:
+RUN npm ci --only=production \
+&& npm cache clean --force \
+&& rm -rf /tmp/*
+Enter fullscreen mode
+Exit fullscreen mode
+End result: no accidental junk, no wasted MBs.
+Step 5: Minimize Layers
+At first, I had a Dockerfile with multiple RUN statements:
+RUN apk add --no-cache python3
+RUN npm ci --only=production
+RUN npm cache clean --force
+Enter fullscreen mode
+Exit fullscreen mode
+Each RUN adds a layer. I combined them into one:
+RUN apk add --no-cache python3 \
+&& npm ci --only=production \
+&& npm cache clean --force
+Enter fullscreen mode
+Exit fullscreen mode
+This small tweak shaved off ~15MB. Not huge, but every MB counts when you’re pulling images in production.
+Step 6: Measuring and Iterating
+The key to trimming images is measuring:
+docker images
+docker history <image>
+Enter fullscreen mode
+Exit fullscreen mode
+With docker history, I saw exactly which layer was eating space and optimized from there.
+Final Weight Check
+Original: 1.2GB
+After switching to Alpine: ~250MB
+After multi-stage + pruning: 120MB
+After .dockerignore + cleanup: 54MB 🎉
+That’s a ~95% reduction. Pulls went from minutes to seconds, and CI/CD pipelines stopped crawling.
+Lessons Learned
+Pick the right base image – Defaults are rarely optimal.
+Multi-stage builds are gold – Keep dev tools out of production.
+Use .dockerignore religiously – Don’t ship junk.
+Prune aggressively – Caches, logs, temp files… delete them.
+Measure constantly – Know what’s eating space before fixing it.
+Conclusion
+Cutting Docker image size isn’t just about bragging rights—it’s about faster deploys, lower registry costs, and fewer headaches.
+My Node.js image went on a diet and lost 1.1GB, and I’ll never go back to lazy Dockerfiles again.
+If your containers are bloated, trust me: a few tweaks can make them featherweight.
+So… is your Docker image on a healthy diet?
+📬 Contact
+If you’d like to connect, collaborate, or discuss DevOps, feel free to reach out:
+Website: hasan-ashab
+GitHub: github.com/HasanAshab
+LinkedIn: linkedin.com/in/hasan-ashab
+Top comments (6)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Pavel Gelver
+Pavel Gelver
+Pavel Gelver
+Follow
+I've been developing software for over a decade, specializing in C#, .NET, distributed systems, system design, and software architecture.
+Joined
+Aug 14, 2025
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+That's awesome!
+Like comment:
+Like comment:
+3 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Hasan Ashab
+Hasan Ashab
+Hasan Ashab
+Follow
+I'm a DevOps Engineer and Backend Developer from Dhaka, Bangladesh with 3+ years of professional experience in building scalable cloud infrastructure, automation-driven deployments and Backends.
+Email
+hasanashab.18205@gmail.com
+Location
+Dhaka, Bangladesh
+Joined
+Sep 2, 2025
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+Thanks 🙂
+Like comment:
+Like comment:
+Like
+Comment button
+Reply
+Collapse
+Expand
+Roshan Sharma
+Roshan Sharma
+Roshan Sharma
+Follow
+💻 Tech Enthusiast | Linux & Open Source Explorer
+🔧 Sharing insights on Ubuntu, Debian, Docker, and DevOps tools
+🐍 Passionate about Python, SQL & MySQL
+✍️ Writing tutorials, guides, and answers to m
+Joined
+Aug 19, 2025
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+Awesome slimming of the Docker image!
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Hasan Ashab
+Hasan Ashab
+Hasan Ashab
+Follow
+I'm a DevOps Engineer and Backend Developer from Dhaka, Bangladesh with 3+ years of professional experience in building scalable cloud infrastructure, automation-driven deployments and Backends.
+Email
+hasanashab.18205@gmail.com
+Location
+Dhaka, Bangladesh
+Joined
+Sep 2, 2025
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+I'm glad you like the new image 🤧
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Some comments may only be visible to logged-in visitors. Sign in to view all comments.
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Hasan Ashab
+Follow
+I'm a DevOps Engineer and Backend Developer from Dhaka, Bangladesh with 3+ years of professional experience in building scalable cloud infrastructure, automation-driven deployments and Backends.
+Location
+Dhaka, Bangladesh
+Joined
+Sep 2, 2025
+More from Hasan Ashab
+Productionizing AWS’s Retail Sample App with GitOps on EKS
+#devops
+#cicd
+#aws
+#cloud
+Cost-Optimized Three-Tier Architecture on AWS with DevOps
+#cicd
+#architecture
+#devops
+#aws
+🚀 My 3-Day Hackathon Journey: Building a CI/CD Pipeline from Scratch
+#devops
+#jenkins
+#docker
+#hackathon
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

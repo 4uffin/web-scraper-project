@@ -1,0 +1,632 @@
+Building Web Servers from First Principles (Part 4) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Boluwatife Adewusi
+Posted on Sep 17
+Building Web Servers from First Principles (Part 4)
+#go
+#backend
+#tutorial
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+In Chapter 3, we built a clean router that could handle exact path matches. But real APIs need dynamic routes - when your frontend calls /api/users/123, you don't want to pre-register a route for every possible user ID!
+Today, we'll implement dynamic routing with URL parameters, just like Express's /users/:id or Gin's /users/:id.
+What We've Built So Far
+From previous chapters:
+✅ Clean HTTP server foundation
+✅ Router with method-aware route registration
+✅ Exact path matching (/users, /products)
+❌ Dynamic paths (/users/:id, /products/:category/:id)
+The Problem with Static Routes
+Our current router only handles exact matches. For a real user API, you'd need:
+// This doesn't scale!
+router.GET("/users/1", getUser1Handler)
+router.GET("/users/2", getUser2Handler)
+router.GET("/users/3", getUser3Handler)
+// ... for every possible user ID?
+Enter fullscreen mode
+Exit fullscreen mode
+Frontend developers expect to call /users/123, /users/456, or any ID dynamically. We need route patterns like /users/:id.
+Starting with a Static Route Problem
+Let's follow the notes and start with a static route to see the problem firsthand.
+First, let's create some sample data. Create data.go:
+package main
+type User struct {
+Id
+int
+`json:"id"`
+Name
+string `json:"name"`
+Email string `json:"email"`
+}
+var users = []User{
+{
+Id:
+1,
+Name:
+"John Doe",
+Email: "johndoe@gmail.com",
+},
+{
+Id:
+2,
+Name:
+"Jane Doe",
+Email: "janedoe@gmail.com",
+},
+{
+Id:
+3,
+Name:
+"Alex Jones",
+Email: "alexjones@gmail.com",
+},
+{
+Id:
+4,
+Name:
+"Ada Lovelace",
+Email: "adalovelace@gmail.com",
+},
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Now let's create a handler for a specific user. Update main.go:
+package main
+import (
+"encoding/json"
+"net/http"
+)
+func main() {
+server := NewServer(":3000")
+setupRoutes(server)
+server.Start()
+}
+func setupRoutes(s *Server) {
+// Static route - only works for user ID 1
+s.Router.GET("/users/1", getUser1)
+}
+func getUser1(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// Hardcoded to return user with ID 1
+var user User
+for _, u := range users {
+if u.Id == 1 {
+user = u
+break
+}
+}
+response := map[string]any{
+"data": user,
+}
+jsonBody, _ := json.Marshal(response)
+w.WriteHeader(http.StatusOK)
+w.Write(jsonBody)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test this static approach:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+curl http://localhost:3000/users/1
+# Works: Returns John Doe
+curl http://localhost:3000/users/2
+# 404: route not found
+curl http://localhost:3000/users/123
+# 404: route not found
+Enter fullscreen mode
+Exit fullscreen mode
+The Problem: We can only handle user ID 1. Every other ID returns 404, even though we have data for users 2, 3, and 4.
+Implementing Pattern Matching First
+Now let's solve this step by step. First, we'll implement pattern matching to recognize /users/:id routes.
+Update the resolveRoute method in router.go:
+func (r *Router) resolveRoute(req *http.Request) (HandlerFunc, error) {
+method := req.Method
+path := req.URL.Path
+log.Printf("%s %s", method, path)
+methodRoutes, ok := r.routes[method]
+if !ok {
+return nil, fmt.Errorf("method not supported")
+}
+// Try exact match first
+if handler, ok := methodRoutes[path]; ok {
+return handler, nil
+}
+// If no exact match, try pattern matching
+pathSegments := strings.Split(strings.Trim(path, "/"), "/")
+for routePattern, handler := range methodRoutes {
+routeSegments := strings.Split(strings.Trim(routePattern, "/"), "/")
+if len(pathSegments) == len(routeSegments) && matchesPattern(pathSegments, routeSegments) {
+return handler, nil
+}
+}
+return nil, fmt.Errorf("path does not exist")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Add the required imports at the top of router.go:
+import (
+"fmt"
+"log"
+"net/http"
+"strings"
+// Add this
+)
+Enter fullscreen mode
+Exit fullscreen mode
+Now we need the pattern matching function:
+func matchesPattern(pathSegments, routeSegments []string) bool {
+for i, segment := range routeSegments {
+if strings.HasPrefix(segment, ":") {
+// This is a parameter segment - always matches
+continue
+}
+if segment != pathSegments[i] {
+return false
+}
+}
+return true
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Understanding the Pattern Matching Loop in Detail
+Let me break down that crucial pattern matching loop that we just added:
+for routePattern, handler := range methodRoutes {
+routeSegments := strings.Split(strings.Trim(routePattern, "/"), "/")
+if len(pathSegments) == len(routeSegments) &&
+matchesPattern(pathSegments, routeSegments) {
+return handler, nil
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This loop is doing several important things. Let's trace through an example where:
+Request: /users/123
+Registered routes: /users/:id, /products/:id, /hello
+Step 1: Iterate Through All Registered Routes
+for routePattern, handler := range methodRoutes {
+Enter fullscreen mode
+Exit fullscreen mode
+The methodRoutes map contains all routes registered for this HTTP method (GET, POST, etc.). For our example:
+methodRoutes = {
+"/users/:id":
+getUserHandler,
+"/products/:id": getProductHandler,
+"/hello":
+helloHandler
+}
+Enter fullscreen mode
+Exit fullscreen mode
+So our loop will check each of these patterns one by one:
+Iteration 1: routePattern = "/users/:id", handler = getUserHandler
+Iteration 2: routePattern = "/products/:id", handler = getProductHandler
+Iteration 3: routePattern = "/hello", handler = helloHandler
+Step 2: Split the Route Pattern into Segments
+routeSegments := strings.Split(strings.Trim(routePattern, "/"), "/")
+Enter fullscreen mode
+Exit fullscreen mode
+This line is doing two operations:
+strings.Trim(routePattern, "/"): Removes leading/trailing slashes
+/users/:id becomes users/:id
+This handles cases like users/:id or /users/:id/ consistently
+strings.Split(..., "/"): Splits on forward slashes to get individual path segments
+Let's see this in action for each iteration:
+Iteration 1 (routePattern = "/users/:id"):
+strings.Trim("/users/:id", "/")
+// → "users/:id"
+strings.Split("users/:id", "/")
+// → ["users", ":id"]
+// So: routeSegments = ["users", ":id"]
+Enter fullscreen mode
+Exit fullscreen mode
+Iteration 2 (routePattern = "/products/:id"):
+strings.Trim("/products/:id", "/")
+// → "products/:id"
+strings.Split("products/:id", "/")
+// → ["products", ":id"]
+// So: routeSegments = ["products", ":id"]
+Enter fullscreen mode
+Exit fullscreen mode
+Iteration 3 (routePattern = "/hello"):
+strings.Trim("/hello", "/")
+// → "hello"
+strings.Split("hello", "/")
+// → ["hello"]
+// So: routeSegments = ["hello"]
+Enter fullscreen mode
+Exit fullscreen mode
+Remember, we already split the incoming request path earlier:
+pathSegments := strings.Split(strings.Trim(path, "/"), "/")
+// For "/users/123" this gives us: ["users", "123"]
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Check Length and Pattern Match
+if len(pathSegments) == len(routeSegments) &&
+matchesPattern(pathSegments, routeSegments) {
+return handler, nil
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This condition has two parts that BOTH must be true:
+Part 1: Length Check (len(pathSegments) == len(routeSegments))
+This ensures the number of segments match. For our request /users/123 (2 segments):
+Iteration 1: len(["users", "123"]) == len(["users", ":id"]) → 2 == 2 ✅
+Iteration 2: len(["users", "123"]) == len(["products", ":id"]) → 2 == 2 ✅
+Iteration 3: len(["users", "123"]) == len(["hello"]) → 2 == 1 ❌
+The length check immediately eliminates routes that can't possibly match.
+Part 2: Pattern Match (matchesPattern(pathSegments, routeSegments))
+This is where the actual pattern matching logic happens. The function compares each segment:
+For the iterations that passed the length check:
+Iteration 1: matchesPattern(["users", "123"], ["users", ":id"])
+i=0: segment = "users" (doesn't start with :)
+Check: "users" != "users"? NO → Continue
+i=1: segment = ":id" (starts with :)
+This is a parameter → continue (always matches)
+Result: true ✅
+Iteration 2: matchesPattern(["users", "123"], ["products", ":id"])
+i=0: segment = "products" (doesn't start with :)
+Check: "products" != "users"? YES → return false
+Result: false ❌
+So for /users/123:
+Route /users/:id matches! (length ✅ + pattern ✅)
+Route /products/:id doesn't match (length ✅ + pattern ❌)
+Route /hello doesn't match (length ❌)
+The loop returns the handler for /users/:id.
+Why This Design Works
+This approach is elegant because:
+Fast Length Check: Eliminates impossible matches immediately
+Flexible Parameters: :id matches any value (123, abc, anything)
+Exact Matching: Non-parameter segments must match exactly
+First Match Wins: Returns as soon as a pattern matches
+Now let's update our route registration to use a pattern. Update main.go:
+func setupRoutes(s *Server) {
+// Dynamic route pattern - but handler still doesn't know the ID
+s.Router.GET("/users/:id", getUsers)
+}
+func getUsers(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// We can match the pattern but can't access the ID yet!
+// For now, let's just return the first user
+user := users[0]
+response := map[string]any{
+"data": user,
+"note": "Pattern matching works, but we can't access the ID parameter yet!",
+}
+jsonBody, _ := json.Marshal(response)
+w.WriteHeader(http.StatusOK)
+w.Write(jsonBody)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test the pattern matching:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+curl http://localhost:3000/users/1
+curl http://localhost:3000/users/2
+curl http://localhost:3000/users/123
+curl http://localhost:3000/users/anything
+Enter fullscreen mode
+Exit fullscreen mode
+All of these now return a response! The pattern matching is working - /users/:id matches any /users/something request. But notice we're always returning the same user because we can't access the ID parameter yet.
+The Current Problem: We Can't Extract URL Values
+Our pattern matching works, but we have a new problem: how do we access the actual ID that was requested? The handler needs to know whether the user requested /users/1 or /users/123.
+This is exactly what we need to solve next - extracting parameter values from the URL.
+Implementing Parameter Extraction
+Now let's extend our router to extract the parameter values and make them available to handlers.
+First, we need to modify our resolveRoute method to extract parameters and store them:
+func (r *Router) resolveRoute(req *http.Request) (HandlerFunc, error) {
+method := req.Method
+path := req.URL.Path
+log.Printf("%s %s", method, path)
+methodRoutes, ok := r.routes[method]
+if !ok {
+return nil, fmt.Errorf("method not supported")
+}
+// Try exact match first
+if handler, ok := methodRoutes[path]; ok {
+return handler, nil
+}
+// If no exact match, try pattern matching
+pathSegments := strings.Split(strings.Trim(path, "/"), "/")
+for routePattern, handler := range methodRoutes {
+routeSegments := strings.Split(strings.Trim(routePattern, "/"), "/")
+if len(pathSegments) == len(routeSegments) && matchesPattern(pathSegments, routeSegments) {
+// NEW: Extract parameters and add to request context
+params := extractParams(pathSegments, routeSegments)
+if len(params) > 0 {
+ctx := context.WithValue(req.Context(), "params", params)
+*req = *req.WithContext(ctx)
+}
+return handler, nil
+}
+}
+return nil, fmt.Errorf("path does not exist")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Add the context import:
+import (
+"context"
+// Add this
+"fmt"
+"log"
+"net/http"
+"strings"
+)
+Enter fullscreen mode
+Exit fullscreen mode
+Now let's add the parameter extraction function:
+func extractParams(pathSegments, routeSegments []string) map[string]string {
+params := make(map[string]string)
+for i, segment := range routeSegments {
+if strings.HasPrefix(segment, ":") {
+paramName := segment[1:] // Remove the ":"
+params[paramName] = pathSegments[i]
+}
+}
+return params
+}
+Enter fullscreen mode
+Exit fullscreen mode
+How Parameter Extraction Works:
+For /users/:id matching /users/123:
+routeSegments = ["users", ":id"]
+pathSegments = ["users", "123"]
+When we see :id at position 1, we extract pathSegments[1] which is "123"
+Result: {"id": "123"}
+Adding a Helper Function to Access Parameters
+We need a way for handlers to access the extracted parameters:
+// Helper function to get path parameters from request context
+func GetPathValue(r *http.Request, key string) string {
+if params, ok := r.Context().Value("params").(map[string]string); ok {
+return params[key]
+}
+return ""
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Updating the Handler to Use Parameters
+Now let's update our handler to actually use the extracted ID parameter:
+func getUsers(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// NOW we can access the ID parameter from the URL!
+userIdStr := GetPathValue(r, "id")
+userId, err := strconv.ParseInt(userIdStr, 10, 32)
+if err != nil {
+w.WriteHeader(http.StatusBadRequest)
+response := map[string]any{
+"error": "Invalid user ID",
+}
+jsonBody, _ := json.Marshal(response)
+w.Write(jsonBody)
+return
+}
+// Find the user with this ID
+var user User
+for _, u := range users {
+if u.Id == int(userId) {
+user = u
+break
+}
+}
+if user.Id == 0 {
+w.WriteHeader(http.StatusNotFound)
+response := map[string]any{
+"error": "user not found",
+}
+jsonBody, _ := json.Marshal(response)
+w.Write(jsonBody)
+return
+}
+response := map[string]any{
+"data": user,
+}
+jsonBody, _ := json.Marshal(response)
+w.WriteHeader(http.StatusOK)
+w.Write(jsonBody)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Add the import for strconv:
+import (
+"encoding/json"
+"net/http"
+"strconv"
+// Add this
+)
+Enter fullscreen mode
+Exit fullscreen mode
+Testing the Complete Solution
+Now let's test our complete dynamic routing solution:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+Try different user IDs:
+curl http://localhost:3000/users/1
+# Returns: {"data":{"id":1,"name":"John Doe","email":"johndoe@gmail.com"}}
+curl http://localhost:3000/users/2
+# Returns: {"data":{"id":2,"name":"Jane Doe","email":"janedoe@gmail.com"}}
+curl http://localhost:3000/users/4
+# Returns: {"data":{"id":4,"name":"Ada Lovelace","email":"adalovelace@gmail.com"}}
+curl http://localhost:3000/users/999
+# Returns: {"error":"user not found"}
+curl http://localhost:3000/users/abc
+# Returns: {"error":"Invalid user ID"}
+Enter fullscreen mode
+Exit fullscreen mode
+Perfect! Our router now:
+✅ Matches patterns like /users/:id
+✅ Extracts parameters from the URL
+✅ Makes parameters accessible to handlers
+✅ Handles different user IDs dynamically
+✅ Provides proper error handling for invalid/missing data
+What We've Accomplished
+We now have:
+✅ Dynamic route patterns (/users/:id)
+✅ Pattern matching (recognizes parameterized routes)
+✅ Parameter extraction (gets values from URLs)
+✅ Parameter access (GetPathValue(r, "id"))
+✅ Flexible routing (works with any ID)
+✅ Proper error handling (invalid IDs, missing users)
+✅ JSON responses (real API behavior)
+What's Next?
+In Chapter 5, we'll focus getting data from the request. Right now, our only source of information from the request is the url but there are multiple ways the client can pass data to our web server
+Challenge: Try creating a route pattern like /products/:category/:id and a handler that uses both parameters. See how the pattern matching handles nested parameters!
+Next: Chapter 5: Query Params
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Boluwatife Adewusi
+Follow
+I am a full stack developer with over half a decade of experience journaling my journey so that you don't make the same mistakes I made.
+Joined
+Jun 5, 2024
+More from Boluwatife Adewusi
+Building Web Servers from First Principles (Part 5)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 3)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 2)
+#go
+#backend
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

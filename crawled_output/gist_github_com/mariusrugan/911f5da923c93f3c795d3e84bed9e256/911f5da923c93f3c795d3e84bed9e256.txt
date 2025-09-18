@@ -1,0 +1,731 @@
+Gitea self-hosted runner · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+mariusrugan/build-image.yaml
+Last active
+September 17, 2025 21:12
+Show Gist options
+Download ZIP
+Star
+13
+(13)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/mariusrugan/911f5da923c93f3c795d3e84bed9e256.js&quot;&gt;&lt;/script&gt;
+Save mariusrugan/911f5da923c93f3c795d3e84bed9e256 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+3
+Stars
+13
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/mariusrugan/911f5da923c93f3c795d3e84bed9e256.js&quot;&gt;&lt;/script&gt;
+Save mariusrugan/911f5da923c93f3c795d3e84bed9e256 to your computer and use it in GitHub Desktop.
+Download ZIP
+Gitea self-hosted runner
+Raw
+build-image.yaml
+# Inspired by:
+# https://blog.gitea.com/creating-go-actions/
+# https://gitea.com/Zettat123/test-simple-go-action/src/branch/main/.gitea/workflows/call-username.yml
+# https://gitea.com/actions/release-action
+# https://gitea.com/gitea/runner-images
+# https://github.com/vegardit/docker-gitea-act-runner
+# https://github.com/catthehacker/docker_images
+#
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: build-image
+run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀 🚀 🚀
+on:
+push:
+branches: ["main"]
+paths:
+- .gitea/workflows/build-image.yaml
+jobs:
+build-image:
+name: build-image
+runs-on: ubuntu-latest
+container:
+# image: ghcr.io/catthehacker/ubuntu:act-latest
+# image: gitea/runner-images:ubuntu-latest
+image: gitea.example.com/xyz/ubuntu-act:22.04
+credentials:
+username: ${{ gitea.actor }}
+password: ${{ secrets.GA_TOKEN }}
+steps:
+- uses: actions/checkout@v4
+- name: Install QEMU
+run: |
+sudo apt-get update
+sudo apt-get install -y qemu-user-static
+#
+# https://github.com/docker/metadata-action
+#
+- name: Docker meta
+id: meta
+uses: docker/metadata-action@v5
+with:
+images: |
+gitea.example.com/xyz/alpine
+tags: |
+type=schedule,pattern={{date 'YYYYMMDDHHMM'}}
+type=semver,pattern={{version}}
+type=semver,pattern={{major}}.{{minor}}
+type=semver,pattern={{major}}
+type=sha
+- name: Set up Docker Context for Buildx
+id: buildx-context
+run: |
+export DOCKER_HOST=tcp://docker:2376/
+export DOCKER_TLS_CERTDIR="/certs"
+export DOCKER_TLS_VERIFY=1
+export DOCKER_CERT_PATH="/certs/client"
+docker context create builders
+# https://github.com/docker/setup-buildx-action
+# https://docs.docker.com/engine/reference/commandline/cli/#environment-variables
+- name: Setup Docker Buildx
+id: buildx
+uses: docker/setup-buildx-action@v3
+with:
+# buildkitd-flags: --debug
+endpoint: builders
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+#
+# Debug
+#
+- name: Available platforms
+run: echo ${{ steps.buildx.outputs.platforms }}
+#
+# https://github.com/docker/login-action
+#
+- name: Login to Gitea
+uses: docker/login-action@v3
+with:
+registry: gitea.example.com
+username: ${{ gitea.actor }}
+password: ${{ secrets.GA_TOKEN }}
+#
+# https://github.com/docker/build-push-action
+#
+- name: Build and push the image
+if: gitea.event_name != 'pull_request'
+uses: docker/build-push-action@v5
+with:
+push: ${{ gitea.event_name != 'pull_request' }}
+platforms: linux/amd64
+context: containers/test
+tags: ${{ steps.meta.outputs.tags }}
+labels: ${{ steps.meta.outputs.labels }}
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+#
+#
+#
+- name: Inspect
+run: |
+docker buildx imagetools inspect gitea.example.com/xyz/ubuntu-act:22.04
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+Raw
+gitea-config-cm.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+name: config
+namespace: actions-runner-system
+annotations:
+reloader.stakater.com/auto: "true"
+data:
+config.yaml: |-
+log:
+# The level of logging, can be trace, debug, info, warn, error, fatal
+level: debug
+runner:
+# Where to store the registration result.
+file: .runner
+# Execute how many tasks concurrently at the same time.
+capacity: 1
+# Extra environment variables to run jobs.
+envs:
+A_TEST_ENV_NAME_1: a_test_env_value_1
+A_TEST_ENV_NAME_2: a_test_env_value_2
+# Extra environment variables to run jobs from a file.
+# It will be ignored if it's empty or the file doesn't exist.
+env_file: .env
+# The timeout for a job to be finished.
+# Please note that the Gitea instance also has a timeout (3h by default) for the job.
+# So the job could be stopped by the Gitea instance if it's timeout is shorter than this.
+timeout: 30m
+# Whether skip verifying the TLS certificate of the Gitea instance.
+insecure: false
+# The timeout for fetching the job from the Gitea instance.
+fetch_timeout: 5s
+# The interval for fetching the job from the Gitea instance.
+fetch_interval: 2s
+# The labels of a runner are used to determine which jobs the runner can run, and how to run them.
+# Like: "macos-arm64:host" or "ubuntu-latest:docker://gitea/runner-images:ubuntu-latest"
+# Find more images provided by Gitea at https://gitea.com/gitea/runner-images .
+# If it's empty when registering, it will ask for inputting labels.
+# If it's empty when execute `daemon`, will use labels in `.runner` file.
+labels:
+- "ubuntu-latest:docker://gitea/runner-images:ubuntu-latest"
+- "ubuntu-22.04:docker://gitea/runner-images:ubuntu-22.04"
+- "ubuntu-20.04:docker://gitea/runner-images:ubuntu-20.04"
+cache:
+# Enable cache server to use actions/cache.
+enabled: true
+# The directory to store the cache data.
+# If it's empty, the cache data will be stored in $HOME/.cache/actcache.
+dir: ""
+# The host of the cache server.
+# It's not for the address to listen, but the address to connect from job containers.
+# So 0.0.0.0 is a bad choice, leave it empty to detect automatically.
+host: ""
+# The port of the cache server.
+# 0 means to use a random available port.
+port: 0
+# The external cache server URL. Valid only when enable is true.
+# If it's specified, act_runner will use this URL as the ACTIONS_CACHE_URL rather than start a server by itself.
+# The URL should generally end with "/".
+external_server: ""
+container:
+# Specifies the network to which the container will connect.
+# Could be host, bridge or the name of a custom network.
+# If it's empty, act_runner will create a network automatically.
+network: ""
+# Whether to use privileged mode or not when launching task containers (privileged mode is required for Docker-in-Docker).
+privileged: false
+# And other options to be used when the container is started (eg, --add-host=my.gitea.url:host-gateway).
+options: "--add-host=docker:host-gateway -v /certs:/certs"
+# The parent directory of a job's working directory.
+# NOTE: There is no need to add the first '/' of the path as act_runner will add it automatically.
+# If the path starts with '/', the '/' will be trimmed.
+# For example, if the parent directory is /path/to/my/dir, workdir_parent should be path/to/my/dir
+# If it's empty, /workspace will be used.
+# workdir_parent:
+# Volumes (including bind mounts) can be mounted to containers. Glob syntax is supported, see https://github.com/gobwas/glob
+# You can specify multiple volumes. If the sequence is empty, no volumes can be mounted.
+# For example, if you only allow containers to mount the `data` volume and all the json files in `/src`, you should change the config to:
+# valid_volumes:
+#
+- data
+#
+- /src/*.json
+# If you want to allow any volume, please use the following configuration:
+# valid_volumes:
+#
+- '**'
+valid_volumes:
+- /certs
+# overrides the docker client host with the specified one.
+# If it's empty, act_runner will find an available docker host automatically.
+# If it's "-", act_runner will find an available docker host automatically, but the docker host won't be mounted to the job containers and service containers.
+# If it's not empty or "-", the specified docker host will be used. An error will be returned if it doesn't work.
+# docker_host: ""
+# Pull docker image(s) even if already present
+# force_pull: true
+# Rebuild docker image(s) even if already present
+# force_rebuild: false
+host:
+# The parent directory of a job's working directory.
+# If it's empty, $HOME/.cache/act/ will be used.
+# workdir_parent:
+Raw
+gitea-sts.yaml
+# Inspired by:
+#
+# https://gitea.com/gitea/act_runner/src/branch/main/examples/kubernetes/dind-docker.yaml
+# https://github.com/pikatenor/infra/blob/dc281adf838c00f563e3aa9dd5e0b5bc585d9d2e/dream0/default/gitea-runner-dind.yml
+#
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+labels:
+app: gitea-act-runner-dind
+name: gitea-act-runner-dind
+namespace: actions-runner-system
+annotations:
+reloader.stakater.com/auto: "true"
+spec:
+replicas: 1
+selector:
+matchLabels:
+app: gitea-act-runner-dind
+serviceName: gitea-act-runner-dind
+template:
+metadata:
+labels:
+app: gitea-act-runner-dind
+spec:
+restartPolicy: Always
+containers:
+#
+# 1.
+#
+- name: runner
+image: gitea/act_runner:nightly
+command: ["sh", "-c", "while ! nc -z localhost 2376 </dev/null; do echo 'waiting for docker daemon...'; sleep 5; done; /sbin/tini -- /opt/act/run.sh"]
+env:
+- name: DOCKER_HOST
+value: tcp://localhost:2376
+- name: DOCKER_CERT_PATH
+value: /certs/client
+- name: DOCKER_TLS_VERIFY
+value: "1"
+- name: CONFIG_FILE
+value: /config.yaml
+- name: GITEA_INSTANCE_URL
+value: https://gitea.example.com
+- name: GITEA_RUNNER_NAME
+valueFrom:
+fieldRef:
+fieldPath: spec.nodeName
+- name: GITEA_RUNNER_REGISTRATION_TOKEN
+valueFrom:
+secretKeyRef:
+name: gitea-runner-secret
+key: token
+volumeMounts:
+- name: docker-certs
+mountPath: /certs
+- name: runner-data
+mountPath: /data
+- name: config
+mountPath: /config.yaml
+subPath: config.yaml
+#
+# 2.
+#
+- name: daemon
+image: docker:26.1.3-dind
+env:
+- name: DOCKER_TLS_CERTDIR
+value: /certs
+securityContext:
+privileged: true
+volumeMounts:
+- name: docker-certs
+mountPath: /certs
+volumes:
+- name: docker-certs
+emptyDir: {}
+- name: config
+configMap:
+name: config
+- name: runner-data
+persistentVolumeClaim:
+claimName: gitea-act-runner
+Copy link
+lreading
+commented
+Aug 3, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Thanks for sharing this, you saved me a ton of headache trying to figure this all out!
+One change I made that others may find useful (or not, depends on your use-case) is to put the docker configuration options in the act runner config.yaml.
+I did this so I don't need to export the vars in my actions each time I run a docker thing.
+gitea-config-cm.yaml:
+# snip...
+container:
+# snip...
+# And other options to be used when the container is started (eg, --add-host=my.gitea.url:host-gateway).
+options: |
+--add-host=docker:host-gateway -v /certs:/certs
+-e "DOCKER_HOST=tcp://docker:2376/"
+-e "DOCKER_TLS_CERTDIR=/certs"
+-e "DOCKER_TLS_VERIFY=1"
+-e "DOCKER_CERT_PATH=/certs/server"
+Then, your action steps could just be:
+- name: Setup Docker Buildx
+id: buildx
+uses: docker/setup-buildx-action@v3
+with:
+# buildkitd-flags: --debug
+endpoint: builders
+# Note that we removed the env section, because the container already has this in the env
+For future googlers, if you run into this when trying to run some GH actions:
+"failed to create container: 'Error response from daemon: conflicting options: custom host-to-IP mapping and the network mode"
+It's due to the --add-host entry in the options.
+I found that, at least in my current configuration, you can still get this working without that flag.
+Here's what my container.options are looking like now:
+options: |
+-v /certs:/certs
+-e "DOCKER_HOST=tcp://127.0.0.1:2376"
+-e "DOCKER_TLS_CERTDIR=/certs"
+-e "DOCKER_TLS_VERIFY=1"
+-e "DOCKER_CERT_PATH=/certs/server"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mariusrugan
+commented
+Aug 5, 2024
+Nice, makes a lot of sense not to repeat yourself, thanks for sharing the improvement!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+aladante
+commented
+Aug 14, 2024
+Thanks for this. It was a massive help settings everything up. Thanks for sharing <3
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Atomicbeast101
+commented
+Mar 16, 2025
+Wanted to give anyone a heads-up that the run script for Gitea runner has changed since then. Should be this instead:
+command: ["sh", "-c", "while ! nc -z localhost 2376 </dev/null; do echo 'waiting for docker daemon...'; sleep 5; done; /sbin/tini -- /usr/local/bin/run.sh"]
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+namcancode
+commented
+Apr 1, 2025
+problem with docker run action is failed: " --network and --net in the options will be ignored." and "failed to create container: 'Error response from daemon: conflicting options: custom host-to-IP mapping and the network mode'"
+- name: Deploy
+uses: addnab/docker-run-action@v3
+with:
+image: docker:image
+options: |
+--rm
+--volumes-from ${{ env.JOB_CONTAINER_NAME }}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+JensvandeWiel
+commented
+May 3, 2025
+Thanks this helped alot, maybe it would be nice to also add a pvc file, so that its almost a cookie cutter solution
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jrkalf
+commented
+May 11, 2025
+Your configurations have been a life-saver getting to the point where I can finally "build" an image.
+Now all I have is an issue with my private registry (Docker registry) to accept the certificate. Do you happen to have a solution for this?
+I've tried modifying the Docker login step, but I can't seem to get it to work:
+where vars.DOCKER_REPO is my docker repo location ofcourse
+And /etc/docker/certs.d/ is the location where the certificate is available on both the runner and the daemon machine.
+- name: Login to Gitea
+uses: docker/login-action@v3
+with:
+registry: ${{ vars.DOCKER_REPO }}:5000
+username: dummy
+password: dummy
+config-inline: |
+[${{ vars.DOCKER_REPO }}:5000"]
+ca=["/etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/ca.crt"]
+@JensvandeWiel
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+name: gitea-act-runner
+namespace: actions-runner-system
+spec:
+accessModes:
+- ReadWriteOnce
+resources:
+requests:
+storage: 15Gi
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jrkalf
+commented
+May 11, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I got a way hacked around this.
+I converted my crt file to a base64 and placed it in my case into a secret. but it can be a variable as well. It's not the 'private key' we're handling here.
+Then I updated the job as following:
+- name: Inject Private Registry Certificates
+run: |
+mkdir -p /etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/
+echo ${{ secrets.CA_CERTIFICATE }} | base64 -d
+> /etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/ca.crt
+- name: Login to Docker Repo
+uses: docker/login-action@v3
+with:
+registry: ${{ vars.DOCKER_REPO }}:5000
+username: dummy
+password: dummy
+#
+#
+#
+- name: Build and push the image
+run: |
+mkdir -p /etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/
+echo ${{ secrets.CA_CERTIFICATE }} | base64 -d
+> /etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/ca.crt
+docker build --platform linux/arm64 --tag ${{ vars.DOCKER_REPO }}:5000/${{ vars.DOCKER_IMAGE }}:latest --tag ${{ steps.meta.outputs.tags }} --push --quiet -f Dockerfile .
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+In the end I couldn't get docker buildx build to work, as it again lost access to the certificate. So I didn't even go for for the docker inspect section.
+But this straight docker build seems to work on my setup now.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jrkalf
+commented
+May 11, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Buildx is now working as well.
+The key part was to help the buildx section to have a modified buildkit toml to inject the certificate configuration and the link to the actual ca.crt. The only part I haven't cracked yet is the docker buildx imagetools inspect This one still throws up tls errors.
+To avoid talking in riddles with snippets, I've attached my full workflow file with inline comments.
+# Inspired by:
+# https://blog.gitea.com/creating-go-actions/
+# https://gitea.com/Zettat123/test-simple-go-action/src/branch/main/.gitea/workflows/call-username.yml
+# https://gitea.com/actions/release-action
+# https://gitea.com/gitea/runner-images
+# https://github.com/vegardit/docker-gitea-act-runner
+# https://github.com/catthehacker/docker_images
+#
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: build-image
+run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀 🚀 🚀
+on:
+push:
+branches: ["main"]
+jobs:
+build-image:
+name: build-image
+runs-on: ubuntu-latest
+container:
+image: ghcr.io/catthehacker/ubuntu:act-latest
+# image: gitea.example.com/xyz/ubuntu-act:22.04
+# credentials:
+#
+username: ${{ gitea.actor }}
+#
+password: ${{ secrets.GA_TOKEN }}
+steps:
+#
+# Prepare your Docker Buildx environment by first preparing
+# to have certificates for your private registry available.
+# In my case, I run the registry on port :5000 hence the :5000 everywhere.
+#
+- name: Inject Private Registry Certificates
+run: |
+mkdir -p /etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/
+echo ${{ secrets.CA_CERTIFICATE }} | base64 -d
+> /etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/ca.crt
+- name: Checkout your Git Repo
+uses: actions/checkout@v4
+- name: Install QEMU
+run: |
+sudo apt-get update
+sudo apt-get install -y qemu-user-static
+#
+# https://github.com/docker/metadata-action
+#
+- name: Docker meta
+id: meta
+uses: docker/metadata-action@v5
+with:
+images: |
+${{ vars.DOCKER_REPO}}:5000/${{ vars.DOCKER_IMAGE }}
+tags: |
+type=schedule,pattern={{date 'YYYYMMDDHHMM'}}
+type=semver,pattern={{version}}
+type=semver,pattern={{major}}.{{minor}}
+type=semver,pattern={{major}}
+type=sha
+#
+# Setup Docker Context for Buildx
+#
+- name: Set up Docker Context for Buildx
+id: buildx-context
+run: |
+docker context create builders
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+#
+# Docker Buildx Setup
+#
+# https://github.com/docker/setup-buildx-action
+# https://docs.docker.com/engine/reference/commandline/cli/#environment-variables
+# https://docs.docker.com/reference/cli/docker/buildx/create/#buildkitd-flags
+# https://github.com/moby/buildkit/blob/master/docs/buildkitd.toml.md
+#
+- name: Setup Docker Buildx
+id: buildx
+uses: docker/setup-buildx-action@v3
+with:
+buildkitd-flags: --debug
+endpoint: builders
+config-inline: |
+[registry."${{ vars.DOCKER_REPO }}:5000"]
+insecure = true
+ca=["/etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/ca.crt"]
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+DOCKER_BUILDKIT: 1
+#
+# Inject the certificate into /etc/buildkit/certs.
+# *Apparently this is still needed...*
+#
+- name: Copy cert into builder container
+run: |
+echo "finding the correct Builder container"
+BUILDER_CONTAINER=$(docker ps --filter "name=buildx_buildkit_" --format "{{.ID}}" | head -n 1)
+echo "Copying to container $BUILDER_CONTAINER"
+docker cp /etc/docker/certs.d "$BUILDER_CONTAINER":/etc/buildkit/certs
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+DOCKER_BUILDKIT: 1
+#
+# Debug
+#
+- name: Available platforms
+run: echo ${{ steps.buildx.outputs.platforms }}
+#
+# https://github.com/docker/login-action
+#
+- name: Login to Docker Repo
+uses: docker/login-action@v3
+with:
+registry: ${{ vars.DOCKER_REPO }}:5000
+username: dummy
+password: dummy
+#
+# https://github.com/docker/build-push-action
+#
+- name: Build and push the image
+#if: gitea.event_name != 'pull_request'
+uses: docker/build-push-action@v6
+with:
+push: true # ${{ gitea.event_name != 'pull_request' }}
+platforms: linux/arm64
+context: .
+file: Dockerfile
+tags: ${{ vars.DOCKER_REPO }}:5000/${{ vars.DOCKER_IMAGE }}:latest,${{ steps.meta.outputs.tags }}
+labels: ${{ steps.meta.outputs.labels }}
+env:
+DOCKER_HOST: "tcp://docker:2376/"
+DOCKER_TLS_CERTDIR: "/certs"
+DOCKER_TLS_VERIFY: 1
+DOCKER_CERT_PATH: "/certs/client"
+REGISTRY_HTTP_TLS_CERTIFICATE: "/etc/docker/certs.d/${{ vars.DOCKER_REPO }}:5000/ca.crt"
+#
+# The inspect won't work, as I've not cracked the image tools yet to inject the
+# Private registry certificate in there.
+#
+# - name: Inspect
+#
+run: |
+#
+docker buildx imagetools inspect ${{ steps.meta.outputs.tags }}
+#
+env:
+#
+DOCKER_HOST: "tcp://docker:2376/"
+#
+DOCKER_TLS_CERTDIR: "/certs"
+#
+DOCKER_TLS_VERIFY: 1
+#
+DOCKER_CERT_PATH: "/certs/client"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+steadyk
+commented
+Jun 3, 2025
+Thanks a lot! Very helpful!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

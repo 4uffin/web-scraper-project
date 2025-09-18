@@ -1,0 +1,480 @@
+Building Web Servers from First Principles (Part 3) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Boluwatife Adewusi
+Posted on Sep 17
+Building Web Servers from First Principles (Part 3)
+#go
+#backend
+#tutorial
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+In Chapter 2, we built routing with nested switch statements. It worked, but imagine explaining that approach to a frontend developer: "Just add more nested switch cases for every new endpoint." They'd think we were crazy!
+Today, we'll solve this by building a proper router - a separate component that handles all the routing logic, just like Express.js does with app.get() and app.post().
+What We've Built So Far
+From the previous chapters, we have:
+✅ A basic HTTP server that listens for requests
+✅ Path-based routing using switch statements
+❌ Nested switch statements that are hard to maintain
+❌ No clean way to register routes dynamically
+The Problem with Our Current Approach
+Let's first look at where our nested switch approach leads us. Here's what our ServeHTTP method looks like when extended with proper HTTP method support:
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+path := r.URL.Path
+log.Printf("%s %s", r.Method, path)
+w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+w.WriteHeader(http.StatusOK)
+switch r.Method {
+case http.MethodGet:
+GET(path, w)
+case http.MethodPost:
+POST(path, w)
+default:
+not_Supported(w)
+}
+}
+func GET(path string, w http.ResponseWriter) {
+switch path {
+case "/hello":
+hello(w)
+case "/goodbye":
+goodbye(w)
+case "/time":
+getTime(w)
+default:
+welcome(w)
+}
+}
+func POST(path string, w http.ResponseWriter) {
+switch path {
+case "/hello":
+post_hello(w)
+case "/messages":
+messages(w)
+case "/time":
+post_getTime(w)
+default:
+post_welcome(w)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This approach has several problems:
+Scattered Logic: Route definitions are spread across multiple functions
+Hard to Extend: Adding new HTTP methods requires new functions
+No Dynamic Registration: You can't programmatically add routes
+Poor Organization: Unlike app.get('/users', handler) in Express
+Understanding What Frameworks Do
+When you use Express.js, you write:
+app.get('/users', getUsersHandler)
+app.post('/users', createUserHandler)
+app.put('/users/:id', updateUserHandler)
+Enter fullscreen mode
+Exit fullscreen mode
+Or with Gin in Go:
+r.GET("/users", getUsersHandler)
+r.POST("/users", createUserHandler)
+r.PUT("/users/:id", updateUserHandler)
+Enter fullscreen mode
+Exit fullscreen mode
+What's happening under the hood? The framework stores these routes in a data structure and matches incoming requests against them. Let's build our own version.
+Designing Our Router
+We need a router that can:
+Register routes with method + path + handler
+Match incoming requests to the right handler
+Execute the matched handler or return 404
+Let's start by designing the data structure. We need to store routes by HTTP method and path:
+routes = {
+"GET": {
+"/hello": helloHandler,
+"/users": getUsersHandler
+},
+"POST": {
+"/users": createUserHandler,
+"/messages": messagesHandler
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Building the Router Component
+Create a new file router.go:
+package main
+import (
+"fmt"
+"log"
+"net/http"
+)
+type HandlerFunc func(w http.ResponseWriter, r *http.Request)
+type Router struct {
+routes map[string]map[string]HandlerFunc
+}
+func NewRouter() *Router {
+return &Router{
+routes: make(map[string]map[string]HandlerFunc),
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Key Design Decisions:
+HandlerFunc type: This matches the signature that handlers need - access to both response and request
+Nested maps: map[method]map[path]handler gives us fast O(1) lookup
+Pointer receiver: We'll modify the router's state when adding routes
+Adding Route Registration Methods
+Now let's add the methods that let us register routes (like Express's app.get()):
+func (r *Router) addRoute(method string, path string, handler HandlerFunc) {
+if r.routes[method] == nil {
+r.routes[method] = make(map[string]HandlerFunc)
+}
+r.routes[method][path] = handler
+}
+func (r *Router) GET(path string, handler HandlerFunc) {
+r.addRoute(http.MethodGet, path, handler)
+}
+func (r *Router) POST(path string, handler HandlerFunc) {
+r.addRoute(http.MethodPost, path, handler)
+}
+func (r *Router) PUT(path string, handler HandlerFunc) {
+r.addRoute(http.MethodPut, path, handler)
+}
+func (r *Router) PATCH(path string, handler HandlerFunc) {
+r.addRoute(http.MethodPatch, path, handler)
+}
+func (r *Router) DELETE(path string, handler HandlerFunc) {
+r.addRoute(http.MethodDelete, path, handler)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Now we can register routes just like in frameworks:
+router.GET("/hello", helloHandler)
+router.POST("/users", createUserHandler)
+Enter fullscreen mode
+Exit fullscreen mode
+Implementing Route Resolution
+The router needs to match incoming requests to handlers:
+func (r *Router) resolveRoute(req *http.Request) (HandlerFunc, error) {
+method := req.Method
+path := req.URL.Path
+log.Printf("%s %s", method, path)
+methodRoutes, ok := r.routes[method]
+if !ok {
+return nil, fmt.Errorf("method not supported")
+}
+handler, ok := methodRoutes[path]
+if !ok {
+return nil, fmt.Errorf("path does not exist")
+}
+return handler, nil
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Making the Router Handle HTTP Requests
+Our router needs to implement the http.Handler interface so it can handle requests:
+func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+handler, err := r.resolveRoute(req)
+if err != nil {
+w.WriteHeader(http.StatusNotFound)
+w.Write([]byte("route not found"))
+return
+}
+handler(w, req)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This is beautiful - our router finds the right handler and calls it, or returns 404 if no match is found.
+Updating Our Server to Use the Router
+Now we need to integrate the router into our server. Update server.go:
+package main
+import (
+"log"
+"net/http"
+)
+type Server struct {
+Addr
+string
+Router *Router
+server *http.Server
+}
+func NewServer(addr string) *Server {
+router := NewRouter()
+server := &Server{
+Addr:
+addr,
+Router: router,
+}
+return server
+}
+func (s *Server) Start() {
+s.server = &http.Server{
+Addr:
+s.Addr,
+Handler: s,
+}
+log.Println("Server starting at", s.Addr)
+err := s.server.ListenAndServe()
+if err != nil {
+log.Fatal(err)
+}
+}
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+s.Router.ServeHTTP(w, r)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What changed?
+Server now has a Router field
+NewServer creates a router instance
+ServeHTTP delegates to the router instead of handling routing itself
+Creating Handler Functions
+We need to update our handler functions to match our new HandlerFunc signature:
+func welcome(w http.ResponseWriter, r *http.Request) {
+w.Write([]byte("Welcome to our Go Webserver!"))
+}
+func hello(w http.ResponseWriter, r *http.Request) {
+w.Write([]byte("Hello, World!"))
+}
+func goodbye(w http.ResponseWriter, r *http.Request) {
+w.Write([]byte("Goodbye, see you later!"))
+}
+func getTime(w http.ResponseWriter, r *http.Request) {
+message := fmt.Sprintf("Current Time: %s", time.Now().Format("2006-01-02 15:04:05"))
+w.Write([]byte(message))
+}
+func post_hello(w http.ResponseWriter, r *http.Request) {
+w.Write([]byte("Hello via POST!"))
+}
+func messages(w http.ResponseWriter, r *http.Request) {
+w.Write([]byte("You posted a new message"))
+}
+func post_getTime(w http.ResponseWriter, r *http.Request) {
+w.Write([]byte("POST request received on /time"))
+}
+func post_welcome(w http.ResponseWriter, r *http.Request) {
+w.Write([]byte("Welcome to our Go Webserver from POST!"))
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Note: We added the *http.Request parameter to each handler. Now our handlers have access to the full request information.
+Registering Routes
+Update main.go to register our routes using the new router API:
+package main
+import (
+"fmt"
+"net/http"
+"time"
+)
+func main() {
+server := NewServer(":3000")
+setupRoutes(server)
+server.Start()
+}
+func setupRoutes(s *Server) {
+s.Router.GET("/", welcome)
+s.Router.GET("/hello", hello)
+s.Router.GET("/goodbye", goodbye)
+s.Router.GET("/time", getTime)
+s.Router.POST("/", post_welcome)
+s.Router.POST("/hello", post_hello)
+s.Router.POST("/messages", messages)
+s.Router.POST("/time", post_getTime)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Look how clean this is! It reads just like Express or Gin route definitions.
+Testing Our New Router
+Let's test our router-based server:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+Test different routes and methods:
+# GET routes
+curl http://localhost:3000/
+curl http://localhost:3000/hello
+curl http://localhost:3000/goodbye
+curl http://localhost:3000/time
+# POST routes
+curl -X POST http://localhost:3000/
+curl -X POST http://localhost:3000/hello
+curl -X POST http://localhost:3000/messages
+# Test 404s
+curl http://localhost:3000/nonexistent
+curl -X DELETE http://localhost:3000/hello
+Enter fullscreen mode
+Exit fullscreen mode
+Expected behavior:
+GET and POST routes work as expected
+Unknown paths return "route not found"
+Unsupported methods return "route not found"
+What We've Accomplished
+We now have:
+✅ Clean route registration (like Express/Gin)
+✅ Separation of concerns (routing logic separated from server logic)
+✅ HTTP method awareness (GET vs POST behave differently)
+✅ Proper error handling (404 for unknown routes)
+✅ Scalable architecture (easy to add new routes)
+Current Limitations
+Our router is much better, but still has some limitations:
+1. No Dynamic Routes
+We can't handle /users/123 or /products/456 - each route must be exactly defined.
+2. No Middleware Support
+Real APIs need logging, authentication, CORS, etc. We have no way to add these cross-cutting concerns.
+3. Basic Error Responses
+Our 404 response is just plain text - real APIs return JSON error responses.
+What's Next?
+In Chapter 4, we'll tackle the biggest limitation - dynamic routes. We'll enable routes like /users/:id and /products/:category/:id, and learn how to extract those parameters in our handlers.
+This will bring us much closer to production-ready routing that can handle real API requirements.
+Challenge: Try adding some new routes using different HTTP methods. Add a DELETE route for /users and a PUT route for /messages. See how easy it is now compared to our switch statement approach!
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Boluwatife Adewusi
+Follow
+I am a full stack developer with over half a decade of experience journaling my journey so that you don't make the same mistakes I made.
+Joined
+Jun 5, 2024
+More from Boluwatife Adewusi
+Building Web Servers from First Principles (Part 5)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 4)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 2)
+#go
+#backend
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

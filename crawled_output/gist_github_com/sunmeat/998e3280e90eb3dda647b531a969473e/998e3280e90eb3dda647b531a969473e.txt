@@ -1,0 +1,320 @@
+MovieDB API js example with Axios + OOP · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+sunmeat/index.html
+Last active
+September 17, 2025 22:04
+Show Gist options
+Download ZIP
+Star
+2
+(2)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/sunmeat/998e3280e90eb3dda647b531a969473e.js&quot;&gt;&lt;/script&gt;
+Save sunmeat/998e3280e90eb3dda647b531a969473e to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+2
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/sunmeat/998e3280e90eb3dda647b531a969473e.js&quot;&gt;&lt;/script&gt;
+Save sunmeat/998e3280e90eb3dda647b531a969473e to your computer and use it in GitHub Desktop.
+Download ZIP
+MovieDB API js example with Axios + OOP
+Raw
+index.html
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Найкращі фільми (Axios + OOP)</title>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<style>
+body {
+font-family: Arial, sans-serif;
+background-color: #121212;
+color: #ffffff;
+padding: 2rem;
+margin: 0;
+}
+.container {
+max-width: 800px;
+margin: 0 auto;
+background-color: #1e1e1e;
+padding: 20px;
+border-radius: 10px;
+}
+button {
+padding: 0.5rem 1rem;
+margin: 10px;
+border-radius: 5px;
+border: none;
+background-color: #1db954;
+color: #ffffff;
+cursor: pointer;
+font-size: 16px;
+}
+button:hover {
+background-color: #1ed760;
+}
+.movie-box {
+margin: 20px 0;
+padding: 10px;
+border: 1px solid #444;
+border-radius: 5px;
+}
+.movie-title {
+color: #FFFF00;
+font-size: 1.2em;
+font-weight: bold;
+}
+.movie-release {
+color: #00FF00;
+}
+.movie-actors {
+color: #FF00FF;
+}
+.movie-crew {
+color: #00FFFF;
+}
+.movie-overview {
+color: #00FFFF;
+white-space: pre-wrap;
+}
+.movie-rating {
+color: #FF0000;
+}
+.star-filled {
+color: #FFFF00;
+}
+.star-empty {
+color: #B8860B;
+}
+.error {
+color: #FF5555;
+margin: 10px 0;
+}
+hr {
+border: 0;
+border-top: 1px solid #444;
+margin: 10px 0;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Найкращі фільми</h2>
+<button onclick="movieCollection.fetchMovies()">Завантажити 100 найкращих фільмів</button>
+<div id="result"></div>
+</div>
+<script>
+const baseUrl = 'https://api.themoviedb.org/3/';
+const apiKey = '8f663caefb9c78b4b33f1c2ff31d13f3'; // якщо не спрацює, згенеруйте свій новий ключ API
+class Movie {
+constructor({ id, title, overview, release_date, vote_average, vote_count }) {
+this.id = id;
+this.title = title || 'Без назви';
+this.overview = overview || 'Опис відсутній';
+this.releaseDate = release_date ? new Date(release_date).toLocaleDateString('uk-UA', {
+day: '2-digit',
+month: 'long',
+year: 'numeric'
+}) : 'Дата невідома';
+this.voteAverage = vote_average;
+this.voteCount = vote_count || 0;
+}
+renderRating() {
+if (!this.voteAverage) {
+return '<span class="movie-rating">Немає рейтингу</span>';
+}
+const rating = this.voteAverage;
+const fullStars = Math.round(rating);
+const totalStars = 10;
+let stars = '';
+for (let i = 0; i < fullStars; i++) {
+stars += '<span class="star-filled">*</span>';
+}
+for (let i = fullStars; i < totalStars; i++) {
+stars += '<span class="star-empty">*</span>';
+}
+return `${stars} <span class="movie-rating">${rating} (${this.voteCount} голосів)</span>`;
+}
+render(actors, director, writer, composer) {
+const wrappedOverview = wrapText(this.overview, 90);
+const movieBox = document.createElement('div');
+movieBox.className = 'movie-box';
+movieBox.innerHTML = `
+<div class="movie-title">${this.title}</div>
+<div>Дата виходу: <span class="movie-release">${this.releaseDate}</span></div>
+<div>Рейтинг: ${this.renderRating()}</div>
+<div>Актори:</div>
+<div class="movie-actors">${actors.map(actor => `- ${actor}`).join('<br>')}</div>
+<div>Режисер: <span class="movie-crew">${director}</span></div>
+<div>Сценарист: <span class="movie-crew">${writer}</span></div>
+<div>Композитор: <span class="movie-crew">${composer}</span></div>
+<div>Опис:</div>
+<div class="movie-overview">${wrappedOverview.join('\n')}</div>
+`;
+return movieBox;
+}
+}
+class Credit {
+constructor({ name, character, job }) {
+this.name = name || 'Невідомо';
+this.character = character;
+this.job = job;
+}
+formatActor() {
+return this.character ? `${this.name} (${this.character})` : this.name;
+}
+}
+class MovieApi {
+constructor(baseUrl, apiKey) {
+this.baseUrl = baseUrl;
+this.apiKey = apiKey;
+}
+async getTopRatedMovies() {
+const movies = [];
+for (let page = 1; page <= 10 && movies.length < 100; page++) {
+try {
+const response = await axios.get(`${this.baseUrl}movie/top_rated`, {
+params: {
+api_key: this.apiKey,
+language: 'uk-UA',
+page
+},
+headers: {
+'Accept': 'application/json'
+}
+});
+const results = response.data.results || [];
+movies.push(...results.map(data => new Movie(data)));
+} catch (error) {
+console.error(`Помилка на сторінці ${page}:`, error);
+}
+}
+return movies.slice(0, 100);
+}
+async getMovieCredits(movieId) {
+try {
+const response = await axios.get(`${this.baseUrl}movie/${movieId}/credits`, {
+params: {
+api_key: this.apiKey,
+language: 'uk-UA'
+},
+headers: {
+'Accept': 'application/json'
+}
+});
+const cast = response.data.cast || [];
+const crew = response.data.crew || [];
+const credits = [...cast, ...crew].map(data => new Credit(data));
+// ...cast розкладає масив cast по елементам
+// ...crew - те саме для crew
+// [...cast, ...crew] створює новий масив, в якому спочатку всі елементи з cast, потім всі з crew
+const actors = credits
+.filter(c => c.job === undefined)
+.slice(0, 5)
+.map(c => c.formatActor());
+const director = credits.find(c => c.job === 'Director')?.name || 'Невідомо';
+const writer = credits.find(c => c.job === 'Writer' || c.job === 'Screenplay')?.name || 'Невідомо';
+const composer = credits.find(c => c.job === 'Original Music Composer')?.name || 'Невідомо';
+return { actors: actors.length ? actors : ['Список акторів недоступний'], director, writer, composer };
+} catch (error) {
+console.error(`Помилка при отриманні кредитів для фільму ${movieId}:`, error);
+return { actors: ['Список акторів недоступний'], director: 'Невідомо', writer: 'Невідомо', composer: 'Невідомо' };
+}
+}
+}
+class MovieCollection {
+constructor() {
+this.movies = [];
+this.api = new MovieApi(baseUrl, apiKey);
+}
+async fetchMovies() {
+const resultDiv = document.querySelector('#result');
+resultDiv.innerHTML = '<p>Завантаження найкращих фільмів...</p>';
+this.movies = await this.api.getTopRatedMovies();
+resultDiv.innerHTML = '';
+if (!this.movies.length) {
+resultDiv.innerHTML = '<p class="error">Не вдалося завантажити фільми.</p>';
+return;
+}
+for (const [index, movie] of this.movies.entries()) {
+const credits = await this.api.getMovieCredits(movie.id);
+const movieElement = movie.render(credits.actors, credits.director, credits.writer, credits.composer);
+const numberedMovie = document.createElement('div');
+numberedMovie.innerHTML = `<div style="color: #FFFFFF">${index + 1}. </div>`;
+numberedMovie.appendChild(movieElement);
+numberedMovie.appendChild(document.createElement('hr'));
+resultDiv.appendChild(numberedMovie);
+}
+}
+}
+function wrapText(text, maxWidth) {
+const words = text.split(' ');
+const lines = [];
+let line = '';
+for (const word of words) {
+if (line.length + word.length + 1 > maxWidth) {
+lines.push(line);
+line = word;
+} else {
+line += (line ? ' ' : '') + word;
+}
+}
+if (line) lines.push(line);
+return lines;
+}
+const movieCollection = new MovieCollection();
+</script>
+</body>
+</html>
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

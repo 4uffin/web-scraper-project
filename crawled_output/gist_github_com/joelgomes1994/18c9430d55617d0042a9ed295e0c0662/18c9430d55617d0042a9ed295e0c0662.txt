@@ -1,0 +1,246 @@
+thread_instancer.gd · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+joelgomes1994/thread_instancer.gd
+Last active
+September 18, 2025 00:53
+Show Gist options
+Download ZIP
+Star
+9
+(9)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/joelgomes1994/18c9430d55617d0042a9ed295e0c0662.js&quot;&gt;&lt;/script&gt;
+Save joelgomes1994/18c9430d55617d0042a9ed295e0c0662 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+9
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/joelgomes1994/18c9430d55617d0042a9ed295e0c0662.js&quot;&gt;&lt;/script&gt;
+Save joelgomes1994/18c9430d55617d0042a9ed295e0c0662 to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+thread_instancer.gd
+class_name ThreadInstancer
+extends Node
+## Instantiate a scene in a thread and adds its nodes to the scene tree in batches.
+# Signals
+signal scene_loaded(scene: PackedScene)
+signal root_node_instantiated(node: Node)
+signal node_instantiated(node: Node)
+signal batch_instantiated
+signal all_nodes_instantiated
+# Variables
+## Scene to be instanced.
+@export var scene: PackedScene
+## Optional scene path to be loaded in another thread.
+@export_file("*.tscn", "*.scn") var scene_path: String
+## Amount of nodes to be instanced each iteration.
+@export_range(0, 1000) var iteration_amount := 100
+## Amount of frames to sleep each iteration.
+@export_range(1, 1000) var sleep_frames := 5
+## Automatically add [code]root_node[/code] as child of current parent.
+@export var auto_parent := false
+var state: SceneState
+var triggered := false
+var cancelled := false
+var root_node: Node
+var node_index := 0
+var processed_nodes := 0
+var ignored_nodes := 0
+# Built-in overrides
+func _ready() -> void:
+if not scene and not scene_path:
+push_error("Invalid instancer parameters: %s" % get_path())
+queue_free()
+return
+node_instantiated.connect(_on_node_instantiated)
+batch_instantiated.connect(_on_batch_instantiated)
+if not scene and scene_path:
+scene = await scene_load_thread(scene_path).scene_loaded
+if scene:
+set_scene(scene)
+instantiate()
+func _exit_tree() -> void:
+cancelled = true
+# Public methods
+## Load scene in another thread. Await for [code]scene_loaded[/code] for the result.
+func scene_load_thread(_scene_path: String) -> ThreadInstancer:
+var thread := Thread.new()
+if thread.is_started():
+thread.wait_to_finish()
+thread.start(func():
+if cancelled:
+(func(): scene_loaded.emit(null)).call_deferred()
+thread.wait_to_finish.call_deferred()
+return
+if not ResourceLoader.exists(_scene_path):
+prints("Invalid scene:", _scene_path)
+(func(): scene_loaded.emit(null)).call_deferred()
+thread.wait_to_finish.call_deferred()
+return
+prints("Async loading scene: %s)" % _scene_path.get_file())
+var _scene: PackedScene = load(_scene_path)
+prints("Scene loaded: %s" % _scene_path.get_file())
+(func(): scene_loaded.emit(_scene)).call_deferred()
+thread.wait_to_finish.call_deferred()
+)
+return self
+## Set scene and initialize state.
+func set_scene(_scene: PackedScene) -> void:
+scene = _scene
+if not scene:
+return
+state = scene.get_state()
+## Get node info from scene state.
+func get_node_info(i: int) -> Dictionary:
+var info := {
+&"index": i,
+&"name": state.get_node_name(i),
+&"placeholder": state.get_node_instance_placeholder(i),
+&"instance": state.get_node_instance(i),
+&"type": state.get_node_type(i),
+&"path": state.get_node_path(i),
+&"parent": NodePath(str(state.get_node_path(i)).get_base_dir()) if i > 0 else NodePath(),
+&"groups": state.get_node_groups(i),
+&"properties": [],
+}
+for p in state.get_node_property_count(i):
+info.properties.append({
+&"name": state.get_node_property_name(i, p),
+&"value": state.get_node_property_value(i, p),
+})
+return info
+## Instantiate [code]scene[/code] in iterations.
+func instantiate() -> void:
+if triggered:
+return
+triggered = true
+prints("Instantiating async scene: %s" % scene.resource_path.get_file())
+begin_batch_instantiate()
+## Instantiate root node and set its properties.
+func instantiate_root_node(node_info: Dictionary) -> void:
+var node := node_instantiate(node_info)
+node.scene_file_path = scene.resource_path
+root_node = node
+if auto_parent:
+get_parent().add_child.call_deferred(root_node)
+root_node_instantiated.emit(root_node)
+## Begin batch instantiation from the last index.
+func begin_batch_instantiate() -> void:
+var node_infos: Array[Dictionary] = []
+for i in range(node_index, state.get_node_count()):
+var node_info := get_node_info(i)
+node_index = i + 1
+if i == 0:
+instantiate_root_node(node_info)
+continue
+if node_info.placeholder:
+ignored_nodes += 1
+continue
+node_infos.push_back(node_info)
+if i > 0 and i % iteration_amount == 0:
+node_index += 1
+break
+if node_infos.size() > 0:
+batch_instantiate_thread(node_infos)
+else:
+prints("Scene instantiated: %s (%s/%s) (%s ignored)" % [scene.resource_path.get_file(), node_index, state.get_node_count(), ignored_nodes])
+queue_free()
+## Batch instantiate nodes in another thread.
+func batch_instantiate_thread(node_infos: Array[Dictionary]) -> ThreadInstancer:
+var thread := Thread.new()
+thread.start(func():
+for node_info in node_infos:
+if cancelled:
+break
+var node := node_instantiate(node_info)
+if not node:
+continue
+(func(): node_instantiated.emit(node)).call_deferred()
+(func(): batch_instantiated.emit()).call_deferred()
+thread.wait_to_finish.call_deferred()
+)
+return self
+## Instantiate and set node properties.
+func node_instantiate(node_info: Dictionary) -> Node:
+var node: Node
+if node_info.instance:
+node = node_info.instance.instantiate()
+elif node_info.type:
+node = ClassDB.instantiate(node_info.type)
+if not node:
+push_warning("Invalid node: %s" % node_info.path)
+return null
+node.name = node_info.name
+for group in node_info.groups:
+if not group in node.get_groups():
+node.add_to_group(group)
+for prop in node_info.properties:
+node.set(prop.name, prop.value)
+node.set_meta("node_info", node_info)
+node.set_meta("path", node_info.path)
+return node
+# Event handlers
+## Add instantiated as child of its parent.
+func _on_node_instantiated(node: Node) -> void:
+var node_info: Dictionary = node.get_meta("node_info")
+node.set_meta("node_info", null)
+var parent_node: Node = root_node.get_node(node_info.parent)
+parent_node.add_child(node)
+processed_nodes += 1
+## Wait after batch end and begin next batch.
+func _on_batch_instantiated() -> void:
+for i in sleep_frames:
+await get_tree().process_frame
+prints("Batch instantiated (%s/%s)" % [node_index, state.get_node_count()])
+begin_batch_instantiate()
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

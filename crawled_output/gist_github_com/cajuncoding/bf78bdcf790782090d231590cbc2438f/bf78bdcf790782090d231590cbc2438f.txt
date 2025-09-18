@@ -1,0 +1,261 @@
+Simple Merge process for JsonNode using System.Text.Json · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+cajuncoding/SystemTextJsonNodeMergeExtensions.cs
+Last active
+September 17, 2025 18:16
+Show Gist options
+Download ZIP
+Star
+13
+(13)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/cajuncoding/bf78bdcf790782090d231590cbc2438f.js&quot;&gt;&lt;/script&gt;
+Save cajuncoding/bf78bdcf790782090d231590cbc2438f to your computer and use it in GitHub Desktop.
+Code
+Revisions
+5
+Stars
+13
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/cajuncoding/bf78bdcf790782090d231590cbc2438f.js&quot;&gt;&lt;/script&gt;
+Save cajuncoding/bf78bdcf790782090d231590cbc2438f to your computer and use it in GitHub Desktop.
+Download ZIP
+Simple Merge process for JsonNode using System.Text.Json
+Raw
+SystemTextJsonNodeMergeExtensions.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+namespace CajunCoding
+{
+public static class SystemTextJsonMergeExtensions
+{
+/// <summary>
+/// Merges the specified Json Node into the base JsonNode for which this method is called.
+/// It is null safe and can be easily used with null-check & null coalesce operators for fluent calls.
+/// NOTE: JsonNodes are context aware and track their parent relationships therefore to merge the values both JsonNode objects
+///
+specified are mutated. The Base is mutated with new data while the source is mutated to remove reverences to all
+///
+fields so that they can be added to the base.
+///
+/// Source taken directly from the open-source Gist here:
+/// https://gist.github.com/cajuncoding/bf78bdcf790782090d231590cbc2438f
+///
+/// </summary>
+/// <param name="jsonBase"></param>
+/// <param name="jsonMerge"></param>
+/// <returns></returns>
+/// <exception cref="ArgumentException"></exception>
+public static JsonNode Merge(this JsonNode jsonBase, JsonNode jsonMerge)
+{
+if (jsonBase == null || jsonMerge == null)
+return jsonBase;
+switch (jsonBase)
+{
+case JsonObject jsonBaseObj when jsonMerge is JsonObject jsonMergeObj:
+{
+//NOTE: We must materialize the set (e.g. to an Array), and then clear the merge array so the node can then be
+//
+re-assigned to the target/base Json; clearing the Object seems to be the most efficient approach...
+var mergeNodesArray = jsonMergeObj.ToArray();
+jsonMergeObj.Clear();
+foreach (var prop in mergeNodesArray)
+{
+jsonBaseObj[prop.Key] = jsonBaseObj[prop.Key] switch
+{
+JsonObject jsonBaseChildObj when prop.Value is JsonObject jsonMergeChildObj => jsonBaseChildObj.Merge(jsonMergeChildObj),
+JsonArray jsonBaseChildArray when prop.Value is JsonArray jsonMergeChildArray => jsonBaseChildArray.Merge(jsonMergeChildArray),
+_ => prop.Value
+};
+}
+break;
+}
+case JsonArray jsonBaseArray when jsonMerge is JsonArray jsonMergeArray:
+{
+//NOTE: We must materialize the set (e.g. to an Array), and then clear the merge array,
+//
+so they can then be re-assigned to the target/base Json...
+var mergeNodesArray = jsonMergeArray.ToArray();
+jsonMergeArray.Clear();
+foreach(var mergeNode in mergeNodesArray) jsonBaseArray.Add(mergeNode);
+break;
+}
+default:
+throw new ArgumentException($"The JsonNode type [{jsonBase.GetType().Name}] is incompatible for merging with the target/base " +
+$"type [{jsonMerge.GetType().Name}]; merge requires the types to be the same.");
+}
+return jsonBase;
+}
+/// <summary>
+/// Merges the specified Dictionary of values into the base JsonNode for which this method is called.
+/// </summary>
+/// <typeparam name="TKey"></typeparam>
+/// <typeparam name="TValue"></typeparam>
+/// <param name="jsonBase"></param>
+/// <param name="dictionary"></param>
+/// <param name="options"></param>
+/// <returns></returns>
+public static JsonNode MergeDictionary<TKey, TValue>(this JsonNode jsonBase, IDictionary<TKey, TValue> dictionary, JsonSerializerOptions options = null)
+=> jsonBase.Merge(JsonSerializer.SerializeToNode(dictionary, options));
+}
+}
+Copy link
+Author
+cajuncoding
+commented
+Jun 5, 2024
+The feature gap between System.Text.Json and Newtonsoft.Json regarding support for dynamically and easily merging Json objects is discussed further in this (still open) GitHub issue: dotnet/runtime#31433
+This solution addresses some of the main use cases with a reasonably small amount of code...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+cajuncoding
+commented
+Jul 12, 2024
+Fix Log:
+07/11/2024: As noted in this response here, there was a missing case for nested properties of an object that were actually an array that wasn't being handled, so that is now updated.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+cajuncoding
+commented
+Jul 12, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+For future reference here is the Unit Test that validates a variety of common use cases . . .
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using CajunCoding;
+namespace SystemTextJsonMergeExtensionTests
+{
+[TestFixture]
+public class SystemTextJsonMergeExtensionTests
+{
+[JsonConverter(typeof(JsonStringEnumMemberConverter))]
+private enum StarWarsCharacterType
+{
+Civilian,
+Jedi,
+StormTrooper,
+Droid,
+SithLord
+}
+[JsonConverter(typeof(JsonStringEnumMemberConverter))]
+private enum LightsaberColor { Blue, Green, Yellow }
+[Test]
+public void TestSystemTextJsonObjectMerge()
+{
+var jedi = new
+{
+Name = "Luke Skywalker",
+CharacterType = StarWarsCharacterType.Jedi,
+LightsaberCount = -1, //Should get overwritten...
+//Test merging of nested objects...
+DroidFriends = new[]
+{
+new { Name = "R2D2", CharacterType = StarWarsCharacterType.Droid }
+},
+Enemies = new
+{
+DarthVader = StarWarsCharacterType.SithLord
+}
+};
+var jediAugmentingData = new
+{
+LightsaberOriginalOwner = "Anikan Skywalker",
+LightsaberCount = 3,
+OriginalLightsaberColor = LightsaberColor.Blue,
+ReplacementLightsaberColor = LightsaberColor.Green,
+FoundLighSaberColor = LightsaberColor.Yellow,
+DroidFriends = new[]
+{
+new { Name = "C-3PO", CharacterType = StarWarsCharacterType.Droid }
+},
+Enemies = new
+{
+SenatorPalpatine = StarWarsCharacterType.SithLord
+}
+};
+var jediJson = JsonSerializer.SerializeToNode(jedi);
+var jediAugmentingDataJson = JsonSerializer.SerializeToNode(jediAugmentingData);
+var json = jediJson.Merge(jediAugmentingDataJson);
+//NOTE: This assumes that the Macross.JsonExtensions StringEnumConverter is used on the Enums...
+Assert.AreEqual("Jedi", json["CharacterType"]?.GetValue<string>());
+Assert.AreEqual("Anikan Skywalker", json["LightsaberOriginalOwner"]?.GetValue<string>());
+Assert.AreEqual(3, json["LightsaberCount"]?.GetValue<int>());
+Assert.AreEqual("Blue", json["OriginalLightsaberColor"]?.GetValue<string>());
+Assert.AreEqual("Green", json["ReplacementLightsaberColor"]?.GetValue<string>());
+Assert.AreEqual(2, json["DroidFriends"]?.AsArray()?.Count);
+foreach (var droidFriend in json["DroidFriends"]?.AsArray())
+{
+Assert.AreEqual("Droid", droidFriend["CharacterType"].GetValue<string>());
+}
+Assert.AreEqual(2, json["Enemies"]?.AsObject().ToArray().Length);
+foreach (var enemyProp in json["Enemies"]?.AsObject())
+{
+Assert.AreEqual("SithLord", enemyProp.Value.GetValue<string>());
+}
+}
+}
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

@@ -1,0 +1,144 @@
+Open new window on drop UserActivity · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+banjun/UserActivityWindowGroup.swift
+Last active
+September 17, 2025 20:07
+Show Gist options
+Download ZIP
+Star
+4
+(4)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/banjun/2fb2619a4f2355ec6e677260e6ab1621.js&quot;&gt;&lt;/script&gt;
+Save banjun/2fb2619a4f2355ec6e677260e6ab1621 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+3
+Stars
+4
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/banjun/2fb2619a4f2355ec6e677260e6ab1621.js&quot;&gt;&lt;/script&gt;
+Save banjun/2fb2619a4f2355ec6e677260e6ab1621 to your computer and use it in GitHub Desktop.
+Download ZIP
+Open new window on drop UserActivity
+Raw
+UserActivityWindowGroup.swift
+import SwiftUI
+// prerequisites in Info.plist: NSUserActivityTypes contains type, UIApplicationSceneManifest/UIApplicationSupportsMultipleScenes = YES
+// accepts NSUserActivity.targetContentIdentifier = type
+// see also: https://developer.apple.com/documentation/swiftui/scene/handlesexternalevents(matching:)
+struct UserActivityWindowGroup<Content: View, Payload: Codable>: Scene {
+var type: String
+@ViewBuilder var content: (Payload) -> Content
+init(type: String, payloadType: Payload.Type, @ViewBuilder content: @escaping (Payload) -> Content) {
+self.type = type
+self.content = content
+}
+var body: some Scene {
+WindowGroup {
+WrapperView(type: type, content: content)
+}
+.handlesExternalEvents(matching: [type])
+}
+struct WrapperView: View {
+var type: String
+@ViewBuilder var content: (Payload) -> Content
+@State private var payload: Result<Payload, Error>?
+@Environment(\.dismissWindow) private var dismissWindow
+var body: some View {
+switch payload {
+case nil:
+ProgressView().onContinueUserActivity(type) {
+do {
+self.payload = .success(try $0.typedPayload(Payload.self))
+} catch {
+self.payload = .failure(error)
+}
+}
+case .success(let payload):
+content(payload)
+case .failure(let error):
+Text(error.localizedDescription)
+Button("Dismiss") {
+dismissWindow()
+}
+}
+}
+}
+}
+// MARK: - helper extensions
+protocol CustomUserActivityType: Codable {
+static var type: String { get }
+}
+extension NSUserActivity {
+convenience init(_ activity: CustomUserActivityType) throws {
+self.init(activityType: type(of: activity).type)
+targetContentIdentifier = type(of: activity).type
+try setTypedPayload(activity)
+}
+}
+extension NSItemProvider {
+convenience init(_ activty: CustomUserActivityType) throws {
+self.init(object: try NSUserActivity(activty))
+}
+}
+extension View {
+func onDragActivity(_ activity: CustomUserActivityType) -> some View {
+onDrag {
+do {
+return try NSItemProvider(activity)
+} catch {
+NSLog("%@", "error on NSItemProvider(\(activity)), error = \(String(describing: error))")
+return NSItemProvider()
+}
+}
+}
+}
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

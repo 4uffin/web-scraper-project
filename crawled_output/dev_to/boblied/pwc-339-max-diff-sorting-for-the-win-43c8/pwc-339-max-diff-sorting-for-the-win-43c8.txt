@@ -1,0 +1,364 @@
+PWC 339 Max Diff: Sorting for the win - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Bob Lied
+Posted on Sep 17
+PWC 339 Max Diff: Sorting for the win
+#perl
+#perlweeklychallenge
+#pwc
+This week's task turned out to be one of those that are easy to state and more challenging to do efficiently. Let's look at it.
+Task 1: Max Diff
+You are given an array of integers having four
+or more elements. Write a script to find two
+pairs of numbers from this list (four numbers
+total) so that the difference between their
+products is as large as possible. In the end,
+return the max difference. With Two pairs
+(a, b) and (c, d), the product difference is
+(a * b) - (c * d).
+Enter fullscreen mode
+Exit fullscreen mode
+Example 1:
+Input: @ints = (5, 9, 3, 4, 6)
+Output: 42
+Pair 1: (9, 6)
+Pair 2: (3, 4)
+Product Diff: (9 * 6) - (3 * 4) => 54 - 12 => 42
+Example 2:
+Input: @ints = (1, -2, 3, -4)
+Output: 10
+Pair 1: (1, -2) Pair 2: (3, -4)
+Example 3:
+Input: @ints = (-3, -1, -2, -4)
+Output: 10
+Pair 1: (-1, -2) Pair 2: (-3, -4)
+Example 4:
+Input: @ints = (10, 2, 0, 5, 1)
+Output: 50
+Pair 1: (10, 5) Pair 2: (0, 1)
+Example 5:
+Input: @ints = (7, 8, 9, 10, 10)
+Output: 44
+Pair 1: (10, 10) Pair 2: (7, 8)
+Thought processes
+Using the canard that developer time is more valuable than computer time, we might go after this through brute force. We'll need to examine every combination of four elements from the array. I can foresee that that could have horrible performance implications -- it's O(n4) if we do it with nested loops. But let's try it anyway.
+sub maxDiff_BF(@int)
+{
+my $max = 0;
+for my $w ( 0 .. $#int ) {
+for my $x ( 0 .. $#int ) {
+next if $x == $w;
+for my $y ( 0 .. $#int ) {
+next if $y == $x || $y == $w;
+for my $z ( 0
+.. $#int ) {
+next if $z == $y || $z == $x || $z == $w;
+my ($a, $b, $c, $d) = @int[$w,$x,$y,$z];
+my $diff = max( $a*$b - $c*$d, $c*$d - $a*$b );
+$max = $diff if $diff > $max;
+}
+}
+}
+}
+return $max;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Notes:
+next if $x == $w -- At the start of each loop, we can't reuse elements.
+my ($a, $b, $c, $d) = @int[$w,$x,$y,$z] -- Use an array slice to access four elements at a time and translate the variables to the language of the problem.
+More thought process
+As expected, the performance is awful. It doesn't show on the simple examples, but give this a list of 75 numbers and my laptop has to chug along for 12 to 15 seconds to get an answer. With AI data centers devouring the world's electric capacity, I don't want to be a contributor to the coming collapse of the grid.
+One thing I notice quickly is that I want a maximal product magnitude, which I'm going to get by multiplying the two largest elements of the array. If that product is negative, I'll make it the (c,d) pair, so it gets added to the difference.
+How can I quickly get the largest elements? Well, if the array were sorted, then the biggest magnitudes would be at the ends of the arrays (left end for negative numbers, right end for positives). Then the biggest product would be achieved by multiplying either the two most negative numbers, the two most positive numbers, or the biggest negative times the biggest positive.
+After I have the biggest possible contribution, then I'll want to throw out the pair of numbers that we used, and examine the rest for the other product. We'll get back to that in moment, but let's do the first part.
+sub maxDiff(@int)
+{
+@int = sort { $a <=> $b } @int;
+my $nn = $int[ 0] * $int[ 1];
+my $pp = $int[-1] * $int[-2];
+my $np = $int[ 0] * $int[-1];
+my $largest;
+if ( abs($nn) > abs($pp) ) {
+if ( abs($nn) > abs($np) ) {
+$largest = $nn;
+shift @int; shift @int;
+} else {
+$largest = $np;
+shift @int; pop @int;
+}
+}
+else { # pp >= nn
+if ( abs($pp) > abs($np) ) {
+$largest = $pp;
+pop @int; pop @int;
+} else {
+$largest = $np;
+shift @int; pop @int;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+That's an annoying number of lines of code, but hopefully clear. After we determine which of the three possibilities applies, we delete the elements from the left (shift) or right (pop) to work on the rest. Sorting probably costs us O(n log n), but that's way better than O(n4).
+Now we have two possibilities.
+If $largest is negative, then we want to make it the (c,d) pair, so that subtracting it adds a big number to the difference. And we also want the (a,b) pair to be as big as possible so that (ab-cd) is as large as possible. The biggest product is once again found by multiplying the biggest numbers on the
+ends of the array (which now excludes the two numbers we already used).
+if ( $largest < 0 )
+{
+my $aXb = max( $int[0]*$int[1], $int[0]*$int[-1], $int[-2]*$int[-1] );
+return $aXb - $largest;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What about the case that $largest is positive? In that case we'll want to subtract away the smallest possible positive product.
+One way to find it is to examine every pair. Straightforward, but once again we're looking at a less desirable complexity of O(n2). It's easy enough to write, though.
+my $cXd = $int[0] * $int[1];
+while ( defined(my $c = shift @int) )
+{
+for my $d ( @int )
+{
+my $prod = $c * $d;
+$cXd = $prod if ( $prod >= 0 && $prod < $cXd );
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+But what if we could play the same trick we did the first time? Could
+we sort the list to put the small numbers at the ends of the array? Yes, we could. We can sort by the inverse of the numbers.
+@int = sort { ($a == 0 ? 2 : 1/$a) <=> ($b == 0 ? 2 : 1/$b) } @int;
+Enter fullscreen mode
+Exit fullscreen mode
+A larger denominator moves closer to 0, and a bigger one moves closer to 1. There is an anomaly for 0, which would cause a divide-by-zero error. To solve that, map 0 to the extreme end of the array so that it always ends up on the right end. We're exploiting the specification that says the list contains integers; if there were fractional numbers in the input, we'd have an annoying complication to explicitly account for zero to put it on the end of the array.
+# Sort (-4, -3, -2, -1, 0, 1, 2, 3, 4):
+# -1/1
+-1/2
+-1/3
+-1/4
+1/4
+1/3
+1/2
+1/1 2(0)
+# --|-----|-----|-----|----|----|----|----|---|
+# --> (-1, -2, -3, -4, 4, 3, 2, 1, 0)
+Enter fullscreen mode
+Exit fullscreen mode
+For the price of another sort, we can now find the smallest product in constant time:
+my $cXd = min( $int[0]*$int[1], $int[0]*$int[-1], $int[-2]*$int[-1] );
+Enter fullscreen mode
+Exit fullscreen mode
+and the maximum difference in this case is just $largest - $cXd.
+Final thoughts
+One alternative we didn't consider is that there are ways to cheaply generate the combinations of n things taken k at a time. The Algorithm::Combinatorics module has one such function. Still, to consider all the combinations, that becomes a lot very quickly (75 things taken 4 at a time has 75!/(71!)(4!) = 7,292,700 combinations).
+By rearranging the data to put extreme values on the ends of the array, we can access those values in constant time. Perl makes it easy to access either end of the array, using negative indexes. The cost is sorting the array twice, with each sort having a most likely complexity of O(n log n). Two of those is still (on average) much more efficient than a stack of nested loops.
+All the code fragments above combined into a coherent function:
+sub maxDiff(@int)
+{
+@int = sort { $a <=> $b } @int;
+# Possibilities for maximum product: biggest positive numbers, biggest
+# negative numbers, or biggest positive X biggest negative.
+# Find the biggest magnitude, then discard that pair from the list.
+my $nn = $int[0] * $int[1];
+my $pp = $int[-1] * $int[-2];
+my $np = $int[0] * $int[-1];
+my $largest;
+if ( abs($nn) > abs($pp) )
+{
+if ( abs($nn) > abs($np) )
+{
+$largest = $nn;
+shift @int; shift @int;
+}
+else
+{
+$largest = $np;
+shift @int; pop @int;
+}
+}
+else # pp >= nn
+{
+if ( abs($pp) > abs($np) )
+{
+$largest = $pp;
+pop @int; pop @int;
+}
+else
+{
+$largest = $np;
+shift @int; pop @int;
+}
+}
+if ( $largest < 0 )
+{
+# Make it the second pair (because negating it will add a big number),
+# and find the largest product for the first pair. Again, because the
+# list is sorted, the largest magnitude must come from the pairs on
+# the ends of the list.
+my $aXb = max( $int[0]*$int[1], $int[0]*$int[-1], $int[-2]*$int[-1] );
+return $aXb - $largest;
+}
+# Use largest as the first pair for maximum positive contribution.
+# Find the smallest product pair to subtract away.
+=begin
+BlockComment
+# BlockCommentNo_1
+my $cXd = $int[0] * $int[1];
+while ( defined(my $c = shift @int) )
+{
+for my $d ( @int )
+{
+$cXd = $c*$d if ( $c*$d < $cXd );
+}
+}
+=end
+BlockComment
+# BlockCommentNo_1
+=cut
+# Sort so smallest integers are on the outside of the array.
+# Zero has to be on the edge (all numbers are integers, so
+# mapping 0 to 2 will accomplish that).
+@int = sort { ($a == 0 ? 2 : 1/$a) <=> ($b == 0 ? 2 : 1/$b) } @int;
+my $cXd = min( $int[0]*$int[1], $int[0]*$int[-1], $int[-2]*$int[-1] );
+return $largest - $cXd;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Bob Lied
+Follow
+If I have a choice, I do it in Perl.
+Location
+Naperville, IL, US
+Work
+Retired R&D Engineer, most recently at Nokia
+Joined
+Sep 17, 2020
+More from Bob Lied
+PWC 338 Maximal maximization of maximums
+#perl
+#perlweeklychallenge
+#pwc
+PWC 335 Common Characters
+#perl
+#perlweeklychallenge
+#pwc
+PWC 334 First We Do the Range Sum, Then We Take Manhattan
+#perl
+#perlweeklychallenge
+#pwc
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

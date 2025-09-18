@@ -1,0 +1,234 @@
+Automatic script for Mikrotik RouterOS updating record on CloudFlare. · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+kiler129/cloudflare_update.script
+Last active
+September 17, 2025 08:12
+Show Gist options
+Download ZIP
+Star
+44
+(44)
+You must be signed in to star a gist
+Fork
+20
+(20)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/kiler129/3a436488ebc6bd79c233.js&quot;&gt;&lt;/script&gt;
+Save kiler129/3a436488ebc6bd79c233 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+44
+Forks
+20
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/kiler129/3a436488ebc6bd79c233.js&quot;&gt;&lt;/script&gt;
+Save kiler129/3a436488ebc6bd79c233 to your computer and use it in GitHub Desktop.
+Download ZIP
+Automatic script for Mikrotik RouterOS updating record on CloudFlare.
+Raw
+cloudflare_update.script
+#########################################################################
+#
+==================================================
+#
+#
+$ Mikrotik RouterOS update script for CloudFlare $
+#
+#
+==================================================
+#
+#
+#
+# - You need a CloudFlare account & api key (look under settings),
+#
+#
+a zone and A record in it
+#
+# - All variables in first section are obvious, except CFid,
+#
+#
+To obtain CFid use following command in any unix shell:
+#
+#
+curl https://www.cloudflare.com/api_json.html -d 'a=rec_load_all' -d 'tkn=YOUR_API_KEY' -d 'email=email@example.com' -d 'z=domain.com'|python -mjson.tool
+# - Enable CFDebug if needed - it'll print some info to logs
+#
+# - Put script under /system scripts giving "read" policy access.
+#
+#
+For 6.29 and older "test" policy is also needed.
+#
+# - Add script to /system scheduler using it's name in "on-event"
+#
+#
+#
+#
+Credits for Samuel Tegenfeldt, CC BY-SA 3.0
+#
+#
+Modified by kiler129
+#
+#########################################################################
+################# CloudFlare variables #################
+:local CFDebug "true"
+:global WANInterface "ether1-gateway"
+:local CFdomain "sub.domain.com"
+:local CFzone "domain.com"
+:local CFemail "email@example.com"
+:local CFtkn "YOUR_API_KEY"
+:local CFid "353275870"
+:local CFrecordType "A"
+:local CFserviceMode "0"
+:local CFttl "120"
+#########################################################################
+########################
+DO NOT EDIT BELOW
+############################
+#########################################################################
+################# Internal variables #################
+:local resolvedIP ""
+:global WANip ""
+################# Resolve and set IP-variables #################
+:local currentIP [/ip address get [/ip address find interface=$WANInterface ] address];
+:set WANip [:pick $currentIP 0 [:find $currentIP "/"]];
+:set resolvedIP [:resolve $CFdomain];
+################# Build CF API Url #################
+:local CFurl "https://www.cloudflare.com/api_json.html\3F"
+:set CFurl ($CFurl . "email=$CFemail&tkn=$CFtkn&a=rec_edit");
+:set CFurl ($CFurl . "&id=$CFid&z=$CFzone&name=$CFdomain");
+:set CFurl ($CFurl . "&type=$CFrecordType&service_mode=$CFserviceMode&ttl=$CFttl");
+######## Write debug info to log #################
+:if ($CFDebug = "true") do={
+:log info ("CF: hostname = $CFdomain")
+:log info ("CF: resolvedIP = $resolvedIP")
+:log info ("CF: currentIP = $currentIP")
+:log info ("CF: WANip = $WANip")
+:log info ("CF: CFurl = $CFurl&content=$WANip")
+};
+######## Compare and update CF if necessary #####
+:if ($resolvedIP != $WANip) do={
+:log info ("CF: Updating CF, setting $CFDomain = $WANip")
+/tool fetch mode=https url="$CFurl&content=$WANip" keep-result=no
+/ip dns cache flush
+} else={
+:log info "CF: No Update Needed!"
+}
+Copy link
+dynek
+commented
+May 23, 2016
+Hello,
+I've been doing the same (update DNS record from my Mikrotik) for quite a while but some days ago I received a mail saying API v1 is deprecated. v4 should be used and it uses headers to authenticate. Apparently fetch doesn't support headers. Did you find any solution?
+Thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Arcanum417
+commented
+Feb 10, 2017
+I would also use that solution. @dynek @kiler129
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Arcanum417
+commented
+Dec 22, 2018
+Anyone done it yet ? ;)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+viritt
+commented
+Feb 26, 2019
+Anyone done it yet ? ;)
+I managed to make it work and place it in Fork
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ghost
+commented
+Feb 15, 2020
+unable to get CFid
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ghost
+commented
+Feb 15, 2020
+curl -X GET "https://api.cloudflare.com/client/v4/zones/[Zone ID]/dns_records"
+-H "X-Auth-Email: [Email]"
+-H "X-Auth-Key: [API Key]"
+-H "Content-Type: application/json"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+kiler129
+commented
+Feb 16, 2020
+To be fair I never updated that script (and @viritt's fork mentioned above should work) because since introduction of MikroTik IP Cloud there's no point in doing so.
+You can just set-up a CNAME on CF like so:
+If it bothers you that there's an extra DNS query (I cannot think about any realistic scenario here) you can even enable CNAME Flattening and it will look like a standard A record.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+anc-tvr
+commented
+Nov 28, 2024
+I have 2 ISPs for Failover. The gateways switching by the distance change. How to modify this script for 2 ISP/GW?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

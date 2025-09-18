@@ -1,0 +1,279 @@
+spring webflux - SpringBoot Reactive (Webclient) - TraceId not propagated to reactor? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+SpringBoot Reactive (Webclient) - TraceId not propagated to reactor?
+Ask Question
+Asked
+3 days ago
+Modified
+3 days ago
+Viewed
+27 times
+0
+I'm working on a Spring Boot application using Spring WebFlux with reactive WebClient and Micrometer for tracing. While tracing works correctly in the imperative (servlet) stack, the trace context (traceId, spanId) is lost when the execution moves to the reactive stack (Project Reactor threads). This results in missing traceId and spanId values in log files.
+Configuration:
+spring.reactor.context-propagation=auto
+log pattern
+%d %-5level %-50.50logger{50} [%thread,%X{traceId:-},%X{spanId:-}] %msg%n
+Log Output Example:
+2025-09-14 15:59:20,064 TRACE o.s.web.reactive.function.client.ExchangeFunctions [http-nio-8080-exec-1,68c6ca3839216185f4ca70c9a8ee1823,a98bd42951d46230] [774c1457] HTTP GET https://httpbin.org/get, headers={masked}
+2025-09-14 15:59:20,164 TRACE o.s.web.reactive.function.client.WebClient
+[reactor-http-epoll-3,,] [9660dd0c] REGISTERED
+2025-09-14 15:59:20,200 TRACE o.s.web.reactive.function.client.WebClient
+[reactor-http-epoll-3,,] [9660dd0c] CONNECT: httpbin.org/34.238.12.187:443
+2025-09-14 15:59:20,335 TRACE o.s.web.reactive.function.client.WebClient
+[reactor-http-epoll-3,,] [9660dd0c, L:/172.16.44.117:57450 - R:httpbin.org/34.238.12.187:443] ACTIVE
+2025-09-14 15:59:20,435 TRACE o.s.web.reactive.function.client.WebClient
+[reactor-http-epoll-3,,] [9660dd0c, L:/172.16.44.117:57450 - R:httpbin.org/34.238.12.187:443] READ COMPLETE
+2025-09-14 15:59:20,458 TRACE o.s.web.reactive.function.client.WebClient
+[reactor-http-epoll-3,,] [9660dd0c, L:/172.16.44.117:57450 - R:httpbin.org/34.238.12.187:443] READ COMPLETE
+2025-09-14 15:59:20,571 TRACE o.s.web.reactive.function.client.WebClient
+[reactor-http-epoll-3,,] [9660dd0c-1, L:/172.16.44.117:57450 - R:httpbin.org/34.238.12.187:443] WRITE: 155B GET /get HTTP/1.1
+As you can see, once execution moves to reactor threads (reactor-http-epoll-3), the traceId and spanId become empty.
+I've created a minimal reproduction case: https://github.com/cyrillzadra/spring-reactor-tracing-logging-demo
+Demo Setup
+Spring Boot: 3.x
+Spring WebFlux: Reactive stack
+Micrometer Tracing
+Logging: Logback with MDC
+What's the recommended way to ensure traceId/spanId propagate to reactive threads?
+Any help or guidance would be greatly appreciated!
+spring-webfluxproject-reactorspring-micrometer
+Share
+Improve this question
+Follow
+asked Sep 14 at 14:18
+Cyrill ZadraCyrill Zadra
+17211 silver badge1515 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+Try adding micrometer-tracing-bridge-brave or micrometer-tracing-bridge-otel
+Micrometer supports multiple tracing implementations. Ensure you include one of them.
+For Brave Zipkin:
+<dependency>
+<groupId>io.micrometer</groupId>
+<artifactId>micrometer-tracing-bridge-brave</artifactId>
+</dependency>
+For Opentelemetry:
+<dependency>
+<groupId>io.micrometer</groupId>
+<artifactId>micrometer-tracing-bridge-otel</artifactId>
+</dependency>
+And enable : spring.reactor.context-propagation=enabled
+And also use ObservationThreadLocalAccessor and ObservationContext properly.
+Spring Boot 3.x uses Observation API, which can propagate context safely across threads if configured.
+Make sure you are using:
+<dependency>
+<groupId>io.micrometer</groupId>
+<artifactId>micrometer-observation</artifactId>
+</dependency>
+Spring Boot’s autoconfiguration usually does this for you when you include the tracing starter:
+<dependency>
+<groupId>io.micrometer</groupId>
+<artifactId>micrometer-tracing</artifactId>
+</dependency>
+Micrometer’s tracing bridge should automatically populate MDC if configured.
+Add this to logback.xml:
+<property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} [%thread,%X{traceId:-},%X{spanId:-}] %msg%n"/>
+<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+<encoder>
+<pattern>${LOG_PATTERN}</pattern>
+</encoder>
+</appender>
+Make sure that:
+traceId and spanId are supported by the bridge you're using.
+You don’t manually override them elsewhere.
+There are other ways to configure also need to explored based on requirement.
+Share
+Improve this answer
+Follow
+answered Sep 14 at 15:17
+Spider7Spider7
+111 bronze badge
+New contributor
+Spider7 is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+1 Comment
+Add a comment
+Cyrill Zadra Cyrill Zadra 2 days ago
+Thanks for your feedback. I also tried micrometer-tracing-bridge-otel but same problem. It seems some log output contains traceId and some do not. 2025-09-15T12:27:35.887Z+00:00
+0
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+spring-webfluxproject-reactorspring-micrometer
+See similar questions with these tags.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+stackoverflow.ai - rebuilt for attribution
+Spevacus has joined us as a Community Manager
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Related
+1
+Distributed tracing is not working with Spring WebFlux + Reactor Kafka
+56
+Threading model of Spring WebFlux and Reactor
+1
+Spring Boot 3.x with Micrometer Tracing problems for spring-cloud-gateway
+4
+TraceId in not getting pushed in logs when using micrometer
+3
+Spring Boot 3 Webflux application with Micrometer Tracing not showing traceId and spanId in the console logs
+0
+BraveService decorator fails to propagate context on gRPC service in Armeria
+0
+No jms trace id in spring boot 3.1.3
+Hot Network Questions
+What is a "mob" character in the context of Isekai works?
+Why is ASCII punctuation in that order?
+What setting shows the objects as different colors by default?
+Why do “inconsolable” and “uncomfortable” have such different meanings?
+A question regarding a family of one-relator groups
+Did alignment charts of old use to have Law on the right (and when did that change)?
+Does a "Minimal" Grothendieck Universe Avoid Russell-Style Paradoxes?
+Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure aluminum?
+Why do complex questions lead to simple elegant answers?
+append iterator value to variable in for loop
+In what circumstances is projecting an image of a politican in public an offence?
+Looking for ACF/PACF Graph Interpretation References
+Scalars, Vectors, Tensors: are they all?
+Can a non-spellcaster use an Enspelled Weapon to cast its spell?
+What does the SH pin on HDMI do?
+What is the legal ramification, if any, of this traffic sign in Sofia, Bulgaria?
+How to tell author that post hoc data manipulation is not okay
+Color GeoPath according to current distance traveled
+What is a resource on encodings for Turing machines?
+When do cartographers draw a line for the coast and when do they not?
+How does Trump come up with the sizes of his lawsuits?
+Compute the integer hull of a polyhedral set in Mathematica
+Define counters using a loop
+Statistics for Theoreticians
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

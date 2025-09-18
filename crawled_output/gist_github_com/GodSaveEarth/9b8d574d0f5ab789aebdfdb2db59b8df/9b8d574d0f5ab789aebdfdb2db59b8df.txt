@@ -1,0 +1,450 @@
+PowerShell script to download hi-res photos from Apple iCloud sharedalbum · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+GodSaveEarth/download-icloud-sharedalbum.ps1
+Created
+November 15, 2024 20:47
+Show Gist options
+Download ZIP
+Star
+6
+(6)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/GodSaveEarth/9b8d574d0f5ab789aebdfdb2db59b8df.js&quot;&gt;&lt;/script&gt;
+Save GodSaveEarth/9b8d574d0f5ab789aebdfdb2db59b8df to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+6
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/GodSaveEarth/9b8d574d0f5ab789aebdfdb2db59b8df.js&quot;&gt;&lt;/script&gt;
+Save GodSaveEarth/9b8d574d0f5ab789aebdfdb2db59b8df to your computer and use it in GitHub Desktop.
+Download ZIP
+PowerShell script to download hi-res photos from Apple iCloud sharedalbum
+Raw
+download-icloud-sharedalbum.ps1
+# PowerShell script to download hi-res photos from
+# Apple iCloud sharedalbum
+#
+# The script saves jsons and txt to its directory for debug reasons
+# Please remove them manually later
+$target_url = "https://www.icloud.com/sharedalbum/#B1e5ZhN2vMlt0Z"
+# Required function to split the large arrays to chunks
+function Create-Batch {
+[CmdletBinding()]
+param (
+[Int]$Size,
+[Parameter(Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]$InputObject
+)
+begin {
+$Batch = [Collections.Generic.List[object]]::new()
+}
+process {
+if ($Size -and $Batch.get_Count() -ge $Size) {
+,$Batch
+$Batch = [Collections.Generic.List[object]]::new()
+}
+$Batch.Add($_)
+}
+End {
+if ($Batch.get_Count()) { , $Batch }
+}
+}
+# script begin
+$folder_id = $target_url.Substring($target_url.IndexOf("#") + 1)
+# First make a fake request and get a valid download host
+$webstream_default_url = "https://sharedstreams.icloud.com/$($folder_id)/sharedstreams/webstream"
+try {
+Invoke-RestMethod -Uri $webstream_default_url -Method 'Post' -Body '{"streamCtag":null}'
+} catch {
+# if http code was 330 redirect, we lookup take valid host id from response
+if ($_.Exception.Response.StatusCode.value__ -eq 330) {
+if($_.ErrorDetails.Message -match 'X-Apple-MMe-Host":"(.+)"') {
+$url_host = $Matches[1]
+Write-Output "Received server name: $($url_host)"
+}
+} else {
+$_.Exception.Response
+exit
+}
+}
+# generate download urls and filename for jsons
+# i download jsons to files first for debug purposes
+$webstream_url = "https://$($url_host)/$($folder_id)/sharedstreams/webstream"
+$webstream_file = "$($PSScriptRoot)\webstream.json"
+$webassets_url = "https://$($url_host)/$($folder_id)/sharedstreams/webasseturls"
+$webassets_file = "$($PSScriptRoot)\webasseturls.json"
+# download webstream_url if not before
+# webstream_url is main jsons with all photos data
+if(!(Test-Path $webstream_file -PathType Leaf)) {
+Write-Output "Get $($webstream_url)"
+Write-Output "Json save to $($webstream_file)"
+Invoke-RestMethod -Uri $webstream_url -Method 'Post' -Body '{"streamCtag":null}' -OutFile $webstream_file
+}
+# read downloaded file to json
+Write-Output "Json load $($webstream_file)"
+$webstream_obj = Get-Content $webstream_file | ConvertFrom-Json
+Write-Output "Total photos: $($webstream_obj.photos.Count)"
+# Iterate through all photos in batches
+# for debug needs you may want tos limit to -First x objects
+$webstream_obj.photos | Select-Object -First 5000 | Create-Batch -Size 500 | ForEach-Object {
+Write-Output "Process batch of: $($_.Count)"
+# We download list if all urls for current photoGuids batch
+# First, create request body, as /webassets expects POST request with body like
+# {"photoGuids":["...", "..."]}
+$body = @{ photoGuids = $_ | Select -ExpandProperty photoGuid } | ConvertTo-Json
+# download the list
+# webassets Response contains all available photo sizes for current batch, and we may want to filter it further
+Invoke-RestMethod -Uri $webassets_url -Method 'Post' -Body $body -OutFile $webassets_file
+$webassets_obj = Get-Content $webassets_file | ConvertFrom-Json
+Write-Output "Assets for this batch found: $($webassets_obj.items.psobject.Properties.Value.Count)"
+# Filter files to download.
+# Iterate current batch and collect only largest files per each photoGuid
+# You may want to skip this block to download all available photo sizes
+$largest_checksums = @()
+$_ | ForEach-Object {
+$largest_file = $_.derivatives.PSObject.Properties | Select-Object -ExpandProperty Value | Sort-Object {[int]$_.filesize} -Descending | Select-Object -First 1
+$largest_checksums += $largest_file.checksum
+}
+# Write-Output "Hi-res files: $($largest_checksums.Count)"
+$i=0
+$webassets_obj.items.PSObject.Properties | ForEach-Object {
+Write-Output "File $($_.Name)"
+# comment this out, if you want to download all available sizes
+if ($largest_checksums -NotContains $_.Name.ToString()) {
+Write-Output "Low res skip"
+return
+}
+$url = (-join("https://", $_.Value.url_location, $_.Value.url_path))
+# dump url to file
+$url | Out-File -FilePath "$($PSScriptRoot)\urls.txt" -Append
+Write-Output "Download"
+# download file with headers
+$Response = Invoke-WebRequest $Url
+# extract original file name
+$ContentDisposition = $Response.Headers.'Content-Disposition'
+$i1 = $ContentDisposition.IndexOf('filename="')+10
+$i2 = $ContentDisposition.IndexOf('"', $i1)
+$FileName = $ContentDisposition.Substring($i1, $i2-$i1)
+$FilePath = "$($PSScriptRoot)\$($FileName)"
+# save and cleanup
+[IO.File]::WriteAllBytes($FilePath, $Response.Content)
+Remove-Variable Response -Force
+[GC]::Collect()
+Write-Output "Saved: $($FileName)"
+}
+}
+Copy link
+augusthaering
+commented
+Nov 27, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+works 27.11.20204, thank you so much!!!
+I added custom file location variable to make it more easy to manage the location of the downloads:
+`
+``
+PowerShell script to download hi-res photos from
+Apple iCloud shared album with a custom save path
+The script saves jsons and txt to the specified directory for debug reasons
+Please remove them manually later
+Define custom save path
+$SavePath = "C:\Pfad\zu\deinem\Ordner"
+Ensure the directory exists
+if (!(Test-Path -Path $SavePath)) {
+New-Item -ItemType Directory -Path $SavePath
+}
+Define the target URL
+$target_url = "https://www.icloud.com/sharedalbum/#B1e5ZhN2vMlt0Z"
+Required function to split the large arrays to chunks
+function Create-Batch {
+[CmdletBinding()]
+param (
+[Int]$Size,
+[Parameter(Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]$InputObject
+)
+begin {
+$Batch = [Collections.Generic.List[object]]::new()
+}
+process {
+if ($Size -and $Batch.get_Count() -ge $Size) {
+,$Batch
+$Batch = [Collections.Generic.List[object]]::new()
+}
+$Batch.Add($_)
+}
+End {
+if ($Batch.get_Count()) { , $Batch }
+}
+}
+script begin
+$folder_id = $target_url.Substring($target_url.IndexOf("#") + 1)
+First make a fake request and get a valid download host
+$webstream_default_url = "https://sharedstreams.icloud.com/$($folder_id)/sharedstreams/webstream"
+try {
+Invoke-RestMethod -Uri $webstream_default_url -Method 'Post' -Body '{"streamCtag":null}'
+} catch {
+# if http code was 330 redirect, we lookup take valid host id from response
+if ($.Exception.Response.StatusCode.value__ -eq 330) {
+if($.ErrorDetails.Message -match 'X-Apple-MMe-Host":"(.+)"') {
+$url_host = $Matches[1]
+Write-Output "Received server name: $($url_host)"
+}
+} else {
+$_.Exception.Response
+exit
+}
+}
+generate download urls and filename for jsons
+i download jsons to files first for debug purposes
+$webstream_url = "https://$($url_host)/$($folder_id)/sharedstreams/webstream"
+$webstream_file = "$($SavePath)\webstream.json"
+$webassets_url = "https://$($url_host)/$($folder_id)/sharedstreams/webasseturls"
+$webassets_file = "$($SavePath)\webasseturls.json"
+download webstream_url if not before
+webstream_url is main jsons with all photos data
+if(!(Test-Path $webstream_file -PathType Leaf)) {
+Write-Output "Get $($webstream_url)"
+Write-Output "Json save to $($webstream_file)"
+Invoke-RestMethod -Uri $webstream_url -Method 'Post' -Body '{"streamCtag":null}' -OutFile $webstream_file
+}
+read downloaded file to json
+Write-Output "Json load $($webstream_file)"
+$webstream_obj = Get-Content $webstream_file | ConvertFrom-Json
+Write-Output "Total photos: $($webstream_obj.photos.Count)"
+Iterate through all photos in batches
+for debug needs you may want tos limit to -First x objects
+$webstream_obj.photos | Select-Object -First 5000 | Create-Batch -Size 500 | ForEach-Object {
+Write-Output "Process batch of: $($_.Count)"
+# We download list if all urls for current photoGuids batch
+# First, create request body, as /webassets expects POST request with body like
+# {"photoGuids":["...", "..."]}
+$body =
+@{ photoGuids = $_ | Select -ExpandProperty photoGuid } | ConvertTo-Json
+# download the list
+# webassets Response contains all available photo sizes for current batch, and we may want to filter it further
+Invoke-RestMethod -Uri $webassets_url -Method 'Post' -Body $body -OutFile $webassets_file
+$webassets_obj = Get-Content $webassets_file | ConvertFrom-Json
+Write-Output "Assets for this batch found: $($webassets_obj.items.psobject.Properties.Value.Count)"
+# Filter files to download.
+# Iterate current batch and collect only largest files per each photoGuid
+# You may want to skip this block to download all available photo sizes
+$largest_checksums = @()
+$_ | ForEach-Object {
+$largest_file = $_.derivatives.PSObject.Properties | Select-Object -ExpandProperty Value | Sort-Object {[int]$_.filesize} -Descending | Select-Object -First 1
+$largest_checksums += $largest_file.checksum
+}
+$i=0
+$webassets_obj.items.PSObject.Properties | ForEach-Object {
+Write-Output "File $($_.Name)"
+# comment this out, if you want to download all available sizes
+if ($largest_checksums -NotContains $_.Name.ToString()) {
+Write-Output "Low res skip"
+return
+}
+$url = (-join("https://", $_.Value.url_location,
+$_.Value.url_path))
+# dump url to file
+$url | Out-File -FilePath "$($SavePath)\urls.txt" -Append
+Write-Output "Download"
+# download file with headers
+$Response = Invoke-WebRequest $Url
+# extract original file name
+$ContentDisposition = $Response.Headers.'Content-Disposition'
+$i1 = $ContentDisposition.IndexOf('filename="')+10
+$i2 = $ContentDisposition.IndexOf('"', $i1)
+$FileName = $ContentDisposition.Substring($i1, $i2-$i1)
+$FilePath = "$($SavePath)\$($FileName)"
+# save and cleanup
+[IO.File]::WriteAllBytes($FilePath, $Response.Content)
+Remove-Variable Response -Force
+[GC]::Collect()
+Write-Output "Saved: $($FileName)"
+}
+}
+`
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+GodSaveEarth
+commented
+Nov 27, 2024
+@augusthaering please update the post markdown
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+augusthaering
+commented
+Feb 1, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+here is the updated post in correct markdown
+I added a custom file location variable to make it easier to manage the location of the downloads
+Insert your local path and your icloud link!
+# PowerShell script to download hi-res photos from Apple iCloud shared album with a custom save path
+# The script saves JSONs and TXT files to the specified directory for debugging purposes
+# Please remove them manually later
+# INSERT custom save path
+$SavePath = "C:\Pfad\zu\deinem\Ordner"
+# Ensure the directory exists
+if (!(Test-Path -Path $SavePath)) {
+New-Item -ItemType Directory -Path $SavePath
+}
+# INSERT ICLOUD LINK
+$target_url = "https://www.icloud.com/sharedalbum/#B1e5ZhsdsdsdN2vMlt0Z"
+# Required function to split large arrays into chunks
+function Create-Batch {
+[CmdletBinding()]
+param (
+[Int]$Size,
+[Parameter(Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]$InputObject
+)
+begin {
+$Batch = [Collections.Generic.List[object]]::new()
+}
+process {
+if ($Size -and $Batch.get_Count() -ge $Size) {
+,$Batch
+$Batch = [Collections.Generic.List[object]]::new()
+}
+$Batch.Add($_)
+}
+End {
+if ($Batch.get_Count()) { , $Batch }
+}
+}
+# Script begin
+$folder_id = $target_url.Substring($target_url.IndexOf("#") + 1)
+# First, make a fake request to get a valid download host
+$webstream_default_url = "https://sharedstreams.icloud.com/$($folder_id)/sharedstreams/webstream"
+try {
+Invoke-RestMethod -Uri $webstream_default_url -Method 'Post' -Body '{"streamCtag":null}'
+} catch {
+# If HTTP code is 330 redirect, extract valid host ID from response
+if ($_.Exception.Response.StatusCode.value__ -eq 330) {
+if ($_.ErrorDetails.Message -match 'X-Apple-MMe-Host":"(.+)"') {
+$url_host = $Matches[1]
+Write-Output "Received server name: $($url_host)"
+}
+} else {
+$_.Exception.Response
+exit
+}
+}
+# Generate download URLs and filenames for JSONs
+$webstream_url = "https://$($url_host)/$($folder_id)/sharedstreams/webstream"
+$webstream_file = "$($SavePath)\webstream.json"
+$webassets_url = "https://$($url_host)/$($folder_id)/sharedstreams/webasseturls"
+$webassets_file = "$($SavePath)\webasseturls.json"
+# Download webstream_url if not already downloaded
+if (!(Test-Path $webstream_file -PathType Leaf)) {
+Write-Output "Get $($webstream_url)"
+Write-Output "JSON save to $($webstream_file)"
+Invoke-RestMethod -Uri $webstream_url -Method 'Post' -Body '{"streamCtag":null}' -OutFile $webstream_file
+}
+# Read downloaded file into JSON
+Write-Output "JSON load $($webstream_file)"
+$webstream_obj = Get-Content $webstream_file | ConvertFrom-Json
+Write-Output "Total photos: $($webstream_obj.photos.Count)"
+# Iterate through all photos in batches (limit to first 5000 objects for debug)
+$webstream_obj.photos | Select-Object -First 5000 | Create-Batch -Size 500 | ForEach-Object {
+Write-Output "Processing batch of: $($_.Count)"
+# Create request body for /webassets (expects POST request with {"photoGuids":["...", "..."]})
+$body = @{ photoGuids = $_ | Select -ExpandProperty photoGuid } | ConvertTo-Json
+# Download the list
+Invoke-RestMethod -Uri $webassets_url -Method 'Post' -Body $body -OutFile $webassets_file
+$webassets_obj = Get-Content $webassets_file | ConvertFrom-Json
+Write-Output "Assets for this batch found: $($webassets_obj.items.psobject.Properties.Value.Count)"
+# Filter files to download (only largest files per photoGuid)
+$largest_checksums = @()
+$_ | ForEach-Object {
+$largest_file = $_.derivatives.PSObject.Properties | Select-Object -ExpandProperty Value | Sort-Object {[int]$_.filesize} -Descending | Select-Object -First 1
+$largest_checksums += $largest_file.checksum
+}
+$i=0
+$webassets_obj.items.PSObject.Properties | ForEach-Object {
+Write-Output "Processing file: $($_.Name)"
+# Skip low-resolution images
+if ($largest_checksums -NotContains $_.Name.ToString()) {
+Write-Output "Skipping low-res image"
+return
+}
+$url = (-join("https://", $_.Value.url_location, $_.Value.url_path))
+# Save URL to file
+$url | Out-File -FilePath "$($SavePath)\urls.txt" -Append
+Write-Output "Downloading..."
+# Download file with headers
+$Response = Invoke-WebRequest $Url
+# Extract original filename
+$ContentDisposition = $Response.Headers.'Content-Disposition'
+$i1 = $ContentDisposition.IndexOf('filename="')+10
+$i2 = $ContentDisposition.IndexOf('"', $i1)
+$FileName = $ContentDisposition.Substring($i1, $i2-$i1)
+$FilePath = "$($SavePath)\$($FileName)"
+# Save file and cleanup
+[IO.File]::WriteAllBytes($FilePath, $Response.Content)
+Remove-Variable Response -Force
+[GC]::Collect()
+Write-Output "Saved: $($FileName)"
+}
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

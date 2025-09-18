@@ -1,0 +1,479 @@
+Building the Heart of Your Java MCP Client: The MCPService Core - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Sebastiao Gazolla Jr
+Posted on Sep 18
+Building the Heart of Your Java MCP Client: The MCPService Core
+#ai
+#java
+#mcp
+#llm
+Part 3 of the "From Zero to AI Agent: My Journey into Java-based Intelligent Applications" series
+In our previous post, we created our first MCP client in 30 lines. Now it's time to build something more complex for a real application: the MCPService. This service handles everything: connecting to servers, managing tools, executing commands, and keeping everything healthy.
+Today we'll build a service that can handle multiple MCP servers simultaneously. Let's try to make it as simple as possible.
+The Core MCPService Class
+Let's start with the essential structure and some common MCP servers hardcoded for simplicity:
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.spec.McpSchema.*;
+public class MCPService {
+private final Map<String, Server> servers;
+private final Map<String, McpSyncClient> clients;
+public MCPService() {
+this.servers = new ConcurrentHashMap<>();
+this.clients = new ConcurrentHashMap<>();
+initializeServers();
+}
+private void initializeServers() {
+// Hardcoded servers for learning - in production, load from config
+connectToWeatherServer();
+connectToFilesystemServer();
+connectToTimeServer();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+It maintains two thread-safe ConcurrentHashMaps: one storing references to Server objects, each identified by a unique string key such as a server ID or name, and another holding McpSyncClient instances, typically keyed to match their respective servers, for synchronous communication within the framework.
+Hardcoded Server Connections
+Let's implement the three common MCP servers:
+private void connectToWeatherServer() {
+try {
+String[] command = {"npx", "-y", "@modelcontextprotocol/server-weather"};
+McpSyncClient client = createClient("weather-server", command);
+if (client != null) {
+Server server = new Server("weather-server", "Weather", true);
+loadServerTools(server, client);
+servers.put("weather-server", server);
+clients.put("weather-server", client);
+System.out.println("✅ Weather server connected with " + server.getToolCount() + " tools");
+}
+} catch (Exception e) {
+System.out.println("❌ Weather server failed: " + e.getMessage());
+}
+}
+private void connectToFilesystemServer() {
+try {
+String[] command = {"npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"};
+McpSyncClient client = createClient("filesystem-server", command);
+if (client != null) {
+Server server = new Server("filesystem-server", "Filesystem", true);
+loadServerTools(server, client);
+servers.put("filesystem-server", server);
+clients.put("filesystem-server", client);
+System.out.println("✅ Filesystem server connected with " + server.getToolCount() + " tools");
+}
+} catch (Exception e) {
+System.out.println("❌ Filesystem server failed: " + e.getMessage());
+}
+}
+private void connectToTimeServer() {
+try {
+String[] command = {"uvx", "mcp-server-time"};
+McpSyncClient client = createClient("time-server", command);
+if (client != null) {
+Server server = new Server("time-server", "Time", true);
+loadServerTools(server, client);
+servers.put("time-server", server);
+clients.put("time-server", client);
+System.out.println("✅ Time server connected with " + server.getToolCount() + " tools");
+}
+} catch (Exception e) {
+System.out.println("❌ Time server failed: " + e.getMessage());
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Each server connection is explicit and easy to understand. Weather and filesystem use Node.js (npx), while time server uses Python (uvx).
+Client Creation
+private McpSyncClient createClient(String serverId, String[] command) {
+try {
+// Handle Windows vs Unix commands
+String[] fullCommand;
+if (System.getProperty("os.name").toLowerCase().contains("win")) {
+fullCommand = new String[command.length + 2];
+fullCommand[0] = "cmd.exe";
+fullCommand[1] = "/c";
+System.arraycopy(command, 0, fullCommand, 2, command.length);
+} else {
+fullCommand = command;
+}
+ServerParameters serverParams = ServerParameters.builder(fullCommand[0])
+.args(Arrays.copyOfRange(fullCommand, 1, fullCommand.length))
+.build();
+StdioClientTransport transport = new StdioClientTransport(serverParams);
+McpSyncClient client = McpClient.sync(transport)
+.requestTimeout(Duration.ofSeconds(15))
+.build();
+// Initialize MCP protocol
+client.initialize();
+return client;
+} catch (Exception e) {
+System.out.println("Failed to create client for " + serverId + ": " + e.getMessage());
+return null;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The createClient creates an McpSyncClient for a server identified by serverId, launching a subprocess with the given command array. It formats the command for Windows (prefixing cmd.exe /c) or Unix (using it as-is), builds ServerParameters for the subprocess, and uses StdioClientTransport to manage stdio communication.
+Tool Discovery and Loading
+Once connected, we need to discover what tools the server offers:
+private void loadServerTools(Server server, McpSyncClient client) {
+try {
+ListToolsResult toolsResult = client.listTools();
+for (io.modelcontextprotocol.spec.McpSchema.Tool mcpTool : toolsResult.tools()) {
+Tool tool = new Tool(mcpTool.name(), mcpTool.description(), server.id());
+server.addTool(tool);
+}
+} catch (Exception e) {
+System.out.println("Error loading tools for " + server.id() + ": " + e.getMessage());
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The loadServerTools method invokes the listTools method on the client to retrieve a List of Tools. The method iterates over these tools, creating a new Tool object and then adds it to the server’s internal tool collection.
+Tool Execution: Where the Action Happens
+public ToolResult callTool(String serverId, String toolName, Map<String, Object> args) {
+// Validate inputs
+Server server = servers.get(serverId);
+if (server == null) {
+return ToolResult.error("Server not found: " + serverId);
+}
+if (!server.isConnected()) {
+return ToolResult.error("Server is not connected");
+}
+Tool tool = server.getTool(toolName);
+if (tool == null) {
+return ToolResult.error("Tool not found: " + toolName);
+}
+// Execute with retry logic
+McpSyncClient client = clients.get(server.id());
+CallToolRequest request = new CallToolRequest(tool.name(), args != null ? args : Map.of());
+CallToolResult result = client.callTool(request);
+if (result.isError() != null && result.isError()) {
+throw new Exception("Tool execution failed: " + result.toString());
+}
+String content = extractContent(result.content());
+return ToolResult.success(tool, content);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The callTool method in MCPService executes a tool on a server by serverId, using toolName and optional args. It validates the server’s existence, connection, and tool availability, returning ToolResult.error if any check fails. Using the McpSyncClient from the clients map, it sends a CallToolRequest and throws an Exception if the CallToolResult indicates an error. Otherwise, it extracts the result’s content and returns ToolResult.success with the tool and content.
+Content Extraction: Making Sense of Results
+MCP returns content in various formats. Let's make it simple:
+private String extractContent(List<Content> contentList) {
+if (contentList == null || contentList.isEmpty()) {
+return "No content returned";
+}
+for (Content content : contentList) {
+if (content instanceof TextContent textContent) {
+if (textContent.text() != null && !textContent.text().trim().isEmpty()) {
+return textContent.text();
+}
+}
+}
+return "No text content found";
+}
+Enter fullscreen mode
+Exit fullscreen mode
+We prefer text content, but handle cases where there's no content gracefully.
+Simplified Data Structures for MCP Framework
+Below are the data structures used in our code to manage tools, servers, and tool execution results efficiently.
+public record Tool(String name, String description, String serverId) {
+// Records automatically generate constructor, getters, equals, hashCode, toString
+}
+public static class Server {
+private final String id;
+private final String name;
+private boolean connected;
+private final List<Tool> tools;
+public Server(String id, String name, boolean connected) {
+this.id = id;
+this.name = name;
+this.connected = connected;
+this.tools = new ArrayList<>();
+}
+public void addTool(Tool tool) {
+tools.add(tool);
+}
+public Tool getTool(String toolName) {
+return tools.stream()
+.filter(tool -> tool.name().equals(toolName))
+.findFirst()
+.orElse(null);
+}
+public int getToolCount() {
+return tools.size();
+}
+// Getters using record-style naming
+public String id() { return id; }
+public String name() { return name; }
+public boolean isConnected() { return connected; }
+public List<Tool> getTools() { return List.copyOf(tools); }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Tool structure is an immutable data container that stores a tool’s name, description, and associated server ID.
+The Server structure, implemented as a class due to its mutable nature, manages a server’s ID, name, connection status, and a list of tools. It supports dynamic updates by allowing tools to be added and the connection status to be modified, with methods to retrieve a tool by name, count tools, and access server properties safely via immutable getters.
+The ToolResult Record
+Using a record with static factory methods for clean result handling:
+public record ToolResult(
+boolean success,
+Tool tool,
+String content,
+String message,
+Exception error
+) {
+public static ToolResult success(Tool tool, String content) {
+return new ToolResult(true, tool, content, "Success", null);
+}
+public static ToolResult error(String message) {
+return new ToolResult(false, null, null, message, null);
+}
+public static ToolResult error(String message, Exception error) {
+return new ToolResult(false, null, null, message, error);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The ToolResult structure encapsulates the outcome of a tool execution, holding a success flag, the executed tool, output content, a message, and an optional error.
+Utility Methods: The Convenience Layer
+A few helper methods make the service much easier to use:
+public List<Tool> getAllAvailableTools() {
+return servers.values().stream()
+.filter(Server::isConnected)
+.flatMap(server -> server.getTools().stream())
+.toList();
+}
+public boolean isServerConnected(String serverId) {
+Server server = servers.get(serverId);
+return server != null && server.isConnected();
+}
+public Map<String, Server> getConnectedServers() {
+return servers.entrySet().stream()
+.filter(entry -> entry.getValue().isConnected())
+.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+}
+public void close() {
+new ArrayList<>(servers.keySet()).forEach(this::disconnectServer);
+servers.clear();
+clients.clear();
+}
+private void disconnectServer(String serverId) {
+try {
+McpSyncClient client = clients.remove(serverId);
+if (client != null) {
+client.close();
+}
+Server server = servers.get(serverId);
+if (server != null) {
+System.out.println("Server " + serverId + " disconnected");
+}
+} catch (Exception e) {
+System.out.println("Error disconnecting server " + serverId + ": " + e.getMessage());
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Usage Example
+Here's how to use our MCPService:
+public class MCPServiceDemo {
+public static void main(String[] args) {
+// Create and initialize service
+MCPService mcpService = new MCPService();
+// List available tools
+List<Tool> tools = mcpService.getAllAvailableTools();
+System.out.println("\nAvailable tools: " + tools.size());
+for (Tool tool : tools) {
+System.out.println("
+• " + tool.name() + " (" + tool.serverId() + ")");
+}
+// Test weather tool
+Map<String, Object> weatherArgs = Map.of("location", "Tokyo");
+ToolResult weatherResult = mcpService.callTool("weather-server", "get_weather", weatherArgs);
+if (weatherResult.success()) {
+System.out.println("\nWeather: " + weatherResult.content());
+} else {
+System.out.println("\nWeather error: " + weatherResult.message());
+}
+// Test filesystem tool
+Map<String, Object> fileArgs = Map.of("path", "/tmp");
+ToolResult fileResult = mcpService.callTool("filesystem-server", "list_directory", fileArgs);
+if (fileResult.success()) {
+System.out.println("\nFiles: " + fileResult.content());
+} else {
+System.out.println("\nFile error: " + fileResult.message());
+}
+// Cleanup
+mcpService.close();
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Sample Output:
+✅ Weather server connected with 2 tools
+✅ Filesystem server connected with 6 tools
+❌ Time server failed: uvx not found
+Available tools: 8
+• get_weather (weather-server)
+• get_forecast (weather-server)
+• read_file (filesystem-server)
+• write_file (filesystem-server)
+• list_directory (filesystem-server)
+• create_directory (filesystem-server)
+• delete_file (filesystem-server)
+• move_file (filesystem-server)
+Weather: Current temperature in Tokyo: 22°C, partly cloudy
+Files: ["file1.txt", "file2.txt", "directory1"]
+Enter fullscreen mode
+Exit fullscreen mode
+Prerequisites for Running
+Before running this code, make sure you have:
+# For weather and filesystem servers (Node.js)
+npm install -g npx
+# For time server (Python)
+pip install uv
+# or
+pipx install uv
+Enter fullscreen mode
+Exit fullscreen mode
+What's Next?
+In the next post, we’ll build an HTTP client layer to connect our MCPService to Large Language Models like Groq and Gemini, enabling real-time AI-driven responses.
+With MCPService, we’ve created a robust foundation for managing multiple MCP servers and their tools. Now, it’s time to bring AI into the mix!
+This is part 3 of our series "From Zero to AI Agent: My Journey into Java-based Intelligent Applications". Next up: connecting to LLMs with HTTP clients!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Sebastiao Gazolla Jr
+Follow
+Passionate about Java development and the emerging world of AI agents. Since mid-2024, I've been deep in the trenches building production MCP clients and sharing every lesson learned.
+Location
+Brasilia, DF - Brazil
+Joined
+May 20, 2024
+More from Sebastiao Gazolla Jr
+MCP Fundamentals: Your First Java Client in 30 Lines of Code
+#mcp
+#tutorial
+#beginners
+#java
+From Zero to AI Agent: My Journey into Java-based Intelligent Applications
+#learning
+#beginners
+#ai
+#java
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,157 @@
+get_semantic_widgets.dart · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+yukisakai1225/get_semantic_widgets.dart
+Created
+June 6, 2025 14:56
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/yukisakai1225/4c86b821c96f6a5f967312cab550bdef.js&quot;&gt;&lt;/script&gt;
+Save yukisakai1225/4c86b821c96f6a5f967312cab550bdef to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/yukisakai1225/4c86b821c96f6a5f967312cab550bdef.js&quot;&gt;&lt;/script&gt;
+Save yukisakai1225/4c86b821c96f6a5f967312cab550bdef to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+get_semantic_widgets.dart
+// lib/semantics_extension.dart
+import "package:flutter/material.dart";
+import "package:flutter/rendering.dart";
+import "package:flutter/widgets.dart";
+void registerSemanticsDumpExtension() {
+// Binding を初期化（WidgetBinding が無ければここで確実に作る）
+final binding = WidgetsFlutterBinding.ensureInitialized();
+// Semantics を有効化（release ビルドでも動くように）
+SemanticsBinding.instance.ensureSemantics();
+// ignore: invalid_use_of_protected_member
+binding.registerServiceExtension(
+name: "getSemanticsInfo",
+callback: (parameters) async {
+// 現在のFlutterバージョンでは、SemanticsOwnerからrootを取得
+final root = WidgetsBinding
+.instance.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+if (root == null) {
+return {"result": []};
+}
+final list = <Map<String, dynamic>>[];
+void collect(SemanticsNode node) {
+final d = node.getSemanticsData();
+// 意味のあるノードだけ取り出す
+final hasLabel =
+d.label.isNotEmpty || d.value.isNotEmpty || d.hint.isNotEmpty;
+final hasAction = d.actions != 0;
+if (hasLabel || hasAction) {
+final globalRect = MatrixUtils.transformRect(
+node.transform ?? Matrix4.identity(),
+node.rect,
+);
+var ancestorTopLeft = Offset.zero;
+var parent = node.parent;
+final ancestorTopLefts = <Offset>[];
+while (parent != null) {
+final parentRectTopLeft = MatrixUtils.transformPoint(
+parent.transform ?? Matrix4.identity(),
+parent.rect.topLeft,
+);
+ancestorTopLeft = ancestorTopLeft + parentRectTopLeft;
+ancestorTopLefts.add(ancestorTopLeft);
+parent = parent.parent;
+}
+list.add({
+"label": d.label,
+"value": d.value,
+"hint": d.hint,
+"actions": _actionsToStrings(d.actions),
+"rect": {
+"left": globalRect.left + ancestorTopLeft.dx,
+"top": globalRect.top + ancestorTopLeft.dy,
+"width": globalRect.width,
+"height": globalRect.height,
+},
+});
+}
+// 現在のFlutterバージョンでは、getChildrenメソッドを使用
+node.visitChildren((child) {
+collect(child);
+return true; // 続けて子ノードを訪問
+});
+}
+collect(root);
+return {"result": list};
+},
+);
+}
+/// SemanticsAction → 可読文字列
+List<String> _actionsToStrings(int actions) {
+const mapping = <SemanticsAction, String>{
+SemanticsAction.tap: "tap",
+SemanticsAction.longPress: "longPress",
+SemanticsAction.scrollLeft: "scrollLeft",
+SemanticsAction.scrollRight: "scrollRight",
+SemanticsAction.scrollUp: "scrollUp",
+SemanticsAction.scrollDown: "scrollDown",
+SemanticsAction.increase: "increase",
+SemanticsAction.decrease: "decrease",
+// 必要に応じて追加
+};
+return mapping.keys
+.where((a) => actions & a.index != 0)
+.map((a) => mapping[a]!)
+.toList(growable: false);
+}
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

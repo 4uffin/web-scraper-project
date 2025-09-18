@@ -1,0 +1,293 @@
+SSH Resident Key Guide · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+Kranzes/guide.md
+Last active
+September 17, 2025 15:11
+Show Gist options
+Download ZIP
+Star
+87
+(87)
+You must be signed in to star a gist
+Fork
+14
+(14)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Kranzes/be4fffba5da3799ee93134dc68a4c67b.js&quot;&gt;&lt;/script&gt;
+Save Kranzes/be4fffba5da3799ee93134dc68a4c67b to your computer and use it in GitHub Desktop.
+Code
+Revisions
+3
+Stars
+86
+Forks
+14
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Kranzes/be4fffba5da3799ee93134dc68a4c67b.js&quot;&gt;&lt;/script&gt;
+Save Kranzes/be4fffba5da3799ee93134dc68a4c67b to your computer and use it in GitHub Desktop.
+Download ZIP
+SSH Resident Key Guide
+Raw
+guide.md
+Initial checks
+Start by checking that there aren't any previous ssh keys inside the FIDO2 authenticator of your YubiKey. You can check if they exist by running the command below:
+nix shell nixpkgs#yubikey-manager -c ykman fido credentials list
+If the command above outputs a string mentioning "ssh" or "openssh", then you have already got a key generated and store on your YubiKey.
+Evaluating additional authentication factors
+Before generating a new ssh key to store on your YubiKey you must consider which additional required authentication factors you want to use. Below you can see a table with the available factors and their corresponding command:
+Factors
+Description
+Command
+No PIN or touch are required
+You will not be required to enter your FIDO2 PIN or touch your YubiKey each time to authenticate
+ssh-keygen -t ed25519-sk -O resident -O no-touch-required
+PIN but no touch required
+Entering the PIN will be required but touching the physical key will not
+ssh-keygen -t ed25519-sk -O resident -O verify-required -O no-touch-required
+No PIN but touch is required
+You will only need to touch the YubiKey to authenticate
+ssh-keygen -t ed25519-sk -O resident
+A PIN and a touch are required (most secure)
+This is the most secure option, it requires both the PIN and touching to be used
+ssh-keygen -t ed25519-sk -O resident -O verify-required
+Generating the key
+Once you've decided which option fits best for your threat model you will need to run one of the commands above. Note that if using a PIN you don't need to add an additional ssh passphrase as it's redundant due to the FIDO2 PIN being used instead. I personally went with the last and most secure option so the command I used to generate the key was:
+ssh-keygen -t ed25519-sk -O resident -O verify-required
+Adding the new keys
+Now that you have generated a key which you can use, you will need to add it to your current ssh-agent session. You can do that by first starting the agent like so:
+eval "$(ssh-agent -s)"
+Then add the key on the YubiKey with the command below:
+ssh-add -K
+You can verify that the key was added by listing all the keys available in the current ssh-agent session:
+ssh-add -l
+We just added our brand new ssh key temporarily to our current session. If you would like to have it permanently available on the system you can run the command:
+ssh-keygen -K
+This retrieves our ssh key from our YubiKey and puts the private (still protected by YubiKey) and public key in the current working directory. You must now rename them accordingly to id_ed25519_sk and id_ed25519_sk.pub and place them in your ~/.ssh directory so ssh can detect them.
+Authenticating with GitHub
+In order to authenticate with GitHub you will have to add your new public key to your GitHub profile over at -> github.com/settings/keys. You can retrieve the keypair by running
+ssh-keygen -K
+and copy the public key directly from the newly added files to the current folder, for example, id_ed25519_sk_rk.pub.
+Testing authentication
+Now that we've added our ssh key to GitHub we can test that the setup works correctly by running:
+ssh -T git@github.com
+If this worked correctly you should be greeted by a "welcoming message".
+NOTE: In order to make sure that you are using the new SSH key consider moving out existing keys from the ~/.ssh directory just for this test.
+Copy link
+supermihi
+commented
+May 11, 2023
+In order to authenticate with GitHub you will have to add your new private key to your GitHub profile over at -> https://github.com/settings/keys.
+Caution: this should be the public key, of course
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Kranzes
+commented
+May 11, 2023
+Yeah you're right. Please refer check refer from now on to the updated guide https://ilanjoselevich.com/blog/using-ssh-resident-keys-with-a-yubikey-5/.
+I wrote this gist one at 5 AM lol
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+fredzhu
+commented
+May 26, 2023
+Had
+previous ssh keys inside the FIDO2 authenticator. How to add a new one?
+"ssh-keygen
+-f id_ed25519-sk -t ed25519-sk -O resident"
+ask if overwrite the previous one :(
+"A resident key scoped to 'ssh:' with user id 'null' already exists.
+Overwrite key in token (y/n)?"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Kranzes
+commented
+May 26, 2023
+I don't have experience with multiple ssh keys on a single authenticator, perhaps you need to call the token something other than ssh:. Look up online how to change the token name when generating a new token.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+alexdelorenzo
+commented
+Sep 11, 2023
+Had previous ssh keys inside the FIDO2 authenticator. How to add a new one? "ssh-keygen -f id_ed25519-sk -t ed25519-sk -O resident" ask if overwrite the previous one :( "A resident key scoped to 'ssh:' with user id 'null' already exists. Overwrite key in token (y/n)?"
+Save your key with a different name/label than the default resident key name on the FIDO2 key. You can have many resident keys as long as they have unique identifiers.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Silvest89
+commented
+Oct 4, 2023
+@fredzhu @Kranzes
+Just use -O application=ssh:Yourtexthere
+So it becomes like this
+ssh-keygen -t ed25519-sk -O resident -O application=ssh:Yourtexthere
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+8mccm8
+commented
+Feb 25, 2024
+HI
+have you tested the -O no-touch-required option ?
+it's seems not working for me
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Kranzes
+commented
+Feb 25, 2024
+I have not tested it, making an issue on OpenSSH's bugzilla
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+8mccm8
+commented
+Feb 27, 2024
+Hi @Kranzes
+I add some server side informations if you want to add these infos.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+nmcbride
+commented
+Feb 27, 2024
+So if you reinstall your OS, and need those files back, do you just run the same command and if the label exists it will recreate them? Or would that override the key?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+8mccm8
+commented
+Feb 27, 2024
+@nmcbride
+export keys with:
+ssh-keygen -K
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+nyanpasu64
+commented
+Jun 2, 2024
+Can you convert an existing id_ed25519_sk into a resident key?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+joostd
+commented
+Jun 19, 2024
+No, there is no API for importing wrapped credentials in CTAP (the protocol used to communicate with security keys). I guess it could be possible in theory by using a proprietary extension, but no security key I know has such an extension.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+johanot
+commented
+Aug 19, 2024
+Is there a way to have pin entry required only once per agent session? Currently, I'm prompted for PIN at ssh-add, but also at subsequent ssh ....
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Kranzes
+commented
+Aug 19, 2024
+No. It's not possible.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Toomoch
+commented
+Sep 16, 2024
+Hi @Kranzes, have you encountered this issue https://bugzilla.mindrot.org/show_bug.cgi?id=3572?
+Currently in NixOS with a Fido2 SSH key that requires a pin it doesn't work with askPassword = "".
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Kranzes
+commented
+Sep 17, 2024
+Hi @Kranzes, have you encountered this issue https://bugzilla.mindrot.org/show_bug.cgi?id=3572? Currently in NixOS with a Fido2 SSH key that requires a pin it doesn't work with askPassword = "".
+Hah, the "personal" user in that bug report thread is me, if you open the attached screenshot you would see "kranzes".
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Toomoch
+commented
+Sep 17, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hi @Kranzes, have you encountered this issue https://bugzilla.mindrot.org/show_bug.cgi?id=3572? Currently in NixOS with a Fido2 SSH key that requires a pin it doesn't work with askPassword = "".
+Hah, the "personal" user in that bug report thread is me, if you open the attached screenshot you would see "kranzes".
+Oh I see, I didn't notice. I guess the only way is to use a GUI, bummer.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

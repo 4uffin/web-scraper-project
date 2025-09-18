@@ -1,0 +1,263 @@
+A Pod with Public IP - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Abhijeet Mohanan
+Posted on Sep 16
+A Pod with Public IP
+#aws
+#kubernetes
+#networking
+Did you know? Pods can have public IP address and a dedicated security group
+Summary
+Recently I was working on deploying telephony systems on AWS EKS, While doing so I realized that running media servers based on RTP (Real-time Transport Protocol) behind a NAT gateway is not a feasible option.
+Problem
+For RTP to work both the ends should be able to communicate directly over a Network (Internet / Intranet).
+The AWS NAT Gateway doesn't allow ingress traffic to flow in, making it not possible to handle real-time streaming in a private subnet. image ref
+An Easy Solution:
+An easy solution would be to make an EKS worker node public, open up the security groups, and voila – things would start working.
+Security issues with this solution:
+However, this approach comes with a significant security flaw. RTP, by nature, requires a large range of ports to enable concurrent streaming. To achieve this, around 10,000 ports would need to be whitelisted in the security group. If higher concurrency is required, even more ports would be necessary.
+This scenario opens up ports used by NodePort, potentially granting unwanted access to your environment.
+The Ideal Solution:
+The pod has a Public static IP
+The pod has a dedicated network interface
+The pod has a dedicated Security Group
+If the above conditions are met it will make the environment a reliable and secure one.
+How to achieve this is AWS EKS
+Prerequisite
+AWS EKS Cluster with AWS VPC-CNI
+Elastic IP
+Security Group
+Step1: Enabling dedicated Network interface for pods.
+The first step is to configure VPC-CNI to assign a dedicated network interface to a pod.
+To do so add the following variable to the aws-node daemonset
+"ENABLE_POD_ENI": "true"
+Enter fullscreen mode
+Exit fullscreen mode
+If you are using AWS Managed VPC-CNI add the following to the advanced configuration
+{
+"env": {
+"ENABLE_POD_ENI": "true"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Once this change is implemented the CNI (VPC-CNI) is ready to assign specific network interfaces to pods.
+By default nothing will change all the existing and newly created will run and behave as expected.
+Step2: Assigning Security Group to the pod
+AWS offers a CRD(custom resource definition) vpcresources.k8s.aws/v1beta1 using this a SecurityGroupPolicy can be created as follows.
+cat > securitygrouppolicy.yaml <<EOF
+apiVersion: vpcresources.k8s.aws/v1beta1
+kind: SecurityGroupPolicy
+metadata:
+name: media-stream-sg-policy
+namespace: myns
+spec:
+podSelector:
+matchLabels:
+app: media-servers
+securityGroups:
+groupIds:
+- sg-e3edxxxxx
+EOF
+Enter fullscreen mode
+Exit fullscreen mode
+The security group sg-e3edxxxxx is expected to be existing in the VPC
+Apply the manifest
+kubectl apply -f securitygrouppolicy.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Create a pod with label app: media-servers
+cat > pod.yaml <<EOF
+# This is a sample pod
+apiVersion: v1
+kind: Pod
+metadata:
+labels:
+app: media-servers
+name: media-servers-pod
+namespace: myns
+spec:
+containers:
+image: public.ecr.aws/docker/library/nginx:stable-alpine
+EOF
+Enter fullscreen mode
+Exit fullscreen mode
+Apply the manifest
+kubectl apply -f pod.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Once the pod is running state get the IP address of the pod.
+# To get the IP address
+kubectl get pods -n myns -o wide
+# output
+#NAME
+READY
+STATUS
+RESTARTS
+AGE
+IP
+NODE
+NOMINATED NODE
+READINESS GATES
+#media-servers-pod
+1/1
+Running
+0
+5m57s
+110.46.35.231
+ip-110-46-4-191.eu-west-1.compute.internal
+<none>
+<none>
+Enter fullscreen mode
+Exit fullscreen mode
+Copy the IP address and look it up on the AWS Console EC2 > Network & Security > Network interfaces
+This IP now will be associated to a dedicated Network Interface which also has the security group attached to it.
+Now you have a pod with a dedicated network interface and a security group attached to it
+Note the interface ID.
+Step3: Assigning Elastic IP to the pod
+By default a Public IP is not associated to the network interface as well as you need a set of static IP so that the external world can communicate with [ Helps with whitelisting ]
+Goto AWS Console EC2 > Elastic IP
+Allocate a new IP or use an existing one.
+Once the Elastic IP is allocated, Associate the IP address with the network interface obtained in step2.
+Lets make it simpler
+Run the following command to achieve the binding easily
+ALLOCATION_ID="eipalloc-xxxx" # Get it from the Elastic IP Description
+POD_IP="110.46.35.231"
+AWS_REGION="eu-west-1"
+aws ec2 associate-address --allocation-id $ALLOCATION_ID --network-interface-id $(aws ec2 describe-network-interfaces
+--filters "Name=private-ip-address,Values=$POD_IP" --query "NetworkInterfaces[].NetworkInterfaceId"
+--output text --no-paginate) --private-ip-address $POD_IP --allow-reassociation
+Enter fullscreen mode
+Exit fullscreen mode
+The above command can be run in an init-container to make sure the IP is always bound to the pod.
+Documents
+Configure the Amazon VPC CNI plugin
+CRD - vpcresources.k8s.aws/v1beta1
+Allocate and associate Elastic IP addresses
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Abhijeet Mohanan
+Follow
+Joined
+Dec 18, 2020
+More from Abhijeet Mohanan
+Deploying kubernetes on containers using kind
+#kubernetes
+#testing
+#kind
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

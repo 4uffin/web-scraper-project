@@ -1,0 +1,260 @@
+Authentication in Express with Mongoose (Step-by-Step Guide) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+suraj kushwaha
+Posted on Sep 17
+Authentication in Express with Mongoose (Step-by-Step Guide)
+#webdev
+#programming
+#javascript
+#learning
+Authentication is one of the most important parts of any web application. Without it, your users can’t securely log in, access their data, or trust your app. In this guide, we’ll learn how to implement authentication in Express.js using Mongoose with JWT (JSON Web Tokens).
+By the end, you’ll have a working setup with Register, Login, and Protected Routes.
+Step 1: Setup the Project
+Initialize a new project:
+mkdir express-auth && cd express-auth
+npm init -y
+Install dependencies:
+npm install express mongoose bcrypt jsonwebtoken dotenv cors
+npm install --save-dev nodemon
+Project structure:
+📂 express-auth
+┣ 📂 models
+┃ ┗ user.model.js
+┣ 📂 routes
+┃ ┗ auth.routes.js
+┣ 📂 middlewares
+┃ ┗ auth.middleware.js
+┣ server.js
+┣ .env
+Step 2: Connect to MongoDB
+Inside server.js
+import express from "express";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import cors from "cors";
+dotenv.config();
+const app = express();
+app.use(express.json());
+app.use(cors());
+mongoose
+.connect(process.env.MONGO_URI)
+.then(() => console.log("MongoDB connected"))
+.catch((err) => console.error(err));
+app.listen(5000, () => console.log("Server running on port 5000"));
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: Create User Model
+models/user.model.js
+import mongoose from "mongoose";
+import bcrypt from "bcrypt";
+const userSchema = new mongoose.Schema({
+name: { type: String, required: true },
+email: { type: String, required: true, unique: true },
+password: { type: String, required: true },
+});
+// Hash password before saving
+userSchema.pre("save", async function (next) {
+if (!this.isModified("password")) return next();
+this.password = await bcrypt.hash(this.password, 10);
+next();
+});
+const User = mongoose.model("User", userSchema);
+export default User;
+Enter fullscreen mode
+Exit fullscreen mode
+Auth Routes (Register & Login)
+*routes/auth.routes.js
+*
+import express from "express";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import User from "../models/user.model.js";
+const router = express.Router();
+// Register
+router.post("/register", async (req, res) => {
+try {
+const { name, email, password } = req.body;
+const existing = await User.findOne({ email });
+if (existing) return res.status(400).json({ message: "User already exists" });
+const user = new User({ name, email, password });
+await user.save();
+res.status(201).json({ message: "User registered successfully" });
+} catch (err) {
+res.status(500).json({ message: err.message });
+}
+});
+// Login
+router.post("/login", async (req, res) => {
+try {
+const { email, password } = req.body;
+const user = await User.findOne({ email });
+if (!user) return res.status(400).json({ message: "Invalid credentials" });
+const isMatch = await bcrypt.compare(password, user.password);
+if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
+} catch (err) {
+res.status(500).json({ message: err.message });
+}
+});
+export default router;
+Enter fullscreen mode
+Exit fullscreen mode
+🛠️ Step 5: Middleware for Protecting Routes
+middlewares/auth.middleware.js
+import jwt from "jsonwebtoken";
+export const authMiddleware = (req, res, next) => {
+const token = req.headers.authorization?.split(" ")[1]; // Bearer <token>
+if (!token) return res.status(401).json({ message: "No token provided" });
+try {
+const decoded = jwt.verify(token, process.env.JWT_SECRET);
+req.user = decoded;
+next();
+} catch {
+res.status(401).json({ message: "Invalid token" });
+}
+};
+Enter fullscreen mode
+Exit fullscreen mode
+✅ Best Practices
+🔒 Never store plain-text passwords. Always hash them.
+⏳ Use short-lived JWTs + refresh tokens for long sessions.
+🔑 Keep your JWT_SECRET safe and outside source code.
+🍪 Prefer HttpOnly cookies for storing tokens in production.
+🌐 Always use HTTPS in production.
+🎯 Conclusion
+You just built authentication in Express with Mongoose and JWT!
+We created a User model, added Register/Login routes, generated JWT tokens, and protected routes with a middleware.
+👉 Next steps:
+Add role-based authorization (admin, user, etc.)
+Implement refresh tokens for longer sessions
+Add OAuth (Google/GitHub login)
+🔥 That’s it! You now have a secure authentication system in your Express app.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+suraj kushwaha
+Follow
+Joined
+Sep 2, 2025
+More from suraj kushwaha
+Building Smarter AI Applications: A Journey Through the LangChain Ecosystem
+#webdev
+#ai
+#javascript
+#python
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

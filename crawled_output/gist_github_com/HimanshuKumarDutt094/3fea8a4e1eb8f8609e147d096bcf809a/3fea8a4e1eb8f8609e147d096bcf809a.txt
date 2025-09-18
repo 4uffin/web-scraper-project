@@ -1,0 +1,200 @@
+Script to auto convert file names from one casing to casing with extensiion support · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+HimanshuKumarDutt094/rename-script.sh
+Last active
+September 17, 2025 05:13
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/HimanshuKumarDutt094/3fea8a4e1eb8f8609e147d096bcf809a.js&quot;&gt;&lt;/script&gt;
+Save HimanshuKumarDutt094/3fea8a4e1eb8f8609e147d096bcf809a to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/HimanshuKumarDutt094/3fea8a4e1eb8f8609e147d096bcf809a.js&quot;&gt;&lt;/script&gt;
+Save HimanshuKumarDutt094/3fea8a4e1eb8f8609e147d096bcf809a to your computer and use it in GitHub Desktop.
+Download ZIP
+Script to auto convert file names from one casing to casing with extensiion support
+Raw
+rename-script.sh
+#!/bin/bash
+# Script to rename component files, converting between camelCase, PascalCase, snake_case, and kebab-case
+# Smart detection of current case, specifies output case and extensions
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+cat << EOF
+Script to rename component files between different naming conventions.
+Usage: $0 [directory] [output_case] [extensions]
+Arguments:
+directory
+Path to components directory (default: src/components)
+output_case
+Target naming convention: camel, pascal, snake, kebab (default: kebab)
+extensions
+File extensions to process, comma-separated (default: ts,tsx)
+Examples:
+$0
+# Rename ts,tsx in src/components to kebab-case
+$0 test/components
+# Rename ts,tsx in test/components to kebab-case
+$0 . pascal
+# Rename ts,tsx in current dir to PascalCase
+$0 src/components camel tsx,php
+# Rename tsx and php files to camelCase
+$0 /full/path pascal ts,jsx
+# Full path, specific extensions
+The script detects current case and skips files already in target case.
+EOF
+exit 0
+fi
+DIRECTORY="${1:-src/components}"
+OUTPUT_CASE="${2:-kebab}"
+EXTENSIONS="${3:-ts,tsx}"
+# Function to detect case
+is_case() {
+if [[ "$1" =~ - ]]; then
+echo "kebab"
+elif [[ "$1" =~ _ ]]; then
+echo "snake"
+else
+first_char="${1:0:1}"
+if [[ "$first_char" =~ [A-Z] ]]; then
+echo "pascal"
+else
+echo "camel"
+fi
+fi
+}
+# Helper functions for conversions
+pascal_to_kebab() {
+echo "$1" | sed 's/\([A-Z]\)/-\l\1/g' | sed 's/^-\([a-z0-9]\)/\1/'
+}
+pascal_to_snake() {
+echo "$1" | sed 's/\([A-Z]\)/_\l\1/g' | sed 's/^_\([a-z0-9]\)/\1/'
+}
+lowercase_first() {
+echo "$1" | sed 's/^\([A-Z]\)/\l\1/'
+}
+# Output case functions
+to_kebab() {
+if [[ "$current_case" == "kebab" ]]; then echo "$1"
+elif [[ "$current_case" == "snake" ]]; then echo "${1//_/-}"
+elif [[ "$current_case" == "pascal" || "$current_case" == "camel" ]]; then pascal_to_kebab "$1"
+fi
+}
+to_pascal() {
+if [[ "$current_case" == "pascal" ]]; then echo "$1"
+elif [[ "$current_case" == "kebab" ]]; then echo "$1" | sed 's/-\([a-z]\)/\U\1/g'
+elif [[ "$current_case" == "snake" ]]; then echo "$1" | sed 's/_\([a-z]\)/\U\1/g'
+elif [[ "$current_case" == "camel" ]]; then echo "$1" | sed 's/^\([a-z]\)/\U\1/'
+fi
+}
+to_camel() {
+p=$(to_pascal "$1")
+lowercase_first "$p"
+}
+to_snake() {
+if [[ "$current_case" == "snake" ]]; then echo "$1"
+elif [[ "$current_case" == "kebab" ]]; then echo "${1//-/_}"
+elif [[ "$current_case" == "pascal" || "$current_case" == "camel" ]]; then pascal_to_snake "$1"
+fi
+}
+# Convert EXTENSIONS to array and add dots
+IFS=',' read -ra EXT_ARRAY <<< "$EXTENSIONS"
+for i in "${!EXT_ARRAY[@]}"; do
+if [[ "${EXT_ARRAY[i]}" != .* ]]; then
+EXT_ARRAY[i]=".${EXT_ARRAY[i]}"
+fi
+done
+# Build find pattern
+FIND_ARGS=()
+for ext in "${EXT_ARRAY[@]}"; do
+FIND_ARGS+=("-name" "*$ext")
+done
+# Find and process files
+find "$DIRECTORY" -type f \( "${FIND_ARGS[@]}" \) | while read -r file; do
+if [[ "$file" == *"rename-components.sh" ]]; then
+continue
+fi
+filepath="${file%/*}"
+filename="${file##*/}"
+extension="${filename##*.}"
+base_name="${filename%.*}"
+current_case=$(is_case "$base_name")
+if [[ "$current_case" == "$OUTPUT_CASE" ]]; then
+echo "Skipping $filename (already $OUTPUT_CASE)"
+continue
+fi
+if [[ "$OUTPUT_CASE" == "kebab" ]]; then
+new_base_name=$(to_kebab "$base_name")
+elif [[ "$OUTPUT_CASE" == "pascal" ]]; then
+new_base_name=$(to_pascal "$base_name")
+elif [[ "$OUTPUT_CASE" == "camel" ]]; then
+new_base_name=$(to_camel "$base_name")
+elif [[ "$OUTPUT_CASE" == "snake" ]]; then
+new_base_name=$(to_snake "$base_name")
+else
+echo "Unknown output_case: $OUTPUT_CASE. Use 'camel', 'pascal', 'snake', or 'kebab'."
+continue
+fi
+if [[ "$base_name" != "$new_base_name" ]]; then
+new_filename="$new_base_name.$extension"
+new_path="$filepath/$new_filename"
+mv "$file" "$new_path"
+echo "Renamed: $file -> $new_path"
+fi
+done
+echo "Component renaming completed. Check your imports to ensure everything is working."
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

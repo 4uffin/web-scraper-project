@@ -1,0 +1,368 @@
+Beyond `text-wrap: pretty` — language-aware line breaks for minor words - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Jacopo Lorenzetti
+Posted on Sep 17
+Beyond `text-wrap: pretty` — language-aware line breaks for minor words
+#css
+#typography
+#webdev
+#i18n
+Ever noticed that tiny “a” dangling at the end of a headline? 😱
+text-wrap: pretty already makes paragraphs look smarter — but it isn’t language-aware. In many editorial traditions, you don’t want to break after minor words (articles, prepositions, conjunctions), or between an honorific and the following name, or between initials and a surname.
+This post proposes a small, language-aware upgrade to line breaking — and ships a tiny polyfill you can try in 30 seconds.
+CodePen: https://codepen.io/jlorenzetti/pen/zxvXewX
+TL;DR
+text-wrap: pretty improves line breaks, but it’s not language-aware.
+This tiny polyfill adds a thin layer of editorial glue: keeps obvious pairs together (e.g. Mr. Smith, Fig. 2, 20 °C, 1900–2000, J. K. Rowling) and optionally keeps minor words attached to the next word where that’s the editorial norm.
+Zero deps, one DOM pass, no layout measurements.
+Try the live demo
+What pretty solves — and what it can’t
+text-wrap: pretty focuses on avoiding short last lines and can make smarter break choices near the end of a paragraph (details vary by engine).
+But it’s agnostic about editorial semantics — it doesn’t know that Fig. and 2 belong together, or that many editorial traditions avoid breaking after short function words.
+This polyfill adds just enough semantics on top of pretty, without re-implementing layout. Think of it as one layer of “do not break here” for well-established editorial conventions.
+The upgrade in one minute
+Scope: only elements whose computed text-wrap is pretty.
+Scan: a single pass over text nodes (no layout reads, no reflows).
+Decide: match language-aware patterns:
+Safe rules (always on): honorifics + name, initials + surname, label + number, number + unit, § + number, numeric ranges (WORD JOINER around the dash).
+Minor words (per locale): attach short function words only where this is a common editorial convention.
+Glue: replace a normal space with NBSP (U+00A0) or insert WORD JOINER (U+2060) where appropriate.
+Idempotent & safe: skips URLs/emails, doesn’t cross inline elements by default, doesn’t touch pre/code/....
+Quick start
+Plain HTML (no build)
+<article class="typo" lang="en">
+<p>See Fig. 2 for details.</p>
+</article>
+<style>
+.typo { text-wrap: pretty; hyphens: auto; }
+/* Older UAs without `text-wrap: pretty`: opt-in to the glue layer */
+@supports not (text-wrap: pretty) {
+.typo { --text-wrap-preferences: minor-words; }
+}
+</style>
+<script type="module">
+import { init, registerLanguage } from 'https://cdn.jsdelivr.net/npm/text-wrap-minor-words@0.3.1/dist/lite.mjs';
+import en from 'https://cdn.jsdelivr.net/npm/text-wrap-minor-words@0.3.1/locales/en.json' assert { type: 'json' };
+registerLanguage('en', en);
+const ctrl = init({ languages: ['en'] });
+ctrl.process();
+</script>
+Enter fullscreen mode
+Exit fullscreen mode
+Swap en for another locale if needed. To support multiple locales, import/register more JSON files the same way.
+Node / bundler (ESM)
+npm i text-wrap-minor-words
+Enter fullscreen mode
+Exit fullscreen mode
+import { init, registerLanguage } from 'text-wrap-minor-words/lite';
+import en from 'text-wrap-minor-words/locales/en.json';
+registerLanguage('en', en);
+const ctrl = init({ languages: ['en'], observe: true });
+ctrl.process();
+Enter fullscreen mode
+Exit fullscreen mode
+<style>
+.typo { text-wrap: pretty; hyphens: auto; }
+@supports not (text-wrap: pretty) {
+.typo { --text-wrap-preferences: minor-words; }
+}
+</style>
+Enter fullscreen mode
+Exit fullscreen mode
+You can also load the non-lite global build:
+<script src="https://cdn.jsdelivr.net/npm/text-wrap-minor-words@0.3.1/dist/index.global.js"></script> (includes built-in locale data for quick trials; prefer lite in production).
+English display opt-in (optional)
+By default, minor words are off for English body text. This snippet enables them only in display contexts (headings).
+Plain HTML (no build)
+<article class="typo" lang="en">
+<h1>From a book to the browser: a practical guide to typography on the web</h1>
+</article>
+<style>
+.typo { text-wrap: pretty; hyphens: auto; }
+/* Enable the minor-words glue only for English headings (display) */
+.typo :is(h1,h2,h3,h4,h5,h6):lang(en) {
+--text-wrap-preferences: minor-words; /* gate on */
+--text-wrap-minor-threshold: 1; /* glue after 1-char tokens */
+--text-wrap-minor-stoplist: "of to in on at for by a I"; /* adjust to your style guide */
+}
+@supports not (text-wrap: pretty) {
+.typo { --text-wrap-preferences: minor-words; }
+}
+</style>
+<script type="module">
+import { init, registerLanguage } from 'https://cdn.jsdelivr.net/npm/text-wrap-minor-words@0.3.1/dist/lite.mjs';
+import en from 'https://cdn.jsdelivr.net/npm/text-wrap-minor-words@0.3.1/locales/en.json' assert { type: 'json' };
+registerLanguage('en', en);
+const ctrl = init({ languages: ['en'], context: 'display' }); // limit processing to display contexts
+ctrl.process();
+</script>
+Enter fullscreen mode
+Exit fullscreen mode
+Bundler / ESM
+npm i text-wrap-minor-words
+Enter fullscreen mode
+Exit fullscreen mode
+import { init, registerLanguage } from 'text-wrap-minor-words/lite';
+import en from 'text-wrap-minor-words/locales/en.json';
+registerLanguage('en', en);
+const ctrl = init({ languages: ['en'], context: 'display' });
+ctrl.process();
+Enter fullscreen mode
+Exit fullscreen mode
+.typo { text-wrap: pretty; hyphens: auto; }
+.typo :is(h1,h2,h3,h4,h5,h6):lang(en) {
+--text-wrap-preferences: minor-words;
+--text-wrap-minor-threshold: 1;
+--text-wrap-minor-stoplist: "of to in on at for by a I";
+}
+@supports not (text-wrap: pretty) {
+.typo { --text-wrap-preferences: minor-words; }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Tip: prefer :lang(en) over [lang="en"] so headings match the language inherited from the container.
+Defaults & language notes (compact)
+Safe rules (on in every language): honorifics + name (Mr. Smith, Dr. Müller), initials + surname (J. K. Rowling), label + number (Fig. 2, S. 12), number + unit (20 °C, 10 km), § + number, numeric ranges (1900–2000 with U+2060 around the dash).
+Minor words: on by default in Romance/Slavic/Greek; off by default in English/German/Dutch (you can opt-in for display).
+Locale
+1-letter glue
+Examples from the default stop-list*
+fr
+✓
+de, du, le, la, les, un, une…
+it
+✓
+di, da, in, su, con, per…
+pl
+✓
+w, z, do, na, po…
+ru
+✓
+в, к, с, на, по…
+el
+✓
+σε, το, τη, οι…
+en
+—
+(safe rules by default; opt-in for display)
+* Full lists and configuration in the language dataset.
+Performance & accessibility
+O(n) over text nodes. Regex pre-compiled per locale. No layout measurements.
+Early exit for neutral locales (e.g. en/de/nl when minor words are off).
+Screen readers: NBSP/WORD JOINER are invisible to AT; URL/email detection prevents accidental glue.
+Caveats
+Inline crossing: currently we don’t cross inline elements (e.g. a <em>word</em>). We may evaluate a future opt-in.
+CJK/RTL: not targeted for now (different line-breaking traditions).
+Not a grammar rule: this encodes editorial conventions, not linguistic rules. Defaults are conservative; override when your style guide differs.
+Spec angle (why this might belong in CSS)
+This polyfill explores a small, language-aware extension to text-wrap. If real-world use proves it broadly useful and low-risk, one possible shape could be a dedicated option (e.g. a “minor-words” sub-mode) that lets UAs apply these low-controversy “do not break here” hints.
+The repo includes an explainer with non-goals, locale data, and tests. If you have production samples or edge cases, please share them — they’re exactly what a future proposal needs.
+Try it & tell me what breaks
+Live demo: https://jlorenzetti.github.io/text-wrap-minor-words/
+Repo: https://github.com/jlorenzetti/text-wrap-minor-words
+CodePen: https://codepen.io/jlorenzetti/pen/zxvXewX
+Got an edge case (especially in English display, or a new locale)? Open an issue or drop a comment — examples and screenshots are gold.
+Top comments (3)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Ryan B
+Ryan B
+Ryan B
+Follow
+Just a salty old programmer.
+Location
+Southern Gulf Islands, BC Canada
+Work
+Backend Developer
+Joined
+Jul 15, 2023
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+I don't have an immediate use case, but DAMN I love this post. I love NLP this totally counts as micro-NLP; I'd be most interested to see what kind of edge cases you find. Wild article. Well done.
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Jacopo Lorenzetti
+Jacopo Lorenzetti
+Jacopo Lorenzetti
+Follow
+Joined
+Dec 10, 2022
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+Thanks Ryan! 🙏 I’ll take “micro-NLP”! That’s exactly the idea: just enough language awareness to fix common typographic cases.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Jacopo Lorenzetti
+Jacopo Lorenzetti
+Jacopo Lorenzetti
+Follow
+Joined
+Dec 10, 2022
+•
+Sep 17
+Dropdown menu
+Copy link
+Hide
+If you try this, I'd love your feedback and edge cases — especially for English display and new locales. Screenshots welcome!
+Live demo → jlorenzetti.github.io/text-wrap-mi...
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Jacopo Lorenzetti
+Follow
+Joined
+Dec 10, 2022
+Trending on DEV Community
+Hot
+AI-Powered Cloud Cost Management: Architect’s Guide to AWS Billing MCP Server
+#aws
+#ai
+#agentaichallenge
+#productivity
+New Framework Ripple? What about Others?
+#webdev
+#react
+#opensource
+#discuss
+21 native browser APIs you might not have used before
+#api
+#javascript
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

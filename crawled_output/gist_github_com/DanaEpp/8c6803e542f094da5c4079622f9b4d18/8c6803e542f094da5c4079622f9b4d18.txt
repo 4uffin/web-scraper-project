@@ -1,0 +1,164 @@
+Tool to dump v1 GUIDs and generate a wordlist of GUIDs for use in bruteforce attacks against APIs with predictable GUIDs · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+DanaEpp/guid_reaper.py
+Created
+October 20, 2022 17:56
+Show Gist options
+Download ZIP
+Star
+14
+(14)
+You must be signed in to star a gist
+Fork
+5
+(5)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/DanaEpp/8c6803e542f094da5c4079622f9b4d18.js&quot;&gt;&lt;/script&gt;
+Save DanaEpp/8c6803e542f094da5c4079622f9b4d18 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+14
+Forks
+5
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/DanaEpp/8c6803e542f094da5c4079622f9b4d18.js&quot;&gt;&lt;/script&gt;
+Save DanaEpp/8c6803e542f094da5c4079622f9b4d18 to your computer and use it in GitHub Desktop.
+Download ZIP
+Tool to dump v1 GUIDs and generate a wordlist of GUIDs for use in bruteforce attacks against APIs with predictable GUIDs
+Raw
+guid_reaper.py
+#!/bin/env python3
+import argparse
+import datetime
+import re
+import sys
+import uuid
+###############################################################################
+# Based off of Daniel Thatcher's guid tool
+# Additional reading from https://duo.com/labs/tech-notes/breaking-down-uuids
+###############################################################################
+# A nano second is a billionth of a second, so...
+# 1 second = 1e7 100-nanosecond intervals
+NANO_INTERVAL = 1e7
+def uuid_time(uid):
+# Gregorian reform to the Christian calendar (Oct 15, 1582)
+# See https://datatracker.ietf.org/doc/html/rfc4122#section-4.2.2
+dt_base = datetime.datetime( 1582, 10, 15 )
+return dt_base + datetime.timedelta(microseconds=uid.time//10)
+def uuid_mac(uid):
+return ":".join(re.findall('..', '%012x' % uid.node))
+def dump_guid(guid):
+try:
+uid = uuid.UUID(guid)
+except ValueError:
+print("Invalid GUID")
+sys.exit(2)
+print ("GUID version: {}".format(uid.version))
+if uid.version == 1:
+t = uuid_time(uid)
+print("Time: {}".format(t))
+print("Timestamp: {}".format(uid.time))
+print("Node: {}".format(uid.node))
+m = uuid_mac(uid)
+print("MAC address: {}".format(m))
+print("Clock sequence: {}".format(uid.clock_seq))
+def uuid1(node, clock_seq, timestamp):
+time_low = timestamp & 0xffffffff
+time_mid = (timestamp >> 32) & 0xffff
+time_hi_version = (timestamp >> 48) & 0x0fff
+clock_seq_low = clock_seq & 0xff
+clock_seq_hi_variant = (clock_seq >> 8) & 0x3f
+return uuid.UUID(fields=(time_low, time_mid, time_hi_version,
+clock_seq_hi_variant, clock_seq_low, node), version=1)
+def get_precision(timestamp):
+# Determine the precision by looking at how many 0 are at the end
+# of the previously captured timestamp
+ts = str(timestamp)
+l = len(ts) - len(ts.rstrip('0'))
+return int("1".ljust(l+1, '0'))
+def gen_guids(sample_guid, estimated_ts):
+uid = uuid.UUID(sample_guid)
+if uid.version != 1:
+print( "We can only generate GUIDs v1. Aborting." )
+sys.exit(2)
+# Calculate the timestamp for the first GUID
+dt_base = datetime.datetime( 1582, 10, 15 )
+base_guid_time = estimated_ts - dt_base
+base_timestamp = int(base_guid_time.total_seconds() * NANO_INTERVAL)
+seconds = 2
+precision = get_precision(uid.time)
+start_time = int(base_timestamp - (NANO_INTERVAL) * seconds)
+end_time = int(base_timestamp + (NANO_INTERVAL) * seconds)
+for t in range( start_time, end_time, precision ):
+yield uuid1(uid.node, uid.clock_seq, t)
+def main():
+parser = argparse.ArgumentParser()
+parser.add_argument("-d", "--dump", help="Dump decoded GUID and exit", action="store_true")
+parser.add_argument("-t", "--time",
+help="The estimated time at which the GUID was generated. ie: '2021-02-27 17:42:01'",
+type=lambda s: datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S"))
+parser.add_argument("guid", help="The GUID to inspect")
+args = parser.parse_args()
+# Validate GUID
+try:
+_ = uuid.UUID(args.guid)
+except:
+print("Invalid GUID. Aborting.")
+sys.exit(1)
+# Dump GUID and exit if that's what we want
+if args.dump:
+dump_guid(args.guid)
+sys.exit(0)
+if args.time is None:
+print( "Timestamp required. Use '-t' option. Aborting.")
+sys.exit(1)
+for u in gen_guids(args.guid, args.time):
+print(u)
+if __name__ == "__main__":
+main()
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

@@ -1,0 +1,257 @@
+Deploy Vaultwarden on Nanocl - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+leone
+Posted on Sep 17
+Deploy Vaultwarden on Nanocl
+#devops
+#containers
+#tutorial
+#security
+Today we are going to see how to deploy Vaultwarden on Nanocl to take back the control of your passwords.
+Vaultwarden is an open-source password management solution that is a lightweight alternative to Bitwarden. It is designed to be self-hosted and provides a secure way to store and manage passwords, notes, and other sensitive information. It is built using Rust and offers a web interface, and is compatible with Bitwarden
+extensions and apps.
+Nanocl is a container orchestration platform that allows you to manage and deploy containerized applications easily. It provides a simple and efficient way to run containers on your infrastructure, making it easier to manage and scale your applications.
+Prerequisites
+Before we begin, make sure you have the following prerequisites.
+Docker
+Follow the official Docker installation guide for your Linux distribution. It's quick and easy!
+Nanocl
+Download and install the Nanocl CLI binary with this simple command:
+curl -fsSL https://download.next-hat.com/scripts/get-nanocl.sh | sh
+Enter fullscreen mode
+Exit fullscreen mode
+Then create a Nanocl group and install Nanocl's internal services:
+sudo groupadd nanocl
+sudo usermod -aG nanocl $USER
+newgrp nanocl
+nanocl install
+Enter fullscreen mode
+Exit fullscreen mode
+For more information, check the Nanocl documentation.
+Deploy Vaultwarden
+Since Vaultwarden uses a secure context for the [Web Crypto API][web-crypto-api], it is recommended to use SSL/TLS encryption. You can use a self-signed certificate or obtain one from a trusted Certificate Authority (CA) like Let's Encrypt.
+In this guide we will use a self-signed certificate.
+Create a self-signed SSL certificate (basic)
+You can create a basic self-signed SSL certificate for your domain using the openssl-self-signed.yml job Statefile already ready to use from the Nanocl registry. Replace <your-domain> with the domain you wish to host vaultwarden on.
+nanocl state apply -fs nr.next-hat.com/v0.17/openssl-self-signed.yml -- --domain <your-domain>
+Enter fullscreen mode
+Exit fullscreen mode
+This job will create a self-signed SSL certificate and store it as a Nanocl secret named tls.<your-domain>.
+Create a self-signed SSL certificate (advanced)
+If you want to be able to use the desktop app and the Android/iOS app, you need a self-signed certificate that is trusted by your operating system.
+You can do this by creating your own Certificate Authority (CA) and then issuing a certificate for your domain signed by that CA.
+Afterward, import the CA certificate into your operating system trust store.
+# Generate CA private key (4096-bit is good for CA)
+openssl genrsa -out myCA.key 4096
+# Generate self-signed root certificate (valid 10 years here)
+openssl req -x509 -new -nodes -key myCA.key -sha256 -days 3650 \
+-out myCA.pem -subj "/CN=Vaultwarden CA"
+# Generate server private key and certificate signing request (2048-bit is standard)
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -out server.csr -subj "/CN=<your-domain>"
+# Create a config file for the SAN extension
+echo """
+[v3_req]
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = <your-domain>
+IP.1 = <your-ip-address>
+""" > san.cnf
+# Sign the server certificate with the CA (valid 825 days here)
+openssl x509 -req -in server.csr -CA myCA.pem -CAkey myCA.key \
+-CAcreateserial -out server.crt -days 825 -sha256 \
+-extfile san.cnf -extensions v3_req
+# Convert to DER format for browsers and OS trust stores
+openssl x509 -outform der -in myCA.pem -out myCA.der
+Enter fullscreen mode
+Exit fullscreen mode
+Then create a Nanocl secret to store the certificate and key to use it with the proxy:
+nanocl secret create tls.<your-domain> tls --certificate-path ./server.crt --certificate-key-path ./server.key
+Enter fullscreen mode
+Exit fullscreen mode
+Then import the myCA.der file into your operating system trust store.
+Note: Only import a private CA you fully control. Trusting a CA gives it authority to sign any certificate for your system.
+Apply the Vaultwarden Statefile
+Now you can deploy Vaultwarden using the vaultwarden.yml cargo Statefile from the Nanocl registry. Replace <your-domain> with your domain and <your-network> with the Nanocl network you want to connect the container to (default is All).
+You can see the options available in the Nanocl documentation for the proxy rule.
+Network behavior:
+All: Binds the proxy to all available IP addresses on the host (publicly reachable if ports are exposed).
+Internal: Binds only to the Nanocl internal gateway; the service is then only reachable over your configured VPN (e.g. WireGuard).
+nanocl state apply -s nr.next-hat.com/v0.17/vaultwarden.yml -- --domain <your-domain> --secret-cert tls.<your-domain>
+Enter fullscreen mode
+Exit fullscreen mode
+If you want to store the Vaultwarden data on a specific path on your host, you can use the --data-path argument to specify the path (default is /opt/containers/vaultwarden).
+nanocl state apply -s nr.next-hat.com/v0.17/vaultwarden.yml -- --domain <your-domain> --secret-cert tls.<your-domain> --data-path /path/to/your/data
+Enter fullscreen mode
+Exit fullscreen mode
+In a more general way you can see all the arguments available by running:
+nanocl state man -s nr.next-hat.com/v0.17/vaultwarden.yml
+Enter fullscreen mode
+Exit fullscreen mode
+If you followed my previous blog on how to deploy WireGuard on Nanocl,
+you can use the argument --network Internal to have Vaultwarden only accessible from your WireGuard VPN.
+nanocl state apply -s nr.next-hat.com/v0.17/vaultwarden.yml -- --domain <your-domain> --secret-cert tls.<your-domain> --network Internal
+Enter fullscreen mode
+Exit fullscreen mode
+And that's it! You have successfully deployed Vaultwarden on Nanocl.
+Accessing Vaultwarden
+If you deployed it on a public domain, access it at https://<your-domain> in your browser. If you deployed it locally, add this line to your /etc/hosts file:
+127.0.0.1 <your-domain>
+Enter fullscreen mode
+Exit fullscreen mode
+Then navigate to https://<your-domain> in your web browser.
+You may see an SSL warning if you used the basic self-signed certificate. If you imported your private CA, restart your browser so the trust store reloads. Proceed to create an account to log in.
+Then download the Bitwarden app or browser extension from this link and connect it to your self-hosted Vaultwarden instance. Choose the "Self-hosted" option and enter your domain.
+Next Steps
+To further harden and operationalize your deployment:
+Configure regular off-host backups of the data directory using Nanocl scheduled jobs.
+Monitor container logs periodically for failed login attempts.
+Keep Nanocl and Vaultwarden images up to date (pull and re-apply state periodically).
+Conclusion
+You have now deployed Vaultwarden on Nanocl with TLS using either a quick self-signed certificate or a locally trusted CA. This setup lets you retain control over your credentials while remaining compatible with official Bitwarden clients.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+leone
+Follow
+Rust & DevOps enthusiast | Creator of Nanocl
+Location
+France
+Education
+42
+Pronouns
+He/Him
+Work
+Next Hat
+Joined
+Aug 20, 2025
+More from leone
+[Boost]
+#programming
+#rust
+#tutorial
+#beginners
+How to easily create a CLI in Rust using clap and clap_mangen
+#programming
+#rust
+#tutorial
+#beginners
+Your Own Private Internet with Nanocl and WireGuard
+#devops
+#tutorial
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

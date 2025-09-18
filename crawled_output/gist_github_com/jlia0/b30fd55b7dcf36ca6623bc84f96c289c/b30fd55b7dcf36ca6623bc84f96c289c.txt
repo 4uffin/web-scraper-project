@@ -1,0 +1,476 @@
+OpenAI Response API to Chat Completion API Stream Converter · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+jlia0/response-to-chat-stream-converter.ts
+Last active
+September 17, 2025 21:53
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/jlia0/b30fd55b7dcf36ca6623bc84f96c289c.js&quot;&gt;&lt;/script&gt;
+Save jlia0/b30fd55b7dcf36ca6623bc84f96c289c to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/jlia0/b30fd55b7dcf36ca6623bc84f96c289c.js&quot;&gt;&lt;/script&gt;
+Save jlia0/b30fd55b7dcf36ca6623bc84f96c289c to your computer and use it in GitHub Desktop.
+Download ZIP
+OpenAI Response API to Chat Completion API Stream Converter
+Raw
+response-to-chat-stream-converter.ts
+import { EventEmitter } from "events";
+import { nanoid } from "nanoid";
+interface ChatCompletionChunk {
+id: string;
+object: "chat.completion.chunk";
+created: number;
+model: string;
+choices: Array<{
+index: number;
+delta: {
+role?: string;
+content?: string;
+reasoning?: string;
+refusal?: null;
+tool_calls?: Array<{
+index: number;
+id?: string;
+call_id?: string;
+type?: "function";
+function?: {
+name?: string;
+arguments?: string;
+};
+}>;
+};
+finish_reason?: string | null;
+}>;
+usage?: any;
+encrypted_reasoning?: {
+id: string;
+encrypted_content: string;
+};
+}
+/**
+* Converts OpenAI Response API stream events into Chat Completion API chunk format
+*/
+export class ResponseToChatStreamConverter extends EventEmitter {
+private responseId: string = "";
+private model: string = "";
+private created: number;
+private toolCallIndex = 0;
+private toolCallsMap = new Map<string, number>();
+private hasEmittedRole = false;
+private hasEmittedReasoningRole = false;
+constructor(model: string = "gpt-5") {
+super();
+this.model = model;
+this.created = Math.floor(Date.now() / 1000);
+}
+/**
+* Convert a response stream event to chat completion chunk format
+* Returns array to handle cases where we need to emit both role and content chunks
+*/
+convertEvent(event: any): ChatCompletionChunk[] {
+const e: any = event;
+// Set response ID from lifecycle events
+if (
+(e?.type === "response.created" ||
+e?.type === "response.in_progress" ||
+e?.type === "response.completed") &&
+e?.response?.id
+) {
+this.responseId = e.response.id;
+}
+// Handle text deltas
+if (
+e?.type === "response.output_text.delta" &&
+typeof e?.delta === "string"
+) {
+// First text delta should include role
+if (!this.hasEmittedRole) {
+this.hasEmittedRole = true;
+return [this.createRoleChunk(), this.createTextChunk(e.delta)];
+}
+return [this.createTextChunk(e.delta)];
+}
+// Handle reasoning deltas (plain or encrypted)
+const isReasoningDelta =
+e?.type === "response.reasoning.delta" ||
+e?.type === "response.reasoning.delta.encrypted" ||
+(typeof e?.type === "string" && e.type.startsWith("response.reasoning"));
+if (isReasoningDelta) {
+const delta: string = e?.delta || e?.encrypted_content || "";
+if (delta) {
+// First reasoning delta should include role
+if (!this.hasEmittedReasoningRole) {
+this.hasEmittedReasoningRole = true;
+return [
+this.createReasoningRoleChunk(),
+this.createReasoningChunk(delta),
+];
+}
+return [this.createReasoningChunk(delta)];
+}
+}
+// Handle tool call start
+if (
+e?.type === "response.output_item.added" &&
+e?.item?.type === "function_call"
+) {
+const item = e.item;
+const toolCallId = item.id || `tool-${nanoid()}`;
+const index = this.toolCallIndex++;
+this.toolCallsMap.set(toolCallId, index);
+return [
+this.createToolCallStartChunk(
+toolCallId,
+item.call_id,
+item.name,
+index
+),
+];
+}
+// Handle tool call arguments delta
+if (e?.type === "response.function_call_arguments.delta") {
+const delta: string = e.delta || "";
+const itemId = e.item_id || e.call_id;
+const index = this.toolCallsMap.get(itemId);
+if (index !== undefined) {
+return [this.createToolCallDeltaChunk(delta, index)];
+}
+}
+// Handle completion with usage
+if (e?.type === "response.completed" && e?.response?.usage) {
+return [this.createFinalChunk(e.response.usage, e.response)];
+}
+return [];
+}
+private createRoleChunk(): ChatCompletionChunk {
+return {
+id: this.responseId,
+object: "chat.completion.chunk",
+created: this.created,
+model: this.model,
+choices: [
+{
+index: 0,
+delta: {
+role: "assistant",
+content: "",
+refusal: null,
+},
+},
+],
+};
+}
+private createTextChunk(content: string): ChatCompletionChunk {
+return {
+id: this.responseId,
+object: "chat.completion.chunk",
+created: this.created,
+model: this.model,
+choices: [
+{
+index: 0,
+delta: {
+content,
+},
+},
+],
+};
+}
+private createReasoningRoleChunk(): ChatCompletionChunk {
+return {
+id: this.responseId,
+object: "chat.completion.chunk",
+created: this.created,
+model: this.model,
+choices: [
+{
+index: 0,
+delta: {
+role: "reasoning",
+content: "",
+refusal: null,
+},
+},
+],
+};
+}
+private createReasoningChunk(reasoning: string): ChatCompletionChunk {
+return {
+id: this.responseId,
+object: "chat.completion.chunk",
+created: this.created,
+model: this.model,
+choices: [
+{
+index: 0,
+delta: {
+reasoning,
+},
+},
+],
+};
+}
+private createToolCallStartChunk(
+id: string,
+call_id: string,
+name: string,
+index: number
+): ChatCompletionChunk {
+return {
+id: this.responseId,
+object: "chat.completion.chunk",
+created: this.created,
+model: this.model,
+choices: [
+{
+index: 0,
+delta: {
+tool_calls: [
+{
+index,
+id,
+call_id,
+type: "function",
+function: {
+name,
+arguments: "",
+},
+},
+],
+},
+},
+],
+};
+}
+private createToolCallDeltaChunk(
+arguments_delta: string,
+index: number
+): ChatCompletionChunk {
+return {
+id: this.responseId,
+object: "chat.completion.chunk",
+created: this.created,
+model: this.model,
+choices: [
+{
+index: 0,
+delta: {
+tool_calls: [
+{
+index,
+function: {
+arguments: arguments_delta,
+},
+},
+],
+},
+},
+],
+};
+}
+private createFinalChunk(usage: any, response?: any): ChatCompletionChunk {
+// Extract encrypted reasoning from the response if available
+let encryptedReasoning:
+| { id: string; encrypted_content: string }
+| undefined;
+if (response?.output) {
+const reasoningItem = response.output.find(
+(item: any) => item.type === "reasoning"
+);
+if (reasoningItem?.encrypted_content) {
+encryptedReasoning = {
+id: reasoningItem.id,
+encrypted_content: reasoningItem.encrypted_content,
+};
+}
+}
+const chunk: ChatCompletionChunk = {
+id: this.responseId,
+object: "chat.completion.chunk",
+created: this.created,
+model: this.model,
+choices: [
+{
+index: 0,
+delta: {},
+finish_reason: "stop",
+},
+],
+usage: usage,
+};
+// Add encrypted reasoning if available
+if (encryptedReasoning) {
+(chunk as any).encrypted_reasoning = encryptedReasoning;
+}
+return chunk;
+}
+/**
+* Process a response stream and emit converted chat completion chunks
+*/
+async convertStream(responseStream: AsyncIterable<any>): Promise<void> {
+try {
+for await (const event of responseStream) {
+const chunks = this.convertEvent(event);
+for (const chunk of chunks) {
+this.emit("chunk", chunk);
+}
+}
+this.emit("end");
+} catch (error) {
+this.emit("error", error);
+}
+}
+/**
+* Convert response stream to async generator of chat completion chunks
+*/
+async *convertToAsyncGenerator(
+responseStream: AsyncIterable<any>
+): AsyncGenerator<ChatCompletionChunk> {
+for await (const event of responseStream) {
+const chunks = this.convertEvent(event);
+for (const chunk of chunks) {
+yield chunk;
+}
+}
+}
+}
+Raw
+stream-converter-example.ts
+import OpenAI from "openai";
+import { ResponseToChatStreamConverter } from "./response-to-chat-stream-converter";
+/**
+* Direct Response API to Chat Completion chunk conversion example
+*/
+async function directResponseToChat() {
+const openai = new OpenAI({
+apiKey:
+"[OPENAI_API_KEY]",
+});
+console.log(
+"=== Converting Response API stream to Chat Completion chunks ==="
+);
+// Create response stream directly
+const stream = await openai.responses.create({
+// ...params,
+model: "gpt-5-nano",
+reasoning: { effort: "low", summary: "auto" },
+input: [
+{
+role: "user",
+content: "Use the get_time tool for the city=San Francisco, and NYC.",
+},
+],
+include: ["reasoning.encrypted_content"],
+store: false,
+stream: true,
+tools: [
+{
+type: "function",
+name: "get_time",
+description: "Get the current local time in a city.",
+strict: true,
+parameters: {
+type: "object",
+properties: {
+city: {
+type: "string",
+description: "City name, e.g. San Francisco",
+},
+},
+required: ["city"],
+additionalProperties: false,
+},
+},
+],
+tool_choice: "auto",
+});
+// Create converter
+const converter = new ResponseToChatStreamConverter("gpt-5-nano");
+// Process each event and print converted chunks
+for await (const event of stream as any) {
+const chunks = converter.convertEvent(event);
+for (const chunk of chunks) {
+const toolCalls = chunk.choices[0].delta.tool_calls;
+if (toolCalls) {
+console.log(toolCalls);
+} else {
+console.log(chunk.choices[0].delta);
+}
+const usage = chunk.usage;
+if (usage) {
+console.log(usage);
+}
+const encryptedReasoning = chunk.encrypted_reasoning;
+if (encryptedReasoning) {
+console.log(encryptedReasoning);
+}
+}
+}
+console.log("\nStream conversion completed!");
+}
+// Run example if this file is executed directly
+console.log("Running stream conversion example...\n");
+directResponseToChat()
+.then(() => {
+console.log("\nExample completed!");
+})
+.catch((error) => {
+console.error("Example error:", error);
+});
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

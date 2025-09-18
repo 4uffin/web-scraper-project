@@ -1,0 +1,230 @@
+OpenSUSE MicroOS Howto with AMDGPU / ROCm - To run CUDA AI Apps like Ollama · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+torsten-online/OpenSuSE_MicroOS_ROCm_CUDA_ollama.md
+Last active
+September 17, 2025 20:58
+Show Gist options
+Download ZIP
+Star
+11
+(11)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/torsten-online/22dd2746ddad13ebbc156498d7bc3a80.js&quot;&gt;&lt;/script&gt;
+Save torsten-online/22dd2746ddad13ebbc156498d7bc3a80 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+28
+Stars
+11
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/torsten-online/22dd2746ddad13ebbc156498d7bc3a80.js&quot;&gt;&lt;/script&gt;
+Save torsten-online/22dd2746ddad13ebbc156498d7bc3a80 to your computer and use it in GitHub Desktop.
+Download ZIP
+OpenSUSE MicroOS Howto with AMDGPU / ROCm - To run CUDA AI Apps like Ollama
+Raw
+OpenSuSE_MicroOS_ROCm_CUDA_ollama.md
+Howto run Ollama "local AI" with ROCm on OpenSUSE Tumbleweed / MicroOS / AEON Desktop with AMDGPU / ROCm
+ITs just totally easy to install amdgpu-dkms kernel driver with ROCm/AMDGPU on OpenSUSE Tumbleweed or better MicroOS/AEON,
+if you know what to do...
+Install Longtime Kernel Support + Devel Packages
+sudo transactional-update --continue pkg install kernel-longterm kernel-longterm-devel
+Reboot the System to get the new kernel active!
+sudo systemctl reboot
+Remove the Default Kernel
+sudo transactional-update --continue pkg remove kernel-default
+Add Repository "AMD RADEON for SLE-15.6" (is possible to be used for Tumbleweed)
+sudo transactional-update --continue shell
+sudo zypper addrepo https://repo.radeon.com/amdgpu/latest/sle/15.6/main/x86_64/ amdgpu-latest
+sudo zypper ref
+exit
+Please note - dont forget to accept the AMD Repo GPG Key! transactional-update shell is required,
+because the gpg key refresh is only finally working over that environment!
+IMPORTANT: Please verify / check if DKMS is running already before you building/install amdgpu-dkms module
+sudo systemctl status dkms
+If not enabled / running - you have to enable the dkms service, then also the amdgpu-dkms build will be "included in the next snapshot latter"!
+sudo systemctl enable --now dkms
+Please be aware, that this will enable dkms kernel module builds on your system!
+Installation of AMDGPU-DKMS
+sudo transactional-update --continue pkg install amdgpu-dkms amdgpu-dkms-firmware
+REBOOT required
+Important: To get the rootless Ollama Container working - you have to add the following udev-rules, if not already done:
+transactional-update --continue shell
+/etc/udev/rules.d/90-amdgpu.rules
+KERNEL=="kfd", GROUP=="video", MODE="0660"
+/etc/udev/rules.d/91-kfd.rules
+SUBSYSTEM=="kfd", KERNEL=="kfd", TAG+="uaccess", GROUP="video"
+dont forget to reboot, to get this change active on a transactional system, e.g. MicroOS/ALP
+or simply reload udev:
+udevadm control --reload-rules && udevadm trigger
+Because of missing ROCm Release for Tumbleweed, simply run the supported ROCm Container Release as Distrobox Container!
+distrobox.ini
+[ollama-rocm-amd]
+image="docker.io/rocm/dev-ubuntu-22.04:6.1.2-complete"
+init=true
+additional_packages="build-essential libtcmalloc-minimal4 wget git software-properties-common libgl1 libglib2.0-0 neofetch vulkan-tools cmake ninja-build"
+additional_flags="--device=/dev/kfd --device=/dev/dri"
+# User ID/Group ID Mapping (Rootless)
+subuid = 100000
+# Your subuid start
+subgid = 100000
+# Your subgid start
+# Group Management (Within the Container)
+init_hooks="addgroup --gid 486 render"
+init_hooks="addgroup --gid 483 video"
+init_hooks="addgroup --gid 100000 nogroup"
+init_hooks="usermod -aG render,video,nogroup $LOGNAME;"
+# ROCm Environment
+init_hooks="export ROCM_PATH=/opt/rocm;"
+# Set HSX Override - if required! Choose your GFX Version!
+init_hooks="export HSA_OVERRIDE_GFX_VERSION=10.3.0;"
+# Distrobox Options
+nvidia=false
+pull=false
+root=false
+replace=true
+start_now=false
+Assemble the ROCm Ubuntu Distrobox Container
+distrobox-assemble create --file distrobox.ini
+If required - the following settings should be set over /etc/subuid - /etc/subguid for the rootless Container (recommended!)
+Please only set the default for your username - dont run the container with root permission, its not required!
+username:100000:65536
+Start the Distrobox Container rootless!
+distrobox enter ollama-rocm-amd
+just simply install ollama:
+curl -fsSL https://ollama.com/install.sh | sh
+Finally
+just do:
+systemctl status ollama
+Hint: If starting over systemd doesnt use your GPU, please feel free to use an .profile / or .bashrc export,
+for this setting: (Version depending on your AMD GPU!)
+HSA_OVERRIDE_GFX_VERSION=10.3.0
+I dont figure out, if sometimes it is working successfully and sometimes not.
+Starting over the distrobox User should work fine!
+Thats iT! You have now Ollama running at Tumbleweed / MicroOS with AMDGPU Support for ROCm!
+AI locally working great and safe - locally over a rootless distrobox container!
+Have a lot fun with your Ollama local AI-Setup on OpenSUSE Tumbleweed / MicroOS / Aeon Desktop
+Links & Sources
+Thanks a Lot to one-lithe-rune at ROCm/ROCm#2990 (comment)
+https://en.opensuse.org/SDB:AMD_GPGPU#ROCm_-_Tumbleweed_and_Docker_with_Longterm_Kernel
+https://rocm.docs.amd.com/projects/install-on-linux/en/latest/index.html
+Author
+torsten-online from blog.open-source.cloud
+Copy link
+RafaelLinux
+commented
+Oct 9, 2024
+I'm mad about getting OpenCL (ROCm) to work in my Tumbleweed, to get Darktable and "Davinci Resolve" to work using openCL.
+I got it to work, using SLE repositories, but it's a headache when I need to reinstall my system.
+You know distrobox and Podman very well, so I wanted to ask you about it. In my case, I want all the applications I install to be able to use openCL/ROCm, which option is the right one, Distrobox or Podman?
+Thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+QazCetelic
+commented
+Jan 31, 2025
+...which option is the right one, Distrobox or Podman?
+In case anyone reading this is still wondering. Distrobox executes containers using Podman or Docker, Distrobox vs Podman is not really a good comparison. (So yes you need distrobox)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+RafaelLinux
+commented
+Feb 2, 2025
+Thanks for the tip!!! I really was confused about if Distrobox use it's own containerization technology.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+QazCetelic
+commented
+Feb 4, 2025
+Please note - dont forget to accept the AMD Repo GPG Key!
+For anyone wondering how to do that, just execute the commands from here
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jeanGambit
+commented
+Feb 10, 2025
+Thank you for the guide, I'm on opensuse tumbleweed, and wanted to ask you if it is necessary to install LTS kernel? it kinda kills rolling updates which I'm enjoying.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+yswtrue
+commented
+Sep 17, 2025
+Maybe the second line should be:
+image=docker.io/rocm/dev-ubuntu-22.04:6.1.2-complete
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+torsten-online
+commented
+Sep 17, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@yswtrue
+Nice catch! I updated the distrobox.ini to use image as key-value pair. Thank you!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

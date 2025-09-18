@@ -1,0 +1,248 @@
+parallel processing - Is CPU multithreading effected by divergence? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Is CPU multithreading effected by divergence?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+47 times
+0
+Building on this question here
+The term thread divergence is used in CUDA; from my understanding it's a situation where different threads are assigned to do different tasks and this results in a big performance hit.
+I have also heard this referred to as warp divergence, here for example.
+Does the use of if/else conditional branches effect the performance of CPU multithreading?
+multithreadingparallel-processinggpucpucpu-architecture
+Share
+Improve this question
+Follow
+edited 1 hour ago
+Peter Cordes
+374k5050 gold badges737737 silver badges1k1k bronze badges
+asked 3 hours ago
+bigcodeszzerbigcodeszzer
+94011 gold badge88 silver badges3131 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1
+No, unlike GPUs, each (logical) CPU core has its own instruction stream.
+On CPUs, there's no equivalent to a "warp" with a single instruction stream fed to different processors with different register values.
+On CPUs, different loop iterations branching different ways is only a problem for SIMD vectorization (one instruction operates on e.g. 4 floats in a 128-bit vector register), not for parallelization with multiple CPU threads.
+GPUs are made from many simple pipelines in parallel, which is great for throughput.
+CPUs also have to care about single-threaded performance, so they have complex pipelines that try to extract instruction-level parallelism while executing a single instruction stream as-if each instruction ran serially (at least from the perspective of later instructions seeing earlier instructions, not from other cores seeing our loads and stores).
+So sending more instructions per clock through the pipe is costly because it needs a lot of tracking (reorder buffer, schedulers, rename/allocate); current CPU cores are like 6 to 8 (instructions) wide.
+(Zen 4, Lion Cove, M1 are all in that range IIRC.)
+To get more work done per clock cycle in a CPU, SIMD instructions are still one instruction (or uop) for the pipeline, but with a wide execution unit and register file.
+So we get more work through the pipeline without making all of it wider, just the real number-crunching parts.
+See Modern Microprocessors
+A 90-Minute Guide!, it's very good, starting from scalar pipelines up to superscalar / out-of-order exec, and has a section on SIMD.
+(And the whole article really isn't too long and is very readable.)
+Unpredictable branches are a problem for CPUs in general, though.
+Modern branch predictors are very good for a lot of cases, but data-dependent branching based on random values in an array is often still a problem.
+Branchless code can be faster, which is why compilers do if-conversion from branchy source to branchless machine code when they think it's profitable, especially as part of vectorizing.
+(SIMD ISAs often have blend instructions, or you can emulate with AND/ANDNOT/OR, and SIMD compares produce a mask of all-1 / all-0 bits according to the compare result for each element.)
+See
+Why is processing an unsorted array the same speed as processing a sorted array with modern x86-64 clang? - C compilers auto-vectorize if (data[c] >= 128) sum += data[c]; these days so it's branchless.
+gcc optimization flag -O3 makes code slower than -O2 - if-conversion (especially scalar) can make programs slower if the branch would have been predictable, especially when the compiler does a bad job and makes a longer loop-carried dependency chain than necessary.
+Share
+Improve this answer
+Follow
+edited 1 hour ago
+answered 1 hour ago
+Peter CordesPeter Cordes
+374k5050 gold badges737737 silver badges1k1k bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+multithreadingparallel-processinggpucpucpu-architecture
+See similar questions with these tags.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Featured on Meta
+stackoverflow.ai - rebuilt for attribution
+Spevacus has joined us as a Community Manager
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+189
+Why is processing an unsorted array the same speed as processing a sorted array with modern x86-64 clang?
+55
+gcc optimization flag -O3 makes code slower than -O2
+5
+Openmp thread divergence?
+0
+Warp divergence
+Related
+1264
+How do servlets work? Instantiation, sessions, shared variables and multithreading
+5
+Openmp thread divergence?
+414
+Do zombies exist ... in .NET?
+780
+How to determine CPU and memory consumption from inside a process
+782
+Your CPU supports instructions that this TensorFlow binary was not compiled to use: AVX AVX2
+3
+How does a GPU group threads into warps/wavefronts?
+146
+Does Python support multithreading? Can it speed up execution time?
+467
+What is the difference between asynchronous programming and multithreading?
+2
+GPU for loops: avoid warp divergence & implicit syncthreads
+0
+Does "conditional evaluation at the ALU" always imply no branch divergence?
+Hot Network Questions
+Travelling to the US with a visa: do airlines check the physical visa, or is API enough?
+9/16/25 operations challenge
+Multiply the input by 2
+Why it is that a 64-bit EXE file (PE64) can contain a custom MS-DOS stub (a MZ executable), but not a custom 32-bit Windows stub?
+Understanding the delay x bandwidth product for computer networks
+How to fix excessive dust / lint problem inside the house
+Statistics for Theoreticians
+NFSv4 mounts using different network for data traffic then given in mount command
+Should beginner writers publish short story science fiction on Amazon short reads to get experience?
+Can a non-spellcaster use an Enspelled Weapon to cast its spell?
+Must I enclose the values of the parameters in GRUB with quotation marks?
+Editor's responsibilities vis-à-vis referee reports
+How does Trump come up with the sizes of his lawsuits?
+Road trip movie about the young son of a millionaire who is sent on vacation to Spain
+Is there a reason to do multiple tricks off a jump?
+Why is my dryer tripping its breaker after a period of use?
+Did Trump say "smart people don't like me"?
+A question regarding a family of one-relator groups
+Pressure treated or regular wood for temporary ramp?
+why the "e" and "m" in the last terms look different from those in the first terms
+gdal_fillnodata has no compression flag
+What is a Pasted Word™?
+Why is ASCII punctuation in that order?
+1970s-90s story where refugees flee through an escape tunnel and emerge unexpectedly in another world
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

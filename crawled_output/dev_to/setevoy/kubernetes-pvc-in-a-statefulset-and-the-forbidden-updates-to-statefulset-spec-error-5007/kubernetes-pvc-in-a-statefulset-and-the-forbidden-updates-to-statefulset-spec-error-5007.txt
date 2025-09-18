@@ -1,0 +1,334 @@
+Kubernetes: PVC in a StatefulSet, and the “Forbidden updates to statefulset spec” error - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Arseny Zinchenko
+Posted on Sep 13
+• Originally published at rtfm.co.ua on Sep 17
+Kubernetes: PVC in a StatefulSet, and the “Forbidden updates to statefulset spec” error
+#devops
+#kubernetes
+#todayilearned
+Kubernetes: PVC in StatefulSet, and the “Forbidden updates to statefulset spec” error
+We have a VictoriaLogs Helm chart with a PVC size of 30 GB, which is no longer enough for us, and we need to increase it.
+But the problem is that .spec.volumeClaimTemplates[*].spec.resources.requests.storage in STS is immutable, that is, we can't just change the size through values.yaml file, because it will lead to the error "Forbidden: updates to statefulset spec for fields other than 'replicas', 'ordinals', 'template', 'updateStrategy', 'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds' are forbidden".
+The chart values now look like this:
+victoria-logs-single:
+server:
+persistentVolume:
+enabled: true
+storageClassName: gp2-retain
+size: 30Gi
+retentionPeriod: 7d
+Enter fullscreen mode
+Exit fullscreen mode
+And with the default type of StatefulSet in the chart, the volumeClaimTemplates is used to create PVCs:
+...
+volumeClaimTemplates:
+- apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+name: server-volume
+...
+spec:
+...
+resources:
+requests:
+storage: {{ $app.persistentVolume.size }}
+...
+Enter fullscreen mode
+Exit fullscreen mode
+If instead of STS there was a Deployment type, then in the VictoriaLogs chart this would lead to the creation of a separate PVC  —  see the pvc.yaml.
+You could simply create a separate PVC yourself and connect it through the existingClaim value, but you already have a PersistentVolume, and you don't want to create a new one and migrate data (although you can if you need to, see VictoriaMetrics: migrating VMSingle and VictoriaLogs data between Kubernetes clusters, but there will be a down time), so let's see how we can solve this differently - without deleting Pods and without stopping the service.
+storageClassName and AllowVolumeExpansion
+The storageClas used to create a Persistent Volume must support AllowVolumeExpansion - see Volume expansion:
+$ kk describe storageclass gp2-retain
+Name: gp2-retain
+...
+Provisioner: kubernetes.io/aws-ebs
+Parameters: <none>
+AllowVolumeExpansion: True
+MountOptions: <none>
+ReclaimPolicy: Retain
+VolumeBindingMode: WaitForFirstConsumer
+...
+Enter fullscreen mode
+Exit fullscreen mode
+Create this storageClass when creating an EKS cluster from a simple manifest:
+...
+resource "kubectl_manifest" "storageclass_gp2_retain" {
+yaml_body = <<YAML
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+name: gp2-retain
+provisioner: kubernetes.io/aws-ebs
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+YAML
+}
+...
+Enter fullscreen mode
+Exit fullscreen mode
+Although there is a dedicated storage_class resource for Terraform, and would be better to use it instead for the kubectl_manifest.
+And the kubernetes.io/aws-ebs driver is already deprecated (OMG, since Kubernetes 1.17!), it's time to update to ebs.csi.aws.com.
+But we’ll fix this later, right now the goal is to simply increase the disk.
+Reproducing the issue
+For the test, let’s write our own STS with volumeClaimTemplates:
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+name: demo-sts
+spec:
+serviceName: demo-sts-svc
+replicas: 1
+selector:
+matchLabels:
+app: demo
+template:
+metadata:
+labels:
+app: demo
+spec:
+containers:
+- name: app
+image: busybox
+command: ["sh", "-c", "sleep 3600"]
+volumeMounts:
+- name: data
+mountPath: /data
+volumeClaimTemplates:
+- metadata:
+name: data
+spec:
+accessModes: ["ReadWriteOnce"]
+storageClassName: gp2-retain
+resources:
+requests:
+storage: 1Gi
+Enter fullscreen mode
+Exit fullscreen mode
+In volumeClaimTemplates, set the storageClassName and the size to 1 gigabyte.
+Deploy:
+$ kk apply -f test-sts-pvc.yaml
+statefulset.apps/demo-sts created
+Enter fullscreen mode
+Exit fullscreen mode
+Check the PVC:
+$ kk get pvc
+NAME STATUS VOLUME CAPACITY ACCESS MODES STORAGECLASS VOLUMEATTRIBUTESCLASS AGE
+data-demo-sts-0 Bound pvc-31a9a547-7547-4d34-bb2d-2c7015b9e0f3 1Gi RWO gp2-retain <unset> 15s
+Enter fullscreen mode
+Exit fullscreen mode
+Now, if we want to increase the size via volumeClaimTemplates from 1Gi to 2Gi:
+...
+volumeClaimTemplates:
+...
+resources:
+requests:
+storage: 2Gi
+Enter fullscreen mode
+Exit fullscreen mode
+Then we get an error:
+$ kk apply -f test-sts-pvc.yaml
+The StatefulSet "demo-sts" is invalid: spec: Forbidden: updates to statefulset spec for fields other than 'replicas', 'ordinals', 'template', 'updateStrategy', 'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds' are forbidden
+Enter fullscreen mode
+Exit fullscreen mode
+The Fix
+But we can get around this very easily:
+edit the PVC manually   — set a new size
+delete STS with the --cascade=orphan - see Delete owner objects and orphan dependents
+create STS again
+…
+profit!
+Let’s try it.
+Note : before changing disks, don’t forget about backups!
+Edit the PVC manually —  change resources.requests.storage from 1Gi to 2Gi:
+Check the Events of this PVC:
+$ kk describe pvc data-demo-sts-0
+...
+Normal ExternalExpanding 40s volume_expand CSI migration enabled for kubernetes.io/aws-ebs; waiting for external resizer to expand the pvc
+Normal Resizing 40s external-resizer ebs.csi.aws.com External resizer is resizing volume pvc-31a9a547-7547-4d34-bb2d-2c7015b9e0f3
+Normal FileSystemResizeRequired 35s external-resizer ebs.csi.aws.com Require file system resize of volume on node
+Enter fullscreen mode
+Exit fullscreen mode
+And after a few more seconds, it’s done:
+...
+Normal FileSystemResizeSuccessful 19s kubelet
+Enter fullscreen mode
+Exit fullscreen mode
+Check CAPACITY:
+$ kk get pvc
+NAME STATUS VOLUME CAPACITY ACCESS MODES STORAGECLASS VOLUMEATTRIBUTESCLASS AGE
+data-demo-sts-0 Bound pvc-31a9a547-7547-4d34-bb2d-2c7015b9e0f3 2Gi RWO gp2-retain <unset> 4m7s
+Enter fullscreen mode
+Exit fullscreen mode
+2Gi, everything is OK.
+And now we also have 2 gigabytes in the Pod itself:
+$ kk exec -ti demo-sts-0 -- df -h /data
+Filesystem Size Used Available Use% Mounted on
+/dev/nvme7n1 1.9G 24.0K 1.9G 0% /data
+Enter fullscreen mode
+Exit fullscreen mode
+But if we try to deploy the changes to volumeClaimTemplates.spec.resources.requests.storage again, we will still get an error:
+$ kk apply -f test-sts-pvc.yaml
+The StatefulSet "demo-sts" is invalid: spec: Forbidden: updates to statefulset spec for fields other than 'replicas', 'ordinals', 'template', 'updateStrategy', 'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds' are forbidden
+Enter fullscreen mode
+Exit fullscreen mode
+So, delete the STS itself, but leave all its dependent objects:
+$ kubectl delete statefulset demo-sts --cascade=orphan
+statefulset.apps "demo-sts" deleted
+Enter fullscreen mode
+Exit fullscreen mode
+Check if the Pod is alive:
+$ kk get pod
+NAME READY STATUS RESTARTS AGE
+demo-sts-0 1/1 Running 0 3m13s
+Enter fullscreen mode
+Exit fullscreen mode
+And now we just create STS again, with a new value in the volumeClaimTemplates.spec.resources.requests.storage:
+$ kk apply -f test-sts-pvc.yaml
+statefulset.apps/demo-sts created
+Enter fullscreen mode
+Exit fullscreen mode
+Done.
+Originally published at RTFM: Linux, DevOps, and system administration.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Arseny Zinchenko
+Follow
+DevOps, cloud and infrastructure engineer. Love Linux, OpenSource, and AWS.
+Location
+Kiev, Ukraine
+Joined
+Sep 16, 2017
+More from Arseny Zinchenko
+Kubernetes: what are the Kubernetes Operator and CustomResourceDefinition
+#kubernetes
+#devops
+#todayilearned
+#tutorial
+Kubernetes: Kubernetes API, API groups, CRDs, and the etcd
+#devops
+#kubernetes
+#todayilearned
+Kubernetes: Pod resources.requests, resources.limits and Linux cgroup
+#linux
+#devops
+#kubernetes
+#todayilearned
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,416 @@
+Build a Docs‑Aware Chatbot with React, Vite, Node, and OpenAI (plus fun DALL·E avatars) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Pato
+for Cloudinary
+Posted on Sep 17
+• Originally published at cloudinary.com
+Build a Docs‑Aware Chatbot with React, Vite, Node, and OpenAI (plus fun DALL·E avatars)
+#react
+#cloudinary
+#firebase
+#aws
+What you’ll build
+A chat UI that streams answers from your own examples/context
+A Node/Express API that calls OpenAI for text and image generation
+Two cute, auto‑generated avatars (user & assistant)
+Demo question shown here: “How do I use the Cloudinary React SDK?”
+Repo (reference): Cloudinary-Chatbot-OpenAI-Demo
+Prereqs
+Node 18+
+An OpenAI API key stored server‑side (never in the browser). How to create/manage keys: see the official docs. (OpenAI Platform)
+1) Create the React app (Vite)
+# New project
+npm create vite@latest cloudinary-chatbot -- --template react
+cd cloudinary-chatbot
+npm i
+Enter fullscreen mode
+Exit fullscreen mode
+Vite proxy (avoid CORS while developing)
+vite.config.js
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+export default defineConfig({
+plugins: [react()],
+server: {
+port: 3000,
+proxy: {
+'/api': {
+target: 'http://localhost:6000',
+changeOrigin: true,
+secure: false,
+},
+},
+},
+})
+Enter fullscreen mode
+Exit fullscreen mode
+Chat UI (minimal, Markdown‑friendly)
+src/App.jsx
+import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import "./App.css";
+export default function App() {
+const [messages, setMessages] = useState([]);
+const [inputMessage, setInputMessage] = useState("");
+const [status, setStatus] = useState("idle");
+const [userImage, setUserImage] = useState(null);
+const [assistantImage, setAssistantImage] = useState(null);
+const chatRef = useRef(null);
+const sendMessage = async () => {
+if (!inputMessage.trim()) return;
+const newMessages = [...messages, { role: "user", content: inputMessage.trim() }];
+setMessages(newMessages);
+setInputMessage("");
+setStatus("loading");
+try {
+const res = await fetch("/api/chat", {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify({ messages: newMessages }),
+});
+const data = await res.json();
+setMessages([...newMessages, { role: "assistant", content: data.content }]);
+} catch (e) {
+setMessages([...newMessages, { role: "assistant", content: "Server error. Try again." }]);
+} finally {
+setStatus("idle");
+}
+};
+// Auto-scroll on new messages
+useEffect(() => {
+if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+}, [messages]);
+// Generate two avatars (user + assistant) via backend
+useEffect(() => {
+const makeAvatars = async () => {
+try {
+const res = await fetch("/api/avatar", { method: "POST" });
+const data = await res.json(); // [{url}, {url}]
+setUserImage(data[0].url);
+setAssistantImage(data[1].url);
+} catch {
+// silently ignore; UI still works without avatars
+}
+};
+makeAvatars();
+}, []);
+return (
+<div className="App">
+<div className="chat-container" id="chat-container" ref={chatRef}>
+{messages.map((m, i) => (
+<div key={i} className={`message ${m.role}`}>
+{userImage && assistantImage && (
+<img
+src={m.role === "user" ? userImage : assistantImage}
+alt={`${m.role} avatar`}
+className="avatar"
+/>
+)}
+{m.role === "assistant" ? (
+<div className="assistant-message">
+<ReactMarkdown>{m.content}</ReactMarkdown>
+</div>
+) : (
+m.content
+)}
+</div>
+))}
+{status === "loading" && (
+<div className="spinner-bar">
+<div className="spinner chat"></div>
+</div>
+)}
+</div>
+<div className="input-container">
+<textarea
+rows="4"
+value={inputMessage}
+onChange={(e) => setInputMessage(e.target.value)}
+placeholder="Ask about the Cloudinary React SDK…"
+/>
+<button onClick={sendMessage} disabled={status === "loading"}>
+Send
+</button>
+</div>
+</div>
+);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Add your own CSS or reuse your existing App.css.
+2) Add the backend (Express + OpenAI)
+Inside the project root, create a folder named backend and a file server.js. We’ll reuse the root package.json for simplicity.
+Install deps
+npm i express dotenv openai
+# optional: nodemon for dev
+npm i -D nodemon
+Enter fullscreen mode
+Exit fullscreen mode
+Environment variables
+Create .env in the project root:
+OPENAI_API_KEY=sk-...
+Enter fullscreen mode
+Exit fullscreen mode
+Server code (Responses API + Images API)
+Why Responses API? It’s the recommended, modern way to generate text and stream outputs going forward; if you’re coming from Chat Completions, see the official migration guide. (OpenAI Platform)
+Why SDK over raw fetch? Cleaner code, types, and built‑ins for images. (OpenAI Platform)
+backend/server.js
+/* eslint-disable no-undef */
+import express from "express";
+import OpenAI from "openai";
+import dotenv from "dotenv";
+dotenv.config();
+const app = express();
+app.use(express.json());
+// Init client (server-side only)
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Example conversation seeds (helps steer the bot toward your docs)
+const demoModel = [
+{
+role: "user",
+content: "Where is the Cloudinary React SDK documentation?"
+},
+{
+role: "assistant",
+content: "See: https://cloudinary.com/documentation/react_integration"
+},
+{
+role: "user",
+content: "Where can I read about Cloudinary image transformations in React?"
+},
+{
+role: "assistant",
+content: "See: https://cloudinary.com/documentation/react_image_transformations"
+},
+{
+role: "user",
+content: "How do I display an image using the Cloudinary React SDK?"
+},
+{
+role: "assistant",
+content:
+`Use @cloudinary/react and @cloudinary/url-gen. Example:
+import { AdvancedImage } from '@cloudinary/react';
+import { Cloudinary } from '@cloudinary/url-gen';
+import { sepia } from '@cloudinary/url-gen/actions/effect';
+const cld = new Cloudinary({ cloud: { cloudName: 'demo' } });
+const img = cld.image('front_face').effect(sepia());
+<AdvancedImage cldImg={img} />`
+}
+];
+// Chat endpoint (Responses API)
+app.post("/api/chat", async (req, res) => {
+try {
+const { messages = [] } = req.body;
+// System prompt keeps the bot scoped to your docs
+const system = {
+role: "system",
+content:
+"You are a helpful developer docs assistant. Prefer official Cloudinary docs. Include links when helpful."
+};
+const input = [system, ...demoModel, ...messages]
+.map(m => ({ role: m.role, content: m.content }));
+const r = await openai.responses.create({
+model: "gpt-4o-mini",
+input
+});
+// Convenience: return plain text
+res.json({ content: r.output_text });
+} catch (err) {
+console.error(err);
+res.status(500).json({ error: "Internal Server Error" });
+}
+});
+// Avatar endpoint (Images API / DALL·E)
+app.post("/api/avatar", async (_req, res) => {
+try {
+const r = await openai.images.generate({
+model: "gpt-image-1",
+prompt:
+"minimal, cute round animal avatar on flat background, high contrast, centered, no text",
+n: 2,
+size: "256x256"
+});
+// Return {url} objects for the UI
+res.json(r.data.map(d => ({ url: d.url })));
+} catch (err) {
+console.error(err);
+res.status(500).json({ error: "Internal Server Error" });
+}
+});
+const PORT = 6000;
+app.listen(PORT, () => {
+console.log(`Server running on http://localhost:${PORT}`);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Responses API reference (Node): see Responses docs. (OpenAI Platform)
+Images API reference: see Images docs. (OpenAI Platform)
+3) Dev scripts
+Add these to your root package.json:
+{
+"scripts": {
+"dev": "vite",
+"server": "node backend/server.js",
+"server:dev": "nodemon backend/server.js"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+4) Run it
+# terminal 1
+npm run server:dev
+# terminal 2
+npm run dev
+# open http://localhost:3000
+Enter fullscreen mode
+Exit fullscreen mode
+Type:
+“How do I use the Cloudinary React SDK?”
+You should get a helpful, linked answer pulled in the spirit of your seed examples.
+Production notes (important)
+Never expose your API key in client code or public repos. Use env vars and a server. (OpenAI Platform)
+Prefer Responses API for new builds and streaming; see migration notes if you used Chat Completions before. (OpenAI Platform)
+If you want retrieval over your actual docs (beyond hardcoded examples), look at the Assistants API with tools or Retrieval. (OpenAI Platform)
+Wrap‑up
+You now have a lightweight, dev‑friendly chatbot that answers from your docs and greets users with generated avatars. From here you can:
+Swap the seed examples for real retrieval.
+Add streaming UI for token‑by‑token responses. (OpenAI Platform)
+Validate outputs with structured JSON. (OpenAI Platform)
+Further reading:
+OpenAI Quickstart (Node) (OpenAI Platform)
+Responses API (text generation) (OpenAI Platform)
+Images API (generation & sizes) (OpenAI Platform)
+Repo: Cloudinary-Chatbot-OpenAI-Demo
+Bonus: Get Started with AI-Driven App Development Using the OpenAI Node.js SDK by Colby Fayock (great companion read).
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Cloudinary
+Follow
+More from Cloudinary
+Turn Any Image into a Blog Post with AI (React, Cloudinary & OpenAI)
+#react
+#cloudinary
+#openai
+#javascript
+How to Build an Event Gallery in React With Cloudinary, AWS Rekognition, and Firebase
+#react
+#cloudinary
+#firebase
+#aws
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

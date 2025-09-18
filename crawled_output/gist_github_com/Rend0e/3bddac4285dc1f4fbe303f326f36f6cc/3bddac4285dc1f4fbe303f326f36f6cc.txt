@@ -1,0 +1,599 @@
+Fix AMD GPU high idle power MCLK (vram / memory clock) stuck at 96 MHz / 1000 MHz for high refresh rates on Arch Linux Wayland & Xorg · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+Rend0e/Fix_MCLK_Clock_Stuck_Arch_Linux_Guide.md
+Created
+July 26, 2023 02:00
+Show Gist options
+Download ZIP
+Star
+23
+(23)
+You must be signed in to star a gist
+Fork
+2
+(2)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Rend0e/3bddac4285dc1f4fbe303f326f36f6cc.js&quot;&gt;&lt;/script&gt;
+Save Rend0e/3bddac4285dc1f4fbe303f326f36f6cc to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+23
+Forks
+2
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Rend0e/3bddac4285dc1f4fbe303f326f36f6cc.js&quot;&gt;&lt;/script&gt;
+Save Rend0e/3bddac4285dc1f4fbe303f326f36f6cc to your computer and use it in GitHub Desktop.
+Download ZIP
+Fix AMD GPU high idle power MCLK (vram / memory clock) stuck at 96 MHz / 1000 MHz for high refresh rates on Arch Linux Wayland & Xorg
+Raw
+Fix_MCLK_Clock_Stuck_Arch_Linux_Guide.md
+Fix AMD GPU high idle power MCLK (vram / memory clock) stuck at 96 MHz / 1000 MHz for high refresh rates on Arch Linux Wayland & Xorg
+On certain resolutions & refresh rates or multi-monitor setups, you might have noticed that your GPU MCLK (vram / memory clock) is stuck at the highest clock frequency (1000 MHz) [1] [2] causing higher GPU idle power draw.
+On Linux kernel 6.4.x, AMDGPU MCLK (vram/memory) clocks at the lowest, causing major FPS drops while gaming [1] [2]. This is likely due to a monitor not using Coordinated Video Timings (CVT) with a low V-Blank value for the affected resolutions & refresh rates.
+The higher clocking behavior is due to:
+Well, the reason the clocks get forced to max in some cases is to avoid the flickering you are seeing.
+There is a certain latency required to change the mclk.
+The hardware needs to hide that mclk switch during some blanking period of the display otherwise you would see flickering.
+If the blanking periods are too short or not alignable (in the case of multiple displays), the driver has to use a fixed mclk to avoid the flickering.
+In your case, it appears that the latency of switching to/from the 96Mhz mclk is right on the edge of what is possible given the monitors blanking periods.
+You may need to slightly lengthen the hblank or vblank periods in your display's modeline.
+The monitor's non standard timings values were likely set that way to keep its pixel clock values within display cable bandwidth constraints that are more relevant on higher resolutions & refresh rates, which is why this issue tends to occur on high resolutions & refresh rates.
+HDMI
+Version
+Limit
+Data rate
+Bandwidth
+1.0-1.2a
+165 MHz
+3.96 Gbps
+4.95 Gbps
+1.3-1.4b
+340 MHz*
+8.16 Gbps
+10.2 Gbps
+2.0-2.0b
+600 MHz
+14.4 Gbps
+18 Gbps
+DisplayPort
+Check https://www.monitortests.com/blog/common-pixel-clock-limits/
+Check for issue
+You can check for this issue by monitoring your GPU MCLK/VRAM/Memory clock value with nvtop, mangohud or cat /sys/class/drm/card0/device/pp_dpm_mclk (Note: try card1 if file is not found).
+If it's stuck at the highest clock (1000 MHz), you would also notice a higher idle power draw. If the values are stuck and do not adapt to the GPU workload, try lowering the display resolution refresh rate to see if it resolves the issue. If the issue only occurs in specific resolutions & refresh rates, then it's likely that the monitor's EDID has a too low v-blank value for the specific resolution & refresh rate.
+Fix for Xorg [1]
+Use cvt_modeline_calculator_12 to obtain modeline values for your resolution & refresh rate with CVT v1.2 reduced blanking timings:
+curl https://raw.githubusercontent.com/kevinlekiller/cvt_modeline_calculator_12/master/cvt12.c --output cvt12.c
+gcc cvt12.c -O2 -o cvt12 -lm -Wall
+./cvt12 1920 1080 144 -b
+Note: change 1920 1080 144 to your resolution and refresh rate, mine is 1920x1080@144.
+Output Example:
+# 1920x1080 @ 144.000 Hz Reduced Blank (CVT) field rate 144.000 Hz; hsync: 166.608 kHz; pclk: 333.22 MHz
+Modeline "1920x1080_144.00_rb2"
+333.22
+1920 1928 1960 2000
+1080 1143 1151 1157 +hsync -vsync
+Use xrandr to add the custom resolution modeline:
+xrandr --newmode "MCLK-fix" 333.22
+1920 1928 1960 2000
+1080 1143 1151 1157 +hsync -vsync
+xrandr --addmode HDMI-2 "MCLK-fix"
+Note: replace values after "MCLK-fix" with the modeline values output from step 1 and replace HDMI-2 with your connector (run xrandr).
+Select the resolution and check if MCLK (VRAM / Memory) clock frequency properly adjusts to GPU workloads.
+Fix for Wayland
+Before proceeding, try temporarily switching to xorg to test if the xorg solution works. You can skip steps 1-3 if you find your resolution & refresh rate in Some CVT-RB v2 EDID values (can use this to skip steps 1-3).
+Use cvt_modeline_calculator_12 to obtain modeline values for your resolution & refresh rate with CVT v1.2 reduced blanking timings:
+curl https://raw.githubusercontent.com/kevinlekiller/cvt_modeline_calculator_12/master/cvt12.c --output cvt12.c
+gcc cvt12.c -O2 -o cvt12 -lm -Wall
+./cvt12 1920 1080 144 -b
+Note: change 1920 1080 144 to your resolution and refresh rate, mine is 1920x1080@144Hz:
+Output Example:
+# 1920x1080 @ 144.000 Hz Reduced Blank (CVT) field rate 144.000 Hz; hsync: 166.608 kHz; pclk: 333.22 MHz
+Modeline "1920x1080_144.00_rb2"
+333.22
+1920 1928 1960 2000
+1080 1143 1151 1157 +hsync -vsync
+Parse the modeline to edid-generator to see its values in EDID binary format:
+git clone https://github.com/akatrevorjay/edid-generator.git
+cd edid-generator
+yay -S zsh edid-decode-git automake dos2unix # Required dependencies for edid-generator
+zsh # Need to enter zsh shell
+./modeline2edid - <<< 'Modeline "MCLK-fix" 333.22
+1920 1928 1960 2000
+1080 1143 1151 1157 +hsync -vsync'
+make
+Note: replace the values after "MCLK-fix" with the modeline values output from step 1.
+Use wxedid to open the generated edid to take note of its values:
+yay -S wxedid
+Open the MCLK-Fix.bin file with wxEDID (/usr/bin/wxedid).
+You may get an error message, so follow its prompt: Options->"Ignore EDID Errors" and then "Reparse EDID buffer" to view the data anyway.
+Find DTD: Detailed Timing Descriptor.
+Take note of the values or take a screenshot.
+Example:
+Obtain your monitor's EDID binary file:
+ls /sys/class/drm/ # Use xrandr, wlr-randr, gnome-randr-rust to find the correct connector.
+cat /sys/class/drm/card1-HDMI-A-2/edid # Check for an output (monitor name may be visible).
+cp /sys/class/drm/card1-HDMI-A-2/edid edid.bin # Replace card1-HDMI-A-2 with your connector.
+Use wxEDID to edit mointor's EDID to MCLK-fix's values:
+Open the edid.bin file with wxEDID (/usr/bin/wxedid)
+Find DTD: Detailed Timing Descriptor
+Click the DTD Constructor Tab
+Check if X-res, V-res and V-Refresh matches your resolution and refresh rate; if not, go back to the EDID tab, then keep checking another DTD
+until you find it:
+Go back to the EDID tab and change the values to match the ones in MCLK-Fix.bin:
+Click Option on the panel -> Assemble EDID:
+Click File on the panel -> Save EDID binary (overwrite edid.bin):
+Load EDID at boot for the particular monitor:
+Place the edid file in /lib/firmware/edid
+sudo mkdir -p /lib/firmware/edid
+sudo cp edid.bin /lib/firmware/edid/edid_modified.bin
+Include the custom EDID file in the initramfs
+sudoedit /etc/mkinitcpio.conf
+FILES=(/lib/firmware/edid/edid_modified.bin)
+Add the kernel parameter drm.edid_firmware=HDMI-A-2:edid/edid_modified.bin (replace HDMI-A-2 with your connector).
+Reboot and check if MCLK (VRAM / Memory) clock frequency properly adjusts to GPU workloads.
+Some CVT-RB v2 EDID values
+1920x1080@60Hz
+Modeline "1920x1080_60.00_rb2"
+133.32
+1920 1928 1960 2000
+1080 1097 1105 1111 +hsync -vsync
+1920x1080@120Hz
+Modeline "1920x1080_120.00_rb2"
+274.56
+1920 1928 1960 2000
+1080 1130 1138 1144 +hsync -vsync
+1920x1080@144Hz
+Modeline "1920x1080_144.00_rb2"
+333.22
+1920 1928 1960 2000
+1080 1143 1151 1157 +hsync -vsync
+1920x1080@160Hz
+Modeline "1920x1080_160.00_rb2"
+373.12
+1920 1928 1960 2000
+1080 1152 1160 1166 +hsync -vsync
+1920x1080@240Hz
+Modeline "1920x1080_240.00_rb2"
+583.20
+1920 1928 1960 2000
+1080 1201 1209 1215 +hsync -vsync
+2560×1440@60Hz
+Modeline "2560x1440_60.00_rb2"
+234.59
+2560 2568 2600 2640
+1440 1467 1475 1481 +hsync -vsync
+2560×1440@120Hz
+Modeline "2560x1440_120.00_rb2"
+483.12
+2560 2568 2600 2640
+1440 1511 1519 1525 +hsync -vsync
+2560×1440@144Hz
+Modeline "2560x1440_144.00_rb2"
+586.59
+2560 2568 2600 2640
+1440 1529 1537 1543 +hsync -vsync
+Copy link
+TeaHistoria
+commented
+Sep 2, 2023
+Like this, right?
+This is the result
+is there any other app that is better than this?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+skogler
+commented
+Oct 2, 2023
+Tried this, unfortunately it does not work for me.
+My RX6750XT's memory is stuck at 1124Mhz when I use both monitors on hyprland(wayland).
+I have one QHD monitor with max. 144Hz and one with max. 75Hz.
+The memory clocks down as it should when I use only the 144Hz screen with variable refresh rate on. However, when I use only the 75Hz one, it never clocks down.
+Tried to go back to X11(KDE) as suggested, and applied the modelines generated by the
+cvt12 tool on both monitors using xrandr. It never clocks down, not even when turning any one monitor off. Also tried using the same modeline for both monitors.
+I am at the point where I will just use only one monitor and give up on this, but maybe you have some idea what is left to try?
+Here is the xrandr output:
+DisplayPort-1 connected primary 2560x1440+2560+0 (normal left inverted right x axis y axis) 597mm x 336mm
+2560x1440
+144.00 + 120.01
+96.00
+72.00
+60.01
+50.01
+48.00
+120.00
+99.90
+59.95
+1920x1200
+144.00
+1920x1080
+74.98
+60.00
+60.00
+50.00
+59.94
+1600x1200
+144.00
+1680x1050
+59.95
+1600x900
+60.00
+1280x1024
+75.02
+60.02
+1440x900
+144.00
+1280x800
+59.81
+1152x864
+59.97
+1280x720
+60.00
+50.00
+59.94
+1024x768
+75.03
+60.00
+800x600
+75.00
+60.32
+720x480
+60.00
+59.94
+640x480
+75.00
+60.00
+59.94
+2560x1440_72.00_rb2
+72.00*
+DisplayPort-2 connected 2560x1440+0+0 (normal left inverted right x axis y axis) 597mm x 336mm
+2560x1440
+59.95 +
+74.97
+72.00
+60.02
+50.01
+48.00
+1920x1200
+59.95
+1920x1080
+74.97
+60.00
+50.00
+59.94
+1600x1200
+59.95
+1280x1440
+59.91
+1680x1050
+59.95
+1280x1024
+75.02
+60.02
+1440x900
+59.89
+1280x960
+60.00
+1280x800
+59.95
+1280x720
+60.00
+50.00
+59.94
+1024x768
+75.03
+70.07
+60.00
+832x624
+74.55
+800x600
+72.19
+75.00
+60.32
+56.25
+720x576
+50.00
+720x480
+60.00
+59.94
+640x480
+75.00
+72.81
+66.67
+60.00
+59.94
+720x400
+70.08
+fix
+74.97
+2560x1440_72.00_rb2
+72.00*
+DisplayPort-1: LG GL850B
+get-edid | parse edid gives this strange error (this is the monitor that at least works on hyprland):
+Section "Monitor"
+Identifier "27GL850"
+ModelName "27GL850"
+VendorName "GSM"
+# Monitor Manufactured week 10 of 2019
+# EDID version 1.4
+# Digital Display
+DisplaySize 600 340
+Gamma 2.20
+Option "DPMS" "true"
+Horizsync 230-230
+VertRefresh 48-144
+# Maximum pixel clock is 600MHz
+#Not giving standard mode: 1152x864, 60Hz
+#Not giving standard mode: 1280x1024, 60Hz
+#Not giving standard mode: 1280x720, 60Hz
+#Not giving standard mode: 1600x900, 60Hz
+#Not giving standard mode: 1680x1050, 60Hz
+#Not giving standard mode: 1920x1080, 60Hz
+#Not giving standard mode: 1280x800, 60Hz
+#Not giving standard mode: 1920x1080, 75Hz
+#Extension block found. Parsing...
+extb[4]: 0x23 (0x20)
+Hmm, you have data blocks, but not video ones... weird
+Something strange happened. Please contact the author,
+DisplayPort-2: AOC Q27B3MA
+Section "Monitor"
+Identifier "Q27B3MA"
+ModelName "Q27B3MA"
+VendorName "AOC"
+# Monitor Manufactured week 43 of 2022
+# EDID version 1.4
+# Digital Display
+DisplaySize 600 340
+Gamma 2.20
+Option "DPMS" "true"
+Horizsync 114-114
+VertRefresh 48-75
+# Maximum pixel clock is 330MHz
+#Not giving standard mode: 1920x1080, 60Hz
+#Not giving standard mode: 1680x1050, 60Hz
+#Not giving standard mode: 1440x900, 60Hz
+#Not giving standard mode: 1280x1024, 60Hz
+#Not giving standard mode: 1280x960, 60Hz
+#Not giving standard mode: 1280x720, 60Hz
+#Extension block found. Parsing...
+Modeline 	"Mode 12" +hsync -vsync
+Modeline 	"Mode 0" +hsync +vsync
+Modeline 	"Mode 1" 25.200 640 656 752 800 480 490 492 525 -hsync -vsync
+Modeline 	"Mode 2" 27.027 720 736 798 858 480 489 495 525 -hsync -vsync
+Modeline 	"Mode 3" 74.250 1920 2008 2052 2200 1080 1082 1087 1125 +hsync +vsync interlace
+Modeline 	"Mode 4" 74.250 1920 2448 2492 2640 1080 1082 1089 1125 +hsync +vsync interlace
+Modeline 	"Mode 5" 74.250 1280 1390 1420 1650 720 725 730 750 +hsync +vsync
+Modeline 	"Mode 6" 74.250 1280 1720 1760 1980 720 725 730 750 +hsync +vsync
+Modeline 	"Mode 7" 148.500 1920 2448 2492 2640 1080 1084 1089 1125 +hsync +vsync
+Modeline 	"Mode 8" 27.000 720 732 796 864 576 581 586 625 -hsync -vsync
+Modeline 	"Mode 9" 27.027 720 736 798 858 480 489 495 525 -hsync -vsync
+Modeline 	"Mode 10" 27.000 720 732 796 864 576 581 586 625 -hsync -vsync
+Modeline 	"Mode 11" 148.500 1920 2008 2052 2200 1080 1084 1089 1125 +hsync +vsync
+Modeline 	"Mode 13" +hsync -vsync
+Modeline 	"Mode 14" +hsync +vsync
+Modeline 	"Mode 15" -hsync +vsync
+Option "PreferredMode" "Mode 12"
+EndSection
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+cinatic
+commented
+Nov 22, 2023
+good article thanks, had this problem with 5700 and also with the 7800,what a waste of energy...
+one thing ./modeline2edid - <<< 'Modeline "MCLK-fix2" 393.89
+3440 3448 3480 3520
+1440 1478 1486 1492 +hsync -vsync ratio=16:9'
+will produce MCLK-fix2.S
+and need to be renamed to e.g. 3440x1440.S manually, otherwise make will not built a .bin file for it
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ychromosome
+commented
+Mar 10, 2024
+Indeed it works, but sadly it has some downsides - the screen is flickering on some applications.
+Is there something I can do to remedy it?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+p-kraszewski
+commented
+Mar 30, 2024
+Hello! Are we supposed to fix just V-Blank lines or all DTD values?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+AERDU
+commented
+Jun 6, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I want to add that when using hyprland, you do not need to modify your edid.
+monitor=$monitor1,modeline 1025.80 2560 2568 2600 2640 1440 1605 1613 1619 +hsync -vsync,$moreoptionshere
+Important to not double space.
+Edit: currently broken with the new implementation of aquamarine: hyprwm/Hyprland#6953
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+p4block
+commented
+Jul 14, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I got extreme flickering with the modeline generated by that program, but then looking at the issues in the project I found that it's a patched fork of an upstream tool I had installed already.
+Using cvt -r 5120 1440 240 I got a modeline to add to sway
+output "DP-2" {
+modeline
+2051.00
+5120 5168 5200 5280
+1440 1443 1453 1619 +hsync -vsync
+adaptive_sync on
+}
+My memory clock has dropped from 1.2 GHz to around 400MHz and my power draw from 45-50W to 25-30W. Amazing!
+I recall LOTS of people having trouble with the Samsung G9 and magic EDID files being passed around (and they didn't work for me). This should spread!
+Maybe even add automatic generation of "proper" modelines to the compositor
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+afro-coder
+commented
+Aug 9, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Weirdly even though my laptop should be able to drive 2560x1440@165hz I see this whenever I try
+[
+1306.592] (--) AMDGPU(0): HDMI max TMDS frequency 340000KHz
+[
+1307.265] (EE) AMDGPU(0): failed to set mode: Cannot allocate memory
+[
+1307.292] (EE) AMDGPU(0): drmmode_do_crtc_dpms cannot get last vblank counter
+[
+1345.603] (EE) AMDGPU(0): failed to set mode: Cannot allocate memory
+[
+1345.631] (EE) AMDGPU(0): drmmode_do_crtc_dpms cannot get last vblank counter
+Graphic card memory is set to like 4Gb
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+2eronia
+commented
+Oct 8, 2024
+looking for the parameters for a 7680x2160 240Hz monitor. Thanks alot
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+YuryenUcahh
+commented
+Jan 12, 2025
+I just use this kernel parameter
+video=DP-3:1920x1080MR@164
+this one much more easier
+https://docs.kernel.org/fb/modedb.html
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+0xZaphod
+commented
+May 6, 2025
+My monitor doesn't appear to have DTD for 3840x2160@144Hz (only with that resolution and 60Hz...) and when I open the MCLK-fix.bin with the values I previously obtained, the refresh rate and pixel clock are
+approximately half of what I expect them to be (71.75 instead of 144 Hz and 650.85 instead of 1306.21 MHz)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Jinra
+commented
+Jun 18, 2025
+I just use this kernel parameter
+video=DP-3:1920x1080MR@164
+this one much more easier
+https://docs.kernel.org/fb/modedb.html
+tried this but didn't seem to do anything for me
+video=DP-2:2560x1440MR@360 video=DP-3:2560x1440MR@60 video=HDMI-A-1:2560x1440MR@60
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+wjtk4444
+commented
+Aug 23, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I have a somehwat similar issue with RX 7600 (XT?), whenever 3rd display (tv in this case) is connected, mclk gets stuck at max. I even tried lowering resolution to 2k or even 1080p, but to no avail, with 3 displays connected it's stuck at 1124Mhz and otherwise switches correctly (mostly 96Mhz). I'm not too concerned about those extra 20W of power, but the cards gets rather warm and the fans kick in loudly which is not ideal as this PC is on close to 24/7. Tried both HDMI and DP as well as various modes, sysfs, radeontop and just about everything else I could find. No results. All the displays are set to 60Hz. Happy to post more info if anyone has any ideas.
+EDIT: X11 but if wayland would suddenly solve this problem (didn't OOTB, tried that as well) I guess I could consider switching
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+p4block
+commented
+Aug 23, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@wjtk4444 That is working as expected and not an issue that can be fixed. The GPU uses the vsync time to reclock, as during reclocking VRAM is not available and you would get flicker.
+On a single badly behaved display there may not be enough time during vsync to perform this (and this is the whole ordeal in this thread)
+When using multiple displays the vsyncs need to match, and that is only possible if they are the same or next to the same, or that they have freesync. 3 with low vram clocks is almost a pipe dream.
+There are also bandwidth concerns and the gpu may actually truly need the oomph to actually push that many pixels. More fine-grained vram speed tiers help with this, such as the RX580 vbioses introducing 1GHz step inbetween idle clocks and the full 2GHz.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+wjtk4444
+commented
+Aug 24, 2025
+@p4block thanks a lot for the explanation, i'll try a different approach (turning screens on and off dynamically so that its either 2x 1440 or 1x 4k on at a time)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

@@ -1,0 +1,396 @@
+Building Web Servers from First Principles (Part 5) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Boluwatife Adewusi
+Posted on Sep 17
+Building Web Servers from First Principles (Part 5)
+#go
+#backend
+#tutorial
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+In Chapter 4, we built dynamic routing that could handle URL parameters like /users/:id. But real APIs need more than just path parameters - they need to handle query parameters for filtering, pagination, and user input.
+Today, we'll learn how to work with query parameters to build more interactive APIs.
+What We've Built So Far
+From previous chapters:
+✅ Dynamic routing with URL parameters (/users/:id)
+✅ Parameter extraction and access
+✅ Basic JSON responses
+❌ Query parameter handling (?name=John&age=25)
+❌ Parameter validation and type conversion
+Understanding Query Parameters
+When frontend developers make requests like these:
+// Search with query parameters
+fetch('/search?q=javascript&page=2')
+// Greeting with optional name
+fetch('/greet?name=John')
+// Math operations with parameters
+fetch('/math/add?a=10&b=20')
+Enter fullscreen mode
+Exit fullscreen mode
+The server needs to extract and use those query parameters. Unlike URL parameters (:id), query parameters come after the ? and are passed as key-value pairs.
+Simple Query Parameter Extraction
+Let's start with a basic greeting handler that uses query parameters. Update main.go:
+package main
+import (
+"fmt"
+"net/http"
+)
+func main() {
+server := NewServer(":3000")
+setupRoutes(server)
+server.Start()
+}
+func setupRoutes(s *Server) {
+s.Router.GET("/greet", greet)
+}
+func greet(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+name := r.URL.Query().Get("name")
+if name == "" {
+w.Write([]byte("Hello stranger!"))
+return
+}
+w.Write([]byte(fmt.Sprintf("Hello %s", name)))
+}
+Enter fullscreen mode
+Exit fullscreen mode
+How Query Parameter Access Works:
+r.URL.Query() returns all query parameters as a url.Values type
+Get("name") extracts the value for the name parameter
+If the parameter doesn't exist, Get() returns an empty string
+Test this handler:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+curl "http://localhost:3000/greet"
+# Returns: Hello stranger!
+curl "http://localhost:3000/greet?name=John"
+# Returns: Hello John
+curl "http://localhost:3000/greet?name=Jane%20Doe"
+# Returns: Hello Jane Doe
+Enter fullscreen mode
+Exit fullscreen mode
+Notice how URL encoding works - %20 becomes a space.
+Multiple Query Parameters
+Real APIs often need multiple parameters. Let's create a search handler:
+func setupRoutes(s *Server) {
+s.Router.GET("/greet", greet)
+s.Router.GET("/search", search)
+}
+func search(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+query := r.URL.Query().Get("q")
+page := r.URL.Query().Get("page")
+w.Write([]byte(fmt.Sprintf("Search results for '%s' (page %s)", query, page)))
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test with multiple parameters:
+curl "http://localhost:3000/search?q=golang"
+# Returns: Search results for 'golang' (page )
+curl "http://localhost:3000/search?q=golang&page=3"
+# Returns: Search results for 'golang' (page 3)
+curl "http://localhost:3000/search?page=2&q=web%20development"
+# Returns: Search results for 'web development' (page 2)
+Enter fullscreen mode
+Exit fullscreen mode
+Key Insights:
+Parameter order in the URL doesn't matter
+Missing parameters return empty strings
+Empty parameters show as blank in the output
+Parameter Type Conversion
+Often you need to convert query parameters to specific types and validate them. Let's create a math handler:
+func setupRoutes(s *Server) {
+s.Router.GET("/greet", greet)
+s.Router.GET("/search", search)
+s.Router.GET("/math/add", add)
+}
+func add(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+a, _ := strconv.ParseInt(r.URL.Query().Get("a"), 0, 0)
+b, _ := strconv.ParseInt(r.URL.Query().Get("b"), 0, 0)
+w.Write([]byte(fmt.Sprintf("%d + %d = %d", a, b, a+b)))
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test the math handler with different inputs:
+curl "http://localhost:3000/math/add?a=10&b=20"
+# Returns: 10 + 20 = 30
+curl "http://localhost:3000/math/add?a=100&b=-50"
+# Returns: 100 + -50 = 50
+curl "http://localhost:3000/math/add?a=hello&b=20"
+# Returns: 0 + 20 = 20
+curl "http://localhost:3000/math/add?a=10"
+# Returns: 10 + 0 = 10
+Enter fullscreen mode
+Exit fullscreen mode
+Understanding Different Parameter Types
+Let's break down the different ways clients can send data to your API:
+1. URL Parameters (Path Parameters)
+/users/123
+→ :id = "123"
+/api/v1/users/456 → :version = "v1", :id = "456"
+Enter fullscreen mode
+Exit fullscreen mode
+Part of the URL path
+Required (URL won't match without them)
+Extracted using our GetPathValue() function
+2. Query Parameters
+/search?q=golang&page=2 → q = "golang", page = "2"
+Enter fullscreen mode
+Exit fullscreen mode
+After the ? in the URL
+Optional (URL still matches if missing)
+Extracted using r.URL.Query().Get()
+3. Combined Usage
+/users/123/posts?limit=10&sort=date
+Enter fullscreen mode
+Exit fullscreen mode
+:id from path = "123"
+limit from query = "10"
+sort from query = "date"
+Common Query Parameter Patterns
+Pattern 1: Optional Parameters with Defaults
+func listUsers(w http.ResponseWriter, r *http.Request) {
+// Get parameters with defaults
+limitStr := r.URL.Query().Get("limit")
+if limitStr == "" {
+limitStr = "10" // Default limit
+}
+sortBy := r.URL.Query().Get("sort")
+if sortBy == "" {
+sortBy = "name" // Default sort
+}
+// Use the parameters...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Pattern 2: Boolean Parameters
+func listProducts(w http.ResponseWriter, r *http.Request) {
+// Boolean parameters
+inStock := r.URL.Query().Get("in_stock") == "true"
+onSale := r.URL.Query().Get("on_sale") == "true"
+// Use boolean flags...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Pattern 3: Multiple Values for Same Parameter
+func filterData(w http.ResponseWriter, r *http.Request) {
+// Get all values for a parameter
+tags := r.URL.Query()["tags"] // []string
+categories := r.URL.Query()["category"] // []string
+// Handle multiple values...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Test URL: /filter?tags=web&tags=api&category=tutorial&category=golang
+Comparing Our Approach to Frameworks
+Our Approach:
+func handler(w http.ResponseWriter, r *http.Request) {
+name := r.URL.Query().Get("name")
+id := GetPathValue(r, "id")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Gin Framework:
+func handler(c *gin.Context) {
+name := c.Query("name")
+id := c.Param("id")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Echo Framework:
+func handler(c echo.Context) error {
+name := c.QueryParam("name")
+id := c.Param("id")
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The concepts are identical - frameworks just provide convenience methods!
+Current Implementation
+Our handlers demonstrate basic query parameter handling with different patterns:
+Simple parameter extraction with r.URL.Query().Get()
+Multiple parameters in a single handler
+Type conversion using strconv.ParseInt()
+Testing All Our Handlers
+Let's test our complete handler collection:
+# Test greeting handler
+curl "http://localhost:3000/greet?name=Alice"
+# Test search handler
+curl "http://localhost:3000/search?q=golang%20tutorial&page=1"
+# Test math handler
+curl "http://localhost:3000/math/add?a=15&b=25"
+# Test with invalid numbers (they become 0)
+curl "http://localhost:3000/math/add?a=not_a_number&b=10"
+Enter fullscreen mode
+Exit fullscreen mode
+What We've Accomplished
+We now have:
+✅ Query parameter extraction (r.URL.Query().Get())
+✅ Multiple parameter handling (search with query + page)
+✅ Type conversion (strings to integers with strconv.ParseInt())
+✅ Basic math operations with URL parameters
+What's Next?
+In Chapter 6, we'll expand our server capabilities:
+Data Persistence: Working with structured data storage
+JSON APIs: Creating proper JSON request/response handling
+Request Body Processing: Handling POST/PUT requests with JSON data
+CRUD Operations: Building a complete API for managing resources
+Challenge: Try creating a /calculator endpoint that accepts operation (add, subtract, multiply, divide), a, and b parameters. Handle division by zero and invalid operations!
+Bonus: Add support for multiple values: /tags?name=web&name=api&name=tutorial and return all tag names.
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Boluwatife Adewusi
+Follow
+I am a full stack developer with over half a decade of experience journaling my journey so that you don't make the same mistakes I made.
+Joined
+Jun 5, 2024
+More from Boluwatife Adewusi
+Building Web Servers from First Principles (Part 4)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 3)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 2)
+#go
+#backend
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

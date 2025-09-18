@@ -1,0 +1,186 @@
+Keep view state and identity while animating into it from a list · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+JadenGeller/ZoomNavigator.swift
+Last active
+September 17, 2025 05:12
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/JadenGeller/a20e1b2cd6434d7755a50d3fe8f6c752.js&quot;&gt;&lt;/script&gt;
+Save JadenGeller/a20e1b2cd6434d7755a50d3fe8f6c752 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/JadenGeller/a20e1b2cd6434d7755a50d3fe8f6c752.js&quot;&gt;&lt;/script&gt;
+Save JadenGeller/a20e1b2cd6434d7755a50d3fe8f6c752 to your computer and use it in GitHub Desktop.
+Download ZIP
+Keep view state and identity while animating into it from a list
+Raw
+ZoomNavigator.swift
+/// A view that displays a collection of items in a scrollable list that can "zoom" to focus on a single selected item.
+///
+/// `ZoomNavigator` provides a navigation pattern similar to the iOS lock screen wallpaper picker,
+/// where items can be viewed together in a scrollable list or individually in full screen.
+/// The same view instance is maintained during transitions, preserving state and identity.
+///
+/// When no item is selected (`selection` is `nil`), all items are displayed in a scrollable list.
+/// When an item is selected, the view filters to show only that item, expanded to fill the available space.
+struct ZoomNavigator<Data: RandomAccessCollection, ID: Hashable, Content: View, Background: View, Modifier: ViewModifier>: View {
+var data: Data
+var id: KeyPath<Data.Element, ID>
+var selection: ID?
+var alignment: Alignment = .center
+var axes: Axis.Set = .vertical // btw: for horizontal, collapsed behavior isn't identical
+var showsIndicators: Bool = true
+@ViewBuilder var content: (Data.Element) -> Content
+@ViewBuilder var background: (Data.Element) -> Background
+var modifier: (Data.Element) -> Modifier
+var isZoomedOut: Bool {
+selection == nil
+}
+var body: some View {
+GeometryReader { geometry in
+ScrollView(isZoomedOut ? axes : .vertical, showsIndicators: true) {
+let data = data.filter { item in
+if let selection {
+item[keyPath: id] == selection
+} else {
+true
+}
+}
+ForEach(data, id: id) { item in
+content(item)
+.frame(
+minWidth: isZoomedOut ? nil : geometry.size.width,
+minHeight: isZoomedOut ? nil : geometry.size.height,
+alignment: alignment
+)
+.background(
+background(item)
+.frame(
+minWidth: isZoomedOut ? nil : geometry.size.width
++ geometry.safeAreaInsets.leading
++ geometry.safeAreaInsets.trailing,
+minHeight: isZoomedOut ? nil : geometry.size.height
++ geometry.safeAreaInsets.top
++ geometry.safeAreaInsets.bottom
+)
+.offset(
+x: isZoomedOut ? 0 : -geometry.safeAreaInsets.leading,
+y: isZoomedOut ? 0 : -geometry.safeAreaInsets.top
+),
+alignment: .topLeading
+)
+.modifier(modifier(item))
+}
+}
+.scrollDisabled(true)
+.frame(
+minWidth: axes.contains(.vertical) ? geometry.size.width : nil,
+minHeight: axes.contains(.horizontal) ? geometry.size.height : nil,
+alignment: alignment
+)
+}
+}
+}
+Copy link
+Author
+JadenGeller
+commented
+Jul 13, 2025
+example usage
+struct TapGestureModifier: ViewModifier {
+var onTapGesture: () -> Void
+func body(content: Content) -> some View {
+content.onTapGesture {
+onTapGesture()
+}
+}
+}
+struct ContentView: View {
+var colors: [Color] = [.red, .orange, .yellow, .green, .blue]
+@State var selection: Int? = nil
+var isZoomedIn: Bool { selection != nil }
+var body: some View {
+ZoomNavigator(data: 0..<5, id: \.self, selection: selection) { i in
+VStack {
+Text("Hello \(i)")
+.padding()
+Spacer()
+if isZoomedIn {
+Text("I really like the number \(i)")
+}
+}
+.frame(maxWidth: .infinity)
+} background: { i in
+colors[i]
+} modifier: { i in
+TapGestureModifier {
+withAnimation {
+if selection == nil {
+self.selection = i
+} else {
+self.selection = nil
+}
+}
+}
+}
+}
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

@@ -1,0 +1,344 @@
+Testcontainers Best Practices | Docker
+DocsGet SupportContact Sales
+AI
+AI
+Docker for AI
+Simplifying Agent Development
+Docker Offload
+Break free of local constraints
+Docker MCP Catalog and Toolkit
+Connect and manage MCP tools
+Docker Model Runner
+Local-first LLM inference made easy
+More resources for developers
+Docker Brings Compose to the Agent Era: Building AI Agents is Now Easy
+Docker Accelerates Agent Development
+Read more
+Products
+Products
+Docker Desktop
+Containerize your applications
+Docker Hub
+Discover and share container images
+Docker Scout
+Simplify the software supply chain
+Docker Build Cloud
+Speed up your image builds
+Testcontainers Desktop
+Local testing with real dependencies
+Testcontainers Cloud
+Test without limits in the cloud
+Docker MCP Catalog and Toolkit
+Connect and manage MCP tools
+Docker Hardened Images
+Ship with secure, enterprise-ready images
+Docker Desktop v4.43
+Find out what’s new to Docker Desktop in the latest release
+Read more
+Developers
+Developers
+Documentation
+Find guides for Docker products
+Getting Started
+Learn the Docker basics
+Resources
+Search a library of helpful materials
+Training
+Skill up your Docker knowledge
+Extensions SDK
+Create and share your own extensions
+Community
+Connect with other Docker developers
+Open Source
+Explore open source projects
+Preview Program
+Help shape the future of Docker
+Customer Stories
+Get inspired with customer stories
+Get the latest Docker news
+More resources for developers
+Introducing Docker Model Runner
+A faster, simpler way to run and test AI models locally
+Read more
+Deliver Quickly. Build Securely. Stay Competitive.
+Meet growing demands for speed and security with integrated, efficient solutions
+Read more
+PricingSupportBlog
+Company
+Company
+About Us
+Let us introduce ourselves
+What is a Container?
+Learn about containerization
+Why Docker
+Discover what makes us different
+Trust
+Find our customer trust resources
+Partners
+Become a Docker partner
+Customer Success
+Learn how you can succeed with Docker
+Events
+Attend live and virtual meet ups
+Docker Store
+Gear up with exclusive SWAG
+Careers
+Apply to join our team
+Contact Us
+We’d love to hear from you
+Docker Announces SOC 2 Type 2 Attestation & ISO 27001 Certification
+Learn what this means for Docker security and compliance
+Read more
+Search
+Sign In
+Get Started
+Toggle menu
+Testcontainers Best Practices
+Posted Nov 3, 2023
+Siva Katamreddy
+Testcontainers is an open source framework for provisioning throwaway, on-demand containers for development and testing use cases. Testcontainers make it easy to work with databases, message brokers, web browsers, or just about anything that can run in a Docker container.
+You can also use Testcontainers libraries for local development. Testcontainers libraries combined with Testcontainers Desktop provide a pleasant local development and testing experience. Testcontainers libraries are available for most of the popular languages like Java, Go, .NET, Node.js, Python, Ruby, Rust, Clojure, and Haskell.
+In this article, we’ll explore some Do’s and Don’ts while using Testcontainers libraries. We’re going to show code snippets in Java, but the concepts are applicable to other languages as well.
+Don’t rely on fixed ports for tests
+If you’re just getting started with Testcontainers or converting your existing test setup to use Testcontainers, you might think of using fixed ports for the containers.
+For example, let’s say you have a current testing setup where a PostgreSQL test database is installed and running on port 5432, and your tests talk to that database. When you try to leverage Testcontainers for running PostgreSQL database instead of using a manually installed database, you might think of starting the PostgreSQL containers and exposing it on the fixed port 5432 on the host.
+But using fixed ports for containers while running tests is not a good idea for the following reasons:
+You, or your team members, might have another process running on the same port, and if that’s the case, the tests will fail.
+While running tests on a Continuous Integration (CI) environment, there can be multiple pipelines running in parallel. The pipelines might try to start multiple containers of the same type on the same fixed port, which will cause port collisions.
+You want to parallelize your test suite locally, which results in multiple instances of the same container running simultaneously.
+To avoid these issues altogether, the best approach is to use the Testcontainers built-in dynamic port mapping capabilities.
+// Example 1:
+GenericContainer<?> redis =
+new GenericContainer<>("redis:5.0.3-alpine")
+.withExposedPorts(6379);
+int mappedPort = redis.getMappedPort(6379);
+// if there is only one port exposed then you can use redis.getFirstMappedPort()
+// Example 2:
+PostgreSQLContainer<?> postgres =
+new PostgreSQLContainer<>("postgres:16-alpine");
+int mappedPort = postgres.getMappedPort(5432);
+String jdbcUrl = postgres.getJdbcUrl();
+While it’s strongly discouraged to use a fixed port for tests, using a fixed port for local development can be convenient. It allows you to connect to services using a consistent port, for instance, when using database inspection tools. With Testcontainers Desktop, you can easily connect to those services on a fixed port.
+Don’t hardcode the hostname
+While using Testcontainers for your tests, you should always dynamically configure the host and port values. For example, here’s what a typical Spring Boot test using a Redis container looks like:
+@SpringBootTest(webEnvironment = RANDOM_PORT)
+@Testcontainers
+class MyControllerTest {
+@Container
+static GenericContainer<?> redis =
+new GenericContainer<>(DockerImageName.parse("redis:5.0.3-alpine"))
+.withExposedPorts(6379);
+@DynamicPropertySource
+static void overrideProperties(DynamicPropertyRegistry registry) {
+registry.add("spring.redis.host", () -> "localhost");
+registry.add("spring.redis.port", () -> redis.getMappedPort(6379));
+}
+@Test
+void someTest() {
+....
+}
+}
+As a keen observer, you might’ve noticed we’ve hardcoded the Redis host as localhost. If you run the test, it’ll work and run fine on your CI also as long as you’re using a local Docker daemon that’s configured in such a way that the mapped ports of the containers are accessible through localhost.
+But if you configure your environment to use a Remote Docker daemon then your tests will fail because those containers aren’t running on localhost anymore. So, the best practice to make your tests fully portable is to use redis.getHost() instead of a hardcoded localhost as follows:
+@DynamicPropertySource
+static void overrideProperties(DynamicPropertyRegistry registry) {
+registry.add("spring.redis.host", () -> redis.getHost());
+registry.add("spring.redis.port", () -> redis.getMappedPort(6379));
+}
+Don’t hardcode the container name
+You might think of giving a name to the containers using withCreateContainerCmdModifier(..) as follows:
+PostgreSQLContainer<?> postgres=
+new PostgreSQLContainer<>("postgres:16-alpine")
+.withCreateContainerCmdModifier(cmd -> cmd.withName("postgres"));
+But giving a fixed/hardcoded name to containers will cause problems when trying to run multiple containers with the same name. This will most likely cause problems in CI environments while running multiple pipelines in parallel.
+As a rule of thumb, if a certain generic Docker feature (such as container names) is not available in the Testcontainers API, this tends to be an opinionated decision that fosters using integration testing best practices. The withCreateContainerCmdModifier() is available as an advanced feature for experienced users that have very specific use cases but shouldn’t be used to work around the Testcontainers design decisions.
+Copy files into containers instead of mounting them
+While configuring the containers for your tests, you might want to copy some local files into a specific location inside the container. A typical example would be copying database initialization SQL scripts into some location inside the database container.
+You can configure this by mounting a local file into the container as follows:
+PostgreSQLContainer<?> postgres =
+new PostgreSQLContainer<>("postgres:16-alpine")
+.withFileSystemBind(
+"src/test/resources/schema.sql",
+"/docker-entrypoint-initdb.d/01-schema.sql",
+BindMode.READ_ONLY);
+This might work locally. But if you are using a Remote Docker daemon or Testcontainers Cloud, then those files won’t be found in the remote docker host, and tests will fail.
+Instead of mounting local files, you should use File copying as follows:
+PostgreSQLContainer<?> postgres =
+new PostgreSQLContainer<>("postgres:16-alpine")
+.withCopyFileToContainer(
+MountableFile.forClasspathResource("schema.sql"),
+"/docker-entrypoint-initdb.d/01-schema.sql");
+This approach works fine even while using Remote Docker daemon or Testcontainers Cloud, allowing tests to be portable.
+Use the same container versions as in production
+While specifying the container tag, don’t use latest, as it can introduce flakiness in your tests when a new version of the image is released. Instead, use the same version that you use in production to ensure you can trust the outcome of your tests.
+For example, if you are using PostgreSQL 15.2 version in the production environment then use postgres:15.2 Docker image for testing and local development as well.
+// DON'T DO THIS
+PostgreSQLContainer<?> postgres =
+new PostgreSQLContainer<>("postgres:latest");
+// INSTEAD, DO THIS
+PostgreSQLContainer<?> postgres =
+new PostgreSQLContainer<>("postgres:15.2");
+Use proper container lifecycle strategy
+Typically the same container(s) will be used for all the tests in a class as follows:
+@SpringBootTest(webEnvironment = RANDOM_PORT)
+@Testcontainers
+class MyControllerTest {
+@Container
+static GenericContainer<?> redis =
+new GenericContainer<>("redis:5.0.3-alpine")
+.withExposedPorts(6379);
+@DynamicPropertySource
+static void overrideProperties(DynamicPropertyRegistry registry) {
+registry.add("spring.redis.host", () -> "localhost");
+registry.add("spring.redis.port", () -> redis.getMappedPort(6379));
+}
+@Test
+void firstTest() {
+....
+}
+@Test
+void secondTest() {
+....
+}
+}
+When you run MyControllerTest, only one Redis container will be started and used for executing both tests. This is because we make the Redis container a static field. If it isn’t a static field, then two Redis instances will be used for running the two tests, which might not be what you want and could even fail if you aren’t recreating the Spring Context. While using separate containers for each test is possible, it’ll be resource-intensive and may slow down the test execution.
+Also, sometimes developers who aren’t familiar with Testcontainers lifecycle use JUnit 5 Extension annotations @Testcontainers and @Container and also manually start/stop the container by calling container.start() and container.stop() methods. Please read Testcontainers container lifecycle management using JUnit 5 guide to thoroughly understand Testcontainers lifecycle methods.
+Another common approach to speed up the test execution is using Singleton Containers Pattern.
+Leverage your framework’s integration for Testcontainers
+Some frameworks such as Spring Boot, Quarkus, and Micronaut provide out-of-the-box integration for Testcontainers. While building the applications using any of these frameworks, it’s recommended to use frameworks Testcontainers integration support.
+Spring Boot support for Testcontainers
+Quarkus DevServices using Testcontainers
+Micronaut TestResources using Testcontainers
+User preconfigured technology-specific modules when possible
+Testcontainers provide technology-specific modules for most of the popular technologies such as SQL databases, NoSQL datastores, message brokers, search engines, etc. These modules provide technology-specific API that makes it easy to retrieve the container’s information, such as getting JDBC URL from a SQL database container, bootstrapServers URL from Kafka container, etc. Most importantly, they take care of all necessary bootstrapping work, making it easy to run an application in a container and interact with it from your Java code.
+For example, using GenericContainer to create a PostgreSQL container looks as follows:
+GenericContainer<?> postgres = new GenericContainer<>("postgres:16-alpine")
+.withExposedPorts(5432)
+.withEnv("POSTGRES_USER", "test")
+.withEnv("POSTGRES_PASSWORD", "test")
+.withEnv("POSTGRES_DB", "test")
+.waitingFor(
+new LogMessageWaitStrategy()
+.withRegEx(".*database system is ready to accept connections.*\\s")
+.withTimes(2).withStartupTimeout(Duration.of(60L, ChronoUnit.SECONDS)));
+postgres.start();
+String jdbcUrl = String.format(
+"jdbc:postgresql://%s:%d/test", postgres.getHost(),
+postgres.getFirstMappedPort());
+By using the Testcontainers PostgreSQL module, you can create an instance of PostgreSQL container simply as follows:
+PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+String jdbcUrl = postgres.getJdbcUrl();
+The PostgreSQL module implementation already applies sensible defaults and also provides convenient methods to get container information.
+So, instead of using GenericContainer, first, check if there’s a module already available in the Modules Catalog for your desired technology.
+On the other hand, if you’re missing an important module from the catalog, chances are good that by using GenericContainer directly (or by writing your own custom class extending GenericContainer), you can get the technology working.
+Use WaitStrategies to check the container is ready
+If you’re using GenericContainer or creating your own module, then use the appropriate WaitStrategy to check whether the container is fully initialized and ready to use instead of using sleep for some (milli)seconds.
+//DON'T DO THIS
+GenericContainer<?> container = new GenericContainer<>("image:tag")
+.withExposedPorts(9090);
+container.start();
+Thread.sleep(2 * 1000); //waiting for container to be ready
+container.getHost();
+container.getFirstMappedPort();
+//DO THIS
+GenericContainer<?> container = new GenericContainer<>("image:tag")
+.withExposedPorts(9090)
+.waitingFor(Wait.forLogMessage(".*Ready to accept connections.*\\n", 1));
+container.start();
+container.getHost();
+container.getFirstMappedPort();
+Check the Testcontainers language-specific documentation to see what are the available WaitStrategies out of the box. You can also implement your own if need be.
+Please note: If you don’t configure any WaitStrategy, Testcontainers will set up a default WaitStrategy that’ll check for connectivity of all exposed ports from the host.
+Summary
+We’ve explored some of the do’s and don’ts when using Testcontainers libraries and provided better alternatives. Check out the Testcontainers website to find more resources on how to use the framework effectively.
+Learn more
+Sign up for a Testcontainers Cloud account.
+Connect on the Testcontainers Slack.
+Get started with the Testcontainers guide.
+Subscribe to the Docker Newsletter.
+Have questions? The Docker community is here to help.
+New to Docker? Get started.
+Posted
+Nov 3, 2023
+Post Tags
+Testcontainers
+Post Categories
+Products
+Related Posts
+Docker Brings Compose to the Agent Era: Building AI Agents is Now Easy
+Define, run, and scale AI agents using Docker Compose and Docker Offload. Streamline agentic development across your stack.
+Mark Cavage & Tushar Jain
+Jul 10, 2025
+Read now
+MCP Security: A Developer’s Guide
+MCP security refers to the controls and risks that govern how agents discover, connect to, and execute MCP servers.
+Saurabh Davala & Sundeep Gottipati
+Sep 16, 2025
+Read now
+The Nine Rules of AI PoC Success: How to Build Demos That Actually Ship
+Build AI POCs that ship. Use remocal workflows, start small, design for production, track costs, and involve users to move from demo to dependable deployment.
+Jim Clark
+Sep 15, 2025
+Read now
+From Hallucinations to Prompt Injection: Securing AI Workflows at Runtime
+Stop LLM mishaps before production. Secure AI agents at runtime with Docker Desktop, Docker Scout, hardened images, and policies against prompt injection.
+Andy Ramirez
+Sep 10, 2025
+Read now
+Products
+Products Overview
+Docker Desktop
+Docker Hub
+Docker Scout
+Docker Build Cloud
+Testcontainers Desktop
+Testcontainers Cloud
+Docker MCP Catalog and Toolkit
+Docker Hardened Images
+Features
+Command Line Interface
+IDE Extensions
+Container Runtime
+Docker Extensions
+Trusted Open Source Content
+Secure Software Supply Chain
+Developers
+Documentation
+Getting Started
+Trainings
+Extensions SDK
+Community
+Open Source
+Preview Program
+Newsletter
+Pricing
+Personal
+Pro
+Team
+Business
+Pricing FAQ
+Contact Sales
+Company
+About Us
+What is a Container
+Blog
+Why Docker
+Trust
+Customer Success
+Partners
+Events
+Docker System Status
+Newsroom
+Swag Store
+Brand Guidelines
+Trademark Guidelines
+Careers
+Contact Us
+Languages
+English
+日本語
+© 2025 Docker Inc. All rights reserved
+Terms of Service
+Privacy
+Legal
+Cookie Settings

@@ -1,0 +1,241 @@
+AWS MediaTailor : Server Side Ad Insertion (SSAI) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Damandeep Singh
+Posted on Sep 17
+AWS MediaTailor : Server Side Ad Insertion (SSAI)
+#aws
+#ssai
+#advertisement
+#videojs
+What is SSAI?
+Server-Side Ad Insertion (SSAI) is a technology where ads are stitched directly into the video stream on the server before it reaches the viewer’s device. With SSAI, the video player receives a single, continuous stream that includes both the main content and the ads, making the transitions between them seamless.
+Why ?
+Seamless playback experience: No buffering or jarring transitions between content and ads.
+Bypasses ad blockers: Since ads are part of the main stream, it’s harder for ad blockers to filter them out.
+Consistent performance across devices: Works smoothly on various platforms and devices without heavy client-side logic.
+Better measurement & analytics: Offers precise tracking through server-side and client-side beaconing.
+Scalability: Easier to manage ad workflows on the server rather than on individual client apps.
+This article covers how to integrate MediaTailor SSAI with your video player and covers all the frontend aspects.
+For this, I will be using example of video.js.
+A glimpse about video.js :-
+Video.js is an open source javascript based video player which is used by approx 800,000 websites.
+✨ Bonus: Includes a custom plugin that facilitates ad markers, an ad counter with a countdown timer, and beaconing.
+For more insights into backend integration, check out this article, which dives deep into the server aspects of SSAI."
+📘 Steps to Integrate SSAI Workflow
+Here are the steps required to set up AWS MediaTailor SSAI with your video player. :-
+1. Session URL formation :
+Now the first thing is session url which is basically the post api call which is initiated from the player to the stitching service (MediaTailor) which passes it further to the ads server (Eg. FreeWheel).
+You typically generate the session URL by replacing certain parts of the manifest URL:
+Replace ‘/dash/’
+with ‘/session/’ for MPD assets (DASH).
+Replace ‘/master/’
+with ‘/session/’ for HLS assets.
+Example final session URL:-
+https://domain.example..com/v1/session/aesdnsjdsk/Renditions_asset/20250805/1754403862031_sample_HD_TVE_SAMPLE_ASSET_07172025_7830k_mp4_CUSTOM_CODEC_TS_DRM_DASH_DRM/dash/stream.mpd
+You can also check with your backend team on how to create the session link as it can be done differently on the basis of CDN and other mapping. There is also the possibility of not doing this on the player all together and having it done by the server using the video id and then the server is responsible to just send you manifest and tracking url.
+2. POST Request to Get Manifest and Tracking URL
+Once you have the session url , you now need to send the url as a POST request with the necessary key:value pairs required by Ad decision server.
+Note that user-agent is an essential header which needs to be passed in order to ensure that the ad decision server stitches the ad seamlessly.
+For a web browser, we don’t need to explicitly send as it is managed by the browser.
+3. Parsing the Response.
+Once you post the session url , you will get the following response :-
+Example response:
+{
+manifestUrl:"/v1/dash/a2769ff6f508fb0f68aca8782209ab59ae7a5db0/sample/Renditions/20250805/1754403862031_sample_mp4_CUSTOM_CODEC_TS_DRM_DASH_DRM/dash/stream.mpd?aws.sessionId=dz2d6359-4302-4fb2-a3c4-7cefa9468d42",
+trackingUrl:"/v1/tracking/a2769ff6f508fb5f68aca8782209ab59ae7a5db0/samoke/eb7d6e59-4302-4fb2-a3c4-7cefa9468d32"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+In the response, you will get the paths of tracking url and manifest url.
+To construct the full URLs, prepend the same domain you used for the POST request.
+Tracking URL → Contains ad details and beacons
+Manifest URL → Contains stitched content with ads
+Pass the manifestURL in videojs to run the stitched content.
+Example: Play the stitched asset.
+player.src( {src: ‘manifestUrl’ , type :
+‘application/x-mpegURL“} )
+Enter fullscreen mode
+Exit fullscreen mode
+Once set, the player will seamlessly play content + ads as a single stream.
+This will allow the stitched asset to play seamlessly.
+Now, let's move forward with showing the ad-markers on the seekbar
+and managing advertisement beacons.
+Tracking URL is the source of truth for managing anything related to the ads in case of aws media tailor.
+4. Working with Tracking URL
+Ensure that the updatedManifest URL is loaded into the player before calling the tracking URL.
+This is an important step because if you call the tracking URL first without loading the updated manifest url with sessionId, you will end up getting an empty response from the stitching service (aws-mediatailor).
+Once the asset is loaded, you can simply call the tracking url as shown below:
+Eg:
+player.one(‘loadeddata’, async()=>{
+// initiate get request for tracking url.
+getTrackingData();
+})
+async function getTrackingData(){
+const res =
+await fetch(trackingUrl);
+const data = await res.json();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Initiate a get request to retrieve all the advertisement related data.
+You will get a JSON based response as a result.
+The ‘avails’ key is an array of objects which consists of all the ad pods present in the stitched asset.
+Now here, the response might not include ads in all the pods and you can get an empty array for some cases.
+You can now mark the ad pods on the video.js player's seekbar based on this data.
+Since each ad pod has the ‘startTimeInSeconds‘ key , we can mark that ad pod on the seekbar.
+You can also use this plugin which basically does the job with many other features as well.
+VideoJS Player with Ad Markers and Ad counter :-
+5. Beaconing (Client-Side Tracking)
+Now here comes the client side beaconing.
+In AWS MediaTailor, beacons are small tracking signals sent to an ad server to report on viewer ad engagement, indicating milestones like the start or completion of an ad. AWS MediaTailor supports both server-side (where MediaTailor sends the beacons) and client-side (where the player sends the beacons) tracking methods to provide granular metrics for ad performance and impression measurement.
+Lets discuss about the client side beacon handling :-
+The ad pod contains an ‘ads’ key which is an
+array of objects.
+Inside each object, we have the ‘trackingEvents’ key which consists of all the beacons related to that particular ad.
+Now , each trackingEvent has the ‘startTimeInSeconds’ which denotes when this beacon event should be triggered. It also has the ‘beaconUrls’ key which consists of the url for that beacon.
+For a particular advertisement, we are supposed to send a get request exactly as per the 'startTimeInSeconds'.
+Now, in video.js or any other web based player we can make use of player.on(‘timeupdate’,cb) event in order to facilitate this logic.
+⚠️Caution: Since timeupdate fires 4-5 times/second. It is important to handle the logic carefully.
+You can also this plugin. It handles the beacon logic as well as it provides other basic features for ssai integration.
+Final Thoughts
+That’s it!
+You now have a fully functional AWS MediaTailor SSAI integration with:
+Session URL creation
+Manifest loading
+Tracking data handling
+Ad markers on the seek bar
+Client-side beacon tracking
+You can also read the official documentation of AWS Mediatailor for more insights.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Damandeep Singh
+Follow
+Learner
+Location
+New Delhi, India
+Work
+Software Engineer
+Joined
+May 3, 2025
+More from Damandeep Singh
+Videojs Theme Kit — Effortless Player Control Customization
+#webdev
+#videojs
+#playercustomisation
+#videojsplugin
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

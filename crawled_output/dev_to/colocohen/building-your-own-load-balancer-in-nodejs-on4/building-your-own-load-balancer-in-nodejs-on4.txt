@@ -1,0 +1,322 @@
+Building Your Own Load Balancer in Node.js - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Aviv Cohen
+Posted on Sep 17
+Building Your Own Load Balancer in Node.js
+#webdev
+#devops
+#dns
+#kubernetes
+Why you need a load balancer
+Imagine your website suddenly becomes popular. Hundreds or thousands of users are visiting at the same time.
+If all of them land on one server, that server will slow down, maybe even crash.
+The natural solution is to run more than one server — maybe two, three, or ten — and spread the traffic between them.
+The missing piece is a “traffic director” that decides who goes where. That’s what a load balancer is: it makes sure no single server carries all the weight.
+Different approaches to load balancing
+There are several ways to share traffic. Each approach works differently and comes with its own pros and cons:
+1) Reverse Proxy
+How it works: All traffic first goes through one main server — the reverse proxy. It accepts every request and forwards it to another backend server. This can be done at the transport layer or the application layer.
+Example: A network load balancer forwarding TCP packets to different machines; or Nginx acting as a reverse proxy for HTTP requests.
+✅ Pros:
+Simple to configure.
+Works with any application.
+Easy to add features like TLS termination, WebSockets, or header manipulation.
+⚠️ Cons:
+Everything passes through one “gatekeeper.”
+If that proxy server gets overloaded or is physically far from the user, performance suffers.
+It can become a single point of failure.
+2) Redirector Server
+How it works: Instead of proxying every request forever, the main server can redirect the client to a more specific server or subdomain. For example, the proxy receives the first request, decides that this user should go to eu.example.com, and responds with a redirect. From then on, the client talks directly to that server.
+Example: A Node.js server that checks the client’s IP location, then replies: “302 Redirect → us1.example.com” or “eu2.example.com.”
+✅ Pros:
+After the first step, traffic no longer flows through the main proxy — reducing load on it.
+⚠️ Cons:
+Users still depend on that central server for the first connection.
+If it’s busy or goes down, new sessions can’t be routed correctly.
+3) Anycast / IP‑level routing (used by Cloudflare, Google, etc.)
+How it works: The same IP address is announced from multiple geographic locations using BGP. Internet routing automatically directs users to the nearest announcement.
+Example: 1.2.3.4 is announced from Amsterdam and New York; BGP delivers client traffic to the closest point.
+✅ Pros:
+Very fast.
+Automatic.
+Resilient.
+⚠️ Cons:
+Requires BGP announcements and AS management.
+Only available to large providers.
+Not realistic for small companies or developers.
+4) DNS-based Routing
+How it works: Your authoritative DNS server returns different IP answers depending on the query (by looking at client subnet via ECS, resolver IP, or other decision inputs). This effectively routes clients to different data centers before any TCP connection happens.
+Example: For example.com, US users get 192.0.2.10, EU users get 198.51.100.20.
+✅ Pros:
+Lightweight.
+Scalable.
+Avoids a single choke point.
+⚠️ Cons:
+Changes are not instant.
+Some delay because of caching and resolver behavior.
+The Best Approach: DNS‑based routing
+The most practical way to balance traffic without expensive hardware or complex BGP setups is to use DNS itself.
+Every connection on the internet starts with a DNS lookup — so if you control the DNS answers, you control where users connect.
+Think of DNS as a super‑lightweight version of HTTP:
+The client asks: “What’s the IP of example.com?”
+Your authoritative server replies: “Connect to 203.0.113.10.”
+One tiny request, one tiny response — no heavy proxy in the middle.
+By taking advantage of this mechanism, you can decide on the fly:
+🌍 Which server is closest to the user (geo-routing).
+❤️ Which servers are healthy and ready (health-aware routing).
+⚖️ How to split traffic between servers (weighted or canary testing).
+This makes DNS a traffic director built into the internet itself — fast, lightweight, and surprisingly flexible.
+Most traditional DNS software only gives static answers from a zone file. But if you want dynamic answers — logic that changes per user, per query, per moment — that’s where Node.js shines. With a few lines of JavaScript you can program the authoritative server itself and take full control.
+Implementing a DNS‑Based Load Balancer with Node.js
+To actually build a DNS‑based load balancer, you need a library that can act as an authoritative DNS server. And in the Node.js ecosystem there’s one library that really makes this possible: dnssec-server.
+Unlike traditional DNS software, which mostly relies on static zone files, dnssec-server lets you generate answers programmatically — with the same simplicity as Node’s built‑in HTTP module. That means your application can decide, in real time, what IPs to return. It’s the only Node.js library that brings this level of dynamic control and DNSSEC support out of the box.
+Here’s how it works at a high level:
+📩 A DNS query arrives (for example, example.com type A).
+⚙️ Your handler function runs, where you can inspect the query, check GeoIP, consult a health map, or apply custom logic.
+📤 You return one or more answers (A for IPv4, AAAA for IPv6), each with its own TTL.
+Let’s see it in practice.
+Example 1 — Geo‑based answer (A/AAAA), annotated
+// Import the library and GeoIP helper
+const dns_server = require('dnssec-server');
+const geoip = require('geoip-lite');
+// 🌍 Region → IP mapping for both IPv4 (A) and IPv6 (AAAA)
+const EDGES = {
+us: { A: '192.0.2.10',
+AAAA: '2001:db8:10::10' },
+eu: { A: '198.51.100.20', AAAA: '2001:db8:20::20' }
+};
+// 🔍 Simple region picker by country code
+function pickRegion(ip){
+const looked = geoip.lookup(ip) || {};
+const cc = looked.country || 'US';
+const EU = { DE:1, FR:1, NL:1, IT:1, ES:1, PL:1, SE:1 };
+return EU[cc] ? 'eu' : 'us';
+}
+// 🚀 Create the DNS server
+const server = dns_server.createServer((req, res) => {
+// Only handle queries for our domain
+if (req.name == 'example.com.'){
+const region = pickRegion(req.remoteAddress);
+// 📡 Add IPv4 answer if requested
+if (req.type === 'A' || req.type === 'ANY') {
+res.answers.push({
+name: req.name,
+type: 'A',
+ttl: 30,
+data: {
+address: EDGES[region].A
+}
+});
+}
+// 📡 Add IPv6 answer if requested
+if (req.type === 'AAAA' || req.type === 'ANY') {
+res.answers.push({
+name: req.name,
+type: 'AAAA',
+ttl: 30,
+data: {
+address: EDGES[region].AAAA
+}
+});
+}
+res.send();
+}
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Each query for example.com is checked against the user’s IP. We decide if the user is closer to us or eu, then send back both A (IPv4) and AAAA (IPv6) records with a 30s TTL.
+Example 2 — Health‑aware answer (skip unhealthy regions), annotated
+// Import the library
+const dns_server = require('dnssec-server');
+// 🩺 Track health of each region (updated by background checks)
+let health = { us:true, eu:true };
+// 🌍 Region → IP mapping
+const EDGES = {
+us: { A: '192.0.2.10',
+AAAA: '2001:db8:10::10' },
+eu: { A: '198.51.100.20', AAAA: '2001:db8:20::20' }
+};
+// ⚙️ Function to choose the best healthy region
+function bestRegion(){
+if (health.eu) return 'eu';
+if (health.us) return 'us';
+return 'us'; // fallback
+}
+// 🚀 Create the DNS server
+const server = dns_server.createServer((req, res) => {
+// Only handle queries for our domain
+if (req.name == 'example.com.'){
+const region = bestRegion();
+// 📡 Add IPv4 answer if requested
+if (req.type === 'A' || req.type === 'ANY') {
+req.answers.push({
+name: req.name,
+type: 'A',
+ttl: 30,
+data: {
+address: EDGES[region].A
+}
+});
+}
+// 📡 Add IPv6 answer if requested
+if (req.type === 'AAAA' || req.type === 'ANY') {
+res.answers.push({
+name: req.name,
+type: 'AAAA',
+ttl: 30,
+data: {
+address: EDGES[region].AAAA
+}
+});
+}
+res.send();
+}
+});
+Enter fullscreen mode
+Exit fullscreen mode
+We maintain a small health map that tells us which regions are alive. If EU is healthy we send users there, otherwise they go to US. The logic is simple, but powerful enough to keep traffic flowing smoothly.
+Pointing your Domain to Your Node.js Server
+The DNS server that answers is not necessarily the same server that hosts your site files. In many cases, you may be using DNS services from your domain registrar (e.g. Namecheap, GoDaddy), a cloud provider (e.g. AWS Route 53, Cloudflare DNS), or traditional DNS software like BIND running on a separate server.
+If you haven’t explicitly set up your own authoritative DNS server, then by default your DNS is being served by one of those services.
+Here is how to set your domain’s NS (Name Server) records to point to your machine:
+Everyone who has ever configured a domain has seen something like this:
+ns1.example.com → points to IP of your Node.js DNS server.
+ns2.example.com → secondary server for redundancy.
+For example, in Namecheap’s dashboard you would:
+Go to Domain List.
+Select your domain, click Manage.
+Under Nameservers, choose Custom DNS.
+Enter ns1.example.com and ns2.example.com and IP address for each of them.
+Once saved and propagated, queries for your domain will start hitting your Node.js server. From there you have full programmatic control over the answers you return, and that means your DNS layer becomes part of your application logic — agile and reactive, adapting to your needs without relying on third‑party services.
+Join the discussion
+💬 Have questions? Ideas for improvements? Or maybe you’ve tried building your own DNS‑based load balancer and want to share your experience?
+Feel free to leave a comment or start a discussion — your feedback helps improve the tools and guides for everyone.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Aviv Cohen
+Follow
+Javascript Developer
+Joined
+Sep 7, 2025
+More from Aviv Cohen
+Enable DNSSEC Support in Your Node.js Application
+#node
+#security
+#webdev
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

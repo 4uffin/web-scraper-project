@@ -1,0 +1,316 @@
+Building Web Servers from First Principles (Part 1) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Boluwatife Adewusi
+Posted on Sep 17
+Building Web Servers from First Principles (Part 1)
+#go
+#backend
+#tutorial
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+Ever made a fetch() call from JavaScript and wondered what's actually happening on the other end? Or used Gin/Echo/Fiber and typed r.GET("/users", handler) without thinking about what makes that route registration work?
+If you're a frontend engineer who's curious about what happens after your API request leaves the browser, or a backend developer who wants to understand what's beneath those convenient framework abstractions, this series is for you.
+Who This Series Is For
+Frontend Engineers: You know how to make HTTP requests, but what's actually running on that server responding to your POST /api/users calls? We'll build it from scratch.
+Backend Developers: You've written gin.GET("/users/:id", getUserHandler), but do you know how that path matching actually works? What happens between the network request hitting your server and your handler function being called?
+We're going to build all of this ourselves - no frameworks, just Go's standard library and our own code.
+Prerequisites
+Go installed: Download from https://golang.org/dl/
+curl installed: Most systems have it, or get it from https://curl.se/download.html
+Text editor: VS Code, Vim, or any editor you prefer
+The Problem We're Solving
+When your JavaScript does this:
+fetch('/api/users/123', { method: 'GET' })
+Enter fullscreen mode
+Exit fullscreen mode
+Or your mobile app makes this call:
+URLSession.shared.dataTask(with: url)
+Enter fullscreen mode
+Exit fullscreen mode
+Something has to be listening on the other end, parse that HTTP request, figure out what /api/users/123 means, and send back a response. Today, we'll build that "something" from first principles.
+Setting Up Our Project
+First, let's create our Go module:
+mkdir custom-http-server && cd custom-http-server/chap1
+go mod init webserver
+Enter fullscreen mode
+Exit fullscreen mode
+This creates a go.mod file that manages our dependencies.
+The Simplest Possible Server
+Let's start with the most basic question: How do we create something that can listen for HTTP requests?
+When you use Gin, you write:
+r := gin.Default()
+r.GET("/", func(c *gin.Context) { c.String(200, "hello world") })
+r.Run(":3000")
+Enter fullscreen mode
+Exit fullscreen mode
+But what is Gin actually doing under the hood? Let's build our own version to understand.
+Go's standard library provides everything we need through the net/http package. But instead of just calling http.ListenAndServe(), let's build our own server struct to understand the underlying concepts.
+Create server.go:
+package main
+import (
+"fmt"
+"log"
+"net/http"
+)
+type Server struct {
+Addr
+string
+server *http.Server
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Why are we creating a Server struct instead of just using the standard library directly? This gives us:
+Encapsulation: All server-related logic stays together (just like Gin's Engine)
+Extensibility: We can easily add features like middleware, custom routing, etc.
+Testability: We can create multiple server instances for testing
+Now let's add a constructor function:
+func NewServer(addr string) Server {
+return Server{
+Addr: addr,
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Implementing the HTTP Handler
+Here's where it gets interesting. For our server to handle HTTP requests, it needs to implement the http.Handler interface. This interface has just one method:
+ServeHTTP(ResponseWriter, *Request)
+Enter fullscreen mode
+Exit fullscreen mode
+This is the method that gets called every time an HTTP request comes in - whether it's your frontend's fetch() call, a mobile app request, or someone testing with curl.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
+w.Write([]byte("hello world"))
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What's happening here?
+w http.ResponseWriter: This is how we send data back to the client (like writing res.json() in Express or c.JSON() in Gin)
+r *http.Request: This contains all the information about the incoming request - the path, method, headers, body, everything
+w.WriteHeader(): Sets the HTTP status code (200 OK in this case)
+w.Write(): Sends the actual response body back to the client
+Starting Our Server
+Now we need a way to start our server and make it listen for incoming connections:
+func (s *Server) Start() {
+s.server = &http.Server{
+Addr:
+s.Addr,
+Handler: s,
+// This is crucial - we're telling Go to use our ServeHTTP method
+}
+fmt.Println("Server starting at", s.Addr)
+err := s.server.ListenAndServe()
+if err != nil {
+log.Fatal(err)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The key insight here is Handler: s - we're passing our entire server struct as the handler. Go will call our ServeHTTP method for every incoming request.
+Putting It All Together
+Create main.go:
+package main
+func main() {
+server := NewServer(":3000")
+server.Start()
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Testing Our Server
+Let's see our server in action:
+go run .
+Enter fullscreen mode
+Exit fullscreen mode
+You should see:
+Server starting at :3000
+Enter fullscreen mode
+Exit fullscreen mode
+Now let's test it like a frontend developer would. In another terminal:
+curl http://localhost:3000
+Enter fullscreen mode
+Exit fullscreen mode
+Expected Response:
+hello world
+Enter fullscreen mode
+Exit fullscreen mode
+Try different paths (like your frontend might request):
+curl http://localhost:3000/api/users
+curl http://localhost:3000/api/products/123
+curl -X POST http://localhost:3000/api/login -d '{"username":"test"}'
+Enter fullscreen mode
+Exit fullscreen mode
+What do you notice? Every request returns the same "hello world" response, regardless of the path or HTTP method. This is because our ServeHTTP method doesn't look at the request details yet - it's like having one giant catch-all route handler.
+What We've Built So Far
+We now have:
+✅ A working HTTP server that can receive any HTTP request
+✅ Custom server struct for extensibility (foundation for adding features)
+✅ Understanding of the http.Handler interface (what frameworks build on top of)
+✅ Basic request/response cycle (what happens when your frontend makes a request)
+Current Limitations
+Our server has the same issues you'd face with one giant route handler in Express:
+Single Response: Every request gets the same "hello world" response
+No Route Awareness: We ignore the requested path completely (/users vs /products)
+No Method Handling: GET, POST, PUT, DELETE all behave the same
+No Request Data: We don't read query parameters, headers, or request body
+Imagine if every API endpoint in your frontend returned the same response - not very useful!
+What's Next?
+In Chapter 2, we'll address the first major limitation - handling different routes. We'll modify our ServeHTTP method to inspect the incoming request path and return different responses based on what the client requested.
+But here's a preview of what we'll discover: handling routes directly in ServeHTTP quickly becomes unwieldy (like having one massive if-else chain). This will set us up perfectly for Chapter 3, where we'll build a proper routing system - similar to how Express or Gin handles routes.
+Try This Challenge: Before moving to Chapter 2, try modifying the ServeHTTP method to print the request path and method to the console. This will help you see exactly what requests are coming in from your tests.
+Hint: Use fmt.Printf("Request: %s %s\n", r.Method, r.URL.Path)
+Next: Chapter 2: Handling Multiple Routes - The Monolithic Approach
+Building a web server (5 Part Series)
+1
+Building Web Servers from First Principles (Part 1)
+2
+Building Web Servers from First Principles (Part 2)
+3
+Building Web Servers from First Principles (Part 3)
+4
+Building Web Servers from First Principles (Part 4)
+5
+Building Web Servers from First Principles (Part 5)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Boluwatife Adewusi
+Follow
+I am a full stack developer with over half a decade of experience journaling my journey so that you don't make the same mistakes I made.
+Joined
+Jun 5, 2024
+More from Boluwatife Adewusi
+Building Web Servers from First Principles (Part 5)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 4)
+#go
+#backend
+#tutorial
+Building Web Servers from First Principles (Part 3)
+#go
+#backend
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

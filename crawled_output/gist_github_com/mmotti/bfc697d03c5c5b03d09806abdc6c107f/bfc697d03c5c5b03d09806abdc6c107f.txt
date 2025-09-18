@@ -1,0 +1,242 @@
+Simple script to automatically shut down your PC after Steam downloads are complete. · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+mmotti/Auto-Shutdown.ps1
+Last active
+September 17, 2025 17:14
+Show Gist options
+Download ZIP
+Star
+6
+(6)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/mmotti/bfc697d03c5c5b03d09806abdc6c107f.js&quot;&gt;&lt;/script&gt;
+Save mmotti/bfc697d03c5c5b03d09806abdc6c107f to your computer and use it in GitHub Desktop.
+Code
+Revisions
+14
+Stars
+6
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/mmotti/bfc697d03c5c5b03d09806abdc6c107f.js&quot;&gt;&lt;/script&gt;
+Save mmotti/bfc697d03c5c5b03d09806abdc6c107f to your computer and use it in GitHub Desktop.
+Download ZIP
+Simple script to automatically shut down your PC after Steam downloads are complete.
+Raw
+Auto-Shutdown.ps1
+<#
+.SYNOPSIS
+Monitors Steam downloads and initiates a system shutdown when downloads have completed.
+.DESCRIPTION
+This script will check for active Steam downloads and monitor their progress. Other scripts rely on
+network / disk activity however they are somewhat flawed as they don't accommodate for user intervention
+or drop in network connectivity.
+Providing Steam doesn't change how the registry settings work, this script should correctly identify when
+downloads are active, when they have completed and when there has been user intervention.
+.PARAMETER loopSleepSeconds
+This is the interval timer for the loop that monitors the active download.
+.PARAMETER shutdownDelaySeconds
+This is the delay for system shutdown, AFTER the threshold for no download activity has been exceeded.
+.PARAMETER noDownloadActivityThreshold
+This is used to specify how many loop iterations of an inactive download are completed before the script is to
+initiate the shutdown call.
+#>
+param (
+[int] $loopSleepSeconds = 60,
+[int] $shutdownDelaySeconds = 900, # 15 minutes
+[int] $noDownloadActivityThreshold = 5
+)
+$STEAM_REG_PATHS = @(
+'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam',
+'HKLM:\SOFTWARE\Valve\Steam'
+)
+$STEAM_APPS_REG_PATH = "HKCU:\Software\Valve\Steam\Apps\*"
+$STEAM_PROCESS_NAME = "steam"
+$ACF_FILE_PATTERN = "appmanifest_{0}.acf"
+function Get-SteamPath {
+# There should only be one return here but just in case...
+foreach ($path in $STEAM_REG_PATHS | Where-Object {Test-Path $_}) {
+$installPath = (Get-ItemProperty -Path $path -Name "InstallPath" -ErrorAction SilentlyContinue).InstallPath
+if (Test-Path -Path $installPath) {
+return $installPath
+} else {
+throw "No Steam path was detected."
+}
+}
+}
+function Get-ActiveDownload {
+return Get-ItemProperty -Path $STEAM_APPS_REG_PATH -Name "Updating" -ErrorAction SilentlyContinue | Where-Object {$_.Updating -eq 1}
+}
+function Confirm-DownloadComplete {
+param (
+[Parameter(Mandatory=$true)]
+[string] $acfPath
+)
+# User has cancelled the download and uninstalled.
+if (!(Test-Path -Path $acfPath)) {
+return $false
+}
+$acfContent = Get-Content -Path $acfPath
+$isDownloadCompleted = $false
+if ($acfContent) {
+$bytesToDownloadMatch = $acfContent | Select-String -Pattern "`"BytesToDownload`"\s+`"(\d+)`""
+$bytesDownloadedMatch = $acfContent | Select-String -Pattern "`"BytesDownloaded`"\s+`"(\d+)\`""
+if($bytesToDownloadMatch -and $bytesDownloadedMatch) {
+$bytesToDownload = [int64] $bytesToDownloadMatch.Matches[0].Groups[1].Value
+$bytesDownloaded = [int64] $bytesDownloadedMatch.Matches[0].Groups[1].Value
+if ($bytesToDownload -eq $bytesDownloaded) {
+$isDownloadCompleted = $true
+}
+}
+}
+return $isDownloadCompleted
+}
+$steamPath = Get-SteamPath
+$downloadAppID = $null
+$loopState = "WaitingForSteam"
+$i = 0
+while ($true) {
+Clear-Host
+switch ($loopState) {
+"WaitingForSteam" {
+Write-Output "Looking for Steam process..."
+if (Get-Process $STEAM_PROCESS_NAME -ErrorAction SilentlyContinue) {
+Write-Output "Steam process detected!"
+$loopState = "WaitingForDownloads"
+} else {
+Start-Sleep -Seconds 3
+}
+}
+"WaitingForDownloads" {
+$activeDownload = Get-ActiveDownload
+if ($activeDownload) {
+$downloadAppID = $activeDownload.PSChildName
+$loopState = "MonitoringDownloads"
+$i = 0
+} else {
+Write-Output "Waiting for downloads to begin..."
+Start-Sleep -Seconds 3
+}
+}
+"MonitoringDownloads" {
+$activeDownload = Get-ActiveDownload
+if ($activeDownload) {
+Write-Output "Steam client is downloading."
+$downloadAppID = $activeDownload.PSChildName
+$i = 0
+} else {
+if(Confirm-DownloadComplete -acfPath ("${steamPath}\steamapps\$ACF_FILE_PATTERN" -f $downloadAppID)) {
+Write-Warning "There is no active download."
+Write-Warning "$($noDownloadActivityThreshold - $i) checks remain until shutdown."
+if ($i -ge $noDownloadActivityThreshold) {
+Write-Output "Sending shutdown signal..."
+shutdown /s /f /t $shutdownDelaySeconds
+Write-Output "To cancel the shutdown, run `"shutdown /a`"."
+$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+exit
+}
+$i++
+} else {
+Write-Output "User intervention has been detected."
+$loopState = "WaitingForDownloads"
+continue
+}
+}
+Write-Output "Next check: ~$((Get-Date).AddSeconds($loopSleepSeconds).ToString('HH:mm:ss'))"
+Start-Sleep -Seconds $loopSleepSeconds
+}
+}
+}
+Copy link
+Rapidhands
+commented
+Aug 15, 2024
+Hi
+Could I suggest you replace shutdown /s /f /t $shutdownDelaySeconds by the equivalent in powershell
+Start-Sleep -Seconds $shutdownDelaySeconds
+Stop-Computer -Force
+regards
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Rapidhands
+commented
+Aug 15, 2024
+Another suggests
+Use a param section at the beginning of your script like in advanced functions. By this, you could use your script with the default value for parameters or use the values passed in parameters.
+I use this technic often for scripts used in some scheduled tasks with different values for parameters. No need to modify the script, just to pass the parameters and their values.
+Moreover, the script in more readable when the variables are defined at the beginning of the script.
+Always think code reuse. :-)
+Modify your comment at the beginning to have an real internal help (see : https://learn.microsoft.com/en-us/powershell/scripting/developer/help/comment-based-help-keywords?view=powershell-7.4). By this, you could also do Get-Help .`myscript.ps1 like with the cmdlets.
+regards
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+mmotti
+commented
+Aug 15, 2024
+@Rapidhands I could indeed change the shutdown command out. I used shutdown primarily because it gives a toast notification that the system will shutdown, and subsequent warnings when it gets closer. I thought that may avoid any instances where the user may have sat back down at their PC, cancelled the downloads but forgotten about the script running in the background.
+Also I could expand this to use params etc. I might make a repo for it if it's useful enough to people and expand it properly there.
+I'm a little concerned at the moment about Steam adjusting their logs. With the current logic of the script, for it to work properly, it needs to be able to evaluate for what reason the downloads aren't active and to do that it needs for all of the regexp patterns to match and find which one occurred most recently. Otherwise it could get confused and think that the download is in the wrong state.
+E.g. If I only match for "Pause" but actually the user has moved the download out of the schedule (so it's not running), but the unscheduled regex match failed and paused is still the most recent match it could find, it could get stuck in a "pause" state instead of terminating.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Rapidhands
+commented
+Aug 15, 2024
+About Toast notification. Do you know the BurntToast module (https://github.com/Windos/BurntToast)? Look at the images of the examples provided on the Github, it's very interesting and practical.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.
