@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor # Added for concurrency
 
 # Define the output directory and URL file
 output_dir = "crawled_output"
@@ -85,24 +86,37 @@ def save_text_if_changed(url, new_text):
         print(f"Error saving {url} to file: {e}")
         return False
 
+def crawl_url(url):
+    """Crawl a single URL and save its content."""
+    text_content = get_plain_text(url)
+    if text_content:
+        return save_text_if_changed(url, text_content)
+    return False
+
 def main():
     """Main function to perform the crawling and saving."""
-    changes_detected = False
     if not urls_to_crawl:
         print("No URLs found in urls.txt. Please add URLs to the file.")
         return 1
+
+    print(f"Starting crawl of {len(urls_to_crawl)} URLs...")
+    changes_detected = False
+    
+    # Use a ThreadPoolExecutor for concurrent crawling
+    # Adjust max_workers as needed. A good starting point is 5-10 times the number of CPU cores.
+    # We will use 32 as a robust starting point to ensure fast crawling.
+    with ThreadPoolExecutor(max_workers=32) as executor:
+        results = executor.map(crawl_url, urls_to_crawl)
         
-    for url in urls_to_crawl:
-        print(f"Crawling: {url}")
-        text_content = get_plain_text(url)
-        if text_content:
-            if save_text_if_changed(url, text_content):
+        for result in results:
+            if result:
                 changes_detected = True
 
     if not changes_detected:
         print("No changes to commit. Exiting.")
-        return 1  # A non-zero exit code indicates nothing to commit
+        return 1
     else:
+        print("Crawl complete. Changes detected.")
         return 0
 
 if __name__ == "__main__":
