@@ -1,0 +1,397 @@
+c++ - std::this_thread::sleep_for(2ms) has a crash - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+std::this_thread::sleep_for(2ms) has a crash
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+112 times
+0
+I encountered a crash issue in my environment with an rk3588 ARM processor, Ubuntu 22.04 system, and kernel version 5.10. I use C++ to create multiple threads, one of which is responsible for the ReadIMU function. I introduced a backward function and started my program using GDB. After running it for a while, GDB caught the following error: it prompts at line 208, but the code for that line is std::this_thread: sleep_for (2ms); This is a system function, I'm not sure how to further solve this problem. Thank you
+gdb info:
+Thread 11 "ReadIMU" received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 0x7fe92dd540 (LWP 3744)]
+0x0000007ff5d41998 in __GI___clock_nanosleep (clock_id=<optimized out>, clock_id@entry=0, flags=flags@entry=0, req=0x7fe92dc640, rem=0x7fe92dc640) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+78
+../sysdeps/unix/sysv/linux/clock_nanosleep.c: No such file or directory.
+(gdb)
+(gdb)
+(gdb)
+(gdb)
+(gdb) bt
+#0
+0x0000007ff5d41998 in __GI___clock_nanosleep (clock_id=<optimized out>, clock_id@entry=0, flags=flags@entry=0, req=0x7fe92dc640, rem=0x7fe92dc640) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+#1
+0x0000007ff5d46b6c in __GI___nanosleep (req=<optimized out>, rem=<optimized out>) at ../sysdeps/unix/sysv/linux/nanosleep.c:25
+#2
+0x0000005555804e0c in std::this_thread::sleep_for<long, std::ratio<1l, 1000l> > (__rtime=...) at /usr/include/c++/11/bits/this_thread_sleep.h:82
+#3
+0x000000555598831c in mh4::host::controller::imu::IMUHandler::ReadIMU () at /MH4/src/host/controller/imu/ImuHandler.cpp:208
+#4
+0x00000055558a6adc in std::__invoke_impl<void, void (*)()> (__f=<error reading variable: Cannot access memory at address 0x6ce50006d1e90c40>) at /usr/include/c++/11/bits/invoke.h:61
+#5
+0x0001233b00026b37 in ?? ()
+Backtrace stopped: previous frame identical to this frame (corrupt stack?)
+Actually, I used the usleep function before, but it was also prompted with an issue.
+code:
+void IMUHandler::ReadIMU(void) {
+char buffer[RX_BUF_LEN];
+int nread = 0;
+unsigned short cnt = 0;
+int pos;
+unsigned char recvBuf[RX_BUF_LEN] = {0};
+unsigned short recvBufIdx = 0;
+protocol_info_t outputInfo = {};
+memset(buffer, 0, sizeof(buffer));
+LOG("start to read imu.");
+IMUHandler::getInstance().OpenIMU();
+IMUHandler::getInstance().ConfigureIMU();
+output_data_header_t header{};
+unsigned int frame_len = 0;
+while (1) {
+try {
+nread = read(IMUHandler::getInstance().m_serialFd, buffer, RX_BUF_LEN);
+if (nread > 0) {
+// printf("nread = %d\n", nread);
+memcpy(recvBuf + recvBufIdx, buffer, nread);
+recvBufIdx += nread;
+}
+cnt = recvBufIdx;
+pos = 0;
+if (cnt < YIS_OUTPUT_MIN_BYTES) {
+usleep(1500);
+continue;
+}
+while (cnt > (unsigned short)0) {
+int ret = analysis_data(recvBuf + pos, cnt, &outputInfo);
+if (analysis_done == ret) { /*未查找到帧头*/
+pos++;
+cnt--;
+} else if (data_len_err == ret) {
+break;
+} else if (crc_err == ret ||
+analysis_ok == ret) { /*删除已解析完的完整一帧*/
+memcpy(&header, recvBuf + pos, sizeof(output_data_header_t));
+frame_len = header.len + YIS_OUTPUT_MIN_BYTES;
+if (frame_len > 255) {
+break;
+}
+cnt -= frame_len;
+pos += frame_len;
+if (analysis_ok == ret) {
+pthread_mutex_lock(&IMUHandler::getInstance().m_imuDataMutex);
+IMUHandler::getInstance().m_imuState.quaternion()[0] =
+outputInfo.attitude.quaternion_data0;
+IMUHandler::getInstance().m_imuState.quaternion()[1] =
+outputInfo.attitude.quaternion_data1;
+IMUHandler::getInstance().m_imuState.quaternion()[2] =
+outputInfo.attitude.quaternion_data2;
+IMUHandler::getInstance().m_imuState.quaternion()[3] =
+outputInfo.attitude.quaternion_data3;
+IMUHandler::getInstance().m_imuState.gyroscope()[0] =
+outputInfo.angle_rate.x * PI / 180;
+IMUHandler::getInstance().m_imuState.gyroscope()[1] =
+outputInfo.angle_rate.y * PI / 180;
+IMUHandler::getInstance().m_imuState.gyroscope()[2] =
+outputInfo.angle_rate.z * PI / 180;
+IMUHandler::getInstance().m_imuState.accelerometer()[0] =
+outputInfo.accel.x;
+IMUHandler::getInstance().m_imuState.accelerometer()[1] =
+outputInfo.accel.y;
+IMUHandler::getInstance().m_imuState.accelerometer()[2] =
+outputInfo.accel.z;
+IMUHandler::getInstance().m_imuState.rpy()[0] =
+outputInfo.attitude.roll * PI / 180;
+IMUHandler::getInstance().m_imuState.rpy()[1] =
+outputInfo.attitude.pitch * PI / 180;
+IMUHandler::getInstance().m_imuState.rpy()[2] =
+outputInfo.attitude.yaw * PI / 180;
+IMUHandler::getInstance().m_imuState.temperature() =
+static_cast<uint8_t>(outputInfo.sensor_temp);
+pthread_mutex_unlock(&IMUHandler::getInstance().m_imuDataMutex);
+}
+}
+}
+memmove(recvBuf, recvBuf + pos, cnt);
+recvBufIdx = cnt;
+tcflush(IMUHandler::getInstance().m_serialFd, TCIFLUSH);
+std::this_thread::sleep_for(2ms); // line 208
+if (IMUHandler::getInstance().m_isIumNeedCalibrate) {
+// 发送校准数据
+unsigned char outCalcmd[] = {0x59, 0x53, 0x4d, 0x12, 0x00,
+0x50, 0x01, 0xb0, 0x6a};
+// 校准指令
+int bytesSend = 0;
+bytesSend = write(IMUHandler::getInstance().m_serialFd, outCalcmd,
+sizeof(outCalcmd));
+if (bytesSend == sizeof(outCalcmd)) {
+LOG("imu calibrate successfully!\n");
+} else {
+ERR("failed to calibrate imu, bytesSend={}\n", bytesSend);
+}
+IMUHandler::getInstance().SetCalibrateFlag(false);
+}
+} catch (const std::exception& e) {
+ERR("Exception in ReadIMU loop: {}.", e.what());
+}
+}
+IMUHandler::getInstance().CloseIMU();
+pthread_exit(NULL);
+}
+What are the possible reasons that may cause the following errors, and how can we further investigate them?
+Is it possible that I introduced backward which caused this anomaly.
+This code runs smoothly on the x86 platform.
+c++linuxarmgdb
+Share
+Improve this question
+Follow
+edited 22 hours ago
+user30107997user30107997
+asked 22 hours ago
+user30107997user30107997
+111 bronze badge
+New contributor
+user30107997 is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+9
+@3CEZVQ Wrote wrong, has been corrected.
+user30107997
+–
+user30107997
+2025-09-18 02:44:40 +00:00
+Commented
+22 hours ago
+2
+There looks like a whole whole lot of potential footguns in there leading to UB.
+I strongly suspect the sleep_for is the symptom of UB not the cause.
+At a quick glance, I don't see any guarantee that recvBufIdx is 0 at the top of the outer loop, and when it isn't, you potentially overrun recvBuf in the memcpy.
+It sure seems lke cnt could be decremented below zero in which case the inner loop would run too many times with all sorts of shenanigans if that happens.
+Jeremy Richards
+–
+Jeremy Richards
+2025-09-18 03:04:28 +00:00
+Commented
+22 hours ago
+1
+memcpy(recvBuf + recvBufIdx, buffer, nread); - the possible buffer overrun, may be an issue reason. Why do you use char[] and memset() instead of std::array and std::vector?
+3CEZVQ
+–
+3CEZVQ
+2025-09-18 03:20:17 +00:00
+Commented
+22 hours ago
+2
+corrupt stack? would indicate that the stack is corrupt, the whole stack trace might be bogus. Depending on the value of RX_BUF_LEN you might have simply overflowed the stack size, Linux doesn't have any explicit stack overflow detection, you just get a seg fault
+Alan Birtles
+–
+Alan Birtles
+2025-09-18 06:02:00 +00:00
+Commented
+19 hours ago
+1
+Looking a little more:
+You are mixing try/catch with manual mutex locking/unlocking -- great way for a deadlock.
+Jeremy Richards
+–
+Jeremy Richards
+2025-09-18 12:58:08 +00:00
+Commented
+12 hours ago
+|
+Show 4 more comments
+Related questions
+3453
+What's the problem with "using namespace std;"?
+921
+std::wstring VS std::string
+1033
+Concatenating two std::vectors
+Related questions
+3453
+What's the problem with "using namespace std;"?
+921
+std::wstring VS std::string
+1033
+Concatenating two std::vectors
+1032
+How can I trim a std::string?
+1209
+What is std::move(), and when should it be used?
+1098
+How to convert a std::string to const char* or char*
+1033
+How to convert an instance of std::string to lower case
+738
+"std::endl" vs "\n"
+73
+std::this_thread::yield() vs std::this_thread::sleep_for()
+828
+How can I convert a std::string to int?
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++linuxarmgdb
+See similar questions with these tags.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Stack Overflow is helping you learn to code with new resources
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure aluminum?
+How to write ${...} as text in file
+Understanding the ChallengeResponseAuthentication setting with PAM and login.conf
+Why does make's `dir` function add additional directories?
+Book about two ships that leave Earth decades apart but the later ship has FTL technology
+Determination of Target Frequency in Decoupling
+Is it possible to follow the Buddha’s core teachings while rejecting supernatural beliefs like gods, ghosts, reincarnation, heaven and hell realms?
+Is "Why the difference?" a valid instance of ellipsis, if yes is "Why going there?" also valid?
+New larger artificial satellite created from natural gravity and existing space debris
+CSV TimeSheet Calculator
+What was the "shear wedge" used on the Tethered Satellite System?
+What happens when a creature with the See Invisibility spell is blinded?
+sqlservr.exe writing to System Volume Information folder
+What is a "mob" character in the context of Isekai works?
+"a bunch of random Xs {do/does}”
+How to design the input resistance of a voltage regulator?
+What does, "as having nothing" mean in 2 Corinthians 6:10?
+Ordinary insertion sort vs. straight insertion sort in Java (benchmark)
+Road trip movie about the young son of a millionaire who is sent on vacation to Spain
+Enigmatic puzzle: find the missing value
+Why is the first homology group of the knot complement is a finitely generated abelian group?
+How do I remove a gap in date x axis?
+What would be the impact of a being that is so hot it melts metal from 1km away. How far away would be habitable? (On Earth btw)
+Drawing vertical and horizontal vectors along a Bézier curve (without local rotation)
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

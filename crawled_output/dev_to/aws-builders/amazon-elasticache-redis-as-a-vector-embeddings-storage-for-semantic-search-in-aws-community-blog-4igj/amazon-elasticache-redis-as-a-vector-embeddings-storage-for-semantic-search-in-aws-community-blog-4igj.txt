@@ -1,0 +1,523 @@
+Amazon ElastiCache Redis as a Vector Embeddings Storage for Semantic Search in AWS Community Blog posts - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Roman Tsypuk
+for AWS Community Builders
+Posted on Sep 18
+• Originally published at tsypuk.github.io
+Amazon ElastiCache Redis as a Vector Embeddings Storage for Semantic Search in AWS Community Blog posts
+#database
+#ai
+#aws
+#machinelearning
+Abstract
+The AWS Community Builders program has produced an enormous trove of insightful blog content over the years. These
+posts, authored by community members across the globe, capture deep technical expertise, innovative use cases, and
+countless hours of experience.
+But as this body of content grows, finding related information becomes increasingly difficult using traditional keyword
+search.
+Challenge
+To tackle this challenge, I experimented with using Amazon ElastiCache for Redis as a vector store to power semantic
+search across all blog posts starting 2021.
+This blog post outlines how I vectorized blog content, stored embeddings in Redis, and leveraged K-Nearest Neighbors (
+KNN) to discover content semantically related to phrases or topic of interest, discover posts, cluster posts, identify
+the trends etc.
+Why Use Redis for Vector Search?
+Traditionally, Redis is used for caching and fast key-value operations. However, with the introduction of the Redis
+Vector Similarity Search (VSS) module, Redis can now be used as a high-performance vector database. This makes it a
+powerful choice when you need millisecond-latency search over large datasets of embeddings, such as blog post vectors.
+Benefits of Redis VSS:
+Speed: In-memory performance with extremely low latency.
+Simplicity: Store and retrieve vectors using Redis CLI or SDKs.
+Scalability: Redis clusters on ElastiCache scale with demand.
+Integration: Easy to integrate with Python NLP libraries and AWS services.
+What is an Embedding and How Does it Work?
+An embedding is a numerical representation of text that captures its meaning in a multi-dimensional space. Words,
+sentences, or even entire documents are transformed into fixed-size vectors of floating-point numbers using models like
+BERT or Sentence Transformers.
+These vectors are constructed such that semantically similar content lies close together in vector space. For example,
+posts discussing "AWS re:Invent keynote" and "major AWS announcements" would have similar embeddings even if they use
+different words.
+Target Architecture:
+Each blog post description and content was passed through a transformer-based model.
+The output vector (e.g., 384 dimensions) was stored in Redis.
+When a query is made (e.g., "golden jacket"), it is also converted into an embedding.
+Redis performs a KNN search, returning the closest blog vectors by cosine similarity or Euclidean distance.
+Prepare schema in Redis
+Once I have collected the raw data, I created index in Redis, all documents will be injected as json document
+also having postDescriptionEmbeddings defined as SchemaFieldTypes.VECTOR
+This vector will be calculated using same algorithm that will be used for the search.
+when creating index, the dimension should exactly match to the dimension of model that is used for embeddings
+Since Xenova/all-MiniLM-L6-v2 was used dimension 384. You can set any other model to check if accuracy is increased,
+but vector size can not be changed so new index creation and full data re-ingestion will be required.
+/*
+(RAW COMMAND)
+FT.DROPINDEX idx:posts
+FT.CREATE idx:posts
+ON JSON
+PREFIX 1 "posts:"
+SCHEMA
+'$.postDescriptionEmbeddings': {
+type: SchemaFieldTypes.VECTOR,
+TYPE: 'FLOAT32',
+ALGORITHM: VectorAlgorithms.FLAT,
+DIM: 384,
+DISTANCE_METRIC: 'L2',
+INITIAL_CAP: 111,
+BLOCK_SIZE: 111,
+AS: 'postDescriptionEmbeddings',
+},
+'$.postDescription': {
+type: SchemaFieldTypes.TEXT,
+NOSTEM: true,
+SORTABLE: true,
+AS: 'postDescription',
+},
+'$.link': {
+type: SchemaFieldTypes.TEXT,
+NOSTEM: true,
+SORTABLE: true,
+AS: 'link',
+},
+Enter fullscreen mode
+Exit fullscreen mode
+Ingesting Data into Vector-based storage
+I choose Xenova/all-MiniLM-L6-v2 for Embedding and vectorization, so once model is initialized, all data in a
+processing loop
+will be passed to it to augment blog post with on more field postDescriptionEmbeddings
+let modelName = "Xenova/all-MiniLM-L6-v2";
+let pipe = await transformers.pipeline("feature-extraction", modelName);
+const strippedText = stripHTML(post.description);
+post["_id"] = post.id
+post["postDescription"] = strippedText;
+const sentenceEmbedding = await generateSentenceEmbeddings(strippedText, pipe);
+post["postDescriptionEmbeddings"] = sentenceEmbedding;
+Enter fullscreen mode
+Exit fullscreen mode
+await nodeRedisClient.json.set(`${POSTS_KEY_PREFIX}:${post.id}`, "$", {
+...post
+});
+Enter fullscreen mode
+Exit fullscreen mode
+async function generateSentenceEmbeddings(_sentence, pipe): Promise<number[]> {
+let vectorOutput = await pipe(_sentence, {
+pooling: "mean",
+normalize: true,
+});
+const embeddings: number[] = Object.values(vectorOutput?.data);
+return embeddings;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Ingested data in Redis:
+using redis-cli we can JSON:GET any random document and explore its fields:
+JSON.GET posts:0a1a9e88-32e3-43af-86ce-c70b27ef9482
+Enter fullscreen mode
+Exit fullscreen mode
+Besides standard data now it contains also postDescriptionEmbeddings vector (here I'm cutting digits not to represent the full 384 size of it):
+{
+"link": "https://dev.classmethod.jp/articles/awsbasics-s3-tables-athena-apache-iceberg/",
+"createdAt": "2025-07-20T02:02:36.821Z",
+"postDescription": "This article introduces AWS S3 Tables, a new service simplifying Apache Iceberg table management on S3. It shows creating tables via console/CLI, CRUD operations with Athena, and highlights automatic optimization, ACID transactions, and seamless integration.",
+"postDescriptionEmbeddings": [
+-0.05445345863699913,
+-0.03639936074614525,
+-0.09256941080093384,
+-0.02023949660360813,
+0.016897333785891533,
+-0.05080459639430046,
+-0.047063130885362625,
+...
+0.05633614584803581,
+0.030490988865494728,
+-0.035038333386182785,
+-0.014955290593206882,
+0.03450820595026016
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Congratulations!!! Now we have a digital footprint of all CloudBuiders blog posts.
+Algorithms to search vectors
+No using same model Xenova/all-MiniLM-L6-v2 we can convert any search phrase into vector:
+const nodeRedisClient = getNodeRedisClient();
+let modelName = "Xenova/all-MiniLM-L6-v2";
+let pipe = await transformers.pipeline("feature-extraction", modelName);
+const searchTxtVectorArr = await generateSentenceEmbeddings(searchTxt, pipe);
+Enter fullscreen mode
+Exit fullscreen mode
+Here is example of search phrase Golden Jacket that is transformed using Embedding model Xenova/all-MiniLM-L6-v2 into a Vector, this is what vector looks like (with dimension 384):
+[
+-0.0519644059240818,
+0.08905413746833801,
+0.01799578033387661,
+0.049779586493968964,
+0.035871658474206924,
+0.020033041015267372,
+0.18083901703357697,
+-0.05256553739309311,
+0.0003853921080008149,
+-0.04665731266140938,
+0.01234174519777298,
+-0.02134784311056137,
+0.03652122616767883,
+0.0066316151060163975,
+0.001835306640714407,
+-0.0348852276802063,
+0.026533348485827446,
+-0.008266004733741283,
+0.023030489683151245,
+-0.025720935314893723,
+-0.04542113095521927,
+-0.0034457785077393055,
+-0.00999429076910019,
+0.05410130321979523,
+-0.07294181734323502,
+0.04549195244908333,
+-0.03297987952828407,
+0.039497267454862595,
+-0.05792579427361488,
+-0.08336731791496277,
+0.028136223554611206, -0.0004739225551020354,
+-0.03645763173699379,
+0.02329356223344803,
+-0.1444464474916458,
+-0.02707810141146183,
+0.033310066908597946,
+0.0071496316231787205,
+-0.11640160530805588,
+0.10475143790245056,
+-0.0539717860519886,
+-0.039327893406152725,
+-0.08680122345685959,
+-0.03737214207649231,
+-0.02752811089158058,
+0.005382977891713381,
+-0.037658315151929855,
+-0.009982343763113022,
+-0.014092876575887203,
+0.0367547869682312,
+-0.07399916648864746,
+0.008599113672971725,
+-0.07765820622444153,
+0.013821756467223167,
+0.06757687777280807,
+0.09657421708106995,
+-0.008364601992070675,
+-0.05157032981514931,
+-0.0255973469465971,
+0.030314497649669647,
+-0.036268994212150574,
+0.004683461040258408,
+-0.05857793241739273,
+0.009458839893341064,
+0.0592721663415432,
+0.0403432659804821,
+-0.06441762298345566,
+0.05017191544175148,
+-0.05505743995308876,
+-0.04220070689916611,
+0.05020679160952568,
+0.02721044048666954,
+0.000019773140593315475,
+0.0006230986909940839, -0.0004238316905684769,
+0.0330372080206871,
+-0.040411293506622314,
+0.02342337928712368,
+0.09403083473443985,
+-0.030885351821780205,
+0.03300361707806587,
+-0.06219857931137085,
+-0.06710682064294815,
+0.06534728407859802,
+0.02729918621480465,
+-0.021849708631634712,
+0.04849373549222946,
+-0.04060141369700432,
+-0.01779020205140114,
+0.015026750974357128,
+0.03931884467601776,
+-0.016998404636979103,
+0.020048541948199272,
+0.07344327867031097,
+-0.027000991627573967,
+-0.013987813144922256,
+0.07202176004648209,
+-0.10249660909175873,
+-0.07182241231203079,
+0.177199587225914,
+... 284 more items
+]
+Enter fullscreen mode
+Exit fullscreen mode
+Having search vector and all posts descriptions vectorized and stored in Redis, using KNN we will search the nearest neighbor similarities:
+const searchQuery =
+`*=>[KNN ${_resultCount} @postDescriptionEmbeddings $searchBlob AS score]`;
+results = await nodeRedisClient.ft.search(POSTS_INDEX_KEY, searchQuery, {
+PARAMS: {
+"searchBlob": float32Buffer(searchTxtVectorArr)
+},
+RETURN: ["score", "description", "createdAt", "region", "link"],
+SORTBY: {
+BY: "score",
+},
+DIALECT: 2,
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Let's find a CloudBuilders based on a particular topic
+Searching Golden Jacket relevant topics. Got search output:
+total, number of found documents found with limit
+score, vectors compatibility for each document returned
+{
+"total": 5,
+"documents": [
+{
+"id": "posts:79256de8-00aa-4127-b025-df410fb63414",
+"value": {
+"score": "1.01139831543",
+"description": "Although I cannot have a AWS 100% fully certified Golden Jacket now, I still buy myself a 25% fully certified Golden Hat 👒 for a little FUN 🤩 Never too late to learn Amazon Web Services (AWS) ! Start your cloud journeys TODAY ! You will become Fully Certified in the future.",
+"link": "https://www.linkedin.com/posts/walterwlee_aws-cloud-future-activity-7020547672751169536-T3r8?utm_source=share&utm_medium=member_desktop"
+}
+},
+{
+"id": "posts:e05e61f3-1cd9-4483-98c7-ad3681a1ea00",
+"value": {
+"score": "1.03479576111",
+"description": "Thanks a lot to the Amazon Web Services (AWS) community builder jacket ! 😀 very warm and high quality with YKK zipper 🥰",
+"link": "https://www.linkedin.com/posts/walterwlee_aws-awscommunity-awscommunitybuilders-activity-7010055038479859712-ahY-?utm_source=share&utm_medium=member_desktop"
+}
+},
+{
+"id": "posts:2f63f16d-8080-4e27-baed-f5c582617106",
+"value": {
+"score": "1.07405209541",
+"description": "A blog post sharing my experience doing the AWS certifications for the Golden Jacket, for others who might be interested in going through the same experience.",
+"link": "https://chamila.dev/blog/2024-10-28_completing-11-professional-certifications-in-8-weeks/"
+}
+},
+{
+"id": "posts:554df865-951d-4937-abad-5ef84f6e67fe",
+"value": {
+"score": "1.12301290035",
+"description": "How you can achieve all AWS certifications and get the golden jacket - Part 1 ",
+"link": "https://dev.to/electrokat/how-you-can-achieve-all-aws-certifications-and-get-the-golden-jacket-part-1-16dp"
+}
+},
+{
+"id": "posts:9a772e6c-f3fe-419a-afe2-b5b0038dbdcb",
+"value": {
+"score": "1.2975268364",
+"description": "How you can achieve all AWS certifications and get the golden jacket - Part 2 - How to study ",
+"link": "https://dev.to/electrokat/how-you-can-achieve-all-aws-certifications-and-get-the-golden-jacket-part-2-how-to-study-2b4c"
+}
+}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+search results for "Golden Jacket":
+Score
+Details
+1.01139831543
+Although I cannot have a AWS 100% fully certified Golden Jacket now, I still buy myself a 25% fully certified Golden Hat 👒 for a little FUN 🤩 Never too late to learn Amazon Web Services (AWS) ! Start your cloud journeys TODAY ! You will become Fully Certified in the future.
+1.03479576111
+Thanks a lot to the Amazon Web Services (AWS) community builder jacket ! 😀 very warm and high quality with YKK zipper 🥰
+1.07405209541
+A blog post sharing my experience doing the AWS certifications for the Golden Jacket, for others who might be interested in going through the same experience.
+1.12301290035
+How you can achieve all AWS certifications and get the golden jacket - Part 1
+1.2975268364
+How you can achieve all AWS certifications and get the golden jacket - Part 2 - How to study
+search results for "play games":
+Score
+Details
+1.49744784832
+🚀 Vibe coding a simple STEM Game with Amazon Q CLI —so I created this simple game to help make learning easier with the help of Amazon Q CLI 🤖✨.
+1.54997515678
+Learn DevOps By Doing Projects
+1.56706357002
+I wrote a blog post about building a web-based game using only Amazon Q Developer. The post received 199 readers and 26 reactions from the community.
+1.57633209229
+This article about my personal challenges as a sales and business developer to have interaction with tech. persons.
+1.61025881767
+Join the AWS GenAI PartyRock hackathon!
+What else can we do with vectors?
+Discover similar blog posts and engage with authors.
+Track evolving themes across community content.
+Understand what topics resonate or need more visibility.
+Retrieve relevant document chunks or paragraphs to feed into an LLM (e.g., via Retrieval-Augmented Generation or RAG).
+Document Classification
+Posts with similar embeddings can be linked with a virtual “related-to” edge. You have read a post and enjoy it, vectorDB can recommend other posts that have similar vector
+Observations:
+The majority of CPU intensive work is on the producer that is running the model and performs the transformation.
+The important caviat is that model must be instantiated only once and all data is fed through it. Otherwise, if model is
+created for
+every data entry, it will take a lot of time to finish the ingession plus unneeded memory alocation will be performed.
+Redis instance based on htop info does not have spike during data ingestion, same when search queries are performed.
+On data retrieval, the most time-consuming operation (1sec) was request transformation into vector
+There are some parameters that allow to adjust output:
+return results count — you can return different response batches or implement a cascaded system, that will do next
+batch call and lower the threshold to establish data
+score threshold — the lower the value, the more closer vectors are. However, this is true for a mathematical model
+that was used but sometimes not to common scence.
+Conclusions
+Using Elastic Cache Redis as a vector store offers a powerful, low-latency way to bring semantic search to the AWS
+Community Builder blog archive. By moving beyond keywords and enabling intelligent discovery, we help amplify the voices
+and contributions of community members everywhere.
+This architecture is not limited to AWS community content—it can be adapted for any developer-driven knowledge base. The
+future of search is vectorized, and Redis makes that future fast, scalable, and accessible.
+Links:
+https://redis.io/docs/latest/develop/ai/search-and-query/query/
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Avinash Dalvi
+AWS Community Builders
+Avinash Dalvi
+AWS Community Builders
+Avinash Dalvi
+Follow
+AWS Community Builder | Full Stack Developer | PHP + Angular + Python + AWS | Speaker | Blogger | Leadership
+I write blog at https://www.internetkatta.com
+Location
+Bangalore
+Pronouns
+Avi
+Work
+Senior Software Engineer at EagleView
+Joined
+Jun 10, 2020
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+This is really great tool. I would like to give it try this. I generally search through posts wrote by AWS community for news letter of specific keywords. This can help me. Thanks.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Community Builders
+Follow
+Build On!
+Would you like to become an AWS Community Builder? Learn more about the program and apply to join when applications are open next.
+Learn more
+More from AWS Community Builders
+Running analytics queries from your machine with Zero-BigData stack needed on top of AWS S3
+#aws
+The 9 AM Discovery That Saved Our Production: An ECS Fargate Circuit Breaker Story
+#aws
+#ecs
+#fargate
+#docker
+My journey on AWS Region Migration: What I wished I had aware of
+#aws
+#cloud
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

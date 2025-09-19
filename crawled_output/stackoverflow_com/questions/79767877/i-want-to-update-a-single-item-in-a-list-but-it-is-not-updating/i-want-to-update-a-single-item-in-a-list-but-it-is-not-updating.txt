@@ -1,0 +1,638 @@
+sql - When to use single quotes, double quotes, and backticks in MySQL - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+When to use single quotes, double quotes, and backticks in MySQL
+Ask Question
+Asked
+13 years, 2 months ago
+Modified
+1 year, 8 months ago
+Viewed
+338k times
+802
+I am trying to learn the best way to write queries. I also understand the importance of being consistent. Until now, I have randomly used single quotes, double quotes, and backticks without any real thought.
+Example:
+$query = 'INSERT INTO table (id, col1, col2) VALUES (NULL, val1, val2)';
+Also, in the above example, consider that table, col1, val1, etc. may be variables.
+What is the standard for this? What do you do?
+mysqlsqlquotes
+Share
+Improve this question
+Follow
+edited Jan 9, 2024 at 6:31
+Cristik
+33.1k2626 gold badges105105 silver badges143143 bronze badges
+asked Jul 4, 2012 at 1:53
+NateNate
+29k3939 gold badges137137 silver badges231231 bronze badges
+1
+32
+Note that this is a very MySQL specific question. SQL in general (i.e. ISO/ANSI SQL) has a different set of quotes: double quotes are for delimited identifiers, e.g. "tablename", and single quotes are for literals, e.g. 'this is a some text'. Back-ticks are never used in standard SQL. (If you need to include a double quote in an identifier, type it twice as "odd""tablename". Similarly, double single quotes in literals, like 'Conan O''Brien'.)
+jarlh
+–
+jarlh
+2016-11-25 09:02:35 +00:00
+Commented
+Nov 25, 2016 at 9:02
+Add a comment
+|
+13 Answers
+13
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+773
+Backticks are to be used for table and column identifiers, but are only necessary when the identifier is a MySQL reserved keyword, or when the identifier contains whitespace characters or characters beyond a limited set (see below) It is often recommended to avoid using reserved keywords as column or table identifiers when possible, avoiding the quoting issue.
+Single quotes should be used for string values like in the VALUES() list.
+Double quotes are supported by MySQL for string values as well, but single quotes are more widely accepted by other RDBMS, so it is a good habit to use single quotes instead of double.
+MySQL also expects DATE and DATETIME literal values to be single-quoted as strings like '2001-01-01 00:00:00'. Consult the Date and Time Literals documentation for more details, in particular alternatives to using the hyphen - as a segment delimiter in date strings.
+So using your example, I would double-quote the PHP string and use single quotes on the values 'val1', 'val2'.
+NULL is a MySQL keyword, and a special (non)-value, and is therefore unquoted.
+None of these table or column identifiers are reserved words or make use of characters requiring quoting, but I've quoted them anyway with backticks (more on this later...).
+Functions native to the RDBMS (for example, NOW() in MySQL) should not be quoted, although their arguments are subject to the same string or identifier quoting rules already mentioned.
+Backtick (`)
+table & column ───────┬─────┬──┬──┬──┬────┬──┬────┬──┬────┬──┬───────┐
+↓
+↓
+↓
+↓
+↓
+↓
+↓
+↓
+↓
+↓
+↓
+↓
+$query = "INSERT INTO `table` (`id`, `col1`, `col2`, `date`, `updated`)
+VALUES (NULL, 'val1', 'val2', '2001-01-01', NOW())";
+↑↑↑↑
+↑
+↑
+↑
+↑
+↑
+↑
+↑↑↑↑↑
+Unquoted keyword
+─────┴┴┴┘
+│
+│
+│
+│
+│
+│
+│││││
+Single-quoted (') strings ───────────┴────┴──┴────┘
+│
+│
+│││││
+Single-quoted (') DATE
+───────────────────────────┴──────────┘
+│││││
+Unquoted function
+─────────────────────────────────────────┴┴┴┴┘
+Variable interpolation
+The quoting patterns for variables do not change, although if you intend to interpolate the variables directly in a string, it must be double-quoted in PHP. Just make sure that you have properly escaped the variables for use in SQL. (It is recommended to use an API supporting prepared statements instead, as protection against SQL injection).
+// Same thing with some variable replacements
+// Here, a variable table name $table is backtick-quoted, and variables
+// in the VALUES list are single-quoted
+$query = "INSERT INTO `$table` (`id`, `col1`, `col2`, `date`) VALUES (NULL, '$val1', '$val2', '$date')";
+Prepared statements
+When working with prepared statements, consult the documentation to determine whether or not the statement's placeholders must be quoted.
+The most popular APIs available in PHP, PDO and MySQLi, expect unquoted placeholders, as do most prepared statement APIs in other languages:
+// PDO example with named parameters, unquoted
+$query = "INSERT INTO `table` (`id`, `col1`, `col2`, `date`) VALUES (:id, :col1, :col2, :date)";
+// MySQLi example with ? parameters, unquoted
+$query = "INSERT INTO `table` (`id`, `col1`, `col2`, `date`) VALUES (?, ?, ?, ?)";
+Characters requring backtick quoting in identifiers:
+According to MySQL documentation, you do not need to quote (backtick) identifiers using the following character set:
+ASCII: [0-9,a-z,A-Z$_] (basic Latin letters, digits 0-9, dollar, underscore)
+You can use characters beyond that set as table or column identifiers, including whitespace for example, but then you must quote (backtick) them.
+Also, although numbers are valid characters for identifiers, identifiers cannot consist solely of numbers. If they do they must be wrapped in backticks.
+Share
+Improve this answer
+Follow
+edited Jun 20, 2020 at 9:12
+CommunityBot
+111 silver badge
+answered Jul 4, 2012 at 1:57
+Michael BerkowskiMichael Berkowski
+271k4747 gold badges450450 silver badges395395 bronze badges
+13 Comments
+Add a comment
+user330315 user330315 Over a year ago
+"but single quotes are more widely accepted by other RDBMS" - using single quotes for string literals is defined (and required) by the SQL standard 2014-07-14T08:57:36.61Z+00:00
+58
+Reply
+Copy link
+Kick_the_BUCKET Kick_the_BUCKET Over a year ago
+this isn't true: "MySQL also expects DATE and DATETIME literal values to be single-quoted as strings like '2001-01-01 00:00:00'" 2016-04-12T14:59:31.643Z+00:00
+5
+Reply
+Copy link
+Michael Berkowski Michael Berkowski Over a year ago
+@evilReiko MySQL docs don't seem to address alias quoting clearly. It will accept single, double, or backtick for aliases but that may be affected by different ANSI SQL modes. I'm not sure what the SQL spec requires for alias quotes -- Personal preference: for consistency I quote them the same as column identifiers - that is, I either backtick them if needed, or leave them unquoted if not. I don't use single or double quotes on aliases. 2017-08-16T15:36:55.917Z+00:00
+5
+Reply
+Copy link
+Michael Berkowski Michael Berkowski Over a year ago
+@GuneyOzsan Yes, very vulnerable. Never ever use a variable for a table name unless it has been validated against a list of acceptable table names - create an array of permissible names and check the variable matches something in the list to make it safe to use. Otherwise you cannot safely escape a table name variable for use. 2018-10-27T01:55:56.21Z+00:00
+4
+Reply
+Copy link
+BeNice BeNice Over a year ago
+Michael all sorted now thanks. Might I suggest editing the chart to add bound variables. It is absolutely gorgeous and if another poor soul came along checking on :whatever that would be even more lovely. ATB Steve 2019-12-06T11:31:46.033Z+00:00
+2
+Reply
+Copy link
+Add a comment | Show 8 more comments
+173
+In MySQL you have:
+'single quotes' for enclosing string literals
+`Backticks` for enclosing identifiers such as table and column names
+And then we have "double quotes" which could be used for one of above purposes at a time depending on MySQL server's sql_mode:
+In stock configuration, the " character can be used to enclose string literals just like '
+In ANSI_QUOTES mode the " character can be used to enclose identifiers just like `
+The following query will produce different results (or errors) depending on SQL mode:
+SELECT "column" FROM table WHERE foo = "bar"
+ANSI_QUOTES disabled
+The query will select the string literal "column" where column foo is equal to string "bar"
+ANSI_QUOTES enabled
+The query will select the column column where column foo is equal to column bar
+When to use what
+I suggest that you avoid using " so that your code becomes independent of SQL modes
+Always quote identifiers since it is a good practice
+Share
+Improve this answer
+Follow
+edited Dec 27, 2023 at 20:18
+answered Jan 2, 2013 at 14:17
+Salman ArshadSalman Arshad
+273k8585 gold badges449449 silver badges540540 bronze badges
+2 Comments
+Add a comment
+Caius Jard Caius Jard Over a year ago
+Or alternatively, run your MySQL in ANSI_QUOTES mode to make your SQL skillset more portable, and use ' for strings, " for identifiers and do not use backticks. Adhering to standards is always good 2021-03-17T17:03:05.173Z+00:00
+1
+Reply
+Copy link
+Rick Rick Over a year ago
+For others on how to enable ANSI_QUOTES
+in a session level:
+SET SESSION sql_mode = 'ANSI_QUOTES'; or
+SET SESSION sql_mode = 'ANSI'; . You can then
+SELECT @@SESSION.sql_mode; to check the value.
+If you want to restore to the default, the default for MySQL 5.7 is :
+SET SESSION sql_mode = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'; 2022-01-14T09:59:15.037Z+00:00
+0
+Reply
+Copy link
+38
+(There are good answers above regarding the SQL nature of your question, but this may also be relevant if you are new to PHP.)
+Perhaps it is important to mention that PHP handles single and double quoted strings differently...
+Single-quoted strings are 'literals' and are pretty much WYSIWYG strings. Double-quoted strings are interpreted by PHP for possible variable-substitution (backticks in PHP are not exactly strings; they execute a command in the shell and return the result).
+Examples:
+$foo = "bar";
+echo 'there is a $foo'; // There is a $foo
+echo "there is a $foo"; // There is a bar
+echo `ls -l`; // ... a directory list
+Share
+Improve this answer
+Follow
+edited Nov 26, 2015 at 11:13
+Peter Mortensen
+31.5k2222 gold badges110110 silver badges134134 bronze badges
+answered Jul 4, 2012 at 2:03
+Chris TraheyChris Trahey
+18.3k11 gold badge4444 silver badges5555 bronze badges
+Comments
+Add a comment
+31
+Backticks are generally used to indicate an identifier and as well be safe from accidentally using the Reserved Keywords.
+For example:
+Use `database`;
+Here the backticks will help the server to understand that the database is in fact the name of the database, not the database identifier.
+Same can be done for the table names and field names. This is a very good habit if you wrap your database identifier with backticks.
+Check this answer to understand more about backticks.
+Now about Double quotes & Single Quotes (Michael has already mentioned that).
+But, to define a value you have to use either single or double quotes. Lets see another example.
+INSERT INTO `tablename` (`id, `title`) VALUES ( NULL, title1);
+Here I have deliberately forgotten to wrap the title1 with quotes. Now the server will take the title1 as a column name (i.e. an identifier). So, to indicate that it's a value you have to use either double or single quotes.
+INSERT INTO `tablename` (`id, `title`) VALUES ( NULL, 'title1');
+Now, in combination with PHP, double quotes and single quotes make your query writing time much easier. Let's see a modified version of the query in your question.
+$query = "INSERT INTO `table` (`id`, `col1`, `col2`) VALUES (NULL, '$val1', '$val2')";
+Now, using double quotes in the PHP, you will make the variables $val1, and $val2 to use their values thus creating a perfectly valid query. Like
+$val1 = "my value 1";
+$val2 = "my value 2";
+$query = "INSERT INTO `table` (`id`, `col1`, `col2`) VALUES (NULL, '$val1', '$val2')";
+will make
+INSERT INTO `table` (`id`, `col1`, `col2`) VALUES (NULL, 'my value 1', 'my value 2')
+Share
+Improve this answer
+Follow
+edited Aug 20, 2017 at 22:04
+Nisse Engström
+4,7612323 gold badges2929 silver badges4444 bronze badges
+answered Jul 4, 2012 at 2:00
+StarxStarx
+79.2k5050 gold badges187187 silver badges265265 bronze badges
+Comments
+Add a comment
+25
+In MySQL, these symbols are used to delimit a query ` ," ,' and () .
+" or ' are used for enclosing string-like values "26-01-2014 00:00:00" or '26-01-2014 00:00:00' . These symbols are only for strings, not aggregate functions like now, sum, or max.
+`
+is used for enclosing table or column names, e.g. select `column_name` from `table_name` where id='2'
+( and ) simply enclose parts of a query e.g.
+select `column_name` from `table_name` where (id='2' and gender='male') or name='rakesh' .
+Share
+Improve this answer
+Follow
+edited Jan 26, 2019 at 21:54
+Bob Stein
+17.4k1111 gold badges9292 silver badges107107 bronze badges
+answered Jan 3, 2017 at 11:42
+Kumar RakeshKumar Rakesh
+2,70822 gold badges2020 silver badges3939 bronze badges
+Comments
+Add a comment
+18
+There has been many helpful answers here, generally culminating into two points.
+BACKTICKS(`) are used around identifier names.
+SINGLE QUOTES(') are used around values.
+AND as @MichaelBerkowski said
+Backticks are to be used for table and column identifiers, but are
+only necessary when the identifier is a MySQL reserved keyword, or
+when the identifier contains whitespace characters or characters
+beyond a limited set (see below) It is often recommended to avoid
+using reserved keywords as column or table identifiers when possible,
+avoiding the quoting issue.
+There is a case though where an identifier can neither be a reserved keyword or contain whitespace or characters beyond limited set but necessarily require backticks around them.
+EXAMPLE
+123E10 is a valid identifier name but also a valid INTEGER literal.
+[Without going into detail how you would get such an identifier name], Suppose I want to create a temporary table named 123456e6.
+No ERROR on backticks.
+DB [XXX]> create temporary table `123456e6` (`id` char (8));
+Query OK, 0 rows affected (0.03 sec)
+ERROR when not using backticks.
+DB [XXX]> create temporary table 123451e6 (`id` char (8));
+ERROR 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '123451e6 (`id` char (8))' at line 1
+However, 123451a6 is a perfectly fine identifier name (without back ticks).
+DB [XXX]> create temporary table 123451a6 (`id` char (8));
+Query OK, 0 rows affected (0.03 sec)
+This is completely because 1234156e6 is also an exponential number.
+Share
+Improve this answer
+Follow
+edited Sep 7, 2018 at 7:11
+MJ007
+2311 gold badge11 silver badge1919 bronze badges
+answered Jan 28, 2017 at 7:35
+user5574289user5574289
+Comments
+Add a comment
+16
+The string literals in MySQL and PHP are the same.
+A string is a sequence of bytes or characters, enclosed within either
+single quote (“'”) or double quote (“"”) characters.
+So if your string contains single quotes, then you could use double quotes to quote the string, or if it contains double quotes, then you could use single quotes to quote the string. But if your string contains both single quotes and double quotes, you need to escape the one that used to quote the string.
+Mostly, we use single quotes for an SQL string value, so we need to use double quotes for a PHP string.
+$query = "INSERT INTO table (id, col1, col2) VALUES (NULL, 'val1', 'val2')";
+And you could use a variable in PHP's double-quoted string:
+$query = "INSERT INTO table (id, col1, col2) VALUES (NULL, '$val1', '$val2')";
+But if $val1 or $val2 contains single quotes, that will make your SQL be wrong. So you need to escape it before it is used in sql; that is what mysql_real_escape_string is for. (Although a prepared statement is better.)
+Share
+Improve this answer
+Follow
+edited Nov 26, 2015 at 11:26
+Peter Mortensen
+31.5k2222 gold badges110110 silver badges134134 bronze badges
+answered Jul 4, 2012 at 2:16
+xdazzxdazz
+161k3838 gold badges255255 silver badges278278 bronze badges
+Comments
+Add a comment
+14
+In combination of PHP and MySQL, double quotes and single quotes make your query-writing time so much easier.
+$query = "INSERT INTO `table` (`id`, `col1`, `col2`) VALUES (NULL, '$val1', '$val2')";
+Now, suppose you are using a direct post variable into the MySQL query then, use it this way:
+$query = "INSERT INTO `table` (`id`, `name`, `email`) VALUES (' ".$_POST['id']." ', ' ".$_POST['name']." ', ' ".$_POST['email']." ')";
+This is the best practice for using PHP variables into MySQL.
+Share
+Improve this answer
+Follow
+edited Jun 22, 2017 at 4:59
+answered Jun 16, 2015 at 10:25
+vipul sorathiyavipul sorathiya
+1,3161212 silver badges2323 bronze badges
+4 Comments
+Add a comment
+rhavendc rhavendc Over a year ago
+Therefore double quotes are flexible but can't be used as identifiers. 2016-05-31T08:39:12.763Z+00:00
+1
+Reply
+Copy link
+jankal jankal Over a year ago
+Please never ever directly use unescaped user input in your query! 2016-12-27T09:13:33.743Z+00:00
+2
+Reply
+Copy link
+vipul sorathiya vipul sorathiya Over a year ago
+@jankal It's just example.I specified that if you are using direct user input then n then........... 2016-12-28T08:01:00.26Z+00:00
+1
+Reply
+Copy link
+RFLdev RFLdev Over a year ago
+@vipulsorathiya Please specify in your answer that POST variables should be escaped. You're now pointing at using them direct in your query. Bad for beginners who try this... 2017-08-16T12:18:35.557Z+00:00
+1
+Reply
+Copy link
+Add a comment
+13
+If table cols and values are variables then there are two ways:
+With double quotes "" the complete query:
+$query = "INSERT INTO $table_name (id, $col1, $col2)
+VALUES (NULL, '$val1', '$val2')";
+Or
+$query = "INSERT INTO ".$table_name." (id, ".$col1.", ".$col2.")
+VALUES (NULL, '".$val1."', '".$val2."')";
+With single quotes '':
+$query = 'INSERT INTO '.$table_name.' (id, '.$col1.', '.$col2.')
+VALUES (NULL, '.$val1.', '.$val2.')';
+Use back ticks `` when a column/value name is similar to a MySQL reserved keyword.
+Note: If you are denoting a column name with a table name then use back ticks like this:
+`table_name`. `column_name`
+<-- Note: exclude .
+from back ticks.
+Share
+Improve this answer
+Follow
+edited Aug 20, 2017 at 22:11
+Nisse Engström
+4,7612323 gold badges2929 silver badges4444 bronze badges
+answered Jul 4, 2012 at 2:03
+xkeshavxkeshav
+54.2k4747 gold badges182182 silver badges254254 bronze badges
+Comments
+Add a comment
+11
+Single quotes should be used for string values like in the VALUES() list.
+Backticks are generally used to indicate an identifier and as well be safe from accidentally using the reserved keywords.
+In combination of PHP and MySQL, double quotes and single quotes make your query writing time so much easier.
+Share
+Improve this answer
+Follow
+edited Nov 26, 2015 at 12:27
+Peter Mortensen
+31.5k2222 gold badges110110 silver badges134134 bronze badges
+answered Jul 9, 2015 at 6:21
+john igneeljohn igneel
+41711 gold badge66 silver badges1818 bronze badges
+Comments
+Add a comment
+6
+Besides all of the (well-explained) answers, there hasn't been the following mentioned and I visit this Q&A quite often.
+In a nutshell; MySQL thinks you want to do math on its own table/column and interprets hyphens such as "e-mail" as e minus mail.
+Disclaimer: So I thought I would add this as an "FYI" type of answer for those who are completely new to working with databases and who may not understand the technical terms described already.
+Share
+Improve this answer
+Follow
+answered Feb 18, 2018 at 22:10
+Funk Forty NinerFunk Forty Niner
+74.2k1414 gold badges7171 silver badges146146 bronze badges
+Comments
+Add a comment
+3
+SQL servers and MySQL, PostgreySQL, Oracle don't understand double quotes("). Thus your query should be free from double quotes(") and should only use single quotes(').
+Back-trip(`) is optional to use in SQL and is used for table name, db name and column names.
+If you are trying to write query in your back-end to call MySQL then you can use double quote(") or single quotes(') to assign query to a variable like:
+let query = "select id, name from accounts";
+//Or
+let query = 'select id, name from accounts';
+If ther's a where statement in your query and/or trying to insert a value and/or an update of value which is string use single quote(') for these values like:
+let querySelect = "select id, name from accounts where name = 'John'";
+let queryUpdate = "update accounts set name = 'John' where id = 8";
+let queryInsert = "insert into accounts(name) values('John')";
+//Please not that double quotes are only to be used in assigning string to our variable not in the query
+//All these below will generate error
+let querySelect = 'select id, name from accounts where name = "John"';
+let queryUpdate = 'update accounts set name = "John" where id = 8';
+let queryInsert = 'insert into accounts(name) values("John")';
+//As MySQL or any SQL doesn't understand double quotes("), these all will generate error.
+If you want to stay out of this confusion when to use double quotes(") and single quotes('), would recommend to stick with single quotes(') this will include backslash() like:
+let query = 'select is, name from accounts where name = \'John\'';
+Problem with double(") or single(') quotes arise when we had to assign some value dynamic and perform some string concatenation like:
+let query = "select id, name from accounts where name = " + fName + " " + lName;
+//This will generate error as it must be like name = 'John Smith' for SQL
+//However our statement made it like name = John Smith
+//In order to resolve such errors use
+let query = "select id, name from accounts where name = '" + fName + " " + lName + "'";
+//Or using backslash(\)
+let query = 'select id, name from accounts where name = \'' + fName + ' ' + lName + '\'';
+If need further clearance do follow quotes in JavaScript
+Share
+Improve this answer
+Follow
+answered Aug 22, 2018 at 6:47
+NAVINNAVIN
+3,31744 gold badges2121 silver badges3232 bronze badges
+Comments
+Add a comment
+2
+It is sometimes useful to not use quotes... because this can highlight issues in the code generating the query... For example:
+Where x and y are should always be integers...
+SELECT * FROM table WHERE x= AND y=0
+Is a SQL syntax error... a little lazy but can be useful...
+Share
+Improve this answer
+Follow
+edited Dec 3, 2020 at 8:53
+answered Dec 1, 2020 at 18:32
+jxwdjxwd
+18633 silver badges88 bronze badges
+Comments
+Add a comment
+Protected question. To answer this question, you need to have at least 10 reputation on this site (not counting the association bonus). The reputation requirement helps protect this question from spam and non-answer activity.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+mysqlsqlquotes
+See similar questions with these tags.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Stack Overflow is helping you learn to code with new resources
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+131
+How to select a column name with a space in MySQL
+52
+ERROR 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use
+68
+Run raw SQL in migration
+12
+Select a column with a keyword name
+7
+MySQL: Unknown column in where clause error
+12
+sql error: Unknown column in 'field list' on insert
+10
+MySQL's different quote marks
+8
+How to update SQL date using NOW()
+12
+Where do we use backticks and quotes in MySQL?
+5
+Having a mySQL error, unknown column where clause
+See more linked questions
+Related
+4
+When to surround SQL fields with apostrophes?
+0
+Single Quotes in MySQL queries
+10
+MySQL's different quote marks
+1
+Where do I need to use backticks or quotes in my MYSQL query?
+2
+What is the difference between double quotes and single quotes in mysql query
+0
+what do single quotes do in mysql
+0
+When/How to use backticks and single quotes in mysql_query?
+5
+Usage of single quotes in SQL queries
+2
+mysql single quotation symbol ' or `
+12
+Where do we use backticks and quotes in MySQL?
+Hot Network Questions
+Why it is that a 64-bit EXE file (PE64) can contain a custom MS-DOS stub (a MZ executable), but not a custom 32-bit Windows stub?
+Book about ancient volume found at French book auction that opens risky higher reality to readers
+Using Python Code as tool in QGIS
+Research Experience for Math PhD
+Is there a substance that passes through gasses, but reacts violently (explosive) when confronted with solid matter?
+Word choice errors in submitted thesis
+How does the "Emerge" ability work when dealing with double-faced cards?
+Why is my dryer tripping its breaker after a period of use?
+Lewis & Short disagrees with Wiktionary and Latin Lexicon on vowel length?
+What does, "as having nothing" mean in 2 Corinthians 6:10?
+Get function parameter for functions fitting "between" two other functions
+sqlservr.exe writing to System Volume Information folder
+CSV TimeSheet Calculator
+What would be the impact of a being that is so hot it melts metal from 1km away. How far away would be habitable? (On Earth btw)
+Is "Why the difference?" a valid instance of ellipsis, if yes is "Why going there?" also valid?
+Changing the background color of a listing depending on the language
+Drawing vertical and horizontal vectors along a Bézier curve (without local rotation)
+Is the yeast used in chicken breading yeast or yeast extract
+Understanding the ChallengeResponseAuthentication setting with PAM and login.conf
+What are possible options to disembark for health issues if your airline keeps you on board at the tarmac for several hours?
+What was the "shear wedge" used on the Tethered Satellite System?
+Runtime estimation in "How to factor 2048 bit RSA integers with less than a million noisy qubits"
+Why smoothness is not homeomorphism-invariant
+description list with several items per description
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-sql
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

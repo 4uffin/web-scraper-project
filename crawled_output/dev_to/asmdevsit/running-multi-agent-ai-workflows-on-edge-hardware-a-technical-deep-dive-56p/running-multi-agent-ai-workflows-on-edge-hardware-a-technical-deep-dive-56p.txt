@@ -1,0 +1,508 @@
+Running Multi-Agent AI Workflows on Edge Hardware: A Technical Deep Dive - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Asama Akhtar
+Posted on Sep 18
+Running Multi-Agent AI Workflows on Edge Hardware: A Technical Deep Dive
+#ai
+#whisper
+#programming
+#python
+The Challenge: Moving Beyond Cloud Dependencies (And My Hatred of Making Slides)
+Let me be honest - this project started because I absolutely despise creating PowerPoint presentations. The tedious process of outlining content, formatting slides, finding relevant images, and making everything look professional drives me crazy. I'd rather spend hours coding than 30 minutes making slides.
+So naturally, I thought: "What if I could just talk to a device and have it generate the entire presentation for me?"
+But here's where it gets interesting. Most AI applications today rely on cloud inference - sending data to remote servers, waiting for responses, and dealing with latency, costs, and privacy concerns. I wanted to explore whether modern edge hardware could handle something more ambitious: a complete multi-agent AI workflow running entirely local.
+The goal became twofold: solve my personal PowerPoint problem AND push the boundaries of what's possible on edge hardware. Create a voice-controlled presentation generator that could understand speech, orchestrate multiple AI agents, generate structured content, and synthesize speech responses - all on a single edge device, with zero internet dependency.
+Demo: See It In Action
+Before diving into the technical details, here's the system working end-to-end:
+The complete pipeline: "Create slides on electrical engineering" → AI processing → formatted presentation with detailed content, all running locally on Jetson Orin Nano.
+Prerequisites and Setup
+Installing CAMEL-AI Framework
+# Install CAMEL-AI with all dependencies
+pip install camel-ai[all]
+# Or minimal installation
+pip install camel-ai
+# Additional dependencies for this project
+pip install python-pptx faster-whisper sounddevice soundfile TTS
+Enter fullscreen mode
+Exit fullscreen mode
+Setting up llama.cpp for Local Inference
+# Clone and build llama.cpp
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+# For Jetson Orin (ARM64 with CUDA)
+mkdir build
+cd build
+cmake .. -DLLAMA_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=87
+make -j$(nproc)
+# Download your model (example: Qwen 2.5 7B)
+wget https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf
+# Start the server
+./build/bin/llama-server --model qwen2.5-7b-instruct-q4_k_m.gguf \
+--port 8000 \
+--host 0.0.0.0 \
+--ctx-size 4096 \
+--threads 4
+Enter fullscreen mode
+Exit fullscreen mode
+System Service Configuration
+For production deployment, create a systemd service:
+# /etc/systemd/system/llama-server.service
+[Unit]
+Description=Local LLM Server (Qwen 2.5 7B on llama.cpp)
+After=network.target
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/home/your_user/llama.cpp
+ExecStart=/home/your_user/llama.cpp/build/bin/llama-server \
+--model /home/your_user/models/qwen2.5-7b-instruct-q4_k_m.gguf \
+--port 8000 \
+--host 0.0.0.0 \
+--ctx-size 4096 \
+--threads 4
+Restart=always
+[Install]
+WantedBy=multi-user.target
+# Enable and start the service
+sudo systemctl enable llama-server.service
+sudo systemctl start llama-server.service
+Enter fullscreen mode
+Exit fullscreen mode
+Initializing CAMEL-AI Components
+Setting up the multi-agent framework requires initializing the model, agents, and toolkits:
+from camel.agents import ChatAgent
+from camel.models import ModelFactory
+from camel.messages import BaseMessage
+from camel.toolkits import PPTXToolkit
+from camel.types import RoleType, ModelPlatformType
+# Initialize the model factory pointing to your local llama.cpp server
+model = ModelFactory.create(
+model_platform=ModelPlatformType.OLLAMA,
+# For llama.cpp compatibility
+model_type="Qwen 2.5 7B",
+url="http://localhost:8000/v1",
+model_config_dict={
+"temperature": 0.1,
+"max_tokens": 512,
+"top_p": 0.9,
+}
+)
+# Load the PPTXToolkit for presentation generation
+ppt_toolkit = PPTXToolkit()
+tools = ppt_toolkit.get_tools()
+# Create specialized agents
+conversation_agent = ChatAgent(
+system_message=BaseMessage(
+role_name="assistant",
+role_type=RoleType.ASSISTANT,
+content="""You are Jetson, a helpful AI assistant that can have conversations and create PowerPoint presentations when asked.
+When users ask you to create slides or presentations, tell them you'll create slides for them.
+For regular conversation, respond naturally and helpfully.""",
+meta_dict={}
+),
+model=model,
+tools=[]
+# No tools needed for general conversation
+)
+slide_agent = ChatAgent(
+system_message=BaseMessage(
+role_name="assistant",
+role_type=RoleType.ASSISTANT,
+content="""You are a PowerPoint presentation assistant with access to presentation creation tools.
+When asked to create slides about a topic, follow these steps:
+Step 1: Create a new presentation
+- Use the create_presentation function to start a new PowerPoint presentation
+Step 2: Add multiple informative slides
+- Use add_slide function for each slide
+- Create slides with clear, descriptive titles
+- Include bullet-point content that is educational and well-structured
+- Make sure content is relevant to the requested topic
+- Aim for 4-6 slides per presentation
+Step 3: Save the presentation
+- Use save_presentation function to save the file
+- Save with a descriptive filename ending in .pptx
+Example workflow for "Introduction to AI":
+1. Create a new presentation
+2. Add slide: "Introduction to Artificial Intelligence" with overview content
+3. Add slide: "Types of AI" with different AI categories
+4. Add slide: "Key Technologies" with AI technologies
+5. Add slide: "Applications" with real-world uses
+6. Add slide: "Future of AI" with trends and outlook
+7. Save the presentation as "ai_introduction.pptx"
+Be direct and use the available tools step by step. Focus on creating educational, well-organized content.""",
+meta_dict={}
+),
+model=model,
+tools=tools
+# PPTXToolkit functions available
+)
+# Agent usage example
+def handle_request(user_input):
+if "slides" in user_input.lower():
+# Route to slide generation agent
+response = slide_agent.step(BaseMessage(
+role_name="user",
+role_type=RoleType.USER,
+content=user_input,
+meta_dict={}
+))
+else:
+# Route to conversation agent
+response = conversation_agent.step(BaseMessage(
+role_name="user",
+role_type=RoleType.USER,
+content=user_input,
+meta_dict={}
+))
+return response.msg.content
+Enter fullscreen mode
+Exit fullscreen mode
+Key CAMEL-AI Concepts:
+ModelFactory: Creates model instances with specific configurations
+ChatAgent: Individual agents with specialized roles and tools
+BaseMessage: Standardized message format for agent communication
+Toolkits: Pre-built tool collections (PPTXToolkit provides PowerPoint functions)
+Agent Orchestration: Route requests to appropriate specialized agents
+Architecture Overview
+Model Evaluation and Selection
+Testing revealed significant differences in edge deployment viability:
+Mistral 7B Instruct Q4 GGUF
+# Typical output from Mistral during function calls
+{
+"function": "create_slide",
+"parameters": {
+"title": "Introduction",
+"content": "Overview of the topic..." # Often malformed JSON
+Enter fullscreen mode
+Exit fullscreen mode
+Issues encountered:
+Inconsistent JSON formatting breaking CAMEL's function calling
+Good conversational ability but poor structured output reliability
+Memory usage: ~4.2GB for model weights
+Meta Llama 3.1 8B Instruct Q4 GGUF
+Better function calling compliance but resource constraints became apparent:
+# Memory pressure observed
+Model RAM: ~5.1GB
+Whisper: ~1GB
+TTS Models: ~800MB
+System overhead: ~1.2GB
+Total: 8.1GB (exceeding available memory)
+Enter fullscreen mode
+Exit fullscreen mode
+Result: Frequent OOM crashes during multi-modal operations.
+Qwen 2.5 7B Instruct Q4 GGUF
+The optimal balance for this hardware configuration:
+# Consistent structured output
+{
+"name": "add_slide",
+"arguments": {
+"title": "Technical Implementation",
+"content": "• Core architecture components\n• Integration patterns\n• Performance considerations"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Performance metrics:
+Model RAM: ~4.0GB
+Inference latency: 2-4 seconds for typical responses
+Function calling success rate: >95%
+Memory efficiency allowing concurrent model execution
+Multi-Agent Architecture Implementation
+CAMEL-AI's agent separation proved crucial for system reliability:
+# Agent initialization
+conversation_agent = ChatAgent(
+system_message=conversation_prompt,
+model=model,
+tools=[]
+# No tools - pure conversation
+)
+slide_agent = ChatAgent(
+system_message=slide_generation_prompt,
+model=model,
+tools=pptx_toolkit.get_tools()
+# Specialized tools
+)
+Enter fullscreen mode
+Exit fullscreen mode
+This architecture provides:
+Isolation: Agent failures don't cascade
+Specialization: Each agent optimized for specific tasks
+Maintainability: Clear separation of concerns
+Extensibility: Easy to add new agent types
+Performance Analysis
+Successful Components
+Whisper STT Performance:
+Accuracy: 95%+ in varied noise conditions
+Latency: ~1-2 seconds for 15-second audio clips
+Memory footprint: Stable at ~1GB
+CPU utilization: Efficient ARM64 optimization
+CAMEL Framework:
+Agent orchestration: Reliable switching between conversation and task execution
+PPTXToolkit integration: Seamless PowerPoint generation
+Error handling: Graceful fallbacks when function calls fail
+Performance Bottlenecks
+TTS Synthesis:
+The critical bottleneck emerged in text-to-speech generation:
+Average TTS generation times:
+- Short responses (5-10 words): 8-12 seconds
+- Medium responses (20-30 words): 15-20 seconds
+- Long responses (50+ words): 25-35 seconds
+Enter fullscreen mode
+Exit fullscreen mode
+Root causes:
+Tacotron2 model not optimized for ARM64
+Sequential processing without batching
+Memory bandwidth limitations during vocoder inference
+Model Inference Scaling:
+Memory usage scaling:
+Base system: 1.2GB
++ Whisper: 2.2GB (+1GB)
++ LLM (7B Q4): 6.4GB (+4.2GB)
++ TTS models: 7.8GB (+1.4GB)
+Peak usage: 7.8GB/8GB (97.5% utilization)
+Enter fullscreen mode
+Exit fullscreen mode
+Technical Insights and Optimizations
+Memory Management
+# Implemented model lifecycle management
+def cleanup_unused_models():
+if not current_tts_active:
+del tts_model
+torch.cuda.empty_cache()
+Enter fullscreen mode
+Exit fullscreen mode
+Prompt Engineering for Edge
+Complex prompts caused timeouts. Optimization required:
+# Before: Complex 500+ token prompt → 3+ minute timeouts
+# After: Simplified 150 token prompt → 30-60 second responses
+simplified_prompt = f"""Create 5 slides about: {topic}
+Keep each slide to 3-4 bullet points.
+Focus on core concepts only."""
+Enter fullscreen mode
+Exit fullscreen mode
+Deployment Considerations
+Resource Allocation Strategy
+# Jetson power mode optimization
+sudo nvpmodel -m 0
+# Max performance mode
+sudo jetson_clocks
+# Lock clocks to maximum
+Enter fullscreen mode
+Exit fullscreen mode
+Model Quantization Impact
+Q4 quantization provided the optimal balance:
+Size reduction: 7B model from ~28GB to ~4GB
+Quality retention: Minimal impact on structured output
+Inference speed: 2x improvement over FP16
+Results and Practical Applications
+The system successfully demonstrated:
+Complete offline operation: No internet dependency after setup
+Multi-modal interaction: Speech input to document output
+Real-world utility: Generated presentations with meaningful content
+Edge viability: Practical deployment on consumer hardware
+Example workflow timing:
+User speech: "Create slides on quantum computing"
+→ Whisper transcription: 2s
+→ Agent orchestration: 5s
+→ Content generation: ~180s
+→ PowerPoint creation: ~120s
+→ TTS response: 10s
+Total pipeline: ~317 seconds
+Enter fullscreen mode
+Exit fullscreen mode
+Future Optimization Directions
+TTS Acceleration: Investigate lightweight models or hardware acceleration
+Model Distillation: Train smaller specialized models for specific tasks
+Memory Optimization: Implement dynamic model loading/unloading
+Quantization Research: Explore INT8 or mixed-precision inference
+Conclusion
+Multi-agent AI workflows are viable on edge hardware, but require careful architecture decisions and model selection. The combination of CAMEL-AI's orchestration capabilities with optimized local inference demonstrates that sophisticated AI applications can run independently of cloud infrastructure.
+The key insight: edge AI success depends more on system integration and optimization than raw computational power. With thoughtful design, even modest hardware can deliver compelling AI experiences.
+Code and detailed implementation notes available on request. Always interested in discussing edge AI architectures and optimization strategies.
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Nomadev
+Nomadev
+Nomadev
+Follow
+Simplifying AI for all
+Email
+1sarthakbhardwaj@gmail.com
+Location
+Remote
+Pronouns
+He/Him
+Joined
+Nov 7, 2021
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+Love this blog! Very Insightful
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Asama Akhtar
+Asama Akhtar
+Asama Akhtar
+Follow
+Electrical & AI Engineer,
+CAMEL-AI Ambassador specializing in multi-agent systems and open source contributions. Bridging traditional engineering with cutting-edge AI
+Location
+Kuwait
+Work
+Lab Engineer
+Joined
+Sep 14, 2025
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+Thank you @thenomadevel! 🙏🏼🙏🏼
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Asama Akhtar
+Follow
+Electrical & AI Engineer,
+CAMEL-AI Ambassador specializing in multi-agent systems and open source contributions. Bridging traditional engineering with cutting-edge AI
+Location
+Kuwait
+Work
+Lab Engineer
+Joined
+Sep 14, 2025
+Trending on DEV Community
+Hot
+NanoGem Nail Art Studio 💅🏻
+#devchallenge
+#googleaichallenge
+#ai
+#gemini
+Zero Hunger Connect
+#devchallenge
+#googleaichallenge
+#ai
+#gemini
+How We Built An AI-Assisted Dependency Vulnerability Scanner
+#kiro
+#kirohackathon
+#productivity
+#kirodotdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

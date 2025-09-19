@@ -1,0 +1,973 @@
+php - How to set up file permissions for Laravel? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to set up file permissions for Laravel?
+Ask Question
+Asked
+10 years, 3 months ago
+Modified
+2 years, 6 months ago
+Viewed
+864k times
+Part of PHP Collective
+437
+I'm using Apache Web Server that has the owner set to _www:_www. I never know what is the best practice with file permissions, for example when I create new Laravel 5 project.
+Laravel 5 requires /storage folder to be writable. I found plenty of different approaches to make it work and I usually end with making it 777 chmod recursively. I know it's not the best idea though.
+The official doc says:
+Laravel may require some permissions to be configured: folders within
+storage and vendor require write access by the web server.
+Does it mean that the web server needs access to the storage and vendor folders themselves too or just their current contents?
+I assume that what is much better, is changing the owner instead of permissions. I changed all Laravel's files permissions recursively to _www:_www and that made the site work correctly, as if I changed chmod to 777. The problem is that now my text editor asks me for password each time I want to save any file and the same happens if I try to change anything in Finder, like for example copy a file.
+What is the correct approach to solve these problems?
+Change chmod
+Change the owner of the files to match those of the
+web server and perhaps set the text editor (and Finder?) to skip
+asking for password, or make them use sudo
+Change the owner of the web server to match the os user (I don't
+know the consequences)
+Something else
+phpapachelaravellaravel-5file-permissions
+Share
+Improve this question
+Follow
+edited Aug 29, 2019 at 21:52
+Script47
+14.6k44 gold badges4949 silver badges6969 bronze badges
+asked Jun 4, 2015 at 8:49
+Robo RobokRobo Robok
+23k2020 gold badges8484 silver badges146146 bronze badges
+4
+12
+I think 777 is too much freedom, because it includes all permissions for everyone.
+Robo Robok
+–
+Robo Robok
+2015-06-04 14:10:33 +00:00
+Commented
+Jun 4, 2015 at 14:10
+1
+From the Laravel docs: Directories within the storage and the bootstrap/cache directories should be writable by your web server
+user3451822
+–
+user3451822
+2016-09-25 14:04:03 +00:00
+Commented
+Sep 25, 2016 at 14:04
+1
+use fcgi and you can 755/644 for all (incl. public/storage)
+Jeffz
+–
+Jeffz
+2018-03-24 02:11:07 +00:00
+Commented
+Mar 24, 2018 at 2:11
+@jww agree could we move the question to serverfault instead of putting it on hold?
+wp78de
+–
+wp78de
+2018-12-24 07:27:36 +00:00
+Commented
+Dec 24, 2018 at 7:27
+Add a comment
+|
+22 Answers
+22
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1105
+Just to state the obvious for anyone viewing this discussion.... if you give any of your folders 777 permissions, you are allowing ANYONE to read, write and execute any file in that directory.... what this means is you have given ANYONE (any hacker or malicious person in the entire world) permission to upload ANY file, virus or any other file, and THEN execute that file...
+IF YOU ARE SETTING YOUR FOLDER PERMISSIONS TO 777 YOU HAVE OPENED YOUR
+SERVER TO ANYONE THAT CAN FIND THAT DIRECTORY.
+Clear enough???
+:)
+There are basically two ways to setup your ownership and permissions. Either you give yourself ownership or you make the webserver the owner of all files.
+Webserver as owner (the way most people do it, and the Laravel doc's way):
+assuming www-data (it could be something else) is your webserver user.
+sudo chown -R www-data:www-data /path/to/your/laravel/root/directory
+if you do that, the webserver owns all the files, and is also the group, and you will have some problems uploading files or working with files via FTP, because your FTP client will be logged in as you, not your webserver, so add your user to the webserver user group:
+sudo usermod -a -G www-data ubuntu
+Of course, this assumes your webserver is running as www-data (the Homestead default), and your user is ubuntu (it's vagrant if you are using Homestead).
+Then you set all your directories to 755 and your files to 644...
+SET file permissions
+sudo find /path/to/your/laravel/root/directory -type f -exec chmod 644 {} \;
+SET directory permissions
+sudo find /path/to/your/laravel/root/directory -type d -exec chmod 755 {} \;
+Your user as owner
+I prefer to own all the directories and files (it makes working with everything much easier), so, go to your laravel root directory:
+cd /var/www/html/laravel >> assuming this is your current root directory
+sudo chown -R $USER:www-data .
+Then I give both myself and the webserver permissions:
+sudo find . -type f -exec chmod 664 {} \;
+sudo find . -type d -exec chmod 775 {} \;
+Then give the webserver the rights to read and write to storage and cache
+Whichever way you set it up, then you need to give read and write permissions to the webserver for storage, cache and any other directories the webserver needs to upload or write too (depending on your situation), so run the commands from bashy above :
+sudo chgrp -R www-data storage bootstrap/cache
+sudo chmod -R ug+rwx storage bootstrap/cache
+Now, you're secure and your website works, AND you can work with the files fairly easily
+Share
+Improve this answer
+Follow
+edited Dec 12, 2020 at 13:40
+Andres Felipe
+4,34111 gold badge2727 silver badges4242 bronze badges
+answered May 17, 2016 at 2:57
+bgiesbgies
+12.8k22 gold badges2020 silver badges1414 bronze badges
+46 Comments
+Add a comment
+Denis Solakovic Denis Solakovic Over a year ago
+Great example, if there is no www-data user, use apache:apache in place of www-data (on some distros) 2016-10-06T09:42:33.97Z+00:00
+9
+Reply
+Copy link
+Marco Aurélio Deleu Marco Aurélio Deleu Over a year ago
+I think people misunderstand too much the anyone concept. Linux's anyone flag means any user, not any person. You still need server access. 2016-10-08T12:23:13.6Z+00:00
+175
+Reply
+Copy link
+Denis Solakovic Denis Solakovic Over a year ago
+@andreshg112 The first www-data is name of the user, and the second www-data is the name of the group. So it means the owner is apache and (this-group) apache. Use www-data:www-data or add your user to that group. (CLI:
+useradd -G {group-name} username ), and than you can chown to username:www-group 2017-01-26T10:24:10.377Z+00:00
+3
+Reply
+Copy link
+bgies bgies Over a year ago
+@fs_tigre I don't think there is much difference at all for security... except I guess that there are two users to guess passwords for instead of one, and of course I log in all the time with my user account, so if I did it in an insecure way (normal FTP and using a password for instance) it could compromise the site, but I only login in with Putty and SSH, and when I use FTP it's SFTP, so no issues at all. The commands suggested by bashy are recommended because they set the sticky bit, so if your webserver creates subdirectories they will have the same owner/permissions as the parent 2017-04-05T03:24:11.363Z+00:00
+4
+Reply
+Copy link
+Fahmi Fahmi Over a year ago
+In the first method, wouldn't the user still not be able to upload files since you didn't give write permission the group? 2017-06-09T03:33:51.327Z+00:00
+5
+Reply
+Copy link
+Add a comment | Show 41 more comments
+87
+The permissions for the storage and vendor folders should stay at 775, for obvious security reasons.
+However, both your computer and your server Apache need to be able to write in these folders. Ex: when you run commands like php artisan, your computer needs to write in the logs file in storage.
+All you need to do is to give ownership of the folders to Apache :
+sudo chown -R www-data:www-data /path/to/your/project/vendor
+sudo chown -R www-data:www-data /path/to/your/project/storage
+Then you need to add your user (referenced by it's username) to the group to which the server Apache belongs. Like so :
+sudo usermod -a -G www-data userName
+NOTE: Most frequently, the group name is www-data but in your case, replace it with _www
+Share
+Improve this answer
+Follow
+edited May 29, 2021 at 23:58
+answered Jun 10, 2015 at 3:02
+BassMHLBassMHL
+9,1071010 gold badges5353 silver badges6767 bronze badges
+3 Comments
+Add a comment
+bigwheels16 bigwheels16 Over a year ago
++1 I like this approach. But I believe the chown commands should include the -R flag.
+Also, in laravel 5.1 and 5.2, instead of the vendor directory, you should give access to the bootstrap/cache directory. 2016-05-24T09:54:33.483Z+00:00
+13
+Reply
+Copy link
+StealthTrails StealthTrails Over a year ago
+is there any way to test if this will work fine? I mean if the new log file is created in the storage/logs dir that would have correct permissions how I can check that? 2018-12-26T10:22:52.58Z+00:00
+0
+Reply
+Copy link
+Adam Adam Over a year ago
+What you mean with your computer needs to write in the logs file in storage? File permissions between users from server and personal computer are not shared. 2020-07-04T08:43:33.867Z+00:00
+0
+Reply
+Copy link
+Add a comment
+50
+We've run into many edge cases when setting up permissions for Laravel applications. We create a separate user account (deploy) for owning the Laravel application folder and executing Laravel commands from the CLI, and run the web server under www-data. One issue this causes is that the log file(s) may be owned by www-data or deploy, depending on who wrote to the log file first, obviously preventing the other user from writing to it in the future.
+I've found that the only sane and secure solution is to use Linux ACLs. The goal of this solution is:
+To allow the user who owns/deploys the application read and write access to the Laravel application code (we use a user named deploy).
+To allow the www-data user read access to Laravel application code, but not write access.
+To prevent any other users from accessing the Laravel application code/data at all.
+To allow both the www-data user and the application user (deploy) write access to the storage folder, regardless of which user owns the file (so both deploy and www-data can write to the same log file for example).
+We accomplish this as follows:
+All files within the application/ folder are created with the default umask of 0022, which results in folders having drwxr-xr-x permissions and files having -rw-r--r--.
+sudo chown -R deploy:deploy application/ (or simply deploy your application as the deploy user, which is what we do).
+chgrp www-data application/ to give the www-data group access to the application.
+chmod 750 application/ to allow the deploy user read/write, the www-data user read-only, and to remove all permissions to any other users.
+setfacl -Rdm u:www-data:rwx,u:deploy:rwx application/storage/ to set the default permissions on the storage/ folder and all subfolders. Any new folders/files created in the storage folder will inherit these permissions (rwx for both www-data and deploy).
+setfacl -Rm u:www-data:rwX,u:deploy:rwX application/storage/ to set the above permissions on any existing files/folders.
+Share
+Improve this answer
+Follow
+edited Dec 21, 2016 at 17:11
+answered Dec 21, 2016 at 17:04
+Chris SchwerdtChris Schwerdt
+1,19199 silver badges99 bronze badges
+7 Comments
+Add a comment
+Sven Sven Over a year ago
+This is the only answer that uses ACLs and like the author said, this is what I also found to be the only "sane and secure" solution for setting up Laravel. Really appreciating this answer. 2020-08-03T23:32:03.35Z+00:00
+7
+Reply
+Copy link
+sakinobashi sakinobashi Over a year ago
+Shouldn't the -R flag be added to commands 3 and 4? 2021-02-25T11:01:17.06Z+00:00
+0
+Reply
+Copy link
+Chris Schwerdt Chris Schwerdt Over a year ago
+There's no need to change the permissions of all the subdirectories/files because users/groups without execute permission on the top-level application folder will not be able to access any data within that directory or subdirectories (even if a subdirectory/file was 777). See this question and answer for details. 2021-03-02T19:37:34.45Z+00:00
+0
+Reply
+Copy link
+Kevin Wheeler Kevin Wheeler Over a year ago
+Isn't the default umask 0002? Should I just create a "deploy" user and set its umask to 0022? 2022-08-30T00:08:07.61Z+00:00
+1
+Reply
+Copy link
+Kevin Wheeler Kevin Wheeler Over a year ago
+Does this answer need to be updated to also run the setfacl commands on bootstrap/cache? 2022-09-07T00:17:20.96Z+00:00
+1
+Reply
+Copy link
+Add a comment | Show 2 more comments
+40
+This worked for me:
+cd [..LARAVEL PROJECT ROOT]
+sudo find . -type f -exec chmod 644 {} \;
+sudo find . -type d -exec chmod 755 {} \;
+sudo chmod -R 777 ./storage
+sudo chmod -R 777 ./bootstrap/cache/
+Only if you use npm (VUE, compiling SASS, etc..) add this:
+sudo chmod -R 777 ./node_modules/
+What it does:
+Change all file permissions to 644
+Change all folder permissions to 755
+For storage and bootstrap cache (special folders used by laravel for creating and executing files, not available from outside) set permission to 777, for anything inside
+For nodeJS executable, same as above
+Note: Maybe you can not, or don't need, to do it with sudo prefix. it depends on your user's permissions, group, etc...
+Share
+Improve this answer
+Follow
+edited Nov 5, 2020 at 14:40
+answered Feb 12, 2020 at 16:17
+Luca C.Luca C.
+12.7k22 gold badges8989 silver badges8383 bronze badges
+1 Comment
+Add a comment
+Mahesh Samudra Mahesh Samudra Over a year ago
+I only read the title of the question and for that, this is the answer. This actually saved me! Thank you. 2021-10-05T14:58:12.02Z+00:00
+0
+Reply
+Copy link
+29
+Change the permissions for your project folder to enable read/write/exec for any user within the group owning the directory (which in your case is _www):
+chmod -R 775 /path/to/your/project
+Then add your OS X username to the _www group to allow it access to the directory:
+sudo dseditgroup -o edit -a yourusername -t user _www
+Share
+Improve this answer
+Follow
+edited Jun 4, 2015 at 9:18
+answered Jun 4, 2015 at 9:01
+BogdanBogdan
+44.7k1212 gold badges130130 silver badges130130 bronze badges
+13 Comments
+Add a comment
+Robo Robok Robo Robok Over a year ago
+When I do dseditgroup provided by you, I'm getting an error: Username and password must be provided.. 2015-06-04T09:11:06.517Z+00:00
+0
+Reply
+Copy link
+Bogdan Bogdan Over a year ago
+My mistake, you need to run that command with a user that has appropriate permissions, so just add sudo at the beginning. 2015-06-04T09:18:22.267Z+00:00
+0
+Reply
+Copy link
+Robo Robok Robo Robok Over a year ago
+So do I need to change owner of those files to _www:_www or myuser:_www as well? 2015-06-04T09:26:12.147Z+00:00
+0
+Reply
+Copy link
+Bogdan Bogdan Over a year ago
+You can leave it _www:_www, because 775 means any user in the group _www will have full permissions to read/write/exect in that folder, and you just added your username to that group. 2015-06-04T09:28:21.44Z+00:00
+0
+Reply
+Copy link
+Robo Robok Robo Robok Over a year ago
+Could you tell me one thing? What does it mean chown myuser:_www? I know the first one is the user and the second one is the group, but does it mean "this user AND ANYONE FROM this group" or "this user BUT ONLY IF HE BELONGS TO this group"? 2015-06-04T09:30:59.537Z+00:00
+0
+Reply
+Copy link
+Add a comment | Show 8 more comments
+23
+The Laravel 5.4 docs say:
+After installing Laravel, you may need to configure some permissions.
+Directories within the storage and the bootstrap/cache directories
+should be writable by your web server or Laravel will not run. If you
+are using the Homestead virtual machine, these permissions should
+already be set.
+There are a lot of answers on this page that mention using 777 permissions. Don't do that. You'd be exposing yourself to hackers.
+Instead, follow the suggestions by others about how to set permissions of 755 (or more restrictive). You may need to figure out which user your app is running as by running whoami in the terminal and then change ownership of certain directories using chown -R.
+This is what worked for me:
+cd /code/laravel_project
+php artisan cache:clear
+php artisan config:clear
+sudo service php7.4-fpm stop
+sudo service nginx stop
+sudo chown -R $USER:www-data storage
+sudo chown -R $USER:www-data bootstrap/cache
+chmod -R 775 storage
+chmod -R 755 bootstrap/cache
+sudo service php7.4-fpm start && sudo service nginx start
+inspired by https://stackoverflow.com/a/45673457/470749
+If you do not have permission to use sudo as so many other answers require...
+Your server is probably a shared host such as Cloudways.
+(In my case, I had cloned my Laravel application into a second Cloudways server of mine, and it wasn't completely working because the permissions of the storage and bootstrap/cache directories were messed up.)
+I needed to use:
+Cloudways Platform > Server > Application Settings > Reset Permission
+Then I could run php artisan cache:clear in the terminal.
+Share
+Improve this answer
+Follow
+edited Jun 22, 2021 at 19:19
+answered May 26, 2017 at 21:35
+RyanRyan
+24.5k3636 gold badges210210 silver badges408408 bronze badges
+1 Comment
+Add a comment
+CodeConnoisseur CodeConnoisseur Over a year ago
+I run these commands but have to re-run them everytime I clear config. Is there a way to prevent this from happening? 2022-01-19T21:21:14.59Z+00:00
+0
+Reply
+Copy link
+18
+I also follow the way to have user as owner, and user is member of www-data.
+My sequence of command is a bit different:
+cd /var/www/html/laravel-project-root
+sudo chown -R $USER:www-data .
+sudo find . -type f -exec chmod 664 {} \;
+sudo find . -type d -exec chmod 775 {} \;
+sudo find . -type d -exec chmod g+s {} \;
+<----- NOTE THIS
+sudo chgrp -R www-data storage bootstrap/cache
+sudo chmod -R ug+rwx storage bootstrap/cache
+Please note the particularity of this very answer: I am the only (here) adding the group bit to every folder. In this way, if someone or something creates a new subfolder, it automatically has www-data as group
+this happens when we are forced to deploy some userland files, preloaded using ftp, and so new subfolders folders are always owned from www-data group even if created by ftp client
+Note also that the
+sudo chgrp -R www-data storage bootstrap/cache >
+is not needed if you do ALL of the commands in the list. But if you want to fix a ftp deploy, for example, and you didn't execute the 2nd line, so this is needed.
+Share
+Improve this answer
+Follow
+answered Feb 9, 2022 at 16:05
+realteborealtebo
+25.8k4646 gold badges126126 silver badges223223 bronze badges
+Comments
+Add a comment
+16
+Most folders should be normal "755" and files, "644"
+Laravel requires some folders to be writable for the web server user. You can use this command on unix based OSs.
+sudo chgrp -R www-data storage bootstrap/cache
+sudo chmod -R ug+rwx storage bootstrap/cache
+Share
+Improve this answer
+Follow
+answered Jun 6, 2017 at 11:40
+SiddharthSiddharth
+36733 silver badges77 bronze badges
+Comments
+Add a comment
+11
+The solution posted by bgles is spot on for me in terms of correctly setting permissions initially (I use the second method), but it still has potential issues for Laravel.
+By default, Apache will create files with 644 permissions. So that's pretty much anything in storage/. So, if you delete the contents of storage/framework/views, then access a page through Apache you will find the cached view has been created
+like:
+-rw-r--r-- 1 www-data www-data 1005 Dec
+6 09:40 969370d7664df9c5206b90cd7c2c79c2
+If you run "artisan serve" and access a different page, you will get different permissions because CLI PHP behaves differently from Apache:
+-rw-rw-r-- 1 user
+www-data 16191 Dec
+6 09:48 2a1683fac0674d6f8b0b54cbc8579f8e
+In itself this is no big deal as you will not be doing any of this in production. But if Apache creates a file that subsequently needs to be written by the user, it will fail. And this can apply to cache files, cached views and logs when deploying using a logged-in user and artisan. A facile example being "artisan cache:clear" which will fail to delete any cache files that are www-data:www-data 644.
+This can be partially mitigated by running artisan commands as www-data, so you'll be doing/scripting everything like:
+sudo -u www-data php artisan cache:clear
+Or you'll avoid the tediousness of this and add this to your .bash_aliases:
+alias art='sudo -u www-data php artisan'
+This is good enough and is not affecting security in any way. But on development machines, running testing and sanitation scripts makes this unwieldy, unless you want to set up aliases to use 'sudo -u www-data' to run phpunit and everything else you check your builds with that might cause files to be created.
+The solution is to follow the second part of bgles advice, and add the following to /etc/apache2/envvars, and restart (not reload) Apache:
+umask 002
+This will force Apache to create files as 664 by default. In itself, this can present a security risk. However, on the Laravel environments mostly being discussed here (Homestead, Vagrant, Ubuntu) the web server runs as user www-data under group www-data. So if you do not arbitrarily allow users to join www-data group, there should be no additional risk. If someone manages to break out of the webserver, they have www-data access level anyway so nothing is lost (though that's not the best attitude to have relating to security admittedly). So on production it's relatively safe, and on a single-user development machine, it's just not an issue.
+Ultimately as your user is in www-data group, and all directories containing these files are g+s (the file is always created under the group of the parent directory), anything created by the user or by www-data will be r/w for the other.
+And that's the aim here.
+edit
+On investigating the above approach to setting permissions further, it still looks good enough, but a few tweaks can help:
+By default, directories are 775 and files are 664 and all files have the owner and group of the user who just installed the framework. So assume we start from that point.
+cd /var/www/projectroot
+sudo chmod 750 ./
+sudo chgrp www-data ./
+First thing we do is block access to everyone else, and make the group to be www-data. Only the owner and members of www-data can access the directory.
+sudo chmod 2775 bootstrap/cache
+sudo chgrp -R www-data bootstrap/cache
+To allow the webserver to create services.json and compiled.php, as suggested by the official Laravel installation guide. Setting the group sticky bit means these will be owned by the creator with a group of www-data.
+find storage -type d -exec sudo chmod 2775 {} \;
+find storage -type f -exec sudo chmod 664 {} \;
+sudo chgrp -R www-data storage
+We do the same thing with the storage folder to allow creation of cache, log, session and view files. We use find to explicitly set the directory permissions differently for directories and files. We didn't need to do this in bootstrap/cache as there aren't (normally) any sub-directories in there.
+You may need to reapply any executable flags, and delete vendor/* and reinstall composer dependencies to recreate links for phpunit et al, eg:
+chmod +x .git/hooks/*
+rm vendor/*
+composer install -o
+That's it. Except for the umask for Apache explained above, this is all that's required without making the whole projectroot writeable by www-data, which is what happens with other solutions. So it's marginally safer this way in that an intruder running as www-data has more limited write access.
+end edit
+Changes for Systemd
+This applies to the use of php-fpm, but maybe others too.
+The standard systemd service needs to be overridden, the umask set in the override.conf file, and the service restarted:
+sudo systemctl edit php7.0-fpm.service
+Use:
+[Service]
+UMask=0002
+Then:
+sudo systemctl daemon-reload
+sudo systemctl restart php7.0-fpm.service
+Share
+Improve this answer
+Follow
+edited Nov 15, 2017 at 4:02
+answered Dec 6, 2016 at 3:16
+markdwhitemarkdwhite
+2,4592020 silver badges2424 bronze badges
+1 Comment
+Add a comment
+owis sabry owis sabry Over a year ago
+the second part soves the problem 2023-06-01T19:20:39.297Z+00:00
+0
+Reply
+Copy link
+11
+Add to composer.json
+"scripts": {
+"post-install-cmd": [
+"chgrp -R www-data storage bootstrap/cache",
+"chmod -R ug+rwx storage bootstrap/cache"
+]
+}
+After composer install
+Share
+Improve this answer
+Follow
+edited Mar 5, 2019 at 11:09
+answered Oct 9, 2018 at 7:55
+Davron AchilovDavron Achilov
+63166 silver badges1414 bronze badges
+4 Comments
+Add a comment
+mbozwood mbozwood Over a year ago
+This is a bad answer. You should never ever need to use 777 for any folder if you've configured the webserver correctly. Using 777 opens up your server for any hacker to upload a file, and execute said file if they know where the folder exists. 2018-11-09T09:34:51.38Z+00:00
+5
+Reply
+Copy link
+Davron Achilov Davron Achilov Over a year ago
+Okay.
+What are you offering? 2018-11-09T11:50:03.73Z+00:00
+2
+Reply
+Copy link
+Davron Achilov Davron Achilov Over a year ago
+And if so, will it be right?
+chown -R $USER:www-data storage,
+chown -R $USER:www-data bootstrap/cache 2018-11-09T11:52:33.857Z+00:00
+0
+Reply
+Copy link
+mbozwood mbozwood Over a year ago
+See the correct answer, it contains all the necessary information that you can absolutely put in the post-update :) 2018-11-09T13:19:38.037Z+00:00
+0
+Reply
+Copy link
+Add a comment
+10
+As posted already
+All you need to do is to give ownership of the folders to Apache :
+but I added -R for chown command:
+sudo chown -R www-data:www-data /path/to/your/project/vendor
+sudo chown -R www-data:www-data /path/to/your/project/storage
+Share
+Improve this answer
+Follow
+answered Jun 1, 2016 at 15:49
+Stanislav PotapenkoStanislav Potapenko
+39744 silver badges77 bronze badges
+4 Comments
+Add a comment
+haris haris Over a year ago
+Why do we have to give permission to vendor directory? Storage make sense, to write to log files, etc. But vendor? why? 2016-09-18T05:37:42.073Z+00:00
+3
+Reply
+Copy link
+Stanislav Potapenko Stanislav Potapenko Over a year ago
+As wrote above in some comment: "However, both your computer and your server Apache need to be able to write in these folders. Ex: when you run commands like php artisan, your computer needs to write in the logs file in storage." 2016-11-15T15:32:28.747Z+00:00
+0
+Reply
+Copy link
+Sunil Kumar Sunil Kumar Over a year ago
+Error on mac: chown: www-data: illegal group name 2018-04-06T08:55:02.12Z+00:00
+0
+Reply
+Copy link
+Stanislav Potapenko Stanislav Potapenko Over a year ago
+Please see stackoverflow.com/questions/8035939/… 2018-04-18T15:16:40.253Z+00:00
+0
+Reply
+Copy link
+Add a comment
+9
+we will give 755 permission to storage and bootstrap folder permission
+sudo chmod -R 755 bootstrap/cache
+sudo chmod -R 755 storage
+Solution 2
+We will give all files and folder ownership to the webserver user
+sudo chown -R www-data:www-data /var/www/your-project-path
+set 644 permission for all files and 755 for all directories.
+sudo find /var/www/your-project-path -type f -exec chmod 644 {} \;
+sudo find /var/www/your-project-path -type d -exec chmod 755 {} \;
+we will give proper read and write permission for files and folders.
+cd /var/www/your-project-path
+sudo chgrp -R www-data storage bootstrap/cache
+sudo chmod -R ug+rwx storage bootstrap/cache
+above all detail for ubuntu server
+Share
+Improve this answer
+Follow
+answered Feb 23, 2023 at 5:47
+Bhargav RaviyaBhargav Raviya
+44944 silver badges88 bronze badges
+Comments
+Add a comment
+5
+I have used this snippet for more than 3 years.
+laravel new demo
+cd demo
+sudo find ./ -type f -exec chmod 664 {} \;
+sudo find ./
+-type d -exec chmod 775 {} \;
+sudo chgrp -Rf www-data storage bootstrap/cache
+sudo chmod -Rf ug+rwx storage bootstrap/cache
+sudo chmod -Rf 775 storage/ bootstrap/
+php artisan storage:link
+And @realtebo recommendation looks good. I will try.
+sudo find . -type d -exec chmod g+s {} \;
+<----- NOTE THIS
+Share
+Improve this answer
+Follow
+answered Aug 5, 2022 at 18:05
+bingglexbingglex
+32566 silver badges88 bronze badges
+Comments
+Add a comment
+4
+I have installed laravel on EC2 instance and have spent 3 days to fix the permission error and at last fixed it.
+So I want to share this experience with other one.
+user problem
+When I logged in ec2 instance, my username is ec2-user and usergroup is ec2-user.
+And the website works under of httpd user: apache: apache
+so we should set the permission for apache.
+folder and file permission
+A.
+folder structure
+first, you should make sure that you have such folder structure like this under storage
+storage
+framework
+cache
+sessions
+views
+logs
+The folder structure can be different according to the laravel version you use.
+my laravel version is 5.2 and you could find the appropriate structure according to your version.
+B. permission
+At first, I see the instructions to set 777 under storage to remove file_put_contents: failed to open stream error.
+So i setup permission 777 to storage
+chmod -R 777 storage
+But the error was not fixed.
+here, you should consider one: who writes files to storage/ sessions and views.
+That is not ec2-user, but apache.
+Yes, right.
+"apache" user writes file (session file, compiled view file) to the session and view folder.
+So you should give apache to write permission to these folder.
+By default: SELinux say the /var/www folder should be read-only by the apache deamon.
+So for this, we can set the selinux as 0:
+setenforce 0
+This can solve problem temporally, but this makes the mysql not working.
+so this is not so good solution.
+You can set a read-write context to the storage folder with: (remember to setenforce 1 to test it out)
+chcon -Rt httpd_sys_content_rw_t storage/
+Then your problem will be fixed.
+and don't forget this
+composer update
+php artisan cache:clear
+These commands will be useful after or before.
+I hope you save your time.
+Good luck. Hacken
+Share
+Improve this answer
+Follow
+answered Jul 15, 2017 at 10:47
+Hacken LeeHacken Lee
+4922 bronze badges
+2 Comments
+Add a comment
+Volatil3 Volatil3 Over a year ago
+Did you try to call a command line script from Web server? I am having issue as it does not print any output 2018-04-11T10:48:13.47Z+00:00
+0
+Reply
+Copy link
+mrtechmaker mrtechmaker Over a year ago
+hi
+i am using nginx
+but laravel creates new file with apache user :)
+how do i change this .
+new file created should use the nginx user 2023-01-09T19:02:28.267Z+00:00
+0
+Reply
+Copy link
+1
+This was written in 2017 for around version 5.1~5.2. Use some common sense before you use this on later versions of Laravel.
+I decided to write my own script to ease some of the pain of setting up projects.
+Run the following inside your project root:
+wget -qO- https://raw.githubusercontent.com/defaye/bootstrap-laravel/master/bootstrap.sh | sh
+Wait for the bootstrapping to complete and you're good to go.
+Review the script before use.
+Share
+Improve this answer
+Follow
+edited Jul 16, 2021 at 12:47
+E_net4
+30.4k1313 gold badges117117 silver badges154154 bronze badges
+answered Mar 10, 2017 at 22:30
+JonathanJonathan
+11.6k99 gold badges7070 silver badges8585 bronze badges
+Comments
+Add a comment
+0
+I had the following configuration:
+NGINX (running user: nginx)
+PHP-FPM
+And applied permissions correctly as @bgies suggested in the accepted answer. The problem in my case was the php-fpm's configured running user and group which was originally apache.
+If you're using NGINX with php-fpm, you should open php-fpm's config file:
+nano /etc/php-fpm.d/www.config
+And replace user and group options' value with one NGINX is configured to work with; in my case, both were nginx:
+...
+; Unix user/group of processes
+; Note: The user is mandatory. If the group is not set, the default user's group
+;
+will be used.
+; RPM: apache Choosed to be able to access some dir as httpd
+user = nginx
+; RPM: Keep a group allowed to write in log dir.
+group = nginx
+...
+Save it and restart nginx and php-fpm services.
+Share
+Improve this answer
+Follow
+answered Nov 8, 2018 at 12:34
+Amirreza NasiriAmirreza Nasiri
+76666 silver badges1414 bronze badges
+Comments
+Add a comment
+0
+For Laravel developers, directory issues can be a little bit pain. In my application, I was creating directories on the fly and moving files to this directory in my local environment successfully. Then on server, I was getting errors while moving files to newly created directory.
+Here are the things that I have done and got a successful result at the end.
+sudo find /path/to/your/laravel/root/directory -type f -exec chmod 664 {} \;
+sudo find /path/to/your/laravel/root/directory -type d -exec chmod 775 {} \;
+chcon -Rt httpd_sys_content_rw_t /path/to/my/file/upload/directory/in/laravel/project/
+While creating the new directory on the fly, I used the command mkdir($save_path, 0755, true);
+After making those changes on production server, I successfully created new directories and move files to them.
+Finally, if you use File facade in Laravel you can do something like this:
+File::makeDirectory($save_path, 0755, true);
+Share
+Improve this answer
+Follow
+edited Feb 4, 2020 at 18:30
+answered Dec 14, 2019 at 22:59
+MycodingprojectMycodingproject
+1,18111 gold badge1010 silver badges1313 bronze badges
+Comments
+Add a comment
+0
+I'd do it like this:
+sudo chown -R $USER:www-data laravel-project/
+find laravel-project/ -type f -exec chmod 664 {} \;
+find laravel-project/ -type d -exec chmod 775 {} \;
+then finally, you need to give webserver permission to modify the storage and bootstrap/cache directories:
+sudo chgrp -R www-data storage bootstrap/cache
+sudo chmod -R ug+rwx storage bootstrap/cache
+Share
+Improve this answer
+Follow
+edited Jan 7, 2021 at 10:06
+answered Jan 7, 2021 at 9:51
+Sumit WadhwaSumit Wadhwa
+3,26711 gold badge2727 silver badges3737 bronze badges
+Comments
+Add a comment
+0
+If you have some code changes in some files and then some permission changes, it might be easier to set up the right permissions and commit again than try to pick the files that have permission changes.
+You will only be left with the code changes.
+Share
+Improve this answer
+Follow
+answered Jan 3, 2022 at 16:19
+alex toaderalex toader
+2,42822 gold badges1919 silver badges2323 bronze badges
+Comments
+Add a comment
+-1
+I found an even better solution to this.
+Its caused because php is running as another user by default.
+so to fix this do
+sudo nano /etc/php/7.0/fpm/pool.d/www.conf
+then edit the
+user = "put user that owns the directories"
+group = "put user that owns the directories"
+then:
+sudo systemctl reload php7.0-fpm
+Share
+Improve this answer
+Follow
+answered Oct 18, 2017 at 23:56
+CecilMerrell aka bringrainfireCecilMerrell aka bringrainfire
+72266 silver badges1919 bronze badges
+3 Comments
+Add a comment
+markdwhite markdwhite Over a year ago
+If the visitor to the webpage manages to break out of the webserver, they will now have the access rights of the "user that owns the directories". If that user is www-data, there is a limited amount of damage they can do, and this is why apache runs as a limited user. If that user is not so limited, they can do more damage. If that user has sudo rights, they can do much more damage. 2017-11-15T04:09:43.87Z+00:00
+0
+Reply
+Copy link
+CecilMerrell aka bringrainfire CecilMerrell aka bringrainfire Over a year ago
+It's the same deal with apache. BTW I run nignx like a big boy now 2017-11-15T17:31:20.183Z+00:00
+0
+Reply
+Copy link
+mrtechmaker mrtechmaker Over a year ago
+This did work for me.
+i am using nginx and php-fpm had user as apache so new user was being created with apache user 2023-01-09T19:07:06.04Z+00:00
+1
+Reply
+Copy link
+Add a comment
+-1
+sudo chown -R $USER:www-data your_directory_name_under_storage_app
+It will give required permission to server user & server for file access.
+Share
+Improve this answer
+Follow
+answered Apr 7, 2021 at 12:21
+Ranjan KumarRanjan Kumar
+1,81311 gold badge1818 silver badges1818 bronze badges
+Comments
+Add a comment
+-1
+Mac OS Big Sur
+In my case artisan couldn't access
+/var/www/{project_name}/storage to create files ex. in /logs folder
+so I had manually to go to
+/var
+and create the structure of folders that Laravel need to make symlink.
+Add access to folder
+sudo chgrp -R $USER
+/var/www/project_name
+Then I could use
+php artisan storage:link without any problems.
+Share
+Improve this answer
+Follow
+answered Sep 25, 2021 at 13:46
+devzomdevzom
+75611 gold badge1010 silver badges1919 bronze badges
+Comments
+Add a comment
+Protected question. To answer this question, you need to have at least 10 reputation on this site (not counting the association bonus). The reputation requirement helps protect this question from spam and non-answer activity.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+phpapachelaravellaravel-5file-permissions
+See similar questions with these tags.
+PHP
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Stack Overflow is helping you learn to code with new resources
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+16
+file_put_content...fail to open stream:Permission denied in Laravel 5
+4
+Is it secure to make source code files writable by webserver?
+4
+Laravel 8 Failed to clear cache. Make sure you have the appropriate permissions
+2
+Correct permission for Laravel folders on server
+3
+Proper group ownership & permissions to the Laravel app/storage folder on vagrant?
+-1
+How to check where is this error on laravel
+0
+XAMPP: htdocs folder permissions for Laravel 6.0
+0
+What should be the correct file permissions for the laravel Storage folder?
+1
+PhpStorm needs 777 permission to work
+0
+I keep getting "Failed to open stream: Permission denied" and changing permissions on the folder does not work
+See more linked questions
+Related
+2
+Laravel file permission error
+0
+Laravel Permissions
+2
+Using Laravel Artisan and file permissions
+5
+Permissions "public" folder Laravel
+11
+Laravel Permission Denied
+31
+Permissions Issue with Laravel on CentOS
+2
+Laravel - Create file with specific user, group and permissions
+2
+UNIX Laravel Artisan File Permission
+2
+Correct permission for Laravel folders on server
+6
+How to setup laravel file permission once and for all
+Hot Network Questions
+CiviCRM standalone - how do I log out?
+Where can a French citizen with Russian visa legally cross by bike/foot/car from China into Russia at a border point as close as possible to Dongning?
+What happens when a creature with the See Invisibility spell is blinded?
+How does energy abundance affect materials science?
+What does, "as having nothing" mean in 2 Corinthians 6:10?
+Short story about man deciding to end the stasis of eternal life on Earth
+What was the "shear wedge" used on the Tethered Satellite System?
+How could triangles exist?
+How to write ${...} as text in file
+Is the yeast used in chicken breading yeast or yeast extract
+My pure mathematics PhD dissertation will likely be very short. I have until the last day of January 2026 to remedy this. What can I do?
+Short story about spaceship landing on Earth with shapeshifting alien aboard. It escapes by killing and duplicating the last crewman aboard
+What is a "mob" character in the context of Isekai works?
+When was God featured in The Simpsons?
+Maximizing profit given a PMF
+Is there vocabulary for critical points of multivariable functions at which the second partial derivative test fails?
+Is this electrical schematic diagram drawn properly?
+Word choice errors in submitted thesis
+Is "Why the difference?" a valid instance of ellipsis, if yes is "Why going there?" also valid?
+New larger artificial satellite created from natural gravity and existing space debris
+Peg solitaire starting position
+Why is ASCII punctuation in that order?
+Memory mapped file interface for linux
+Runtime estimation in "How to factor 2048 bit RSA integers with less than a million noisy qubits"
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-php
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

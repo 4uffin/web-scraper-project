@@ -1,0 +1,356 @@
+Running analytics queries from your machine with Zero-BigData stack needed on top of AWS S3 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Roman Tsypuk
+for AWS Community Builders
+Posted on Sep 18
+• Originally published at tsypuk.github.io
+Running analytics queries from your machine with Zero-BigData stack needed on top of AWS S3
+#aws
+Abstract
+Cloud data lakes often store large volumes of logs, metrics, or event data in AWS S3. The formats vary:
+newline-delimited JSON (often gzipped), CSV, or more optimized columnar formats like Parquet. Traditionally, querying
+this data meant spinning up heavyweight tools (Athena, Spark, Presto, EMR).
+But what if you could query the data instantly, from your laptop, without standing up an
+entire cluster? Enter DuckDB.
+DuckDB is an embedded analytical database — think “SQLite for analytics” — with first-class support for Parquet, JSON,
+CSV, and remote storage like S3. The dreams come true.
+In this post, we’ll explore:
+Querying gzipped JSON files directly from S3
+Comparing JSON vs Parquet vs CSV performance
+Joining local and remote datasets
+Calling HTTP APIs from DuckDB (yes, you can!)
+Getting Started with DuckDB
+DuckDB works in Python, R, Go, Nodejs, Rust, Java, CLI, or as a C library. If you a fan of JetBrains DataGrip it also can includes duckdb connector. The DuckDB CLI (Command Line Interface) is a single, dependency-free executable. Installation is simple.
+pip install duckdb
+Enter fullscreen mode
+Exit fullscreen mode
+brew install duckdb
+Enter fullscreen mode
+Exit fullscreen mode
+1. Querying Local FS
+After starting cli, we can easily access csv file stored in local FS, querying them as they are regular tables,
+using SQL operators and predicates. Very often we need to open some csv file, analyze its structure or extract particular raws based on prodicate.Here I'm querying data from local FS csv file with limit:
+SELECT *
+FROM read_csv_auto('/tmp/oxford_5000.csv') LIMIT 100;
+Enter fullscreen mode
+Exit fullscreen mode
+column0
+word
+type
+cefr
+phon_br
+phon_n_am
+definition
+example
+0
+a
+indefinite article
+a1
+/ə/
+/ə/
+used before countable or singular nouns referring to people or things that have not already been mentioned
+a man/horse/unit
+1
+abandon
+verb
+b2
+/əˈbændən/
+/əˈbændən/
+to leave somebody, especially somebody you are responsible for, with no intention of returning
+abandon somebody, The baby had been abandoned by its mother.
+2
+ability
+noun
+a2
+/əˈbɪləti/
+/əˈbɪləti/
+the fact that somebody/something is able to do something
+People with the disease may lose their ability to communicate.
+2. Querying Gzipped JSON on AWS S3
+Suppose you have logs or events data that is ingested into DataLake by pipeline and they are stored in AWS S3 partitioned by date with a virtual path and also gzipped json. This is very common architecture.
+Duckdb works perfectly with partitions, based on query it can access proper paths and also unzip the data. It auto-detects
+schema, even across multiple files.
+s3://my-bucket/logs/year=2025/month=09/day=16/data.json.gz
+Directly querying data with DuckDB:
+SELECT *
+FROM read_json_auto(
+'s3://my-bucket/logs/*.json.gz',
+format = 'json',
+compression = 'gzip'
+);
+Enter fullscreen mode
+Exit fullscreen mode
+The beauty is that we do not need to bootstap any engine, create AWS IAM permissions, add service and pay for them - just use cli tool that is local on your machine.
+Duckdb extensions and AWS credentials
+The httpfs extension supports reading/writing/globbing files on object storage servers using the S3 API. S3 offers a standard API to read and write to remote files (while regular http servers, predating S3, do not offer a common write API). DuckDB conforms to the S3 API, that is now common among industry storage providers.
+To query S3 firstly we need to add and enable extensions:
+-- set s3 compatibility
+INSTALL
+httpfs;
+LOAD
+httpfs;
+Enter fullscreen mode
+Exit fullscreen mode
+The httpfs filesystem is tested with AWS S3, Minio, Google Cloud, and lakeFS. Other services that implement the S3 API (such as Cloudflare R2)
+After setup add S3 credentials via environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) or IAM role of the profile (more prefered).
+Adding secrets
+-- set aws creds
+INSTALL
+aws;
+LOAD
+aws;
+CREATE
+SECRET env_dev (
+TYPE s3,
+PROVIDER credential_chain,
+REFRESH auto
+);
+SET
+s3_region='us-east-1';
+SET
+s3_access_key_id='ASIAXXXXXX';
+SET
+s3_secret_access_key='';
+SET
+s3_session_token='';
+Enter fullscreen mode
+Exit fullscreen mode
+Another option is to use exisitng AWS profiles and switch between them
+CALL load_aws_credentials('dev');
+CALL load_aws_credentials('prod');
+Enter fullscreen mode
+Exit fullscreen mode
+Check credentials:
+SELECT *
+FROM FROM duckdb_secrets();
+Enter fullscreen mode
+Exit fullscreen mode
+3. Parquet and CSV on S3
+DuckDB shines with columnar formats like Parquet:
+SELECT user_id, COUNT(*) AS events
+FROM read_parquet('s3://my-bucket/logs/*.parquet')
+GROUP BY user_id
+ORDER BY events DESC;
+Enter fullscreen mode
+Exit fullscreen mode
+For CSV:
+SELECT *
+FROM read_csv_auto('s3://my-bucket/data/*.csv.gz');
+Enter fullscreen mode
+Exit fullscreen mode
+Parquet is much faster and smaller than JSON/CSV, but the magic is that DuckDB handles them all.
+4. Loading Data from S3 storing locally in Parquet or other format
+-- dev
+CREATE
+OR REPLACE VIEW events_2025_block AS
+SELECT *
+FROM read_json_auto(
+'s3://events/block-events/block/year=2025/month=*/day=*/hour=*/*.json.gz',
+filename = true, -- adds a _filename column
+hive_partitioning = 1, -- pulls year/month/day/hour from the path into columns
+format = 'newline_delimited' -- omit if they’re arrays/objects; keep if NDJSON
+);
+SELECT *
+FROM events_2025_block
+WHERE
+action == 'data-verified'
+LIMIT 10;
+Enter fullscreen mode
+Exit fullscreen mode
+Writing extracted data from S3 to local FS and automatically converting into Parquet :
+COPY events_2025_block TO '/tmp/dev.s3.events.parquet' (FORMAT parquet);
+SELECT *
+FROM '/tmp/dev.s3.events.parquet'
+WHERE action == 'data-verified'
+ORDER BY created_at DESC
+LIMIT 100;
+Enter fullscreen mode
+Exit fullscreen mode
+5. Local + Remote Joins
+You can join S3 data with local datasets:
+WITH s3_data AS (
+SELECT user_id, timestamp
+FROM read_parquet('s3://my-bucket/events/*.parquet')
+),
+local_users AS (
+SELECT * FROM read_csv_auto('users.csv')
+)
+SELECT u.name, COUNT(*) AS actions
+FROM s3_data s
+JOIN local_users u USING(user_id)
+GROUP BY u.name;
+Enter fullscreen mode
+Exit fullscreen mode
+This means you don’t need to ETL everything into a central DB just to query.
+6. Calling HTTP APIs from DuckDB
+DuckDB supports reading remote HTTP URLs directly. I have JSON-based aws news for different topics hosted at my github pages, let's call it to get latest aws architecture news:
+SELECT *
+FROM read_json_auto('https://tsypuk.github.io/aws-news/news/architecture.json')
+WHERE title LIKE '%Lambda%' LIMIT 50;
+Enter fullscreen mode
+Exit fullscreen mode
+title
+link
+How Zapier runs isolated tasks on AWS Lambda and upgrades functions at scale
+https://aws.amazon.com/blogs/architecture/how-zapier-runs-isolated-tasks-on-aws-lambda-and-upgrades-functions-at-scale/
+How Launchpad from Pega enables secure SaaS extensibility with AWS Lambda
+https://aws.amazon.com/blogs/architecture/how-launchpad-from-pega-enables-secure-saas-extensibility-with-aws-lambda/
+Same queries work with Parquet/CSV hosted over HTTPS. This is handy for blending APIs + S3 data.
+7. Using standard DBs like MySQL Postgres
+INSTALL postgres;
+LOAD postgres;
+ATTACH 'dbname=postgres user=postgres host=127.0.0.1' AS db (TYPE postgres, READ_ONLY);
+Enter fullscreen mode
+Exit fullscreen mode
+Why DuckDB?
+Lightweight: No cluster, runs anywhere (laptop, container, Lambda).
+Format-flexible: JSON, CSV, Parquet, ORC.
+Fast: Vectorized execution engine, optimized for analytics.
+Great for ad-hoc exploration of data lakes.
+When to Use Athena vs DuckDB
+Use Athena when: queries must run at scale, multiple teams need SQL access, complex analytics require a lot of cpu/memory resources that are not available of local machine
+Use DuckDB when: you need quick exploration, prototyping, data science, or embedding analytics in an app, access to QA/STG env where not so big volume size
+Conclusions
+DuckDB is like a Swiss Army knife for data lakes. With just a few lines of SQL, you can query gzipped JSON from S3, join
+it with local CSVs, compare with Parquet, and even call APIs. It’s lightweight, fast, and great for both prototyping and
+production embedding.
+Try it next time you need to peek inside your S3 bucket without firing up a full big-data stack.
+Links:
+https://duckdb.org/docs/stable/core_extensions/httpfs/s3api.html
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Community Builders
+Follow
+Build On!
+Would you like to become an AWS Community Builder? Learn more about the program and apply to join when applications are open next.
+Learn more
+More from AWS Community Builders
+The 9 AM Discovery That Saved Our Production: An ECS Fargate Circuit Breaker Story
+#aws
+#ecs
+#fargate
+#docker
+My journey on AWS Region Migration: What I wished I had aware of
+#aws
+#cloud
+EventBridge to SQS when cross region and cross account
+#aws
+#serverless
+#sqs
+#eventbridge
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

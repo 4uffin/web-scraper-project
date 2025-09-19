@@ -1,0 +1,346 @@
+(Spanish Version) Building MCP Tools: A PDF Processing Server - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Gabriel Melendez
+Posted on Sep 18
+(Spanish Version) Building MCP Tools: A PDF Processing Server
+#spanish
+#mcp
+#ai
+#español
+Version Original: Building MCP Tools: A PDF Processing Server
+Model Context Protocol (MCP) ha emergido como un estándar revolucionario para conectar modelos de IA con herramientas y servicios externos para mejorar sus capacidades. Te guiaré a través de una descripción general de alto nivel del proceso de desarrollo para construir un servidor integral de procesamiento de PDF usando FastMCP, con arquitectura adecuada, manejo de errores y características de grado de producción.
+Herramientas Disponibles de un Vistazo
+Servidor y Utilidades de Archivos
+server_info(): Obtener la configuración y estado del servidor.
+list_temp_resources(): Listar archivos actualmente en el directorio temporal del servidor.
+upload_file(), upload_file_base64(), upload_file_url(): Subir archivos al servidor desde tu máquina local o una URL.
+get_resource_base64(): Descargar un archivo del directorio temporal del servidor.
+Texto y Metadatos
+get_pdf_info(): Obtener rápidamente el conteo de páginas, tamaño del archivo y estado de encriptación.
+extract_text(): Extraer el contenido de texto completo de un PDF.
+extract_text_by_page(): Extraer texto de páginas específicas o rangos de páginas.
+extract_metadata(): Leer los metadatos del PDF (autor, título, fecha de creación, etc.).
+Manipulación de PDF
+merge_pdfs(): Combinar varios archivos PDF en un solo documento.
+split_pdf(): Dividir un PDF en múltiples archivos más pequeños basados en rangos de páginas.
+rotate_pages(): Rotar páginas específicas dentro de un PDF.
+Conversión
+pdf_to_images(): Convertir páginas específicas del PDF en archivos de imagen (PNG, JPEG).
+images_to_pdf(): Crear un nuevo PDF desde una lista de archivos de imagen.
+Puedes encontrar el código base en el Repositorio de GitHub 📁 Servidor MCP PDF
+Nuestro Caso de Estudio: Rastreando la Herramienta "extract_text"
+Exploraremos 'extract_text'; todas las otras herramientas comparten un flujo de trabajo consistente y son fácilmente accesibles en el repositorio, si quieres revisarlo.
+Patrón
+Al separar la lógica en "Servicio" -> "Herramienta" -> "Registro", mantenemos el código limpio, testeable y fácil de extender. Puedes agregar tu propia herramienta siguiendo exactamente este patrón.
+Paso 1: La Lógica Central - el "Servicio"
+Antes de pensar en servidores, herramientas o protocolos, necesitamos una función simple y confiable de Python que pueda realizar nuestra tarea central. Esta es entonces la "Capa de Servicio", el motor.
+Archivo: src/fastmcp_pdf_server/services/pdf_processor.py
+Nuestro primer paso es escribir una función que tome una ruta de archivo y devuelva el texto. Usamos la biblioteca "pdfplumber" para esto. Nota que la función devuelve una clase de datos "TextExtractionResult", que ayuda a asegurar una estructura de datos consistente.
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import List
+import pdfplumber
+from ..utils.validators import validate_pdf
+# Una clase de datos proporciona un tipo de retorno estructurado y predecible para nuestro servicio.
+# Es como una clase ligera y auto-documentada.
+@dataclass
+class TextExtractionResult:
+text: str
+page_count: int
+char_count: int
+def extract_text(file_path: str, encoding: str = "utf-8") -> TextExtractionResult:
+# Primero, ejecutar el archivo a través de un validador para asegurar que existe, es un PDF,
+# y está dentro de los límites de tamaño permitidos. Esto falla temprano si la entrada es mala.
+pdf_path = validate_pdf(file_path)
+# Usar pdfplumber para abrir y procesar robustamente el PDF.
+with pdfplumber.open(str(pdf_path)) as pdf:
+texts: List[str] = []
+for page in pdf.pages:
+# Extraer texto, por defecto una cadena vacía si una página no tiene texto.
+texts.append(page.extract_text() or "")
+# Unir el texto de todas las páginas en una sola cadena.
+text = "\n".join(texts)
+# Devolver una instancia de nuestra clase de datos, asegurando que se cumpla el contrato.
+return TextExtractionResult(text=text, page_count=len(texts), char_count=len(text))
+Enter fullscreen mode
+Exit fullscreen mode
+Esta función es Python puro. No sabe nada sobre FastMCP. Podría ser probada unitariamente con "pytest" o usada en una aplicación completamente diferente. Esta separación es la base de un sistema mantenible. Una vez que hemos hecho nuestra lógica de servicio, continuamos con la "Herramienta" MCP.
+Paso 2: El Puente - La "Herramienta"
+Ahora necesitamos exponer nuestra función de servicio al mundo exterior como una Herramienta MCP. Esta "Capa de Herramienta" actúa como un puente. Maneja la realidad desordenada de una llamada de herramienta y la traduce en una llamada limpia a nuestro servicio.
+Archivo: src/fastmcp_pdf_server/tools/text_extraction.py
+Esta es la pieza más crítica del rompecabezas. Manejará la llamada de herramienta, resolverá el archivo, llamará al servicio y formateará la respuesta.
+# Dentro de src/fastmcp_pdf_server/tools/text_extraction.py
+from __future__ import annotations
+import time
+import uuid
+from typing import Any
+from fastmcp import FastMCP # type: ignore
+from ..services import pdf_processor
+from ..services.file_manager import resolve_to_path
+from ..utils.logger import get_logger
+logger = get_logger(__name__)
+# La función 'register' es una convención para agrupar registros de herramientas.
+# La aplicación principal llamará esta función, pasándose a sí misma como argumento.
+def register(app: FastMCP) -> None:
+# El decorador @app.tool() es lo que oficialmente registra esta función como una herramienta MCP.
+@app.tool()
+async def extract_text(file: Any, encoding: str | None = "utf-8") -> dict:
+"""Extraer todo el texto de un PDF.
+Acepta:
+- Cadena de ruta completa
+- Nombre de archivo corto previamente escrito al almacenamiento temporal
+- Bytes / tipo archivo / dict con base64 (será guardado al temporal)
+"""
+# 1. Generar un ID único para esta operación específica. Esto es crucial para
+# rastrear una sola solicitud a través de logs.
+op_id = uuid.uuid4().hex
+start = time.perf_counter()
+try:
+# 2. Resolver la entrada flexible 'file' (que podría ser una ruta, nombre de archivo, o
+# objeto base64) en una ruta de archivo absoluta concreta y validada.
+resolved = resolve_to_path(file, filename_hint="uploaded.pdf")
+# 3. Llamar a la función de servicio limpia y testeable con la ruta resuelta.
+# Aquí es donde sucede el procesamiento real del PDF.
+res = pdf_processor.extract_text(str(resolved), encoding or "utf-8")
+# 4. El servicio devuelve una clase de datos. Ahora formateamos esto en el
+# diccionario final amigable para JSON para el cliente.
+duration_ms = int((time.perf_counter() - start) * 1000)
+return {
+"text": res.text,
+"page_count": res.page_count,
+"char_count": res.char_count,
+# El bloque 'meta' proporciona datos operacionales valiosos al cliente.
+"meta": {
+"operation_id": op_id,
+"execution_ms": duration_ms,
+"resolved_path": str(resolved),
+},
+}
+except Exception as e: # noqa: BLE001
+# 5. Esta es la red de seguridad. Si cualquier parte del proceso falla,
+# registrar el error completo para depuración...
+logger.error("extract_text error: %s", e)
+hint = (
+"Proporciona una ruta completa, sube el archivo primero vía 'upload_file', "
+"o pasa bytes/base64. Ejemplo de payload:\n"
+"{\n"
+"
+\"name\": \"upload_file\",\n"
+"
+\"arguments\": {\n"
+"
+\"file\": { \"base64\": \"<...>\", \"filename\": \"my.pdf\" }\n"
+"
+}\n"
+"}"
+)
+# ...y lanzar un ValueError simple. FastMCP convertirá esto en una
+# respuesta de error limpia y estructurada para el LLM, previniendo un crash.
+raise ValueError(f"extract_text failed: {e}. {hint}")
+Enter fullscreen mode
+Exit fullscreen mode
+La herramienta es solo un wrapper. Es un administrador que coordina otras partes del código. Maneja entradas desordenadas, llama a la lógica de servicio limpia y empaqueta la respuesta final. El patrón 'try...except ValueError' es una mejor práctica crítica.
+Paso 3: La Conexión Final - El "Registro"
+Nuestra función de herramienta está definida, pero la aplicación del servidor aún no sabe que existe. El paso final es conectar, o registrar, nuestro módulo de herramienta con la instancia principal de la aplicación "FastMCP".
+Archivo: src/fastmcp_pdf_server/main.py
+Este archivo es el punto de entrada de todo nuestro servidor. Su trabajo es construir el objeto aplicación y registrar todos los conjuntos de herramientas.
+# Dentro de src/fastmcp_pdf_server/main.py
+from __future__ import annotations
+from typing import Any
+from .config import settings
+from .utils.logger import get_logger
+logger = get_logger(__name__)
+def build_app() -> Any:
+# Este bloque try/except proporciona un error amigable si el usuario
+# olvidó instalar las dependencias de requirements.txt.
+try:
+from fastmcp import FastMCP # type: ignore
+except Exception as exc: # pragma: no cover
+raise SystemExit(
+"fastmcp no está instalado. Por favor instala las dependencias primero."
+) from exc
+# Inicializar la aplicación principal, obteniendo nombre y versión de config.
+app = FastMCP(settings.server_name, version=settings.server_version)
+# --- Registro de Herramientas ---
+# Importar los módulos que contienen nuestras definiciones de herramientas.
+from .tools import utilities, text_extraction, pdf_manipulation, conversion, uploads
+from .services.file_manager import cleanup_expired
+# Llamar la función 'register' de cada módulo para adjuntar sus herramientas a la app.
+# Este enfoque modular mantiene limpio el archivo principal.
+utilities.register(app)
+text_extraction.register(app)
+pdf_manipulation.register(app)
+conversion.register(app)
+uploads.register(app)
+# --- Tareas de Inicio ---
+# Es una buena práctica ejecutar tareas de limpieza al inicio.
+# Aquí, eliminamos cualquier archivo viejo del directorio temporal.
+try:
+cleanup_expired()
+except Exception as exc: # noqa: BLE001
+logger.error("cleanup_expired al inicio falló: %s", exc)
+return app
+Enter fullscreen mode
+Exit fullscreen mode
+Al importar módulos y llamar a una función "register" de cada uno. El archivo principal se mantiene limpio y actúa como un resumen de alto nivel de las capacidades del servidor. Agregar o quitar toda una categoría de herramientas es tan simple como agregar o quitar una línea aquí.
+El Panorama Completo
+Ahora, rastreemos una solicitud de principio a fin:
+Un LLM llama a la herramienta extract_text.
+La aplicación FastMCP, construida en main.py, enruta la llamada a la función async extract_text dentro de text_tools.py.
+La función de herramienta llama a resolve_to_path para obtener una ruta de archivo limpia.
+La función de herramienta entonces llama al servicio pdf_processor.extract_text con esa ruta limpia.
+El servicio hace el trabajo pesado y devuelve un diccionario simple: {'text': ..., 'page_count': ...}.
+La función de herramienta recibe este diccionario, agrega el char_count y el bloque meta, y devuelve el diccionario final enriquecido.
+FastMCP envía este diccionario final de vuelta al LLM como una respuesta JSON.
+El Resultado Final
+Usando Claude Desktop como Cliente MCP podemos probar nuestra herramienta "extract_text" de nuestro servidor, simplemente registrando el MCP, agregándolo al archivo de configuración "claude_desktop_config.json"
+{
+"mcpServers": {
+"pdf-processor-server": {
+"command": "D:\\Github Projects\\mcp_pdf_server\\.venv\\Scripts\\python.exe",
+"args": [
+"-m",
+"fastmcp_pdf_server"
+],
+"env": {
+"TEMP_DIR": "D:\\Github Projects\\mcp_pdf_server\\temp_files"
+}
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Una vez que hayas agregado el MCP debería verse así.
+Usualmente, para este tipo de Clientes MCP, deberías agregar a tu prompt el uso del Servidor MCP, en este caso, nuestro "PDF Processor Server"; a veces, también debes especificar la ruta completa del archivo.
+¿A Dónde Ir Desde Aquí?
+¡Lo has logrado! Has configurado un servidor, aprendido cómo conectarte a él, le has ordenado extraer texto, e incluso has echado un vistazo bajo el capó para ver cómo funciona todo.
+¿Qué sigue?
+Explora Otras Herramientas: Mira el archivo README.md. Encontrarás una lista completa de otras herramientas que puedes llamar, como merge_pdfs, split_pdf, y pdf_to_images.
+Extiende el Servidor: ¡Trata de agregar tu propia herramienta! Sigue el patrón.
+Automatiza tu vida: Piensa en tus propios flujos de trabajo. ¿Podrías usar este servidor para extraer automáticamente texto de facturas? ¿O para combinar tus reportes semanales en un solo PDF? El poder es tuyo.
+Happy Coding! 🤖
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Gabriel Melendez
+Follow
+Software Engineer with 18 years of experience in the financial sector, specializing in software development, system modernization, and emerging AI solutions.
+Location
+Costa Rica
+Joined
+Sep 8, 2025
+More from Gabriel Melendez
+Building MCP Tools: A PDF Processing Server
+#ai
+#mcp
+#pdf
+#python
+RAG-Powered Chat: OpenAI & ChromaDB Integration
+#rag
+#python
+#ai
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

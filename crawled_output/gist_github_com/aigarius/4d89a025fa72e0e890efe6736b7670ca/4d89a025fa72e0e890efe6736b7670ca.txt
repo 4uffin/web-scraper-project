@@ -1,0 +1,159 @@
+Shelly script to revert to direct switch control if Home Assistant is not available · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+aigarius/shelly_with_ha.js
+Created
+April 12, 2023 10:48
+Show Gist options
+Download ZIP
+Star
+6
+(6)
+You must be signed in to star a gist
+Fork
+3
+(3)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/aigarius/4d89a025fa72e0e890efe6736b7670ca.js&quot;&gt;&lt;/script&gt;
+Save aigarius/4d89a025fa72e0e890efe6736b7670ca to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+6
+Forks
+3
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/aigarius/4d89a025fa72e0e890efe6736b7670ca.js&quot;&gt;&lt;/script&gt;
+Save aigarius/4d89a025fa72e0e890efe6736b7670ca to your computer and use it in GitHub Desktop.
+Download ZIP
+Shelly script to revert to direct switch control if Home Assistant is not available
+Raw
+shelly_with_ha.js
+// Preconditions:
+// Shelly connected to a manual switch and to a smart light
+// Shelly set to disconnected mode and to restore power to on after power loss
+// Input mode is button (might need a minor change for switch - untested)
+// Shelly is added to Home Assistant
+// An automation is created in Home Assistant to toggle the light when single button press is
+// detected on the Shelly (other automations may also exist)
+let online_status = 0;
+// Change this to the URL of your Home Assistant base URL + "/api/ping"
+let ha_url = "http://home-ha:8123/api/ping";
+// This returns a 404 error if the HA is available and timeout or connection error if it is not there
+// Process response from the HA URL, the 404 error would be part of the result variable
+function processHttpResponse(result, error_code, error) {
+if (error_code !== 0) {
+online_status = 0
+print("Offline")
+} else {
+online_status = 1
+print("Online")
+}
+}
+// Initiate the online check. This will return immediately - before the check completes
+function do_online_check(){
+Shelly.call("HTTP.GET", {url: ha_url, timeout: 1}, processHttpResponse);
+}
+// Whenever input button is pushed - if we are online, then do nothing (Home Assistant will handle
+// the light switching), else do the switching directly by cutting power
+// Also checks if we are online, but for latency reasons this will not affect the current event, but it
+// will be ready for the follow-up events, so if HA goes down and we try to use the switch manually within
+// first 5 minutes of the outage, we would need to press the switch again about 1 second later.
+Shelly.addEventHandler(function(e) {
+if (e.component === "input:0") {
+if (e.info.event === "single_push") {
+print("Button was pushed");
+do_online_check();
+if ( online_status === 0 ) {
+Shelly.call("Switch.toggle", {'id': 0});
+}
+}
+}
+});
+// Check if we are online every 5 minutes
+let atimer = Timer.set(1000*5*60, true, do_online_check);
+do_online_check();
+Copy link
+andreasgraf42
+commented
+May 10, 2024
+Thanks a lot for that helpful script, exactly what I was looking for!
+I use it with input mode "switch", therefore i just removed lines 37, 38 and 43 from your script. works as it should.
+Shelly.addEventHandler(function(e) {
+if (e.component === "input:0") {
+do_online_check();
+if ( online_status === 0 ) {
+Shelly.call("Switch.toggle", {'id': 0});
+}
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+hugh-martin
+commented
+Dec 3, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Yes, very helpful.
+Thank you!
+I made the same changes as @andreasgraf42, but used this block of code after do_online_check(); on relays with smart bulbs:
+if ( online_status === 0 ) {
+print("Configuring switch for offline use")
+Shelly.call("Switch.SetConfig", {'id': 0, config:{"in_mode":"flip","initial_state":"off"}});
+}
+else {
+print("Configuring switch for online use")
+Shelly.call("Switch.Set", {'id': 0, "on":true});
+Shelly.call("Switch.SetConfig", {'id': 0, config:{"in_mode":"detached","initial_state":"on"}});
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

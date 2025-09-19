@@ -1,0 +1,645 @@
+8BitDo Firmware Updater in Wine · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+archeYR/8bitdofirmwarelinux.md
+Last active
+September 19, 2025 00:40
+Show Gist options
+Download ZIP
+Star
+15
+(15)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/archeYR/d687de5e484ce7b45d6a94415a04f3dc.js&quot;&gt;&lt;/script&gt;
+Save archeYR/d687de5e484ce7b45d6a94415a04f3dc to your computer and use it in GitHub Desktop.
+Code
+Revisions
+6
+Stars
+15
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/archeYR/d687de5e484ce7b45d6a94415a04f3dc.js&quot;&gt;&lt;/script&gt;
+Save archeYR/d687de5e484ce7b45d6a94415a04f3dc to your computer and use it in GitHub Desktop.
+Download ZIP
+8BitDo Firmware Updater in Wine
+Raw
+8bitdofirmwarelinux.md
+This is about running 8BitDo's Firmware Update tool for Windows in Wine. It can be used for updating newer 8BitDo devices that may not be supported by fwupd on Linux. This tool uses .NET Framework, so it will need Wine Mono to be installed (dotnet48 wintericks verb was tested to work as well).
+This tool needs Segoe UI Symbol font, on Arch this font is provided by ttf-ms-win10-auto package. For other distributions there is install script.
+You will have to let Wine access device's HID interface for updating the firmware. Most importantly it should be a boot HID interface (exposed when device is in bootloader mode, often referred to as "manual update mode" or "advanced mode"). It is also worth adding the Product IDs for HID interfaces that are exposed under different conditions (for example, Ultimate Bluetooth Controller's receiver exposes a HID interface when controller is not connected), so the upgrade tool can detect it and automatically put it in bootloader mode for upgrading the firmware. You can use lsusb tool to get the Vendor and Product IDs. Here's an example for 8BitDo Ultimate Bluetooth Controller and its USB receiver, which you can adapt for your devices by modifying the Product IDs as needed:
+sudo nano /etc/udev/rules.d/71-8bitdo-boot.rules
+# 8BitDo Ultimate Bluetooth Controller's boot HID interface (seems to be shared by multiple 8BitDo devices)
+# Change it only if lsusb prints different Product ID when device is in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="3208", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+# 8BitDo Ultimate Bluetooth Controller receiver's HID interface (exposed when the controller is not connected)
+# When it is exposed, the upgrade tool can detect the receiver and automatically put in in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="3109", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+Now it is needed to reload the udev rules.
+sudo udevadm control --reload-rules && sudo udevadm trigger
+Disable SDL mode in winebus because it prevents firmware updater from accessing the device, can be done through Wine registry (seems like it is not needed to be done on recent Wine versions).
+wine regedit
+add DWORD value of 0 named "Enable SDL" at HKLM\System\CurrentControlSet\Services\winebus
+Can be re-enabled after updating firmware (set the "Enable SDL" value to 1 or just remove it).
+Shutdown wine server to save and apply registry changes: wineserver -k
+Updating the Ultimate Bluetooth Controller works only in manual mode (press LB+RB and connect the controller through USB cable, then select appropriate device). This is (probably) because the Linux xpad driver doesn't expose additional HID interface that could be used by upgrade tool to detect the device (unlike Windows' XUSB driver, which does).
+USB wireless dongle should be detected by the tool when controller is not connected.
+Copy link
+darthcircuit
+commented
+Dec 21, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Thank you! I followed these steps with a portable wine appimage, and it worked great. I'm on Linux Mint LMDE. I was able to update my USB Adapter 2. I used this font install tool to get the correct font set: https://github.com/mrbvrz/segoe-ui-linux
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mbuzzo1
+commented
+Mar 22, 2025
+Thank you very much for the tutorial. I can confirm that it works on Gentoo. I have updated an 8BitDo USB Wireless Adapter 2 [1] to the latest available version at this moment (1.07) using 8BitDo Firmware Updater [2] via Wine.
+For installing the necessary fonts for the 8BitDo Firmware Updater, I preferred a simpler method; I did not need to install the font in another directory:
+git clone https://github.com/mrbvrz/segoe-ui-linux
+cp segoe-ui-linux/font/* $HOME/.wine/drive_c/windows/Fonts/
+In the file /etc/udev/rules.d/71-8bitdo-boot.rules, I had to add:
+# 8BitDo USB Wireless Adapter 2's boot HID interface
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="3208", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+The directory where I needed to add the DWORD with a value of 0 named "Enable SDL" in my case was HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\winebus.
+To use "manual mode" (Bootloader mode), you must hold the pairing button while connecting the USB, showing the following in dmesg:
+new full-speed USB device number 103 using xhci_hcd
+New USB device found, idVendor=2dc8, idProduct=3208, bcdDevice= 2.00
+New USB device strings: Mfr=1, Product=2, SerialNumber=3
+Product: BOOT
+Manufacturer: 8BitDo
+SerialNumber: XXXXXXXXXXXX
+For now, it is not possible to use fwupd to update the 8BitDo USB Wireless Adapter 2, but it is possible to download the update using 8bitdo-firmware.py from this repository [3]. The 8BitDo USB Wireless Adapter 2 is the number 39 (listed as "USB Adapter 2" when running 8bitdo-firmware.py).
+[1] https://www.8bitdo.com/wireless-usb-adapter-2/
+[2] https://support.8bitdo.com/firmware-updater.html
+[3] https://github.com/fwupd/8bitdo-firmware
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+Mar 26, 2025
+The directory where I needed to add the DWORD with a value of 0 named "Enable SDL" in my case was HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\winebus.
+Sorry for the confusing mistake. Corrected.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+vanfanel
+commented
+Apr 6, 2025
+Many, many thanks for this. Really, this is very important to me, I don't want to use Windows for this kind of stuff (or ANY kind of stuff, in fact).
+This worked for me using the 8BitDo RetroKeyboard offline updater (RetroKeyboard177.zip)
+However, I have noticed that this propietary 8BitDo updater uses DFU under the hood (as in fact it includes and uses an executable named dfu4.exe).
+So, shouldn't we be able to use dfu-util directly on GNU/Linux instead of the propietary 8BitDo program that uses DFU after all?
+However, I can't see the 8BitDo RetroKeyboard listed in sudo dfu-util --list... so I don't quite understand what's going on here. Maybe the 8BitDo propietary flasher puts the keyboard into DFU mode somehow?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+Apr 10, 2025
+Many, many thanks for this. Really, this is very important to me, I don't want to use Windows for this kind of stuff (or ANY kind of stuff, in fact).
+This worked for me using the 8BitDo RetroKeyboard offline updater (RetroKeyboard177.zip)
+Interesting, seems like it is a different kind of tool than what is discussed here. Nice that it helps, though.
+However, I have noticed that this propietary 8BitDo updater uses DFU under the hood (as in fact it includes and uses an executable named dfu4.exe). So, shouldn't we be able to use dfu-util directly on GNU/Linux instead of the propietary 8BitDo program that uses DFU after all?
+However, I can't see the 8BitDo RetroKeyboard listed in sudo dfu-util --list... so I don't quite understand what's going on here. Maybe the 8BitDo propietary flasher puts the keyboard into DFU mode somehow?
+I guess this is something that could be looked into. Maybe there is some combination that would trigger the bootloader mode (for example, holding some key(s) while connecting the keyboard)? Otherwise one would have to figure out what the tool does to update the keyboard and try to replicate the behaviour.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+vanfanel
+commented
+Apr 10, 2025
+@archeYR I tried asking 8BitDo how to put the keyboard in DFU mode and they answered:
+Running the updater directly is DFU mode.
+Whatever that means...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+thvdburgt
+commented
+May 21, 2025
+Thank you very much. This worked for me with the Pro 2. With idProduct = 3208, and pressing L1 + L2 when connecting with the controller off to get it to connect in boot mode.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GarThor
+commented
+May 26, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+When I try this I get the following error...
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+0180:err:seh:NtRaiseException Unhandled exception code c0000409 flags 1 addr 0x765bc6da
+I'm using the pro2... looks like lsusb
+reports...
+'Bus 001 Device 006: ID 2dc8:6006 8BitDo 8BitDo Pro 2'
+so I adjusted the rules.d to have...
+# 8BitDo Ultimate Bluetooth Controller's boot HID interface (seems to be shared by multiple 8BitDo devices)
+# Change it only if lsusb prints different Product ID when device is in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="6006", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+# 8BitDo Ultimate Bluetooth Controller receiver's HID interface (exposed when the controller is not connected)
+# When it is exposed, the upgrade tool can detect the receiver and automatically put in in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="6006", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+thvdburgt
+commented
+May 26, 2025
+@GarThor, I think your controller is not connecting in boot mode.
+Make sure the controller is turned off, and not connected. Press both L1 + L2 simultaneously, and while holding these insert the USB-cable in your machine.
+It should now be connected in boot mode, and show up in lsdev as ID 2dc8:3208 8BitDo 8BitDo Boot.
+(I think the red LED besides the USB-port on the controller will also blink instead of lighting continuously.)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+May 26, 2025
+When I try this I get the following error...
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+0180:err:seh:NtRaiseException Unhandled exception code c0000409 flags 1 addr 0x765bc6da
+Can you describe more precisely what happens there? Does the tool fail to start?
+I'm using the pro2... looks like lsusb reports...
+'Bus 001 Device 006: ID 2dc8:6006 8BitDo 8BitDo Pro 2'
+so I adjusted the rules.d to have...
+# 8BitDo Ultimate Bluetooth Controller's boot HID interface (seems to be shared by multiple 8BitDo devices)
+# Change it only if lsusb prints different Product ID when device is in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="6006", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+# 8BitDo Ultimate Bluetooth Controller receiver's HID interface (exposed when the controller is not connected)
+# When it is exposed, the upgrade tool can detect the receiver and automatically put in in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="6006", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+Are you certain that those are the values when the controller is in bootloader mode? Besides, it is not necessary to have two separate entries for devices/interfaces that share the same Product ID.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GarThor
+commented
+May 26, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hmm... that didn't seem to do anything...
+This is the pro2, is there a different key combo for that one?
+Can you describe more precisely what happens there? Does the tool fail to start?
+The program starts... appears to be searching for devices, and then quits...
+Edit: I just found this post that suggests L+R+Start for bootloader mode... That seems to have done it... The application seems to be staying open now... not sure what it's doing though...
+lsusb is now reporting Bus 001 Device 025: ID 2dc8:3208 8BitDo 8BitDo Boot... updated rules.d to that code...
+Edit2: app boots to this screen now...
+selected my controller... clicked update... and I get the same result as before...
+Found a debug log in the directory... blew it away, and ran it again to get a clean result...
+2025-05-26:13:04:49
+------------------------------------appVersion: 248
+2025-05-26:13:04:59
+startUpdateFirmware: gamepad: Vid:2dc8 Pid:6003 Version:0 Beta:0 IsChangeBoot:True to---> firmware type: 33 version:3.04 beta: fileSize:253496
+2025-05-26:13:04:59
+find boot device
+2025-05-26:13:04:59
+Download firmware result:True
+2025-05-26:13:04:59
+startUpdateFirmwareing
+2025-05-26:13:04:59
+filePath: Z:\home\GarThor\Downloads\8BitDo_Firmware_Updater_Win\updateFile\6741d1d8-f9a3-4c9d-a176-ab91fb3b961a.dat
+2025-05-26:13:04:59
+execute update firmwate library
+2025-05-26:13:04:59
+start
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+May 26, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hmm... that didn't seem to do anything...
+This is the pro2, is there a different key combo for that one?
+Can you run sudo dmesg -w, connect the controller while holding buttons and put the output here? Not necessarily whole dmesg, just the messages that appear when you connect the controller.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GarThor
+commented
+May 26, 2025
+Hmm... that didn't seem to do anything...
+This is the pro2, is there a different key combo for that one?
+Can you run sudo dmesg -w, connect the controller while holding buttons and put the output here? Not necessarily whole dmesg, just the messages that appear when you connect the controller.
+[493185.683296] usb 1-8: new full-speed USB device number 28 using xhci_hcd
+[493186.062140] usb 1-8: New USB device found, idVendor=2dc8, idProduct=3208, bcdDevice= 2.00
+[493186.062151] usb 1-8: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+[493186.062157] usb 1-8: Product: 8BitDo Boot
+[493186.062161] usb 1-8: Manufacturer: 8BitDo
+[493186.062165] usb 1-8: SerialNumber: 000000000002
+[493186.062480] No Local Variables are initialized for Method [_PLD]
+[493186.062487] No Arguments are initialized for method [_PLD]
+[493186.062496] ACPI Error: Aborting method \_SB.PCI0.GPP2.PTXH.RHUB.PO12._PLD due to previous error (AE_AML_UNINITIALIZED_ELEMENT) (20230628/psparse-529)
+[493186.071095] No Local Variables are initialized for Method [_PLD]
+[493186.071102] No Arguments are initialized for method [_PLD]
+[493186.071111] ACPI Error: Aborting method \_SB.PCI0.GPP2.PTXH.RHUB.PO12._PLD due to previous error (AE_AML_UNINITIALIZED_ELEMENT) (20230628/psparse-529)
+[493186.081283] hid-generic 0003:2DC8:3208.002A: hiddev2,hidraw5: USB HID v1.10 Device [8BitDo 8BitDo Boot] on usb-0000:01:00.0-8/input0
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+May 26, 2025
+Can you run sudo dmesg -w, connect the controller while holding buttons and put the output here? Not necessarily whole dmesg, just the messages that appear when you connect the controller.
+[493185.683296] usb 1-8: new full-speed USB device number 28 using xhci_hcd
+[493186.062140] usb 1-8: New USB device found, idVendor=2dc8, idProduct=3208, bcdDevice= 2.00
+[493186.062151] usb 1-8: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+[493186.062157] usb 1-8: Product: 8BitDo Boot
+[493186.062161] usb 1-8: Manufacturer: 8BitDo
+[493186.062165] usb 1-8: SerialNumber: 000000000002
+[493186.062480] No Local Variables are initialized for Method [_PLD]
+[493186.062487] No Arguments are initialized for method [_PLD]
+[493186.062496] ACPI Error: Aborting method \_SB.PCI0.GPP2.PTXH.RHUB.PO12._PLD due to previous error (AE_AML_UNINITIALIZED_ELEMENT) (20230628/psparse-529)
+[493186.071095] No Local Variables are initialized for Method [_PLD]
+[493186.071102] No Arguments are initialized for method [_PLD]
+[493186.071111] ACPI Error: Aborting method \_SB.PCI0.GPP2.PTXH.RHUB.PO12._PLD due to previous error (AE_AML_UNINITIALIZED_ELEMENT) (20230628/psparse-529)
+[493186.081283] hid-generic 0003:2DC8:3208.002A: hiddev2,hidraw5: USB HID v1.10 Device [8BitDo 8BitDo Boot] on usb-0000:01:00.0-8/input0
+Alright, I can see that the controller is in bootloader mode now and updater can access it. However I am afraid I cannot reproduce that crash, and those logs aren't really helpful either. It may not help but maybe try doing it on a clean Wine prefix or different version (for me Wine staging git works fine).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GarThor
+commented
+May 26, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I tried fiddling with the runner settings in lutris, and I think I got it to work...
+Started initial process 210638 from gamemoderun /usr/bin/wine /home/GarThor/Downloads/8BitDo_Firmware_Updater_Win/8BitDo Firmware Updater.exe
+Start monitoring process.
+ERROR: ld.so: object 'libgamemodeauto.so.0' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS64): ignored.
+ERROR: ld.so: object 'libgamemodeauto.so.0' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS64): ignored.
+gamemodeauto:
+0120:err:ole:CoGetContextToken apartment not initialised
+Autoupdate_tmp.exe?????
+serviceUrl : http://dl.8bitdo.com:8080/firmware/loadNewToolUpdateVersion
+type : 33
+gamep:8BitDo Pro 2
+serviceUrl : http://dl.8bitdo.com:8080/firmware/select
+e: The request was aborted: The operation has timed out.
+?????
+serviceUrl : http://dl.8bitdo.com:8080/firmware/select
+e: The operation has timed out
+?????
+serviceUrl : http://dl.8bitdo.com:8080/firmware/select
+version : 0
+startUpdateFirmware
+startUpdateFirmware: gamepad: Vid:2dc8 Pid:6003 Version:0 Beta:0 IsChangeBoot:True to---> firmware type: 33 version:3.04 beta: fileSize:253496
+startUpdate
+??????!
+MD5 :37c1607c58a24a8c44ed4bbb7176b837
+37c1607c58a24a8c44ed4bbb7176b837
+fileSteam : 253496
+filesize: 253496
+????
+??? 0
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints several times>
+??????
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+<reprints 2x more times>
+????
+version : 0
+00a0:err:hid:set_report_from_event TODO: Process Report (18213, 7698)
+<reprints several times>
+wine: Read access denied for device L"\\??\\Z:\\", FS volume label and serial are not available.
+startUpdateFirmware
+Eventually I got a green button that says update complete, and after clicking it the controller shut off... Is there a way to verify the firmware version it's on now?
+The settings I used for anyone curious
+^ prefix is the same one I created in the previous step
+If I try to run it again, it looks like it gets timeout errors
+e: The operation has timed out
+?????
+type : 33
+gamep:8BitDo Pro 2
+serviceUrl : http://dl.8bitdo.com:8080/firmware/select
+e: The operation has timed out
+?????
+serviceUrl : http://dl.8bitdo.com:8080/firmware/select
+e: The operation has timed out
+?????
+When clicking reload...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+May 27, 2025
+Eventually I got a green button that says update complete, and after clicking it the controller shut off... Is there a way to verify the firmware version it's on now?
+Unfortunately not, unless you can switch it to some input mode (d-input? switch?) which exposes a HID device. However if it the update completed and the controller rebooted itself, it is on the firmware that you have updated it with (if the update had failed, it would boot back to the bootloader mode).
+If I try to run it again, it looks like it gets timeout errors
+That is (probably) because the controller is in x-input mode, and the Linux' xpad driver doesn't expose a HID device that this tool could detect.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GarThor
+commented
+May 27, 2025
+Bleh... this doesn't seem to have solved the issue I was having...
+Doing a little more research, it looks like the realtek BT/wifi adapter that's installed on my laptop is only partially supported under linux,,,
+https://linux-hardware.org/?id=pci:10ec-b723-103c-2231
+It says it's "supported", but when I open blueman the signal strength never goes over 50%... and drops to half that by the time I get to the couch... ;_;
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+thvdburgt
+commented
+May 27, 2025
+My laptop originally came with a Realtek Wi-Fi card a couple of years ago. I replaced it with an Intel AX200/AX201, which you can usually find for under $20. There may be better, more current options available now, I haven’t looked into it recently.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GarThor
+commented
+May 27, 2025
+Idk that this laptop is worth an upgrade.... Was considering a USB dongle instead, but I need to do more research on what's compatible...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+arghness
+commented
+Aug 8, 2025
+I've got a couple of issues running on Ubuntu 22.04
+When I start the tool, I get an error box, which causes the tool to exit when I click "OK". If I don't click "OK", the tool appears to work, though. The error message is:
+[ERROR] FATAL UNHANDLED EXCEPTION: System.Management.ManagementException: Error code: 0x80041002
+at System.Management.ManagementException.ThrowWithExtendedInfo (System.Management.ManagementStatus errorCode) [0x0003f] in <dd58760ffffd428cbd3bccac87756551>:0
+at System.Management.PropertyData.RefreshPropertyInfo () [0x00046] in <dd58760ffffd428cbd3bccac87756551>:0
+at System.Management.PropertyData..ctor (System.Management.ManagementBaseObject parent, System.String propName) [0x0001b] in <dd58760ffffd428cbd3bccac87756551>:0
+at System.Management.PropertyDataCollection.get_Item (System.String propertyName) [0x0000e] in <dd58760ffffd428cbd3bccac87756551>:0
+at System.Management.ManagementBaseObject.GetPropertyValue (System.String propertyName) [0x00034] in <dd58760ffffd428cbd3bccac87756551>:0
+at System.Management.ManagementBaseObject.get_Item (System.String propertyName) [0x00000] in <dd58760ffffd428cbd3bccac87756551>:0
+at (wrapper remoting-invoke-with-check) System.Management.ManagementBaseObject.get_Item(string)
+at _8BitDoFirmwareUpdater.View.HomeController.checkToolUpdate () [0x000db] in <fb5a0ce3452f4df5b4f6ffbbba8fbc84>:0
+at System.Threading.ThreadHelper.ThreadStart_Context (System.Object state) [0x00014] in <006aeda5450e44e2a7c0b3f3e62d74fd>:0
+at System.Threading.ExecutionContext.RunInternal (System.Threading.ExecutionContext executionContext, System.Threading.ContextCallback callback, System.Object state, System.Boolean preserveSyncCtx) [0x00071] in <006aeda5450e44e2a7c0b3f3e62d74fd>:0
+at System.Threading.ExecutionContext.Run (System.Threading.ExecutionContext executionContext, System.Threading.ContextCallback callback, System.Object state, System.Boolean preserveSyncCtx) [0x00000] in <006aeda5450e44e2a7c0b3f3e62d74fd>:0
+at System.Threading.ExecutionContext.Run (System.Threading.ExecutionContext executionContext, System.Threading.ContextCallback callback, System.Object state) [0x0002b] in <006aeda5450e44e2a7c0b3f3e62d74fd>:0
+When I plug in my controller (Pro 2), the list of devices comes up in the tool. Whenever I press any of them, I get an error on the console, and a "Reload" button in the UI. The firmware is not updated. I've tried wget for the URL and it resolves (returns an empty document, but likely because I'm not passing any parameters) :
+type : 33
+gamep:8BitDo Pro 2
+serviceUrl : http://dl.8bitdo.com:8080/firmware/select
+e: Error: NameResolutionFailure
+?????
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ngmoviedo
+commented
+Aug 8, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+It works for me... for the most part. An error window opens when starting the update executable, and the program runs a bit choppy, although it gets the work done.
+Probably some dependency, although not sure which one. Any idea?
+I'm running Manjaro and the screenshot was taken with system's Wine. Although the same thing happens when using Proton-GE.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+Aug 9, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I've got a couple of issues running on Ubuntu 22.04
+When I start the tool, I get an error box, which causes the tool to exit when I click "OK". If I don't click "OK", the tool appears to work, though...
+It works for me... for the most part. An error window opens when starting the update executable, and the program runs a bit choppy, although it gets the work done. Probably some dependency, although not sure which one. Any idea?
+Seems like there was an update for the firmware update tool (2.48 --> 2.52), which caused this to start happening. The tool now makes multiple calls of WBEM methods during startup, for which Wine returns WBEM_E_NOT_FOUND (0x80041002) for one of the calls, which ultimately causes the Mono/.NET code to throw an exception. This unfortunately needs more debugging and probably some fixing of appropriate Wine code, however from my testing (with Ultimate BT Controller and its receiver), it does not seem to affect the functionality of the tool as long as the exception dialog is simply ignored.
+When I plug in my controller (Pro 2), the list of devices comes up in the tool. Whenever I press any of them, I get an error on the console, and a "Reload" button in the UI. The firmware is not updated. I've tried wget for the URL and it resolves (returns an empty document, but likely because I'm not passing any parameters)...
+I can reproduce that when I disconnect from my network, maybe there's some problem with network access from your Wine prefix?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+arghness
+commented
+Aug 13, 2025
+When I plug in my controller (Pro 2), the list of devices comes up in the tool. Whenever I press any of them, I get an error on the console, and a "Reload" button in the UI. The firmware is not updated. I've tried wget for the URL and it resolves (returns an empty document, but likely because I'm not passing any parameters)...
+I can reproduce that when I disconnect from my network, maybe there's some problem with network access from your Wine prefix?
+Connectivity seems fine -- I can run "wine iexplore" and visit various sites, including http://dl.8bitdo.com:8080/firmware/select (blank page). This is all from a from-scratch wine prefix, I just installed wine-mono-9.0.0 and wine-gecko-2.47.4 (for testing iexplore), and made the changes from your original post -- exactly the same udev rules (although I'm using a Pro 2), and "Enable SDL" set to 0.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+Aug 14, 2025
+Connectivity seems fine -- I can run "wine iexplore" and visit various sites, including http://dl.8bitdo.com:8080/firmware/select (blank page). This is all from a from-scratch wine prefix, I just installed wine-mono-9.0.0 and wine-gecko-2.47.4 (for testing iexplore), and made the changes from your original post -- exactly the same udev rules (although I'm using a Pro 2), and "Enable SDL" set to 0.
+Are you certain that the controller remains in bootloader mode when trying to update the firmware? Also this is really only tested on recent Wine builds, maybe try a newer version?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+arghness
+commented
+Aug 14, 2025
+Connectivity seems fine -- I can run "wine iexplore" and visit various sites, including http://dl.8bitdo.com:8080/firmware/select (blank page). This is all from a from-scratch wine prefix, I just installed wine-mono-9.0.0 and wine-gecko-2.47.4 (for testing iexplore), and made the changes from your original post -- exactly the same udev rules (although I'm using a Pro 2), and "Enable SDL" set to 0.
+Are you certain that the controller remains in bootloader mode when trying to update the firmware? Also this is really only tested on recent Wine builds, maybe try a newer version?
+It's definitely staying in bootloader mode (if it's not in bootloader mode, when I connect it, it isn't recognised and the app keeps asking me to connect it).
+I had tried enabling some Wine debug and got to where it was resolving the host, but wasn't familiar enough with the debug output to understand what might be wrong.
+I'll try a newer Wine version (I just realised I said I was on Ubuntu 22.04 -- I'm actually on 24.04, so Wine 9.0 from the Ubuntu repo, but I'll try a 10.x version), thanks for the suggestion and I appreciate your original post and followup help!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+archeYR
+commented
+Aug 14, 2025
+I had tried enabling some Wine debug and got to where it was resolving the host, but wasn't familiar enough with the debug output to understand what might be wrong.
+Feel free to put the log from recent Wine here if the problem persists.
+I'll try a newer Wine version (I just realised I said I was on Ubuntu 22.04 -- I'm actually on 24.04, so Wine 9.0 from the Ubuntu repo, but I'll try a 10.x version), thanks for the suggestion and I appreciate your original post and followup help!
+Unfortunately I can't exactly reproduce that problem and I don't have any Ubuntu system either, so I can only guess at best. However, another Ubuntu (24.04 as well, perhaps?) user left a detailed post with getting it to work with Lutris runner, maybe that's also something worth looking into. You can also try version 2.48 of the tool that was known to work on Ubuntu with 8BitDo Pro 2.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+arghness
+commented
+Aug 14, 2025
+Thanks, Wine 9 was the issue for me. I updated to 10 and it worked immediately.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+algtan
+commented
+Sep 6, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I have an SN30 Pro +, and this is what worked for me using Ubuntu 24.04.3 LTS and Wine 10.0
+Follow the instructions above, but I used a product ID of 5750. This is what my /etc/udev/rules.d/71-8bitdo-boot.rules looks like:
+# 8BitDo SN30 Pro Plus Controller's boot HID interface
+# Change it only if lsusb prints different Product ID when device is in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="5750", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+Restart my computer
+Plug in the USB cable into the controller, but do not plug it into the PC yet
+Start the firmware updater in wine: wine <filename>.exe
+Hold L1 + R1 on the controller for 3 seconds, and continue holding while plugging in the USB cable into the PC
+A list of controllers should show up once your controller is detected. If not, you may need to go to "Update Manually" from the menu
+Select the controller, select the firmware, then click the "Update" button
+I was able to monitor the progress through the terminal, and the UI said it was complete/successful once it was done
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+soaresluciano
+commented
+Sep 11, 2025
+I have an SN30 Pro +, and this is what worked for me using Ubuntu 24.04.3 LTS and Wine 10.0
+1. Follow the instructions above, but I used a product ID of `5750`. This is what my `/etc/udev/rules.d/71-8bitdo-boot.rules` looks like:
+```
+# 8BitDo SN30 Pro Plus Controller's boot HID interface
+# Change it only if lsusb prints different Product ID when device is in bootloader mode.
+SUBSYSTEM=="hidraw", ATTRS{idProduct}=="5750", ATTRS{idVendor}=="2dc8", TAG+="uaccess"
+```
+2. Restart my computer
+3. Plug in the USB cable into the controller, but do not plug it into the PC yet
+4. Start the firmware updater in wine: `wine <filename>.exe`
+5. Hold L1 + R1 on the controller for 3 seconds, and continue holding while plugging in the USB cable into the PC
+6. A list of controllers should show up once your controller is detected. If not, you may need to go to "Update Manually" from the menu
+7. Select the controller, select the firmware, then click the "Update" button
+8. I was able to monitor the progress through the terminal, and the UI said it was complete/successful once it was done
+Thank you very much! After many days I managed to make it work following your steps.
+My problem was the .NET installed on the prefix. It only works with Mono.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

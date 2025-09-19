@@ -1,0 +1,324 @@
+Deploying a CNN-BiLSTM Model on AWS Lambda - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Vivek Vohra
+Posted on Sep 18
+Deploying a CNN-BiLSTM Model on AWS Lambda
+#cloud
+#beginners
+#machinelearning
+#aws
+Deploying a CNN-BiLSTM Model on AWS Lambda
+Deploying my deep learning model to production sounded straightforward at first. I had a Convolutional Neural Network + Bidirectional LSTM (CNN-BiLSTM) model for EEG-based Alzheimer’s detection, and I wanted to expose it via a serverless API on AWS.
+But doing so leads to a series of mistakes, and in this post, I try to document the mistakes I made, for my future self and those who might be trying it for the first time and are stuck.
+Overview
+Before going into the mistakes, let’s briefly discuss the deep learning model. It combines CNN and BiLSTM for Alzheimers’ detection based on EEG data.
+Now this app lets users upload EEG .set files and get an Alzheimers’, Frontotemporal dementia, and Healthy prediction with a confidence score. Uploaded files go directly to S3, and then a serverless Lambda (containerized with TensorFlow + MNE) pulls that file, preprocesses it, runs inference, and returns JSON to the browser.
+High-Level Architecture
+The user uploads the EEG file to the browser.
+A presigned URL is issued so the browser can upload directly to S3.
+The browser uploads the file to S3 (no server is in the middle).
+Browser calls /predict, passing the S3 object key.
+Lambda (Dockerized TF + MNE) downloads, preprocesses, and infers.
+JSON response returns: { predicted_class, confidence }.
+AWS setup (essentials)
+S3 bucket: Private; CORS enabled for the frontend domain; object PUT via presigned URLs.
+IAM: Execution role for Lambda with S3 read (and PutObject for generating presigned URLs).
+ECR: Push the container image (TensorFlow + MNE + model).
+Lambda (container): Adequate memory (e.g., 2–4 GB+), timeout (e.g., 120s+), env var for BUCKET name.
+API Gateway or Lambda Function URL: Public HTTPS endpoint with CORS enabled.
+What is a Presigned URL?
+Now, before moving on, what exactly is a presigned URL?
+So, an S3 presigned URL is a temporary, signed link that lets someone upload or download a file directly to/from S3 without needing AWS credentials.
+Usually, only IAM users/roles with the right S3 permissions can upload files.
+But the browser (frontend) shouldn’t have AWS keys hardcoded (that’s unsafe ).
+Instead, the backend Lambda/Flask app generates a presigned URL with an expiry (1 hour).
+The browser then uploads the file directly to S3 using that link, skipping the backend.
+Now, for this, we have the /presign route in lambda_function.py
+So before uploading, the frontend asks the backend for a temporary signed upload link, i.e.
+GET /presign?key=uploads/myfile.set
+Enter fullscreen mode
+Exit fullscreen mode
+Backend then generates the temp. URL thru boto3 and returns JSON.
+Then, the frontend(browser) with URL uploads directly to S3.
+But then you might question Why go through this roundabout way when we could have just uploaded it to Lambda.
+Well, that’s because the API Gateway payload cap is 10 MB. And so if your upload is bigger than that (which is the case here) is rejected. Whereas the S3 method is built for scale.
+Mistakes
+Now, even with an online guide and ChatGPT’s help, I made several mistakes, and below is the list of them :
+Mistake 1: ECR “image index” vs “image”
+When uploading the files from my local machine to ECR, I used Docker Buildx by default. This leads to
+Artifact type: Image Index in ECR. However, the Lambda only accepts a single-image manifest (Linux/Amd64), which results in the error.
+So to fix this, we had to force the use of the classic Builder, so the result is a single manifest (not an index).
+Mistake 2: Use compatible versions
+The newer Tensorflow (2.17+) pullsKeras 3, which needs optree.
+And the AWS base lambda images don't have any prebuilt optree. And now this optree uses C++. So when we pip install tensorflow, it tries to compile optree from source. To compile, you need gcc,g++,cmake , and Unix Makefiles. These aren’t in the standard Lambda image.
+This leads to a compilation error, and if we want to include them, it leads to a much bigger Docker image.
+So to fix this, I used TensorFlow 2.15 (Keras v2 bundled). This has no Keras 3, thus no optree.
+Mistake 3: Missing Permissions for S3 Access
+So while setting up the IAM role, I didn’t realize that
+I needed to explicitly allow the Lambda’s role to read/write on the bucket. After some head-scratching and checking error logs, it finally dawned on me.
+So I
+updated my Lambda’s execution role to include S3 access permissions (allowing GetObject and PutObject on my bucket). Only then could my function fetch the uploaded EEG files from S3 and save results if needed.
+Mistake 4: Forgetting About CORS (Cross-Origin Resource Sharing)
+So my browser would try to call the Lambda’s API Gateway endpoint, but it was the browser’s CORS policy.
+This was super annoying because the error isn’t from my code or AWS, but from the browser for security reasons. The culprit was me forgetting to enable CORS on my API Gateway and S3 bucket.
+I eventually discovered that I needed to configure CORS so that my static site could call the API and upload to S3. In fact, I even added a note in my app’s footer reminding future me to do this: “Make sure CORS is enabled on API Gateway and your S3 bucket.”
+After enabling CORS in API Gateway (allowing my domain/localhost and the necessary HTTP methods) and adding an appropriate CORS policy on the S3 bucket, the front-end and back-end finally started communicating properly.
+Mistake 5: Misconfiguring the API Gateway (AKA "Why Am I Getting 404?")
+After all these, when I hit my api, I got HTTP 404 errors. So I double-checked my Lambda code – the functions for /predict and /health existed.
+But then I realized that the mistake was in my API Gateway configuration. I had not set up the resource paths or integrations properly for the routes.
+API Gateway wasn’t forwarding /predict or /health to my Lambda at all, hence the 404s.
+So when I hit …/health from the browser, the API Gateway was actually expecting something like…/default/health, which obviously didn’t exist.
+Once I spotted this, I went back into the AWS console, fixed the route definitions (making sure they matched what my client was calling), and deployed the API to the correct stage.
+Conclusion
+So while deploying, I made several mistakes like
+Docker manifests, dependency mismatches, missing IAM permissions, CORS errors, and API Gateway misconfigurations. Each of these mistakes slowed me down, but also forced me to understand how AWS Lambda, S3, and API Gateway really work together.
+The final setup is simple for the user—upload an EEG file, wait a few seconds, and get a prediction with confidence. But behind the scenes, there’s a careful system: S3 for storage, presigned URLs for secure uploads, Lambda containers for inference, and API Gateway as the bridge.
+So if you’re taking your first model to the cloud, expect some bumps—but also expect to come out the other side with much sharper engineering instincts.
+👉 You can try the deployed app here: Link
+👉 Code is available on GitHub
+vivekvohra
+/
+EEG-CNN-BiLSTM
+Deep Learning for Alzheimer’s Detection from EEG Data
+EEG-CNN-BiLSTM (AWS Lambda + S3 demo)
+End-to-end demo that serves a Keras CNN-BiLSTM EEG classifier from AWS Lambda (container image) with a static frontend on S3
+You can upload an EEGLAB .set file (or run a demo prediction), and get class probabilities back.
+Live: https://az-eeg-site-109598917777.s3.ap-south-1.amazonaws.com
+EG-CNN-BiLSTM/
+├── backend/
+# Lambda + Docker code
+│
+├── lambda_function.py
+│
+├── preprocess.py
+│
+├── Dockerfile.dockerfile
+│
+├── requirements.txt
+│
+└── model/
+│
+└── alzheimer_eeg_cnn_bilstm_model.h5
+├── frontend/
+# S3 static site
+│
+├── index.html
+│
+├── app.js
+│
+└── style.css
+├── research/
+# papers & notebooks
+│
+├── train.ipynb
+│
+└── conference.pdf
+├── LICENSE
+└── README.md
+Demo video
+Recording.2025-09-18.003432.mp4
+What’s inside
+Model: Keras .h5 CNN-BiLSTM saved with TF 2.x (pinned to TF 2.15 at runtime).
+Backend (backend/):
+lambda_function.py – Flask app wrapped by serverless-wsgi for API Gateway HTTP API.
+preprocess.py – loads .set and prepares input for the network.
+Dockerfile.dockerfile…
+View on GitHub
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+traditional_fig
+traditional_fig
+traditional_fig
+Follow
+Joined
+Apr 19, 2024
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+Do you have it live deployed ,can you share the link
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Vivek Vohra
+Vivek Vohra
+Vivek Vohra
+Follow
+Hi! I am Vivek Vohra. I am Interested in Competitive Programming and Data Structure.
+- Programming languages : c/c++,python,sqlite3,Matlab,Verilog.
+- Technical Skills: HTML, CSS, FLASK, JavaScript
+Location
+India
+Education
+TIET
+Pronouns
+He/Him
+Joined
+Apr 13, 2024
+•
+Sep 18
+• Edited on Sep 18
+• Edited
+Dropdown menu
+Copy link
+Hide
+Yes,here's the link:
+az-eeg-site-109598917777.s3.ap-south-1.amazonaws.com
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Vivek Vohra
+Follow
+Hi! I am Vivek Vohra. I am Interested in Competitive Programming and Data Structure.
+- Programming languages : c/c++,python,sqlite3,Matlab,Verilog.
+- Technical Skills: HTML, CSS, FLASK, JavaScript
+Location
+India
+Education
+TIET
+Pronouns
+He/Him
+Joined
+Apr 13, 2024
+More from Vivek Vohra
+Deploying Tideman Election App on AWS EC2 with Docker
+#aws
+#cloud
+#docker
+#linux
+Detecting Alzheimer’s Disease using a CNN-BiLSTM Architecture
+#ai
+#deeplearning
+#machinelearning
+#tensorflow
+Convolution
+#beginners
+#basic
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

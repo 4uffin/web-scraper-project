@@ -1,0 +1,341 @@
+From Docker to Kubernetes: How Your Application Goes from Local to Cloud - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Dumebi Okolo
+Posted on Sep 18
+From Docker to Kubernetes: How Your Application Goes from Local to Cloud
+#docker
+#kubernetes
+#cloud
+#beginners
+Cloud Articles (2 Part Series)
+1
+Understanding System Scaling With Kubernetes For Beginners
+2
+From Docker to Kubernetes: How Your Application Goes from Local to Cloud
+Docker and Kubernetes are often mentioned together in modern software development—but they solve different problems. Docker makes it easy to package applications into containers. Kubernetes takes those containers and runs them at scale, across many servers, with reliability and automation.
+Although my previous post on Docker and Kubernetes was part of an assignment, it got me thinking and curious about the DevOps space and about Docker and Kubernetes in general. Having used Docker previously, doing this research really broadened my understanding.
+In this tutorial, we’ll:
+Build a simple app using Docker.
+Push the container image to Docker Hub (a registry).
+Deploy the app on Kubernetes.
+Scale it up and explore how Kubernetes manages it.
+Along the way, I’ll explain each step, so you don’t just copy commands but actually understand what’s happening (this is feedback I got from a work with a client that said my article lacked technical depth and was just full of copy<=>paste code).
+Prerequisites
+Before we begin, make sure you have the following installed:
+The latest version of Node.js
+To verify, on your terminal, run:
+node -v
+Enter fullscreen mode
+Exit fullscreen mode
+Docker Desktop (or Docker Engine)
+To verify, run:
+docker --version
+Kubectl (Kubernetes CLI)
+to Verify, run:
+kubectl version --client
+A Kubernetes cluster
+Beginners can use Minikube (local cluster)
+Or enable Kubernetes directly in Docker Desktop.
+A Docker Hub account (free)
+I like to think of Docker Hub as the GitHub for container images.
+Create a Simple Node.js Application
+We’ll create a Node.js app that returns a simple message.
+Create a project folder:
+mkdir docker-k8s-demo
+cd docker-k8s-demo
+Enter fullscreen mode
+Exit fullscreen mode
+Inside the folder, create a file named app.js:
+const http = require('http');
+const port = 3000;
+const requestHandler = (req, res) => {
+res.end('Hello from Docker and Kubernetes!');
+};
+const server = http.createServer(requestHandler);
+server.listen(port, () => {
+console.log(`Server running on port ${port}`);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Create a package.json file:
+{
+"name": "docker-k8s-demo",
+"version": "1.0.0",
+"main": "app.js",
+"dependencies": {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+At this point, we have a simple Node.js app.
+Write a Dockerfile
+A Dockerfile is just a plain text file (no extension, usually named Dockerfile) that tells Docker how to build an image. It lives in the root of your project.
+Create a file called Dockerfile:
+# Start from the Node.js base image
+FROM node:18-alpine
+# Set working directory inside container
+WORKDIR /usr/src/app
+# Copy project files into container
+COPY package*.json ./
+COPY app.js ./
+# Install dependencies
+RUN npm install
+# Expose the app’s port
+EXPOSE 3000
+# Start the app
+CMD ["node", "app.js"]
+Enter fullscreen mode
+Exit fullscreen mode
+Build the image:
+docker build -t myapp:1.0 .
+Enter fullscreen mode
+Exit fullscreen mode
+-t myapp:1.0 → names the image myapp with version 1.0.
+. means “use the Dockerfile in this directory.”
+If this was ran properly and successful, you should see a success message like this on your terminal.
+Run the docker container:
+docker run -p 3000:3000 myapp:1.0
+Enter fullscreen mode
+Exit fullscreen mode
+Visit http://localhost:3000. You should see:
+Hello from Docker and Kubernetes!
+Enter fullscreen mode
+Exit fullscreen mode
+Pushing the Image to Docker Hub
+Kubernetes won’t know about your local image—it needs to pull it from a registry.
+Log in to Docker Hub:
+docker login
+Enter fullscreen mode
+Exit fullscreen mode
+A success message like this should be seen on your terminal
+Tag your image with your Docker Hub username:
+docker tag myapp:1.0 your-username/myapp:1.0
+Enter fullscreen mode
+Exit fullscreen mode
+Push it:
+docker push your-username/myapp:1.0
+Enter fullscreen mode
+Exit fullscreen mode
+Now your image is public in Docker Hub, ready for Kubernetes.
+_You are seeing "Layer already exists" in this screenshot because I had run this command once before but it failed at execution due to a lag in my internet. _
+Deploying on Kubernetes
+A Kubernetes deployment needs a YAML file describing what to run.
+Create deployment.yaml:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+name: myapp-deployment
+spec:
+replicas: 3
+selector:
+matchLabels:
+app: myapp
+template:
+metadata:
+labels:
+app: myapp
+spec:
+containers:
+- name: myapp
+image: your-username/myapp:1.0
+ports:
+- containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+name: myapp-service
+spec:
+selector:
+app: myapp
+ports:
+- protocol: TCP
+port: 80
+targetPort: 3000
+type: LoadBalancer
+Enter fullscreen mode
+Exit fullscreen mode
+Apply it (run on your terminal):
+kubectl apply -f deployment.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Check pods:
+kubectl get pods
+Enter fullscreen mode
+Exit fullscreen mode
+_This sample script creates three replicas. In the previous article, I explained what replicas are and how they relate to the problem of scaling. _
+After running, you should see three pods running in your terminal window.
+On your terminal, you should see three pods active and running.
+Check service:
+kubectl get service myapp-service
+Enter fullscreen mode
+Exit fullscreen mode
+If using Docker Desktop or cloud Kubernetes, you’ll get an external IP.
+If using Minikube:
+minikube service myapp-service
+Enter fullscreen mode
+Exit fullscreen mode
+This opens the app in your browser.
+Scale the Application with Kubernetes
+In the example above, we scaled to three replicas. As a system or application grows, more replicas or instances of it are needed to effectively scale up to the demand.
+This can be done easily by running this command with the number of replicas you need per time.
+kubectl scale deployment myapp-deployment --replicas=5
+Enter fullscreen mode
+Exit fullscreen mode
+Kubernetes will spin up two more pods automatically.
+This workflow—build with Docker, deploy with Kubernetes—is the foundation of cloud-native applications. Docker ensures consistency across environments, and Kubernetes ensures reliability in production.
+💡 Enjoyed this article? Let’s connect!
+🔗 Connect with me on LinkedIn
+📧 Email me
+I’d love to hear your thoughts, feedback.
+I am also open to collaborations on technical articles, documentation, or white papers! 🚀
+Cloud Articles (2 Part Series)
+1
+Understanding System Scaling With Kubernetes For Beginners
+2
+From Docker to Kubernetes: How Your Application Goes from Local to Cloud
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Dumebi Okolo
+Follow
+Confident technical writer with frontend developer skills, marketing skills and developer relations skills.
+I am also a very fun person to hang around with.
+Location
+Rivers, Nigeria
+Education
+Self taught developer and technical writer.
+Work
+Currently open to technical writing opportunities
+Joined
+Oct 12, 2022
+More from Dumebi Okolo
+Understanding System Scaling With Kubernetes For Beginners
+#kubernetes
+#cloud
+#programming
+#opensource
+Mastering JavaScript Functions & DOM Manipulation: A Beginner-Friendly Deep Dive
+#webdev
+#javascript
+#beginners
+#tutorial
+I Started Learning JavaScript Again—A Beginner-Friendly Guide to the Basics
+#webdev
+#javascript
+#beginners
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

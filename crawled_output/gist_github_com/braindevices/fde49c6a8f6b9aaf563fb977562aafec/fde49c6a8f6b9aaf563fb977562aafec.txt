@@ -1,0 +1,1599 @@
+which file sytem to use for daily work? should we turn on btrfs compression? · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+braindevices/#btrfs benchmark for daily used desktop OS
+Last active
+September 19, 2025 00:36
+Show Gist options
+Download ZIP
+Star
+108
+(108)
+You must be signed in to star a gist
+Fork
+8
+(8)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/braindevices/fde49c6a8f6b9aaf563fb977562aafec.js&quot;&gt;&lt;/script&gt;
+Save braindevices/fde49c6a8f6b9aaf563fb977562aafec to your computer and use it in GitHub Desktop.
+Code
+Revisions
+41
+Stars
+108
+Forks
+8
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/braindevices/fde49c6a8f6b9aaf563fb977562aafec.js&quot;&gt;&lt;/script&gt;
+Save braindevices/fde49c6a8f6b9aaf563fb977562aafec to your computer and use it in GitHub Desktop.
+Download ZIP
+which file sytem to use for daily work? should we turn on btrfs compression?
+Raw
+#btrfs benchmark for daily used desktop OS
+#btrfs benchmark for daily used desktop OS
+Raw
+.gitignore
+*.backup
+/data
+Raw
+btrfs-compression-tests.md
+Introduction
+methods
+Results
+compression ratio
+preliminary tests
+results on usb3 SATA SSD
+results on faster SSD
+On mechanic HDD
+btrfs is smart enough to skip compression on most uncompressible files
+choices
+Conclusion
+Introduction
+BTRFS offers lots of advantages such as snapshot, self-healing from bit rotten, compression, etc.
+There are lots of benchmarks and reviews about its benefits and weakness.
+However, almost all of them focus on very low level performance such as
+sequential/random write/read, etc.
+Or they emphasize special use case such as SQL, game loading or system boot up time.
+But it is difficult to interpret them. What is the impact on our daily work as developers?
+Moreover all of them only compare different system on same hardware and assume the results can be extrapolated in general regardless the hardwares.
+Unfortunately, from my user experience, the file systems behave completely different on different hardwares.
+In this article I would like to Compare performance of current popular file systems: BTRFS, XFS and EXT4 based on normal daily use cases for developers: no random writing on single file, lots of small files in build dir.
+What is the best choice? Do the choices vary when using different hardwares: SATA SSD, NVME SSD, mechanic HDD, weaker CPUs?
+Does LUKS impose unacceptable performance drop?
+The BTRFS also come with important features such as compression.
+However, compression of file system in most cases are nonsense
+nowadays. It won't save any space or increase IO performance.
+Because normal files in PC/laptop are all compressed already: (image, pdf, media, xls/doc, hdf, ccache, read-only database ...).
+I think only super large build directory benifits from file system compression.
+The git repo itself actually has compression already. Thus if the .git is way larger than source tree,
+it won't make too much sense to compress the entire source dir.
+Fortunately, the btrfs should be smart enough to determine which files are worth compressing.
+The result is rather surprising: the performance varied a lot depends on what kind of hardware I am using and what kind of data I have;
+the worst choices can be any of those.
+However, the best choice seems remain the same: btrfs with mild compression.
+methods
+write test: cp -a <src> <dest> && sync
+before write test I delete the old items in <dest> and fstrim the mount point.
+tar read test: tar -c <dest>/<data> | pv -f /dev/null
+cp read test: cp -a <dest> /tmp/<test root>
+before each read test we remount the partition to drop the system cache
+1 https://blog.cloudflare.com/speeding-up-linux-disk-encryption/
+[2] https://www.reddit.com/r/Fedora/comments/rzvhyg/default_luks_encryption_settings_on_fedora_can_be/
+[3] https://www.reddit.com/r/Fedora/comments/rxeyhd/fastest_filesystem_with_encryption_for_development/
+Results
+compression ratio
+For simple benchmark, I used several ffmpeg and libboost build dirs as example:
+ffmpeg
+LZO
+Processed 1541 files, 20427 regular extents (20427 refs), 542 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+47%
+1.2G
+2.6G
+2.6G
+none
+100%
+306M
+306M
+306M
+lzo
+41%
+970M
+2.3G
+2.3G
+ZLIB
+Processed 1541 files, 20399 regular extents (20399 refs), 632 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+36%
+964M
+2.6G
+2.6G
+none
+100%
+294M
+294M
+294M
+zlib
+28%
+670M
+2.3G
+2.3G
+ZSTD:1
+Processed 1541 files, 20399 regular extents (20399 refs), 632 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+34%
+917M
+2.6G
+2.6G
+none
+100%
+294M
+294M
+294M
+zstd
+26%
+622M
+2.3G
+2.3G
+ZSTD:3
+Processed 1541 files, 20399 regular extents (20399 refs), 632 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+34%
+917M
+2.6G
+2.6G
+none
+100%
+294M
+294M
+294M
+zstd
+26%
+622M
+2.3G
+2.3G
+libboost dir (149k/2GiB) contains lots of small files. The apparent size of du is 1.6GB, but the actual disk size is 2.0GB, implying that there are lots of file smaller than 4kiB:
+LZO
+Processed 148537 files, 60482 regular extents (60482 refs), 92581 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+37%
+647M
+1.6G
+1.6G
+none
+100%
+4.3M
+4.3M
+4.3M
+lzo
+37%
+643M
+1.6G
+1.6G
+ZLIB
+Processed 148537 files, 59862 regular extents (59862 refs), 93201 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+24%
+417M
+1.6G
+1.6G
+none
+100%
+228K
+228K
+228K
+zlib
+24%
+416M
+1.6G
+1.6G
+ZSTD:1
+Processed 148537 files, 59862 regular extents (59862 refs), 93201 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+22%
+392M
+1.6G
+1.6G
+none
+100%
+228K
+228K
+228K
+zstd
+22%
+392M
+1.6G
+1.6G
+ZSTD:3
+Processed 148537 files, 59862 regular extents (59862 refs), 93201 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+22%
+392M
+1.6G
+1.6G
+none
+100%
+228K
+228K
+228K
+zstd
+22%
+392M
+1.6G
+1.6G
+So ZSTD compress the data pretty well. LZO provide less compression but still decent ~50%. I also noticed the ZLIB impose huge pressure on CPU and very slow. So in the following tests I ignored it.
+preliminary tests
+I also tested the speed or the write/read via simple cp -a <source> <dest> on a Intel Core i7-9750H machine.
+write test to file system on a same usb SSD (files are already read into memory):
+dest
+time (sec)
+xfs
+1.1
+btrfs
+0.97
+btrfs zstd:1
+0.94
+We can see the speed is almost the same. This indicates the penality on write performance is quite huge when zstd is on. Because it actually only write 1/3 of the data.
+read test from above file system to a ram disk, system cache is dropped before each copy command.
+source
+time (sec)
+peak speed (M/s)
+xfs
+7.7
+366.1
+btrfs
+6.7
+379.0
+btrfs zstd:1
+2.9
+338.9
+peak speed is obtained via iostat. With zstd:1 the I/O is slower but not much comparing to the write operation.
+However, the big compression ratio compensate this and yield the fastest read speed.
+It is 130% faster than non-compressed condition, since the size is 1/3 of the original.
+I did not test other combination or zlib, since the zlib is well-known slower than zstd:1
+However, this test has a flaw that I do not sync after cp, thus the data may not finished the write-operation to the disk at all after cp command finished. In following more thourough tests, I use cp xxx && sync as write speed test.
+results on usb3 SATA SSD
+/dev/sdd:480103981056B:scsi:512:512:gpt:INTEL SS DSC2BW480A4:;
+1:17408B:1073741823B:1073724416B:free;
+1:1073741824B:27917287423B:26843545600B:ext4:usb ssd test ext4:;
+3:27917287424B:54760833023B:26843545600B:btrfs:usb ssd test btrfs:;
+5:54760833024B:81604378623B:26843545600B:xfs:usb ssd test xfs:;
+This disk has about 300MiB/s sequencial write speed and 500MiB/s sequencial read speed.
+Writing 1.4k files in size of 2.7GiB on all file systems gave similar write speed as writing single big file.
+the non-compressed btrfs has a bit less write and read performance than xfs and ext4.
+Compressed btrfs give way better performance.
+zstd:3 is the best with 55% more write speed and 133% more read speed.
+It is followed by zstd:1 with 35%/133% increase.
+The LZO has less improvement but still give 43% more write speed and 79% more read speed.
+index
+file system
+disk usage
+write time (s)
+write MiB/s
+write rate
+tar to file read MiB/s
+tar read rate
+cp read MiB/s
+cp read rate
+0
+btrfs.none
+0.000147705
+9.40651
+283.958
+0.965568
+365.276
+1.07789
+344.891
+0.958941
+5
+xfs.0
+0.112771
+9.38198
+284.701
+0.968093
+341.466
+1.00763
+363.048
+1.00942
+2
+ext4.0
+1.40477e-06
+9.2048
+290.181
+0.986728
+339.391
+1.00151
+360.402
+1.00207
+3
+xfs.1
+0.00823492
+9.1085
+293.249
+0.997159
+338.185
+0.997949
+363.603
+1.01097
+6
+ext4.1
+0.106864
+8.96366
+297.987
+1.01327
+338.369
+0.998491
+358.914
+0.997932
+1
+btrfs.zstd-1
+0.104891
+6.71203
+397.95
+1.35319
+253.149
+0.747018
+838.609
+2.33168
+4
+btrfs.lzo
+0.141149
+6.34291
+421.109
+1.43193
+267.076
+0.788114
+643.236
+1.78846
+7
+btrfs.zstd-3
+0.191489
+5.83131
+458.054
+1.55756
+250.175
+0.738242
+853.062
+2.37187
+Interestingly, tar read test yield completely different scheme: none compressed btrfs give the best reasult, all compressed btrfs give 30% drop in speed.
+Writing 149k/2GB files on all file systems is way slower: ~30% of normal writing speed and ~10% of normal reading speed.
+XFS seems perform worst when many small files invovled.
+btrfs in general proivdes higher performance (> 18% write and 21% read improvement over ext4) in this case.
+Unlike the 1.4k-file test, all 3 compressed methods can yielded best write performance providing 35% more speed over ext4, from time to time.
+It seems like it depends on the test order, the first compressed btrfs yield the best result.
+The non-compressed one is also quite similar to the best one.
+The read speeds are different though.
+All 3 compressed ones have almost same reading speed with about 60% increase.
+But the non-compressed one is a bit slower with only 22% improvement over ext4.
+And in this case the tar read speed trend is the same as cp read speeds.
+Though tar has about 20% more speed when using compressed btrfs comparing to the cp command.
+index
+file system
+disk usage
+write time (s)
+write MiB/s
+write rate
+tar to file read MiB/s
+tar read rate
+cp read MiB/s
+cp read rate
+4
+xfs.0
+0.0879229
+13.7472
+118.552
+0.914611
+47.178
+0.962071
+47.7707
+0.978131
+1
+xfs.1
+0.00823614
+13.5625
+120.166
+0.927067
+47.6865
+0.97244
+47.3504
+0.969526
+5
+ext4.0
+0.079824
+12.6361
+128.977
+0.995037
+49.383
+1.00704
+49.2813
+1.00906
+2
+ext4.1
+1.40477e-06
+12.5113
+130.263
+1.00496
+48.693
+0.992965
+48.3962
+0.990938
+6
+btrfs.lzo
+0.106342
+11.269
+144.622
+1.11574
+88.2133
+1.79888
+77.5018
+1.58689
+7
+btrfs.zstd-3
+0.143783
+10.3497
+157.469
+1.21485
+85.4793
+1.74312
+80.4497
+1.64725
+3
+btrfs.none
+0.0261482
+10.1429
+160.68
+1.23962
+64.454
+1.31437
+59.4803
+1.21789
+0
+btrfs.zstd-1
+0.000147705
+9.30068
+175.23
+1.35187
+92.5516
+1.88734
+79.568
+1.6292
+index
+file system
+disk usage
+write time (s)
+write MiB/s
+write rate
+tar to file read MiB/s
+tar read rate
+cp read MiB/s
+cp read rate
+1
+xfs.1
+0.00823492
+14.5515
+111.999
+0.873386
+48.1493
+0.992781
+49.1477
+1.02168
+5
+xfs.0
+0.0879229
+13.7274
+118.723
+0.925814
+46.7736
+0.964414
+48.3584
+1.00527
+2
+ext4.1
+0.079824
+12.9215
+126.128
+0.98356
+48.5128
+1.00027
+48.6915
+1.0122
+0
+ext4.0
+1.40477e-06
+12.5035
+130.344
+1.01644
+48.4862
+0.999726
+47.518
+0.987803
+6
+btrfs.zstd-1
+0.117458
+12.0904
+134.798
+1.05117
+92.4985
+1.90721
+79.8751
+1.66044
+7
+btrfs.zstd-3
+0.143814
+10.358
+157.342
+1.22697
+85.3323
+1.75945
+80.1055
+1.66523
+3
+btrfs.none
+0.000147705
+9.4264
+172.893
+1.34824
+65.216
+1.34467
+58.5836
+1.21784
+4
+btrfs.lzo
+0.0801518
+9.07413
+179.605
+1.40058
+86.4693
+1.78289
+76.8859
+1.5983
+results on faster SSD
+I then test it on an almost fresh nvme SSD:
+/dev/nvme0n1:512110190592B:nvme:512:512:gpt:INTEL SSDPEKNW512G8:;
+6:296470183936B:350157275135B:53687091200B:xfs:linux-nvme-data:;
+7:350157275136B:377000820735B:26843545600B:btrfs:btrfs test:;
+8:377000820736B:403844366335B:26843545600B:ext4:ext4test:;
+For a 2.7GiB ffmpeg build dir containing 1.5k files, the speeds are all > 500MB/s which is close to the single large file copy speed (~600-700MB/s). I test it several times with random shuffled test orders. The typical results are showing in following table. We can see lzo always has the fastest write speed, though the compression ratio is only 47%. The ZSTD:1 has much higher ratio of 34% however it seems to pay a big penality. Unlike lzo/zstd, ZLIB shows very high CPU usage and very slow in the prelimiary tests. So I did not include it in the repeated tests. The ext4 and xfs speeds yield from this test are kind of unstable, some times to drop to 100-200MB/s. But in most cases they are around 500-700MB/s
+file system
+disk usage
+write time (s)
+write MiB/s
+tar to file read MiB/s
+cp read MiB/s
+btrfs.zstd-1
+0.401214
+3.14575
+849.1
+489.592
+1305.49
+btrfs.lzo
+0.437475
+1.91317
+1396.14
+589.98
+1280.35
+btrfs.none
+0.487829
+3.29185
+811.416
+1216.99
+1153.71
+ext4.0
+0.40917
+4.48444
+595.628
+1093.44
+1213.11
+ext4.1
+0.516032
+4.4532
+599.806
+1100.46
+1186.14
+xfs.0
+0.0076032
+3.88385
+687.734
+1190.83
+1292.62
+xfs.1
+0.0598712
+5.31797
+502.27
+1182.8
+1271.12
+For a 2.0GiB boost build dir containing 149k files, the I/O speeds are far slower around 200MB/s in all cases. The btrfs.lzo and non-compressed btrfs are only slightly faster than ext4 and xfs during writing. But the zstd:1 is way slower than the rest, only 60-70% speed of non-compressed btrfs. The read speed of all btrfs tests are 20% faster than ext4 and xfs. This may indicate btrfs handle small files better. The compression ratio in this case does not affect the I/O much because the bottle neck is the ammount of files instead of size, though LZO and ZSTD:1 provide 37% and 22% ratios respectively.
+file system
+disk usage
+write time (s)
+write MiB/s
+tar to file read MiB/s
+cp read MiB/s
+btrfs.lzo
+0.401216
+8.13217
+200.408
+163.573
+124.486
+btrfs.none
+0.437983
+7.60417
+214.324
+146.083
+120.017
+btrfs.zstd-1
+0.518031
+13.0737
+124.659
+153.742
+121.545
+ext4.0
+0.40917
+8.51435
+191.413
+96.7245
+107.22
+ext4.1
+0.488992
+8.64948
+188.422
+96.3132
+107.352
+xfs.0
+0.0076032
+8.57081
+190.152
+110.243
+102.137
+xfs.1
+0.0474472
+8.57814
+189.989
+110.808
+100.598
+An interesting observation is that tar read speed and the cp read speed are all very different in both 1.5k/2.7GiB and 148k/2GiB tests. However, the effects are in a different direction. In 1.5k/2.7GiB case the LZO/ZSTD:1 show ~50% performance drop in tar-read comparing to cp tests of themselves and the tar tests of other file systems. This indicates the file reading methods of tar and cp have some fundamental difference and worth further study.
+In 148k/2GiB case the compressed file systems do not show any performance drop in tar tests. However, tar tests of btrfs are ~25% faster than cp tests. The possible reason can be that large number of file creation operations in RAM disk is still costy.
+On mechanic HDD
+/dev/sdc:5000981077504B:scsi:512:4096:gpt:Seagate One Touch HDD:;
+1:17408B:107374182399B:107374164992B:free;
+1:107374182400B:134217727999B:26843545600B:ext4:speed test ext4:;
+2:134217728000B:161061273599B:26843545600B:xfs:speed test xfs:;
+3:161061273600B:187904819199B:26843545600B:btrfs:speed test btrfs:;
+./fs-user-benchmark.py --no-fstrim --source ~/.cget/cache/builds/ffmpeg -t '{"root_path":"/media/dracula/hddxfstest/test", "postfix":"0"}' -t '{"root_path":"/media/dracula/hddext4test/test", "postfix":"0"}' -t '{"root_path":"/media/dracula/hddxfstest/test", "postfix":"1"}' -t '{"root_path":"/media/dracula/hddext4test/test", "postfix":"1"}' -t '{"root_path":"/media/dracula/hddbtrfstest/test", "compress_type":"none"}' -t '{"root_path":"/media/dracula/hddbtrfstest/test", "compress_type":"lzo"}' -t '{"root_path":"/media/dracula/hddbtrfstest/test", "compress_type":"zstd:1"}' -t '{"root_path":"/media/dracula/hddbtrfstest/test", "compress_type":"zstd:3"}'
+Here is typical results from 1.4k/2.7GB build folder. btrfs is faster than xfs and ext4 in general. ext4 is the slowest. zstd and lzo has huge advantage than none compressed btrfs. Because here the bottle neck is the disk I/O. Smaller data matter a lot. ZSTD:3 impose some pressure on CPU but does not give much advantage than ZSTD:1.
+file system
+disk usage
+write time (s)
+write MiB/s
+tar to file read MiB/s
+cp read MiB/s
+ext4.1
+0.106865
+32.4621
+82.2824
+76.1464
+83.3907
+xfs.1
+0.112776
+25.8475
+103.339
+98.3266
+99.6622
+ext4.0
+0.213728
+29.8597
+89.4537
+72.7791
+79.1887
+xfs.0
+0.217307
+25.2035
+105.98
+97.814
+99.3223
+btrfs.lzo
+0.000147705
+15.1674
+176.105
+193.557
+195.507
+btrfs.none
+0.0505009
+22.912
+116.579
+116.823
+118.195
+btrfs.zstd-1
+0.155232
+11.5432
+231.397
+183.332
+251.207
+btrfs.zstd-3
+0.191588
+11.2101
+238.273
+170.086
+297.061
+Writing 149k/2GB files to mechanic HDD is extremely slow for xfs and non-compressed btrfs. The speed is as low as 1MB/s for btrfs almost impossible to use. zstd is 100x faster than non-compressed one. ext4 is 5x faster than xfs, 45x faster than btrfs. lzo in this case only have 50% speed of zstd:1. zstd:3 is 10% slower than zstd:1 too.
+Reading from it is even slower. btrfs in general is much faser than ext4, the xfs is the slowest only 7MiB/s.
+file system
+disk usage
+write time (s)
+write MiB/s
+tar to file read MiB/s
+cp read MiB/s
+xfs.0
+0.112778
+171.254
+9.51661
+8.53608
+7.72498
+btrfs.zstd-1
+0.000147705
+13.399
+121.632
+34.2228
+30.4638
+ext4.0
+0.106865
+36.2998
+44.8971
+7.45604
+11.5033
+xfs.1
+0.192459
+189.117
+8.6177
+8.44728
+7.53305
+btrfs.none
+0.0261714
+1394.19
+1.16896
+12.4196
+20.2212
+ext4.1
+0.186687
+69.3157
+23.5121
+7.20049
+11.8862
+btrfs.lzo
+0.10633
+26.8329
+60.7373
+19.6596
+23.9906
+btrfs.zstd-3
+0.143793
+14.9673
+108.888
+32.3755
+22.2033
+btrfs is smart enough to skip compression on most uncompressible files
+Here is an example, the .git and pngs are ignored in all compression types.
+du -h -d1 mongo-cxx-driver
+60M
+mongo-cxx-driver/.git
+96K
+mongo-cxx-driver/benchmark
+3.9M
+mongo-cxx-driver/data
+172K
+mongo-cxx-driver/etc
+4.0M
+mongo-cxx-driver/src
+60K
+mongo-cxx-driver/.evergreen
+4.0K
+mongo-cxx-driver/build
+404K
+mongo-cxx-driver/examples
+40K
+mongo-cxx-driver/cmake
+2.0M
+mongo-cxx-driver/docs
+8.0K
+mongo-cxx-driver/generate_uninstall
+108K
+mongo-cxx-driver/debian
+71M
+mongo-cxx-driver
+du -h -d 1 .
+71M
+./mongo-cxx-driver
+35M
+./images
+541M
+./media
+46M
+./pdfs
+Processed 1225 files, 1531 regular extents (1531 refs), 657 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+96%
+663M
+690M
+690M
+none
+100%
+646M
+646M
+646M
+lzo
+38%
+16M
+43M
+43M
+Processed 1225 files, 1520 regular extents (1520 refs), 669 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+95%
+657M
+690M
+690M
+none
+100%
+646M
+646M
+646M
+zstd
+26%
+11M
+43M
+43M
+Processed 1225 files, 1520 regular extents (1520 refs), 669 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+95%
+657M
+690M
+690M
+none
+100%
+646M
+646M
+646M
+zstd
+26%
+11M
+43M
+43M
+in lzo:
+for _d in *; do echo $_d; sudo compsize -x $_d; done
+images
+Processed 95 files, 94 regular extents (94 refs), 1 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+99%
+34M
+34M
+34M
+none
+100%
+34M
+34M
+34M
+lzo
+65%
+316B
+486B
+486B
+media
+Processed 13 files, 767 regular extents (767 refs), 0 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+99%
+537M
+540M
+540M
+none
+100%
+530M
+530M
+530M
+lzo
+70%
+7.0M
+10M
+10M
+mongo-cxx-driver
+Processed 1113 files, 467 regular extents (467 refs), 656 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+92%
+63M
+69M
+69M
+none
+100%
+59M
+59M
+59M
+lzo
+41%
+3.8M
+9.2M
+9.2M
+pdfs
+Processed 4 files, 203 regular extents (203 refs), 0 inline.
+Type
+Perc
+Disk Usage
+Uncompressed Referenced
+TOTAL
+58%
+26M
+45M
+45M
+none
+100%
+20M
+20M
+20M
+lzo
+23%
+5.7M
+24M
+24M
+in above example, we can see the .git, pngs, pdfs and mp3 are not compressed in all lzo/zstd file systems.
+The global compressions have no observable adverse effect on W/R of SATA-SSD.
+index
+file system
+disk usage
+write time (s)
+write MiB/s
+write rate
+tar to file read MiB/s
+tar read rate
+cp read MiB/s
+cp read rate
+3
+xfs.1
+0.0325174
+2.72032
+228.279
+0.980201
+333.153
+0.988391
+358.743
+1.00002
+7
+ext4.1
+0.0248249
+2.70295
+229.746
+0.9865
+336.028
+0.996918
+356.526
+0.993843
+2
+btrfs.none
+0.0236382
+2.68499
+231.283
+0.993099
+374.854
+1.11211
+358.245
+0.998634
+0
+xfs.0
+0.00823614
+2.63784
+235.417
+1.01085
+336.127
+0.997213
+363.216
+1.01249
+6
+btrfs.zstd-3
+0.0712845
+2.63473
+235.694
+1.01204
+382.901
+1.13598
+371.125
+1.03454
+5
+ext4.0
+1.40477e-06
+2.63095
+236.034
+1.0135
+338.105
+1.00308
+360.944
+1.00616
+1
+btrfs.lzo
+0.000147705
+2.53214
+245.244
+1.05305
+375.027
+1.11262
+352.94
+0.983847
+4
+btrfs.zstd-1
+0.047963
+2.51963
+246.462
+1.05828
+372.118
+1.10399
+354.796
+0.989019
+The W/R of incompressible files on NVME-SSD are not affected by the global compression.
+index
+file system
+disk usage
+write time (s)
+write MiB/s
+write rate
+tar to file read MiB/s
+tar read rate
+cp read MiB/s
+cp read rate
+2
+ext4.1
+1.40477e-06
+1.1026
+563.207
+0.990759
+1079.53
+0.986251
+1244.28
+1.00085
+3
+ext4.0
+0.0248249
+1.08241
+573.713
+1.00924
+1109.63
+1.01375
+1242.15
+0.999145
+0
+btrfs.none
+0.000147705
+0.980839
+633.123
+1.11375
+1142.03
+1.04335
+1012.4
+0.814339
+1
+xfs.1
+0.00760381
+0.974274
+637.389
+1.12126
+1225.12
+1.11926
+1269.08
+1.02081
+5
+btrfs.lzo
+0.0244737
+0.944111
+657.753
+1.15708
+1112.02
+1.01594
+1102.44
+0.886767
+4
+xfs.0
+0.0197451
+0.938866
+661.428
+1.16354
+1207.72
+1.10337
+1368.09
+1.10045
+6
+btrfs.zstd-3
+0.0479703
+0.931245
+666.84
+1.17306
+1132.01
+1.0342
+1101.61
+0.886101
+7
+btrfs.zstd-1
+0.0712979
+0.910304
+682.181
+1.20005
+1141.54
+1.0429
+1126.06
+0.905768
+index
+file system
+disk usage
+write time (s)
+write MiB/s
+write rate
+tar to file read MiB/s
+tar read rate
+cp read MiB/s
+cp read rate
+2
+ext4.1
+1.40477e-06
+1.1036
+562.696
+0.98094
+1093.72
+0.99911
+1210.67
+0.983837
+3
+ext4.0
+0.0248249
+1.06232
+584.563
+1.01906
+1095.67
+1.00089
+1250.45
+1.01616
+0
+xfs.0
+0.0076032
+1.04565
+593.88
+1.0353
+1187.42
+1.0847
+1333.09
+1.08332
+7
+btrfs.zstd-1
+0.0712955
+0.971421
+639.262
+1.11442
+1132.66
+1.03468
+1115.22
+0.906273
+1
+btrfs.zstd-3
+0.000147705
+0.968957
+640.887
+1.11725
+1051.65
+0.960673
+1021.85
+0.830392
+6
+btrfs.lzo
+0.0478038
+0.948783
+654.515
+1.14101
+1148.56
+1.0492
+1072.48
+0.871542
+5
+btrfs.none
+0.0234766
+0.940141
+660.531
+1.15149
+1131.13
+1.03328
+1121.89
+0.911694
+4
+xfs.1
+0.0197444
+0.92074
+674.449
+1.17576
+1189
+1.08615
+1338.7
+1.08788
+Though some times the non-comressed one is a bit faster but it is just random noise.
+I only see performance drop caused by compression on HDD.
+index
+file system
+disk usage
+write time (s)
+write MiB/s
+write rate
+tar to file read MiB/s
+tar read rate
+cp read MiB/s
+cp read rate
+4
+ext4.0
+0.106865
+8.45322
+73.4622
+0.94311
+78.8442
+0.988075
+84.4509
+0.924508
+1
+btrfs.lzo
+0.0234729
+7.87219
+78.8843
+1.01272
+114.604
+1.43622
+97.4419
+1.06672
+0
+btrfs.zstd-3
+0.000147705
+7.56092
+82.1319
+1.05441
+113.929
+1.42776
+102.339
+1.12033
+5
+ext4.1
+0.131688
+7.54319
+82.3249
+1.05689
+80.7473
+1.01192
+98.2429
+1.07549
+2
+xfs.1
+0.112776
+7.4823
+82.9948
+1.06549
+91.0122
+1.14056
+94.2931
+1.03225
+3
+btrfs.zstd-1
+0.0469597
+7.37862
+84.161
+1.08046
+114.727
+1.43775
+98.6443
+1.07989
+6
+xfs.0
+0.137055
+6.92109
+89.7247
+1.15189
+88.1998
+1.10532
+91.6923
+1.00378
+7
+btrfs.none
+0.0702849
+5.36696
+115.706
+1.48544
+102.403
+1.28331
+100.148
+1.09635
+The non-compressed btrfs stably out-performance the compresed ones by 40% on writing. The reading speed is not affected at all. However, considering the super bad performance of non-compressed btrfs on small files. I still advise to turn on the zstd:1 globally on HDD.
+choices
+system with powerful CPUs
+For normal build dirs:
+hardware
+best
+2nd
+3rd
+worst
+USB3-SATA-SSD
+btrfs zstd:3
+btrfs zstd:1
+btrfs lzo
+btrfs
+NVME-SSD
+btrfs lzo
+btrfs zstd:1
+btrfs
+xfs
+HDD
+btrfs zstd:3
+btrfs zstd:1
+btrfs lzo
+ext4
+For build dirs contain large number of small files:
+hardware
+best
+2nd
+3rd
+worst
+USB3-SATA-SSD
+btrfs zstd/lzo
+btrfs zstd/lzo
+btrfs zstd/lzo
+xfs
+NVME-SSD
+btrfs lzo
+btrfs
+ext4
+btrfs zstd:1
+HDD
+btrfs zstd:1
+btrfs zstd:3
+btrfs lzo
+btrfs
+SATA-SSD: I recommend btrfs zstd:1 or lzo. But any FS seems ok, though XFS is the worst choice.
+NVME-SSD: we should stick to btrfs lzo. It is way faster than the rest. However, others are still usable.
+HDD: I recommend btrfs zstd:1. We should definitely avoid btrfs here, because it is almost not usable at all: 1MiB/s in many-small-files case.
+system with weaker CPUs
+in all tests on internal nvme SSD, the zstd:1 and zstd:3 usually show worst performance: 60-80% of ext4. The lzo in ffmpeg tests show almost identical performance as ext4 but much worse in many-small-files tests.
+on slower disk: usbc-5gb-nvme, compressed btrfs are still the fastest ones.
+Conclusion
+Though the many-small-files case yield very bad performance in general, the SSDs still perform far better than HDD. If I need to work on HDD, I will need to be very careful about where to put small files, definitely not on standard btrfs, though it claims to inline small files^1^. Since the btrfs do not compress uncompressable files, we can turn on the compression globally to avoid the small file issue.
+zstd:1 still has huge penalty on I/O speed on modern PC system. The compression is way slower than decompression. The tests on relatively slow SATA SSD show no obvious performance drop because the bottle neck is still disk I/O. On NVME SSD the penalty become far serious. Thus we should only use lzo to reduce the size on NVME-SSD.
+In other hand, if the drive is much slower such as HDD, usually only have less than 100MB/s. Then the benefit of smaller data size is far more beneficial than SSDs. Indeed, the degree of benefits completely depends on the information density of the data. If zstd/lzo can yield reasonable compression ratio (<50%) it might worth to turn on compression on slow storage devices.
+LZO can give mild compression around 50% for most of my build dir. It requires way less CPU than ZSTD:1. Thus on fast internal SSDs, LZO is preferred.
+Raw
+usbkey-partitioning.sh
+#!/bin/bash
+set -e
+set -x
+start=1
+part_size=5120
+parted --script $1 \
+mklabel gpt \
+mkpart primary ${start}MiB $(($part_size + $start))MiB \
+mkpart primary $(($part_size + $start))MiB $(($part_size*2 + $start))MiB \
+mkpart primary $(($part_size*2 + $start))MiB $(($part_size*3 + $start))MiB \
+mkpart primary $(($part_size*3 + $start))MiB $(($part_size*4 + $start))MiB \
+mkpart primary $(($part_size*4 + $start))MiB $(($part_size*5 + $start))MiB \
+mkpart primary $(($part_size*5 + $start))MiB $(($part_size*6 + $start))MiB
+parted $1 unit MiB print free
+fs_types=(
+ext4
+btrfs
+xfs
+)
+prefix=usb2
+keyfile="${prefix}luks.key"
+echo -e "test" > "${keyfile}"
+for _i in "${!fs_types[@]}"
+do
+wipefs -a "${1}$(($_i + 1))"
+mkfs.${fs_types[$_i]} "${1}$(($_i + 1))" -L "${prefix}${fs_types[$_i]}"
+done
+for i in {4..6}
+do
+cryptsetup -v --sector-size=4096 luksFormat "${1}${i}" "${keyfile}"
+done
+prefix=usb2luks
+for i in {4..6}
+do
+cryptsetup open --type luks "${1}${i}" "${prefix}-$(basename ${1})$i" --key-file="${keyfile}"
+done
+for _i in "${!fs_types[@]}"
+do
+mkfs.${fs_types[$_i]} /dev/mapper/"${prefix}-$(basename ${1})$(($_i + 4))" -L "${prefix}${fs_types[$_i]}"
+done
+Copy link
+kyklos
+commented
+Nov 9, 2023
+Which Kernel version was used to execute the test cases?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+braindevices
+commented
+Nov 22, 2023
+Which Kernel version was used to execute the test cases?
+at that point was around 6.0 and 6.1
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+dsx724
+commented
+Nov 24, 2023
+This is awesome! Can't wait for a 6.8 re-review with the 1.5.5 optimizations.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+torgeir
+commented
+Dec 16, 2023
+Great stuff! Just what I was looking for 👏
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+0ther0ne
+commented
+Dec 21, 2023
+really interesting
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Yippy284
+commented
+Sep 1, 2024
+Thanks for the detailed review!
+Have you tested lz4 before? I was wondering if it would be better or worse compared to lzo for SSDs given it has faster compression and decompression.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+enioentity
+commented
+Nov 11, 2024
+Great review!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+SupinePandora43
+commented
+Dec 9, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+"disk usage" looks strange
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ptandler
+commented
+May 1, 2025
+Just found this, very helpful - thanks for sharing!
+This is awesome! Can't wait for a 6.8 re-review with the 1.5.5 optimizations.
+any plan to re-run this with a newer kernel?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+emzxcv
+commented
+May 29, 2025
+lz4 is not supported by btrfs https://btrfs.readthedocs.io/en/latest/Compression.html @Yippy284
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+dezza
+commented
+Jun 29, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I don't understand your disk usage metric. First of all, why is zstd-1 and zstd-3 exactly the same in the first graph? Looks copied.
+Secondly, why 0.04 ?? What does this mean, when regular filesystems like ext, xfs (without compression) seems to be lower? Are you measuring how intensive the operation is on disk or how many blocks it occupies? Clarification needed.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

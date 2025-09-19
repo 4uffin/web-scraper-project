@@ -1,0 +1,312 @@
+Cloud Robotics Development on AWS: Migrating from RoboMaker to Batch - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Nathaniel Handan
+Posted on Sep 18
+Cloud Robotics Development on AWS: Migrating from RoboMaker to Batch
+#robotics
+#rpa
+#ros2
+#robomaker
+Introduction
+Traditional local robotics simulation (e.g. running Gazebo on a laptop or on-prem server) can be limited by hardware resources and parallelism. AWS RoboMaker was launched to simplify cloud-based robotics development: it provided a fully managed service for ROS/Gazebo simulations, with built-in container images, random world generation (WorldForge), and integration with cloud services (e.g. Kinesis, CloudWatch) via ROS packages[1]. RoboMaker enabled automated scaling of compute for simulation workloads (“fully managed…scales underlying infrastructure”[2]) and offered both headless and GUI (NICE DCV) simulation modes. However, AWS has announced that RoboMaker will be discontinued on September 10, 2025[3]. After that date, the RoboMaker console and APIs will no longer be available, and all simulation workloads must be migrated to alternatives – principally AWS Batch, AWS’s general-purpose batch compute service.
+Figure: Example RoboMaker simulation architecture – two containers (a simulation app with NVIDIA Isaac Sim and a robot app with ROS2 Navigation) orchestrated by AWS RoboMaker, pulling images from Amazon ECR and outputting logs to CloudWatch.
+AWS Batch provides a container-based, highly scalable batch job scheduler. In contrast to RoboMaker’s robotics-specific interface, Batch requires users to define their own Docker images and compute environments, but offers flexibility and massive scale (including multi-container and multi-node parallel jobs). As AWS notes, “AWS Batch is best used for running headless batch simulations at scale”, whereas interactive GUI simulations were a RoboMaker feature[5]. In practice, migrating to Batch means converting RoboMaker simulation workflows into a containerized CI/CD pipeline on Batch: containerize ROS/Gazebo apps, push images to ECR, define Batch compute environments and jobs, and orchestrate execution. This guide lays out the detailed migration path, compares features of RoboMaker vs Batch, and provides examples and best practices for setting up cloud robotics simulation on AWS Batch.
+TL;DR
+RoboMaker sunset: AWS RoboMaker ends Sep 2025[3]. All existing simulation apps, worlds, and jobs must be migrated.
+Strategy: Move to AWS Batch: export any RoboMaker-generated assets (worlds, models), containerize your robot and simulation code (ROS2 Humble + Gazebo + TurtleBot3) into Docker images, push to ECR, then create AWS Batch compute environments, job queues, and job definitions to run those containers.
+Architectural shift: RoboMaker managed infrastructure and had built-in simulation tools; Batch is generic compute. You lose integrated features (e.g. worldforge GUI, on-demand development IDE) but gain control of instance types, unlimited scaling, and cost optimization (no Batch service fee[6], Spot instances, multi-node jobs).
+Step-by-step: (1) Export worlds/models from RoboMaker (via WorldForge ZIP to S3)[7]. (2) Build Docker images for your robot app and sim app (use osrf/ros:humble-desktop or Ubuntu base, install TurtleBot3 packages and Gazebo). (3) Push images to ECR. (4) Set up AWS Batch: create a Compute Environment (choose EC2/Spot instances for CPU/GPU), a Job Queue linked to it, and a Job Definition specifying the Docker image, vCPU/memory, commands, and environment variables. (5) Submit and run Batch jobs (single-node or multi-node as needed) to execute your simulations.
+Cost & scaling: Unlike RoboMaker’s per-job pricing model, AWS Batch has no extra charge – you pay only for EC2 (or Fargate) resources[6]. Use Spot for cheaper compute. Batch easily scales to hundreds or thousands of concurrent jobs (RoboMaker was limited to 10 concurrent sims by default[8]). Headless (non-GUI) simulations run on plain CPU/GPU instances; GUI/CDV sessions (rare in Batch) require custom setup.
+Monitoring & automation: Continue using CloudWatch for logs and metrics (e.g. ROS position/sensor data stream)[9]. Store inputs/outputs and world files in S3. You can orchestrate workflows with AWS Step Functions or CodePipeline, similarly to RoboMaker pipelines[10].
+Feature & Architecture Comparison: RoboMaker vs AWS Batch
+Service model: RoboMaker is a specialized managed robotics service. It abstracts away servers and networks, providing a GUI for launching simulation jobs[2]. Batch is a generic container batch scheduler (built on ECS/EKS and EC2). You must provision Compute Environments and define job resources yourself. RoboMaker auto-creates instances behind the scenes; Batch lets you control instance types (CPU vs GPU, on-demand vs Spot) and autoscaling.
+Workload support: RoboMaker is built for ROS/Gazebo robot simulation. It used to offer prebuilt Docker images for ROS1/2 and Gazebo (though now customers must supply container images)[3][11]. It introduced concepts of Robot applications (the code running on a robot) and Simulation applications (the Gazebo world and scenario). AWS Batch can run any Linux container. You can build ROS2/Gazebo containers and run them on Batch, but there is no built-in “robot vs simulation app” distinction unless you implement it (e.g. separate containers or processes). Notably, AWS Batch now supports multi-container jobs (started Apr 2024)[12]: you can run multiple cooperating containers (e.g. one for Gazebo sim, others for different robot sensor pipelines) within a single Batch job. This enables modular simulation setups similar to RoboMaker’s multi-robot examples (see figure below)[13].
+Scalability: RoboMaker allowed batching many simulation jobs via the BatchSimulation API, but had limits (default max 10 concurrent jobs)[8]. It scaled each job’s infrastructure automatically, but overall batch size was constrained by quotas. AWS Batch scales to as many parallel jobs as you request (limited only by account quotas and budget). It also supports multi-node parallel jobs for distributed simulations (for example, spread 4 robots across 4 EC2 nodes). In practice, Batch can run hundreds or thousands of simulations in parallel easily. RoboMaker’s underlying hardware limits were lower and fixed per job (e.g. one c5.2xlarge per simulation, 4 vCPU/32GB by default). On Batch you choose any instance sizes you need (e.g. high-CPU c6i, GPU g4dn, or even the new inf series), and use Spot capacity for cost efficiency.
+Headless vs GUI: RoboMaker supported both headless (no X-windows) and interactive GUI simulations via NICE DCV, which allowed streaming the Gazebo/ROS GUI remotely. AWS Batch is designed for headless batch processing[5]. It can run GUI apps in containers (you can even run NICE DCV servers on GPU instances under Batch), but it doesn’t provide the interactive console integration that RoboMaker did. In migration you will likely run Gazebo in headless mode (gzserver only) and collect data/metrics, rather than interact with a live 3D view. Batch is optimized for “thousands of scenarios” at once[14], not manual GUI sessions.
+Cloud services integration: RoboMaker included ROS cloud extensions out of the box: packages for streaming video (Kinesis Video Streams), vision inference (Rekognition), voice (Lex/Polly), and metrics/logging (CloudWatch)[1]. These let robot code easily call AWS services. In AWS Batch, you lose that built-in convenience layer, but you can still use the same AWS services by invoking SDKs or passing through Step Functions. For example, you can publish ROS data to CloudWatch logs or metrics exactly as before[9], just handled by your container code. Batch itself does not impose an additional fee – you pay only for the EC2/Fargate resources you use[6], whereas RoboMaker charged by simulation time. Batch supports IAM roles for tasks, VPC networking, and can integrate with S3, EFS, CloudWatch, Step Functions, etc., just like any other AWS compute environment.
+Migration Checklist
+Export simulation assets: Use RoboMaker’s WorldForge export or manual methods to extract any custom world files, models, or assets you used. RoboMaker can package generated worlds into a ZIP and drop it in S3[7]. Download these files or point to their S3 locations for use in your Docker images or batch jobs. Likewise, retrieve any logs or output data from past RoboMaker runs for reference.
+Containerize applications: Build Docker images for your robot and simulation code. For example, start from an official ROS2 Humble base (e.g. osrf/ros:humble-desktop), install Gazebo (Fortress) and TurtleBot3 packages (ros-humble-turtlebot3*), and copy your ROS workspace in. A sample Dockerfile snippet might look like:
+FROM ros:humble-ros-base
+# Set environment variables
+ENV ROS_DISTRO=humble
+ENV TURTLEBOT3_MODEL=burger
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+ros-humble-desktop \
+ros-humble-turtlebot3-gazebo \
+ros-humble-turtlebot3-description \
+ros-humble-gazebo-ros-pkgs \
+gazebo11 \
+&& rm -rf /var/lib/apt/lists/*
+# Copy your workspace
+COPY ./simulation_ws /home/ros_ws
+WORKDIR /home/ros_ws
+# Build the workspace
+RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && colcon build"
+# Source both ROS and workspace overlays
+ENTRYPOINT ["/bin/bash", "-c", \
+"source /opt/ros/$ROS_DISTRO/setup.bash && \
+source /home/ros_ws/install/setup.bash && \
+ros2 launch my_sim_pkg simulate.launch.py"]
+Enter fullscreen mode
+Exit fullscreen mode
+Modify the ENTRYPOINT or CMD to start your simulation (headless). You can create separate images for the robot-app and sim-app if needed, but with Batch’s multi-container support you can also launch multiple containers from one job. Push these images to Amazon ECR (or any container registry)[15].
+Prepare Batch environment: In the AWS Console (or via CloudFormation/CLI), create a Compute Environment for AWS Batch. Choose EC2 (or Fargate) and select instance types needed (e.g., c6i.large for CPU sims, g4dn.xlarge for GPU-enabled Gazebo). Consider using Spot instances for cost savings, since simulation workloads are interruptible. Attach an IAM instance role that allows pulling from ECR and writing to S3/CloudWatch. Create a Job Queue and associate it with this compute environment.
+Define Batch jobs: Create an AWS Batch Job Definition. Specify "type": "container" and in containerProperties include: your Docker image URI (from ECR), vCPU count and memory, and the command to run (e.g. ["ros2", "launch", "my_sim_pkg", "simulate.launch.py"]). Add any environment variables (e.g. TURTLEBOT3_MODEL=burger). For example:
+{
+"jobDefinitionName": "turtlebot3-sim-job",
+"type": "container",
+"containerProperties": {
+"image": "123456789012.dkr.ecr.us-west-2.amazonaws.com/turtlebot3-sim:latest",
+"vcpus": 4,
+"memory": 8192,
+"command": [
+"bash",
+"-c",
+"ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py"
+],
+"environment": [
+{
+"name": "TURTLEBOT3_MODEL",
+"value": "burger"
+}
+],
+"jobRoleArn": "arn:aws:iam::123456789012:role/BatchJobRole"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Use the AWS Batch console or RegisterJobDefinition API. Ensure the jobRoleArn has permissions for any AWS calls (CloudWatch, S3). If your simulation needs shared storage (e.g. large maps or logging folders), you can configure EFS volumes in the job or let the container fetch from S3 at startup.
+Multi-node or multi-container (optional): For advanced scenarios (e.g. multi-robot swarms or separate sensor modules), use Batch’s Multi-Node Parallel (MNP) jobs or multi-container job feature. MNP allows you to run a single job across multiple EC2 instances. Multi-container jobs (containers sharing a local network on the same node) enable separate processes for e.g. Gazebo, lidar processing, control, etc. This was not possible in RoboMaker (which ran all code in one container), but Batch now supports it[12].
+Monitoring & logs: Configure your containers to send output to STDOUT/STDERR so AWS Batch will push logs to CloudWatch Logs by default. For more detailed robot metrics, use ROS CloudWatch packages – e.g. send robot positions or sensor stats to CloudWatch Metrics as in the AWS sample[9]. Set up a CloudWatch log group for your batch jobs. (RoboMaker automatically aggregated logs, but in Batch you manage the logging setup.)
+Run and iterate: Submit a Batch job (via Console, AWS CLI submit-job, or through Step Functions). Watch CloudWatch for logs to debug. Tweak your Docker image or job definition if needed. Once a single robot sim works, you can scale up: run many Batch jobs in parallel (AWS Batch will queue them and launch on available EC2 instances).
+Automate workflows: To orchestrate batch simulations (for example, sweeping over parameters or training RL policies), use AWS Step Functions or CodePipeline. AWS even published a RoboMaker Sample showing a pipeline for launching simulation batches[10] – you can adapt this by having Step Functions call SubmitJob on AWS Batch instead. For CI/CD, put your Docker build and Batch job submission into a CodePipeline or GitHub Actions workflow.
+Cost and Performance Considerations
+Pricing model: AWS Batch itself is free – you only pay for the EC2/Fargate resources you use[6]. RoboMaker charged per simulation-second at fixed hardware size, which could be expensive for large batches. With Batch, you can use Spot Instances for dramatic savings (up to 90% off) on fault-tolerant sims. You also control instance size: e.g. use 4 vCPU machines for a light TurtleBot sim, or 32 vCPU/8 GPU instances for a heavy physics simulation.
+Scaling: RoboMaker allowed parallel simulation but was capped by quotas (default 10 concurrent jobs[8]) and by its internal resource limits. AWS Batch can scale to hundreds of parallel jobs as long as you request it; there’s no per-job vCPU cap. Batch’s multi-node jobs also let you simulate many robots or heavy compute tasks in one coordinated job. For example, you could run a 4-robot warehouse sim on a 4-node MNP job (one robot per EC2) – something RoboMaker could not natively do.
+Headless vs GUI: AWS Batch is designed for headless processing. If you need a real-time GUI (NICE DCV) you must provision GPU instances with desktop streaming yourself. In most robotics dev, you run Gazebo headless and record data for later analysis. RoboMaker’s ease of GUI was convenient for debugging, but came at higher cost (always requiring at least one GPU server). On Batch, you would typically run the same Gazebo world without gzclient.
+Throughput & latency: On similar instance types, raw simulation performance is comparable between RoboMaker and Batch (both run on AWS EC2 under the hood). However, Batch can batch-launch many instances quickly, whereas RoboMaker needed to spin up each sim job separately. This means large experiments (e.g. 1000 Monte Carlo sim runs) will complete faster on Batch. RoboMaker also introduced a concept of “simulation unit” (1 unit = 1 vCPU & 2GB RAM) to rate-limit usage, which Batch does not.
+Cost example: If you run a 4 vCPU/16GB sim for 1 hour, RoboMaker billed a fixed rate for that instance-hour. On AWS Batch you’d pay the on-demand (or Spot) EC2 rate for 4 vCPU for 1 hour. Using Spot can cut cost greatly for non-time-critical batches. Also, Batch allows scheduling interruptions or spot bids, whereas RoboMaker simply ran until the job finished or hit a limit.
+Example AWS Batch Job Definition and Dockerfiles
+Example Dockerfile (ROS2 Humble + Gazebo + TurtleBot3):
+FROM osrf/ros:humble-desktop
+# Set environment variables
+ENV ROS_DISTRO=humble
+ENV TURTLEBOT3_MODEL=burger
+# Install Gazebo and TurtleBot3 packages
+RUN apt-get update && apt-get install -y \
+ros-humble-turtlebot3-bringup \
+ros-humble-turtlebot3-gazebo \
+ros-humble-gazebo-ros-pkgs \
+gazebo11 \
+&& rm -rf /var/lib/apt/lists/*
+# Copy simulation workspace
+COPY ./simulation_ws /home/ros_ws
+WORKDIR /home/ros_ws
+# Build the workspace
+RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && colcon build --symlink-install"
+# Create entrypoint script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+source /opt/ros/$ROS_DISTRO/setup.bash\n\
+source /home/ros_ws/install/setup.bash\n\
+exec "$@"' > /ros_entrypoint.sh && chmod +x /ros_entrypoint.sh
+ENTRYPOINT ["/ros_entrypoint.sh"]
+# Default command: launch TurtleBot3 world
+CMD ["ros2", "launch", "turtlebot3_gazebo", "turtlebot3_world.launch.py"]
+Enter fullscreen mode
+Exit fullscreen mode
+This image will launch a Gazebo world (turtlebot3_world.launch.py) with TurtleBot3. Customize the workspace and launch files as needed. Build and push this image to ECR with a command like: docker build -t turtlebot3-sim:latest . then docker tag and aws ecr create-repository & aws ecr get-login-password to push.
+Example AWS Batch Job Definition (JSON):
+{
+"jobDefinitionName": "TurtleBot3SimulationJob",
+"type": "container",
+"containerProperties": {
+"image": "123456789012.dkr.ecr.us-west-2.amazonaws.com/turtlebot3-sim:latest",
+"vcpus": 4,
+"memory": 16384,
+"command": [
+"bash",
+"-c",
+"ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py"
+],
+"environment": [
+{
+"name": "TURTLEBOT3_MODEL",
+"value": "burger"
+}
+],
+"jobRoleArn": "arn:aws:iam::123456789012:role/BatchJobRole"
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Here we allocate 4 vCPUs and 16 GB RAM for the sim, and pass the model type via env. Adjust vcpus/memory based on your workload. The jobRoleArn should grant permissions to read/write any needed AWS resources (e.g. an S3 bucket for world files or log output, and CloudWatch access).
+Monitoring, Storage, and Automation
+CloudWatch Monitoring: Instrument your ROS nodes to publish metrics or log to CloudWatch as needed. AWS provides ROS CloudWatch packages (as in the sample) so you can push robot state (position, velocity) and key events to CloudWatch Metrics or Logs[9]. Since Batch runs on ECS underneath, each container’s STDOUT goes to CloudWatch Logs automatically, which you can view in real time for debugging.
+Storage (S3/EFS): Use Amazon S3 for storing large assets: keep your exported world ZIPs and static models in an S3 bucket and download them at container startup (or bake them into the Docker image). Simulation outputs (e.g. rosbag files, CSV data) can be written back to S3 at job completion. For shared file-system needs (e.g. sharing a map or checkpoints across multiple Batch job runs), you can mount an Amazon EFS volume in your job definition.
+Orchestration (Step Functions/CodePipeline): For complex workflows (e.g. run simulation sweep, then train ML model on results, then run more sims), use AWS Step Functions to coordinate AWS Batch jobs. Step Functions has native support to start Batch jobs and wait for completion. AWS also provides sample pipelines (e.g. RoboMaker “Simulation launcher” using CodePipeline + Step Functions)[10] – you can adapt these so that Step Functions calls Batch instead of RoboMaker APIs. For example, a Step Function state machine could have a “Submit Simulation Job” task (using Action=Batch:SubmitJob) followed by a “Wait for Job” and condition based on job success. Similarly, CodePipeline can trigger a new Docker build and then invoke a Batch job via a Lambda step.
+Logging & Alerts: Tag your Batch jobs with meaningful tags and set up CloudWatch alarms on metrics (e.g. if jobs are failing or if S3 buckets grow). You can also export Batch job metrics (queued/running counts) to CloudWatch for dashboards.
+By following these steps
+– exporting your assets, containerizing your apps, setting up AWS Batch compute and jobs, and integrating logging/automation
+– you can replicate and extend your RoboMaker simulations on AWS Batch.
+Although the transition requires more setup, Batch gives you much greater flexibility and cost control for large-scale robotics workloads. Leveraging Batch’s multi-node and multi-container capabilities (see figure below) lets you simulate multi-robot systems at scale, and the AWS ecosystem (CloudWatch, S3, Step Functions) provides all the building blocks for a robust CI/CD pipeline for robotics.
+Figure: Example AWS Batch multi-robot simulation. A single AWS Batch multi-node job runs one test-scenario container and one Gazebo simulator container on the main node (Node 1), and four robot stacks (Nodes 2–5), each with separate Lidar, control, and vision containers[13]. AWS Batch’s multi-container and multi-node features enable complex simulations at scale.
+Sources: AWS documentation and blogs on RoboMaker deprecation and AWS Batch (including AWS Robotics and HPC blogs)[3][14][12][1][7][6][8]. These sources provided official information on service features, pricing, and migration guidance. All code examples and figures are illustrative.
+[1] [10] AWS RoboMaker Resources – Amazon Web Services
+https://aws.amazon.com/robomaker/resources/
+[2] [8] Introducing Batch Simulation API for AWS RoboMaker | AWS Robotics Blog
+https://aws.amazon.com/blogs/robotics/introducing-batch-simulation-api-for-aws-robomaker/
+[3] Support policy - AWS RoboMaker
+https://docs.aws.amazon.com/robomaker/latest/dg/chapter-support-policy.html
+[4] Orchestrate NVIDIA Isaac Sim and ROS 2 Navigation on AWS RoboMaker with a public container image | The Internet of Things on AWS – Official Blog
+https://aws.amazon.com/blogs/iot/orchestrate-nvidia-isaac-sim-ros-2-navigation-aws-robomaker-public-container-image/
+[5] [9] [14] [15] Build headless robotic simulations with AWS Batch | AWS Robotics Blog
+https://aws.amazon.com/blogs/robotics/build-headless-robotic-simulations-with-aws-batch/
+[6] AWS Batch Pricing
+https://aws.amazon.com/batch/pricing/
+[7] Using exported worlds in simulation - AWS RoboMaker
+https://docs.aws.amazon.com/robomaker/latest/dg/worlds-using-export-simulation.html
+[11] AWS RoboMaker - Developer Guide
+https://docs.aws.amazon.com/pdfs/robomaker/latest/dg/aws-robomaker-dg.pdf
+[12] [13] Run simulations using multiple containers in a single AWS Batch job | AWS HPC Blog
+https://aws.amazon.com/blogs/hpc/run-simulations-using-multiple-containers-in-a-single-aws-batch-job/
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Nathaniel Handan
+Follow
+Joined
+Mar 8, 2023
+Trending on DEV Community
+Hot
+Orchestrating Real-World Agent Workflows with MCP
+#ai
+#beginners
+#tutorial
+#discuss
+Automate GitHub Security Reviews with Glama’s AI Automation and MCP Servers
+#ai
+#beginners
+#tutorial
+#discuss
+Meme Monday
+#discuss
+#watercooler
+#jokes
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

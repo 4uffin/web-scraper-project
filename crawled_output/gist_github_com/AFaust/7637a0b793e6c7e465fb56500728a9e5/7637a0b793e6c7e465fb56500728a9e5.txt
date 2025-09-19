@@ -1,0 +1,132 @@
+Reset Alfresco Authorised Users tracking (only meant for fixing errors, i.e. MNT-16663, or false-positive 'manual changes' detection - not to circumvent subscription terms) · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+AFaust/reset_alf_auth_script.sql
+Last active
+September 18, 2025 12:06
+Show Gist options
+Download ZIP
+Star
+5
+(5)
+You must be signed in to star a gist
+Fork
+2
+(2)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/AFaust/7637a0b793e6c7e465fb56500728a9e5.js&quot;&gt;&lt;/script&gt;
+Save AFaust/7637a0b793e6c7e465fb56500728a9e5 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+4
+Stars
+5
+Forks
+2
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/AFaust/7637a0b793e6c7e465fb56500728a9e5.js&quot;&gt;&lt;/script&gt;
+Save AFaust/7637a0b793e6c7e465fb56500728a9e5 to your computer and use it in GitHub Desktop.
+Download ZIP
+Reset Alfresco Authorised Users tracking (only meant for fixing errors, i.e. MNT-16663, or false-positive 'manual changes' detection - not to circumvent subscription terms)
+Raw
+reset_alf_auth_script.sql
+-- clear all user license states
+delete from alf_auth_status;
+-- remove old checksum and keystore
+-- ns_id = 1 should always be the system model, store_id = 2 always the system store
+delete from alf_node_properties where qname_id in (
+select id from alf_qname where ns_id = 1 and local_name in ('keyStore', 'authorizationChecksum')
+) and node_id in (
+select id from alf_node where store_id = 2
+);
+-- remove keystore alias info
+delete from alf_prop_unique_ctx where id in (
+select puc.id
+from alf_prop_unique_ctx puc
+left join alf_prop_value pv1 on pv1.id = value1_prop_id and pv1.persisted_type = 3
+left join alf_prop_value pv2 on pv2.id = value2_prop_id and pv2.persisted_type = 3
+left join alf_prop_string_value psv1 on pv1.long_value = psv1.id
+left join alf_prop_string_value psv2 on pv2.long_value = psv2.id
+where psv1.string_value = 'keyCheck' and psv2.string_value = 'authorization'
+);
+-- reset user usage count
+delete from alf_prop_unique_ctx where id in (
+select puc.id
+from alf_prop_unique_ctx puc
+left join alf_prop_value pv1 on pv1.id = value1_prop_id and pv1.persisted_type = 3
+left join alf_prop_value pv2 on pv2.id = value2_prop_id and pv2.persisted_type = 3
+left join alf_prop_value pv3 on pv3.id = value3_prop_id and pv3.persisted_type = 3
+left join alf_prop_string_value psv1 on pv1.long_value = psv1.id
+left join alf_prop_string_value psv2 on pv2.long_value = psv2.id
+left join alf_prop_string_value psv3 on pv3.long_value = psv3.id
+where psv1.string_value = '.repoUsages' and psv2.string_value = 'current' and psv3.string_value in ('users', 'authorizedUsers', 'lastUpdateUsers')
+);
+Copy link
+davidcognite
+commented
+Feb 7, 2020
+FWIW, I've just encountered this bug in a production system & another fix for this issue is to generate a new license from the Alfresco Support portal and then apply that. It seems that a new license resets the checksums.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+AFaust
+commented
+Feb 7, 2020
+@davidcognite I actually haven't tried that since everytime this happened, it was a "criticality negative 1" issue without being able to wait on either Support or someone from the customer who is able to access Support in the first place (since I am no longer a partner since going into business for myself, I don't have access to the portal myself at any of my customers, usually in part due to concerns over German regulation regarding so-called ANÜ). I'll keep that in mind for one of the next times to see if we can't try it that way.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+AFaust
+commented
+Jul 22, 2021
+I had to adapt the script as apparently there are minor difference between ACS versions, specifically 5.x and 6.x+. A reset via the original script on a 6.2.2 system failed partially, as the licensed user count was not correctly reset.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

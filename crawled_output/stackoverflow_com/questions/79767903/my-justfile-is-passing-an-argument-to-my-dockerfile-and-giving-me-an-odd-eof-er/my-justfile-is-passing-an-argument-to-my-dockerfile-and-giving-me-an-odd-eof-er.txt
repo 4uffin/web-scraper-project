@@ -1,0 +1,255 @@
+docker - My .justfile is passing an argument to my Dockerfile and giving me an odd EOF error - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+My .justfile is passing an argument to my Dockerfile and giving me an odd EOF error
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+24 times
+0
+I have a Docker build process that requires access to my AWS Code Artifact repository for Python packages that I store there. This is my Dockerfile. Notice that it accepts PYTHON_REPO_URL and uses it for pip's extra-index-url.
+ARG FUNCTION_DIR="/function/"
+FROM python:3.9 AS build
+ARG FUNCTION_DIR
+ARG PYTHON_REPO_URL
+RUN echo $PYTHON_REPO_URL
+RUN mkdir -p ${FUNCTION_DIR}
+COPY requirements.txt ${FUNCTION_DIR}
+WORKDIR ${FUNCTION_DIR}
+ARG PIP_ROOT_USER_ACTION=ignore
+RUN pip install --upgrade pip && \
+pip install --target ${FUNCTION_DIR} awslambdaric && \
+pip install --target ${FUNCTION_DIR} --no-warn-script-location -r requirements.txt --extra-index-url ${PYTHON_REPO_URL}
+FROM python:3.9
+ARG FUNCTION_DIR
+WORKDIR ${FUNCTION_DIR}
+COPY --from=build ${FUNCTION_DIR} ${FUNCTION_DIR}
+COPY main.py ${FUNCTION_DIR}
+ENV MPLCONFIGDIR=/tmp/mplconfig
+ENTRYPOINT ["/usr/local/bin/python", "-m", "awslambdaric"]
+CMD ["main.handler"]
+And it's supposed to build with this .justfile
+tag := "compute-lambda"
+aws_region := "us-east-1"
+codeart_domain := "blahblahblah"
+codeart_owner := "1234567890"
+codeart_repo := "blahblah"
+build:
+TOKEN=$(aws codeartifact get-authorization-token \
+--domain {{codeart_domain}} \
+--domain-owner {{codeart_owner}} \
+--region {{aws_region}} \
+--query authorizationToken \
+--output text) && \
+PYTHON_REPO_URL="https://aws:${TOKEN}@{{codeart_domain}}-{{codeart_owner}}.d.codeartifact.{{aws_region}}.amazonaws.com/pypi/{{codeart_repo}}/simple/" && \
+echo ${PYTHON_REPO_URL} && \
+docker build --build-arg PYTHON_REPO_URL="$PYTHON_REPO_URL" -t {{tag}} .
+What's happening is I'm getting this error:
+unexpected EOF
+error: Recipe `build` failed on line 17 with exit code 1
+This happened after adding PYTHON_REPO_URL to the mix. The odd thing is, the echo's show that the URL is well formed and has the token as part of it and everything. Interestingly enough when I invoke the command on the command line manually it works just fine. I can look at the echo's output of my repo URL, and do this:
+export PYTHON_REPO_URL="the url that was printed"
+docker build --build-arg PYTHON_REPO_URL="$PYTHON_REPO_URL" -t compute-lambda .
+And it works perfectly fine.
+What is this .justfile doing that's different and how did I mess it up? And why isn't the error more clear than "unexpected EOF?"
+dockershelljust
+Share
+Improve this question
+Follow
+edited yesterday
+mmachenrymmachenry
+asked yesterday
+mmachenrymmachenry
+1,97233 gold badges2626 silver badges4545 bronze badges
+Add a comment
+|
+Related questions
+3137
+What is the difference between the 'COPY' and 'ADD' commands in a Dockerfile?
+2876
+What is the difference between CMD and ENTRYPOINT in a Dockerfile?
+719
+Difference between RUN and CMD in a Dockerfile
+Related questions
+3137
+What is the difference between the 'COPY' and 'ADD' commands in a Dockerfile?
+2876
+What is the difference between CMD and ENTRYPOINT in a Dockerfile?
+719
+Difference between RUN and CMD in a Dockerfile
+0
+docker-compose Error... [Note] [Entrypoint]: Entrypoint script for MySQL Server 5.7.36-1debian10 started
+398
+Build and run Dockerfile with one command
+1
+Accessing GPU in Docker for Pytorch Model
+1
+How do I pip install Linux packages on a Windows machine (for AWS Lambda)?
+Load 4 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+dockershelljust
+See similar questions with these tags.
+The Overflow Blog
+What an MCP implementation looks like at a CRM company
+Stack Overflow is helping you learn to code with new resources
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+Policy: Generative AI (e.g., ChatGPT) is banned
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+What is a "mob" character in the context of Isekai works?
+Is it possible to follow the Buddha’s core teachings while rejecting supernatural beliefs like gods, ghosts, reincarnation, heaven and hell realms?
+CSV TimeSheet Calculator
+Book about ancient volume found at French book auction that opens risky higher reality to readers
+How to search only within a selected range?
+How to design the input resistance of a voltage regulator?
+Siblings buying grandparents' home as first time buyers. Please help me identify our blind spots
+"a bunch of random Xs {do/does}”
+Enigmatic puzzle: find the missing value
+A question regarding a family of one-relator groups
+Ordinary insertion sort vs. straight insertion sort in Java (benchmark)
+Why is my battery being zapped?
+Drawing vertical and horizontal vectors along a Bézier curve (without local rotation)
+Should beginner writers publish short story science fiction on Amazon short reads to get experience?
+Understanding the ChallengeResponseAuthentication setting with PAM and login.conf
+Determination of Target Frequency in Decoupling
+Continue the spiral
+How to determine the triangles whose sides are integers and whose centroid are on the inscribed circle?
+Road trip movie about the young son of a millionaire who is sent on vacation to Spain
+What does, "as having nothing" mean in 2 Corinthians 6:10?
+Lewis & Short disagrees with Wiktionary and Latin Lexicon on vowel length?
+New in my job, made a mistake with crediting a colleague – how should I handle this?
+How can I create the following table with materials vertically centering
+Memory mapped file interface for linux
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-bash
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.17.34093

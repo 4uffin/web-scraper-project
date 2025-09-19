@@ -1,0 +1,954 @@
+Combine Two JSON Collections with Nested Arrays: MongoDB and PostgreSQL Aggregations - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Franck Pachot
+Posted on Sep 18
+Combine Two JSON Collections with Nested Arrays: MongoDB and PostgreSQL Aggregations
+#mongodb
+#postgres
+#sql
+#json
+Suppose you need to merge two sources of data—both JSON documents containing nested arrays. This was a question on StackOverflow, with a simple example, easy to reproduce. Let's examine how to accomplish this in PostgreSQL and MongoDB, and compare the approaches.
+Description of the problem
+I have two tables. One is stored on one server, and the other on another. And I need to combine their data on daily statistics once in a while. The tables are identical in fields and structure. But I don't know how to combine the jsonb fields into one array by grouping them by some fields and calculating the total number.
+So, we have sales transactions stored in two sources, each containing an array of cash registers, each cash register containing an array of products sold that day.
+We want to merge both sources, and aggregate the counts by product and register in nested arrays.
+They provided an example on db<>fiddle. To make it simpler, I've put the sample data in a table, with the two sources ("server_table" and "my_temp") and the expected result in bold:
+date
+cash register
+product name
+count
+source
+2025-09-01
+2
+name1
+2
+server_table
+2
+2025-09-01
+2
+name2
+4
+server_table
+4
+2025-09-01
+3
+name1
+2
+my_temp
+2
+2025-09-01
+3
+name2
+4
+my_temp
+4
+2025-09-01
+4
+name2
+4
+my_temp
+2025-09-01
+4
+name2
+8
+server_table
+12
+2025-09-01
+4
+name8
+12
+my_temp
+2025-09-01
+4
+name8
+6
+server_table
+18
+2025-09-02
+1
+name1
+2
+my_temp
+2025-09-02
+1
+name1
+2
+server_table
+4
+2025-09-02
+1
+name2
+4
+my_temp
+2025-09-02
+1
+name2
+4
+server_table
+8
+2025-09-02
+3
+name2
+4
+my_temp
+4
+2025-09-02
+3
+name8
+12
+my_temp
+12
+2025-09-02
+4
+name2
+4
+server_table
+4
+2025-09-02
+4
+name4
+5
+server_table
+5
+2025-09-03
+2
+name1
+2
+my_temp
+2025-09-03
+2
+name1
+2
+server_table
+4
+2025-09-03
+2
+name2
+4
+my_temp
+2025-09-03
+2
+name2
+4
+server_table
+8
+2025-09-03
+4
+name2
+4
+my_temp
+2025-09-03
+4
+name2
+4
+server_table
+8
+2025-09-03
+4
+name8
+12
+my_temp
+2025-09-03
+4
+name8
+12
+server_table
+24
+2025-09-04
+1
+name1
+2
+my_temp
+2025-09-04
+1
+name1
+2
+server_table
+4
+2025-09-04
+1
+name2
+4
+my_temp
+2025-09-04
+1
+name2
+4
+server_table
+8
+2025-09-04
+4
+name2
+4
+my_temp
+2025-09-04
+4
+name2
+4
+server_table
+8
+2025-09-04
+4
+name8
+12
+my_temp
+2025-09-04
+4
+name8
+12
+server_table
+24
+Sample data in PostgreSQL
+Here is the example provided in the post, as a db<>fiddle link:
+-- Create first table
+CREATE TABLE my_temp (
+employee_id TEXT,
+date DATE,
+info JSONB
+);
+-- Insert sample data into my_temp
+INSERT INTO my_temp (employee_id, date, info)
+VALUES
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-01',
+'[
+{ "cash_register": 3,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 4,
+"products": [
+{ "productName": "name8", "count": 12 },
+{ "productName": "name2", "count": 4 }
+]
+}
+]'
+),
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-02',
+'[
+{ "cash_register": 1,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 3,
+"products": [
+{ "productName": "name8", "count": 12 },
+{ "productName": "name2", "count": 4 }
+]
+}
+]'
+),
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-03',
+'[
+{ "cash_register": 2,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 4,
+"products": [
+{ "productName": "name8", "count": 12 },
+{ "productName": "name2", "count": 4 }
+]
+}
+]'
+),
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-04',
+'[
+{ "cash_register": 1,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 4,
+"products": [
+{ "productName": "name8", "count": 12 },
+{ "productName": "name2", "count": 4 }
+]
+}
+]'
+);
+-- Create second table
+CREATE TABLE server_table (
+employee_id TEXT,
+date DATE,
+info JSONB
+);
+-- Insert sample data into server_table
+INSERT INTO server_table (employee_id, date, info)
+VALUES
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-01',
+'[
+{ "cash_register": 2,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 4,
+"products": [
+{ "productName": "name8", "count": 6 },
+{ "productName": "name2", "count": 8 }
+]
+}
+]'
+),
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-02',
+'[
+{ "cash_register": 1,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 4,
+"products": [
+{ "productName": "name4", "count": 5 },
+{ "productName": "name2", "count": 4 }
+]
+}
+]'
+),
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-03',
+'[
+{ "cash_register": 2,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 4,
+"products": [
+{ "productName": "name8", "count": 12 },
+{ "productName": "name2", "count": 4 }
+]
+}
+]'
+),
+(
+'3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+'2025-09-04',
+'[
+{ "cash_register": 1,
+"products": [
+{ "productName": "name1", "count": 2 },
+{ "productName": "name2", "count": 4 }
+]
+},
+{ "cash_register": 4,
+"products": [
+{ "productName": "name8", "count": 12 },
+{ "productName": "name2", "count": 4 }
+]
+}
+]'
+);
+Enter fullscreen mode
+Exit fullscreen mode
+Our goal is to aggregate data from two tables and calculate their total counts. Although I have 30 years of experience working with relational databases and am generally stronger in SQL, I find MongoDB to be more intuitive when working with JSON documents. Let's begin there.
+Sample data in MongoDB
+I create two collections with the same data as the PostgreSQL example:
+db.my_temp.insertMany([
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-01"),
+info: [
+{
+cash_register: 3,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 4,
+products: [
+{ productName: "name8", count: 12 },
+{ productName: "name2", count: 4 }
+]
+}
+]
+},
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-02"),
+info: [
+{
+cash_register: 1,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 3,
+products: [
+{ productName: "name8", count: 12 },
+{ productName: "name2", count: 4 }
+]
+}
+]
+},
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-03"),
+info: [
+{
+cash_register: 2,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 4,
+products: [
+{ productName: "name8", count: 12 },
+{ productName: "name2", count: 4 }
+]
+}
+]
+},
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-04"),
+info: [
+{
+cash_register: 1,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 4,
+products: [
+{ productName: "name8", count: 12 },
+{ productName: "name2", count: 4 }
+]
+}
+]
+}
+]);
+db.server_table.insertMany([
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-01"),
+info: [
+{
+cash_register: 2,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 4,
+products: [
+{ productName: "name8", count: 6 },
+{ productName: "name2", count: 8 }
+]
+}
+]
+},
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-02"),
+info: [
+{
+cash_register: 1,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 4,
+products: [
+{ productName: "name4", count: 5 },
+{ productName: "name2", count: 4 }
+]
+}
+]
+},
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-03"),
+info: [
+{
+cash_register: 2,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 4,
+products: [
+{ productName: "name8", count: 12 },
+{ productName: "name2", count: 4 }
+]
+}
+]
+},
+{
+employee_id: "3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9",
+date: ISODate("2025-09-04"),
+info: [
+{
+cash_register: 1,
+products: [
+{ productName: "name1", count: 2 },
+{ productName: "name2", count: 4 }
+]
+},
+{
+cash_register: 4,
+products: [
+{ productName: "name8", count: 12 },
+{ productName: "name2", count: 4 }
+]
+}
+]
+}
+]);
+Enter fullscreen mode
+Exit fullscreen mode
+While PostgreSQL stores the employee ID and date in separate columns—since JSONB doesn’t support every BSON data type, a document database stores all related data within a single document. Despite these structural differences, the JSON representation appears similar, whether it is stored as JSONB in PostgreSQL or BSON in MongoDB.
+Solution in MongoDB
+The aggregation framework helps to decompose a problem as successive stages in a pipeline, making it easier to code, read, and debug. I'll need the following stages:
+$unionWith to concatenate from "server_table" with those read from "my_temp"
+$unwind to flatten the array items to multiple documents
+$group and $sum to aggregate
+$group to get back the multiple documents into arrays
+Here is my query:
+db.my_temp.aggregate([
+// concatenate with the other source
+{ $unionWith: { coll: "server_table" } },
+// flatten the info to apply aggregation
+{ $unwind: "$info" },
+{ $unwind: "$info.products" },
+{ // sum and group by employee/date/register/product
+$group: {
+_id: {
+employee_id: "$employee_id",
+date: "$date",
+cash_register: "$info.cash_register",
+productName: "$info.products.productName"
+},
+total_count: { $sum: "$info.products.count" }
+}
+},
+{ // Regroup by register (inverse of unwind)
+$group: {
+_id: {
+employee_id: "$_id.employee_id",
+date: "$_id.date",
+cash_register: "$_id.cash_register"
+},
+products: {
+$push: {
+productName: "$_id.productName",
+count: "$total_count"
+}
+}
+}
+},
+{ // Regroup by employee/date
+(inverse of first unwind)
+$group: {
+_id: {
+employee_id: "$_id.employee_id",
+date: "$_id.date"
+},
+info: {
+$push: {
+cash_register: "$_id.cash_register",
+products: "$products"
+}
+}
+}
+},
+{ $project: { _id: 0, employee_id: "$_id.employee_id", date: "$_id.date", info: 1 } },
+{ $sort: { date: 1 } }
+]);
+Enter fullscreen mode
+Exit fullscreen mode
+Here is the result:
+[
+{
+info: [
+{ cash_register: 2, products: [ { productName: 'name1', count: 2 }, { productName: 'name2', count: 4 } ] },
+{ cash_register: 4, products: [ { productName: 'name8', count: 18 }, { productName: 'name2', count: 12 } ] },
+{ cash_register: 3, products: [ { productName: 'name2', count: 4 }, { productName: 'name1', count: 2 } ] }
+],
+employee_id: '3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+date: ISODate('2025-09-01T00:00:00.000Z')
+},
+{
+info: [
+{ cash_register: 1, products: [ { productName: 'name2', count: 8 }, { productName: 'name1', count: 4 } ] },
+{ cash_register: 4, products: [ { productName: 'name4', count: 5 }, { productName: 'name2', count: 4 } ] },
+{ cash_register: 3, products: [ { productName: 'name8', count: 12 }, { productName: 'name2', count: 4 } ] }
+],
+employee_id: '3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+date: ISODate('2025-09-02T00:00:00.000Z')
+},
+{
+info: [
+{ cash_register: 2, products: [ { productName: 'name2', count: 8 }, { productName: 'name1', count: 4 } ] },
+{ cash_register: 4, products: [ { productName: 'name8', count: 24 }, { productName: 'name2', count: 8 } ] }
+],
+employee_id: '3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+date: ISODate('2025-09-03T00:00:00.000Z')
+},
+{
+info: [
+{ cash_register: 4, products: [ { productName: 'name8', count: 24 }, { productName: 'name2', count: 8 } ] },
+{ cash_register: 1, products: [ { productName: 'name1', count: 4 }, { productName: 'name2', count: 8 } ] }
+],
+employee_id: '3dd280f2-e4d3-4568-9d97-1cc3a9dff1e9',
+date: ISODate('2025-09-04T00:00:00.000Z')
+}
+]
+Enter fullscreen mode
+Exit fullscreen mode
+Solution in PostgreSQL
+In SQL, you can emulate an aggregation pipeline by using the WITH clause, where each stage corresponds to a separate common table expression:
+WITH
+all_data AS ( -- Union to concatenate the two tables
+SELECT employee_id, "date", info FROM my_temp
+UNION ALL
+SELECT employee_id, "date", info FROM server_table
+),
+unwound AS ( -- Unwind cash registers and products
+SELECT
+ad.employee_id,
+ad.date,
+(reg_elem->>'cash_register')::int AS cash_register,
+prod_elem->>'productName' AS product_name,
+(prod_elem->>'count')::int AS product_count
+FROM all_data ad
+CROSS JOIN LATERAL jsonb_array_elements(ad.info) AS reg_elem
+CROSS JOIN LATERAL jsonb_array_elements(reg_elem->'products') AS prod_elem
+),
+product_totals AS ( -- Sum and group by employee, date, register, product
+SELECT
+employee_id,
+date,
+cash_register,
+product_name,
+SUM(product_count) AS total_count
+FROM unwound
+GROUP BY employee_id, date, cash_register, product_name
+),
+register_group AS ( -- Regroup by register
+SELECT
+employee_id,
+date,
+cash_register,
+jsonb_agg(
+jsonb_build_object(
+'productName', product_name,
+'count', total_count
+)
+ORDER BY product_name
+) AS products
+FROM product_totals
+GROUP BY employee_id, date, cash_register
+),
+employee_group AS ( -- Regroup by employee, date
+SELECT
+employee_id,
+date,
+jsonb_agg(
+jsonb_build_object(
+'cash_register', cash_register,
+'products', products
+)
+ORDER BY cash_register
+) AS info
+FROM register_group
+GROUP BY employee_id, date
+)
+SELECT *
+FROM employee_group
+ORDER BY date;
+Enter fullscreen mode
+Exit fullscreen mode
+Beyond the classic SQL operations, like UNION, JOIN, GROUP BY, we had to use JSON operators such as jsonb_array_elements(), ->>, jsonb_build_object(), jsonb_agg() to unwind and aggregate.
+Result:
+PostgreSQL follows the standard SQL/JSON since PostgreSQL 17 and the query can be written with JSON_TABLE(), JSON_OBJECT() and JSON_ARRAYAGG()
+WITH all_data AS (
+SELECT employee_id, date, info FROM my_temp
+UNION ALL
+SELECT employee_id, date, info FROM server_table
+),
+-- Flatten registers and products in one pass
+unwound AS (
+SELECT
+t.employee_id,
+t.date,
+jt.cash_register,
+jt.productName,
+jt.count
+FROM all_data AS t,
+JSON_TABLE(
+t.info, '$[*]'
+COLUMNS (
+cash_register INT PATH '$.cash_register',
+NESTED PATH '$.products[*]'
+COLUMNS (
+productName TEXT PATH '$.productName',
+count INT PATH '$.count'
+)
+)
+) AS jt
+),
+-- Sum by employee/date/register/product
+product_totals AS (
+SELECT
+employee_id,
+date,
+cash_register,
+productName,
+SUM(count) AS total_count
+FROM unwound
+GROUP BY employee_id, date, cash_register, productName
+),
+-- Regroup products under registers
+register_group AS (
+SELECT
+employee_id,
+date,
+cash_register,
+JSON_ARRAYAGG(
+JSON_OBJECT(
+'productName' VALUE productName,
+'count' VALUE total_count
+) ORDER BY productName
+) AS products
+FROM product_totals
+GROUP BY employee_id, date, cash_register
+),
+-- Regroup registers under info[]
+employee_group AS (
+SELECT
+employee_id,
+date,
+JSON_ARRAYAGG(
+JSON_OBJECT(
+'cash_register' VALUE cash_register,
+'products' VALUE products
+) ORDER BY cash_register
+) AS info
+FROM register_group
+GROUP BY employee_id, date
+)
+SELECT *
+FROM employee_group
+ORDER BY date;
+Enter fullscreen mode
+Exit fullscreen mode
+Do you prefer the legacy PostgreSQL syntax, or the ANSI standard one? If you have an alternative solution that has better readability (and same results!), please share in comments.
+Side-by-side mapping table
+Here is a quick summary comparing MongoDB aggregation operators to SQL/JSON ones:
+MongoDB
+PostgreSQL (PG9.5+)
+Standard SQL/JSON (PG17+)
+Purpose
+$unionWith
+UNION ALL
+UNION ALL
+Merge two collections/tables
+$unwind: "$array"
+CROSS JOIN LATERAL jsonb_array_elements(col)
+JSON_TABLE(col, '$[*]' COLUMNS(...))
+Expand array elements into separate rows
+$unwind on nested array
+Nested jsonb_array_elements() calls
+NESTED PATH '$.nestedArray[*]'
+Expand nested array elements into separate rows
+$group + $sum
+SUM(...) ... GROUP BY
+SUM(...) ... GROUP BY
+Aggregate values per group
+$group + $push
+jsonb_agg(jsonb_build_object(...))
+JSON_ARRAYAGG(JSON_OBJECT(KEY 'x' VALUE col ...))
+Re‑nest grouped rows into arrays
+$project
+SELECT ... with jsonb_build_object() or to_jsonb()
+SELECT ... with JSON_OBJECT(...)
+Shape selected fields into JSON form
+$sort
+ORDER BY
+ORDER BY
+Order the result set
+This was an example of the querying capabilities a general-purpose database can offer, beyond simple CRUD operations. MongoDB operators natively handle arrays and documents when working with JSON documents. In SQL databases, the SQL:2016 standard added SQL/JSON transformations that allow you to apply table operators like GROUP BY to JSON data.
+Markus Winand (ModernSQL blog) on SQL/JSON: What’s New in SQL:2016
+PostgreSQL documentation: JSON Functions and Operators
+MongoDB documentation: SQL to Aggregation Mapping Chart
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Franck Pachot
+Follow
+🥑 Developer Advocate at 🍃 MongoDB, 🔶 AWS Data Hero, 🐘 PostgreSQL fan,▝▞ YugabyteDB expert, 🅾️ Oracle Certified Master, and 💚 loving all databases 🛢️
+Location
+Lausanne, Switzerland
+Education
+Master MIAGE, Université Paris-Sud, France
+Work
+Developer Advocate at MongoDB
+Joined
+Nov 12, 2018
+More from Franck Pachot
+MongoDB Multikey Indexes and Index Bound Optimization
+#database
+#mongodb
+#performance
+MongoDB Internals: How Collections and Indexes Are Stored in WiredTiger
+#mongodb
+#database
+#wiredtiger
+#internals
+Resilience of MongoDB's WiredTiger Storage Engine to Disk Failure Compared to PostgreSQL and Oracle
+#mongodb
+#wiredtiger
+#postgres
+#oracle
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

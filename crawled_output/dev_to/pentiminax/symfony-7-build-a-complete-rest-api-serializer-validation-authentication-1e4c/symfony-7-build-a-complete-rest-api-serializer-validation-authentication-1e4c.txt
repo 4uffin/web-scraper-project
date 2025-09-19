@@ -1,0 +1,520 @@
+Symfony 7: Build a Complete REST API (Serializer, Validation & Authentication) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Pentiminax
+Posted on Sep 18
+Symfony 7: Build a Complete REST API (Serializer, Validation & Authentication)
+#symfony
+#api
+#rest
+#php
+Learn how to build a modern REST API with Symfony 7 – from data validation with DTOs, to clean controllers, and best practices for maintainability.
+In this example, we create a cocktails API 🍸
+You’ll see how to:
+✅ Use DTOs to validate incoming requests
+✅ Map the request into an Entity with the ObjectMapper
+✅ Keep controllers lean and easy to test
+Create a cocktail (POST method)
+When building modern APIs, using DTOs (Data Transfer Objects) and validation keeps your code clean, secure, and maintainable.
+DTO with Validation
+This DTO ensures that any request sent to your API follows the right rules (e.g. name length, valid URL, at least one ingredient).
+<?php
+namespace App\Dto;
+use App\Entity\Cocktail;
+use Symfony\Component\ObjectMapper\Attribute\Map;
+use Symfony\Component\Validator\Constraints as Assert;
+#[Map(target: Cocktail::class)]
+final readonly class CreateCocktailRequest
+{
+public function __construct(
+#[Assert\NotBlank]
+#[Assert\Length(min: 2, max: 255)]
+public string $name,
+#[Assert\NotBlank]
+#[Assert\Length(min: 10)]
+public string $description,
+#[Assert\NotBlank]
+public string $instructions,
+#[Assert\NotBlank]
+#[Assert\Count(min: 1)]
+public array $ingredients,
+#[Assert\Range(min: 1, max: 5)]
+public int $difficulty,
+public bool $isAlcoholic,
+#[Assert\Url]
+public ?string $imageUrl,
+) {
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Controller
+Thanks to the ObjectMapper component, mapping between DTOs and entities is effortless.
+<?php
+namespace App\Controller\Api;
+use App\Dto\CreateCocktailRequest;
+use App\Entity\Cocktail;
+use App\Repository\CocktailRepository;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Symfony\Component\Routing\Attribute\Route;
+class CreateCocktailController
+{
+public function __construct(
+private readonly CocktailRepository $cocktailRepository,
+private readonly ObjectMapperInterface $objectMapper
+) {
+}
+#[Route('/api/cocktails', name: 'api.cocktails.create', methods: ['POST'])]
+public function __invoke(#[MapRequestPayload] CreateCocktailRequest $request): Response
+{
+$cocktail = $this->objectMapper->map($request, Cocktail::class);
+$this->cocktailRepository->save($cocktail);
+return new Response(null, Response::HTTP_CREATED);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+List all cocktails (GET method)
+After creating cocktails, let’s build the endpoint to list them with filters.
+Using Symfony 7, we can keep things clean and type-safe with a DTO, repository filters, and automatic query mapping.
+Query DTO
+This DTO makes query parameters explicit (name, isAlcoholic, difficulty, pagination…).
+<?php
+namespace App\Dto;
+final readonly class ListCocktailsQuery
+{
+public function __construct(
+public ?string $name = null,
+public ?bool $isAlcoholic = null,
+public ?int $difficulty = null,
+public int $page = 1,
+public int $itemsPerPage = 10,
+) {
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Repository
+Here, the repository handles filtering + pagination in a simple, reusable way.
+/**
+* @return Cocktail[]
+*/
+public function findAllWithFilters(ListCocktailsQuery $query): array
+{
+$qb = $this->createQueryBuilder('cocktail');
+if ($query->name) {
+$qb
+->andWhere('cocktail.name LIKE :name')
+->setParameter('name', "%$query->name%");
+}
+if (null !== $query->isAlcoholic) {
+$qb
+->andWhere('cocktail.isAlcoholic = :isAlcoholic')
+->setParameter('isAlcoholic', $query->isAlcoholic);
+}
+if ($query->difficulty) {
+$qb
+->andWhere('cocktail.difficulty = :difficulty')
+->setParameter('difficulty', $query->difficulty);
+}
+$offset = ($query->page - 1) * $query->itemsPerPage;
+$qb
+->setFirstResult($offset)
+->setMaxResults($query->itemsPerPage);
+return $qb->getQuery()->getResult();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Controller
+Thanks to #[MapQueryString], Symfony 7 automatically maps query parameters into the DTO 💡.
+<?php
+namespace App\Controller\Api;
+use App\Dto\ListCocktailsQuery;
+use App\Repository\CocktailRepository;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\MapQueryParameter;
+use Symfony\Component\HttpKernel\Attribute\MapQueryString;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Serializer\SerializerInterface;
+class ListCocktailsController
+{
+public function __construct(
+private readonly CocktailRepository $cocktailRepository,
+private readonly SerializerInterface $serializer,
+) {
+}
+#[Route('/api/cocktails', name: 'api.cocktails.list', methods: ['GET'])]
+public function __invoke(#[MapQueryString] ListCocktailsQuery $filter): Response
+{
+$cocktails = $this->cocktailRepository->findAllWithFilters($filter);
+$data = $this->serializer->serialize($cocktails, 'json', [
+'groups' => ['cocktail:read']
+]);
+return JsonResponse::fromJsonString($data);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This approach keeps your controllers slim, your queries explicit, and your API predictable.
+Show one cocktail (GET)
+After listing cocktails, let’s add the endpoint to fetch a single cocktail by its ID.
+With Symfony 7, this becomes extremely clean thanks to #[MapEntity]:
+Controller
+<?php
+namespace App\Controller\Api;
+use App\Dto\ListCocktailsQuery;
+use App\Entity\Cocktail;
+use App\Repository\CocktailRepository;
+use Symfony\Bridge\Doctrine\Attribute\MapEntity;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\MapQueryParameter;
+use Symfony\Component\HttpKernel\Attribute\MapQueryString;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Serializer\SerializerInterface;
+class ShowCocktailController
+{
+public function __construct(
+private readonly SerializerInterface $serializer,
+) {
+}
+#[Route('/api/cocktails/{id}', name: 'api.cocktails.show', methods: ['GET'])]
+public function __invoke(#[MapEntity(expr: 'repository.find(id)', message: 'Not found')] Cocktail $cocktail,): Response
+{
+$data = $this->serializer->serialize($cocktail, 'json', [
+'groups' => ['cocktail:read']
+]);
+return JsonResponse::fromJsonString($data);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+💡 With #[MapEntity], Symfony automatically fetches the Cocktail entity based on the {id} parameter.
+If the entity does not exist, it returns a 404 Not Found automatically with your custom message.
+Update a cocktail
+Time to make our API editable.
+With Symfony 7, we can accept partial updates (PATCH) and full replacements (PUT) using a dedicated Update DTO + the ObjectMapper to keep controllers slim and safe.
+Update DTO
+<?php
+namespace App\Dto;
+use App\Entity\Cocktail;
+use Symfony\Component\ObjectMapper\Attribute\Map;
+use Symfony\Component\Validator\Constraints as Assert;
+#[Map(target: Cocktail::class)]
+final readonly class UpdateCocktailRequest
+{
+public function __construct(
+#[Assert\Length(max: 255)]
+public ?string $name = null,
+#[Assert\Length(min: 10)]
+public ?string $description = null,
+#[Assert\NotBlank]
+public ?string $instructions = null,
+#[Assert\NotBlank]
+#[Assert\Count(min: 1)]
+public ?array $ingredients = null,
+#[Assert\Range(min: 1, max: 5)]
+public ?int $difficulty = null,
+public ?bool $isAlcoholic = null,
+#[Assert\Url]
+public ?string $imageUrl = null,
+) {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Controller
+<?php
+namespace App\Controller\Api;
+use App\Dto\UpdateCocktailRequest;
+use App\Entity\Cocktail;
+use App\Repository\CocktailRepository;
+use Symfony\Bridge\Doctrine\Attribute\MapEntity;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Serializer\SerializerInterface;
+class UpdateCocktailController
+{
+public function __construct(
+private readonly CocktailRepository $cocktailRepository,
+private readonly ObjectMapperInterface $objectMapper,
+private readonly SerializerInterface $serializer
+) {
+}
+#[Route('/api/cocktails/{id}', name: 'api.cocktails.update', methods: ['PUT', 'PATCH'])]
+public function __invoke(
+#[MapEntity(expr: 'repository.find(id)', message: 'Not found')] Cocktail $cocktail,
+#[MapRequestPayload] UpdateCocktailRequest $request
+): JsonResponse {
+$updatedCocktail = $this->objectMapper->map($request, $cocktail);
+$this->cocktailRepository->save($updatedCocktail);
+$data = $this->serializer->serialize($updatedCocktail, 'json', [
+'groups' => ['cocktail:read']
+]);
+return JsonResponse::fromJsonString($data);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Delete a cocktail (DELETE method)
+The last piece of our CRUD API: deleting a resource.
+With Symfony 7, it stays clean and minimal thanks to #[MapEntity].
+Controller
+<?php
+namespace App\Controller\Api;
+use App\Entity\Cocktail;
+use App\Repository\CocktailRepository;
+use Symfony\Bridge\Doctrine\Attribute\MapEntity;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+class DeleteCocktailController
+{
+public function __construct(
+private readonly CocktailRepository $cocktailRepository
+) {
+}
+#[Route('/api/cocktails/{id}', name: 'api.cocktails.delete', methods: ['DELETE'])]
+public function __invoke( #[MapEntity(expr: 'repository.find(id)', message: 'Not found')] Cocktail $cocktail): Response
+{
+$this->cocktailRepository->remove($cocktail);
+return new Response(null, Response::HTTP_NO_CONTENT);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+API Key Authentication
+Once our CRUD is ready, the next step is securing the API.
+Here’s how to implement a custom API key authenticator using Symfony 7’s Security system.
+Custom Authenticator
+<?php
+namespace App\Security;
+use App\Entity\User;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
+use Symfony\Component\Security\Core\Exception\AuthenticationException;
+use Symfony\Component\Security\Http\Authenticator\AbstractAuthenticator;
+use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
+use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
+use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
+class ApiKeyAuthenticator extends AbstractAuthenticator
+{
+public function supports(Request $request): ?bool
+{
+return $request->headers->has('API-KEY');
+}
+public function authenticate(Request $request): Passport
+{
+$apiKey = $request->headers->get('API-KEY');
+if ($apiKey !== 'secret') {
+throw new AuthenticationException('Invalid API key');
+}
+return new SelfValidatingPassport(
+new UserBadge($apiKey, fn() => (new User())->setUsername('API-USER'))
+);
+}
+public function onAuthenticationSuccess(Request $request, TokenInterface $token, string $firewallName): ?Response
+{
+return null;
+}
+public function onAuthenticationFailure(Request $request, AuthenticationException $exception): ?Response
+{
+$data = [
+'message' => strtr($exception->getMessageKey(), $exception->getMessageData()),
+];
+return new JsonResponse($data, Response::HTTP_UNAUTHORIZED);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+security.yaml
+firewalls:
+main:
+custom_authenticators:
+- App\Security\ApiKeyAuthenticator
+lazy: true
+provider: app_user_provider
+stateless: true
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+And that’s it — we’ve just built a complete CRUD REST API with Symfony 7 🚀
+Create a cocktail (POST)
+Read cocktails (GET all / GET by id)
+Update a cocktail (PUT/PATCH)
+Delete a cocktail (DELETE)
+Along the way, we used:
+✅ DTOs for clean request validation
+✅ ObjectMapper for mapping between DTOs and entities
+✅ Serializer with groups for structured JSON responses
+✅ MapEntity / MapRequestPayload / MapQueryString for cleaner controllers
+This approach keeps controllers minimal, code maintainable, and APIs predictable.
+👉 Full tutorial with extra steps (auth, filters, deployment on Cloudways): https://www.youtube.com/watch?v=Cd_9K749KfY
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+david duymelinck
+david duymelinck
+david duymelinck
+Follow
+Learned to code in the wild west time of php 4, also the time xml and xpath where the new hot thing.
+Location
+Belgium
+Joined
+Sep 24, 2019
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+The create cocktail code triggered my WTF meter.
+Why do you need a DTO to create an unsaved entity?
+Why do you call the repository save method? Creating and updating have different consequences.
+Also the MapEntity in the examples can be shorthanded as
+#[Route('/api/cocktails/{cocktail}', name: 'api.cocktails.show', methods: ['GET'])]
+public function __invoke(Cocktail $cocktail,)
+Enter fullscreen mode
+Exit fullscreen mode
+If
+another application receives a 404 response a custom message doesn't matter, so why add one?
+I'm in the camp of validating the query strings and post data in the method instead of letting the framework handle it. The reason is because it gives you more control over the error resolution.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Pentiminax
+Follow
+Location
+Rouen, France
+Work
+Skaleet
+Joined
+Jun 17, 2021
+More from Pentiminax
+UX SweetAlert, a Symfony bundle integrating the SweetAlert2 library in Symfony applications.
+#symfony
+#php
+#javascript
+#ux
+5 INCREDIBLE new features in Symfony 7.3 🚀
+#symfony
+#webdev
+#programming
+#php
+UX DataTables, a Symfony bundle integrating the DataTables library in Symfony applications.
+#symfony
+#php
+#javascript
+#ux
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

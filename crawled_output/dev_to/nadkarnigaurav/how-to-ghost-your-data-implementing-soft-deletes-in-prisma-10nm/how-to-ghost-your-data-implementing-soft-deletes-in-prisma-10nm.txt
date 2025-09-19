@@ -1,0 +1,419 @@
+How to Ghost Your Data: Implementing Soft Deletes in Prisma - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Gaurav Nadkarni
+Posted on Sep 18
+• Originally published at Medium
+How to Ghost Your Data: Implementing Soft Deletes in Prisma
+#prisma
+#softdeletes
+#nextjs
+#database
+Learn how to implement soft deletes in Prisma, avoid common pitfalls, and keep those ghost records under control.
+Introduction
+It was just another regular day at the office. I was staring at a database schema, plotting out a shiny new feature, when my phone buzzed. One of the guys from the support team was on the line.
+Apparently, a customer had accidentally deleted a few records through the application UI and now wanted to know the answer to the million-dollar question: “Can you get them back?”
+The answer, of course, was the soul-crushing, developer-standard “No.”
+So, the poor customer had to recreate those records from scratch. And me? I couldn’t stop thinking, there had to be a better way.
+Sure, the obvious answer was to restore from a backup. But let’s be real: digging through backups just to fish out a single record is like searching for a specific grain of rice in a bag slow, tedious, and way too much effort for what should be a simple fix.
+And that’s when it hit me: maybe what I needed wasn’t a backup. Maybe what I needed was soft deletes, a way to delete data without actually, you know, deleting it.
+For the examples in this article, let’s imagine a simple setup with User and Post tables you know, the classic “social media app that everyone builds to learn something new.” I’ll use this example to explain how to implement soft deletes in the sections ahead. And don’t worry, you won’t be left piecing things together from scattered snippets of code. I’ve provided the full codebase in a GitHub repo (linked at the end of the article).
+This article is for anyone who wants to understand what soft deletes are, why they matter, and how they can be configured with Prisma without losing your database sanity.
+Why Soft Deletes Are the Chill Way to Delete
+What is soft deletion, after all?
+Simply put, it’s a way to mark a record as deleted in your database without actually removing it. Think of it like putting something in the “trash” on your computer, it’s out of sight for the user, but still sitting safely in the database, waiting to be restored (or permanently purged later).
+Here’s how it works: the record stays in the database, but your application filters it out during queries so that users never see it. We’ll get into the “how” a bit later, but first, let’s talk about why soft deletes can save your bacon:
+Oops moments from users: Someone accidentally deletes their data, and you can swoop in like a hero to restore it.
+Audit trails: Track when a record was marked as deleted, which can save hours of debugging or help with compliance checks.
+Safe relationship changes: No more scary errors because a dependent record suddenly vanished relationships stay intact.
+With soft deletes, you can pretend the data is gone while secretly keeping it around like a responsible digital hoarder.
+Sketching Your Data’s Retirement Plan
+Now that we know what soft deletes are, let’s talk about how they actually work, from the frontend all the way to the database.
+At its core, soft deletion is simply about, marking a record in the database as “deleted” instead of truly removing it. To do this, we add a special column, let’s call it our “soft deletion identifier” which could be a boolean, text, or datetime column. This column acts like a little flag to tell us, “Hey, this record is technically gone, but we’re keeping it around just in case.”
+Here’s what the flow usually looks like:
+Add the “soft deletion identifier” column to the tables you want to soft delete.
+Update your database queries to ignore records where the “soft deletion identifier” is set.
+User creates a record → the “soft deletion identifier” column is set to false or null (depending on your column type).
+User sees the record in the app like normal.
+Later, the user deletes the record → the “soft deletion identifier” column is updated (to true, the current timestamp, or maybe even the ID of the user who deleted it).
+On the next query, your app skips over those flagged records to the user, it’s as if the record is gone, even though it’s still there, quietly existing in your database.
+This simple mechanism is the foundation for everything else we’ll build in the upcoming sections, from Prisma client extension to relationship handling.
+Here’s the bare-minimum schema.prisma with only the fields you need for User, and Post including the deleted_at column which is the “soft deletion identifier” column.
+model User {
+id String @id @default(uuid())
+email String @unique
+name String
+posts Post[]
+comments Comment[]
+deleted_at DateTime? @db.Timestamptz
+}
+model Post {
+id String @id @default(uuid())
+title String
+content String?
+author User @relation(fields: [authorId], references: [id])
+authorId String
+deleted_at DateTime? @db.Timestamptz
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Extending the Prisma Client: Teaching It New Tricks
+Now that we’ve updated our database and know the high-level plan, it’s time to bring Prisma into the picture. Remember the deleted_at column we added earlier? Prisma doesn’t magically know what this column means. To Prisma, it’s just another field.
+That’s where Prisma extensions come in. With client.$extends, we can hook into lifecycle methods, preprocess queries, and even add our own custom methods. Here’s the core idea of the softDelete extension:
+Intercept queries before they run (findUnique, findFirst, findMany, etc.) and automatically filter out records where deleted_at is set.
+Post-process results so the deleted_at field is stripped out unless explicitly requested.
+Add new helper methods (restore, hardDelete, etc.) so developers can safely control deletion behavior when needed.
+This means soft deletes become the default behavior across the app. Developers don’t have to sprinkle deleted_at: null conditions everywhere. Prisma just takes care of it behind the scenes.
+const softDeleteExtension = Prisma.defineExtension((client) =>
+client.$extends({
+name: “softDeleteExtension”,
+query: { $allModels: { /* overrides */ } },
+model: { $allModels: { /* custom methods */ } },
+})
+);
+Enter fullscreen mode
+Exit fullscreen mode
+Inside query.$allModels, we intercept Prisma's built-in methods like findUnique, findFirst, and findMany. For example, here's how we handle findMany:
+async findMany({ args, query }) {
+let queryArgs = args;// Only include non-deleted records by default
+queryArgs.where = { …queryArgs.where, deleted_at: null };
+const records = await query(queryArgs);
+// Remove deleted_at unless explicitly requested
+return records.map(({ deleted_at, …rest }) => rest);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This way, any query automatically ignores soft-deleted records unless you explicitly opt in.
+While working with Prisma’s $extends, I picked up a few important points, some of them the hard way:
+The query key in $extends lets you override Prisma’s built-in query functions like findFirst, update, or create. This means you can tweak the arguments before they hit the database or even massage the results after they come back.
+The model key is where you can add custom methods (like restore or hardDelete) directly to your Prisma client. Super handy when soft delete logic becomes a first-class citizen in your app.
+Both query and model objects have a $allModels key, which is a catch-all way to override Prisma’s default implementation across every model.
+You can still target specific models (like user or post) to add/override methods for just that model. At runtime, Prisma checks if a model-specific method exists. If it does, that one gets called first and if you call the provided query function inside it, Prisma falls back to the $allModels implementation.
+Think of it like inheritance in OOP: model-specific overrides win, but the generic $allModels safety net is always there if you want to enforce cross-model rules.
+Soft Deleting Records: Because Delete Buttons Need Therapy
+Normally, prisma.post.delete({ where: { id } }) would wipe the record from the DB. With our extension, the delete call is overridden to mark it as deleted instead of removing it:
+async delete({ args, query, model }) {
+// If hard delete requested, bypass soft delete
+const hardDeleteRecords = shouldHardDeleteRecords(args);
+if (hardDeleteRecords) {
+const { hardDelete, ...rest } = args;
+return query(rest);
+}
+args.where = { ...args.where, deleted_at: null };
+return (client as any)[model].update({
+where: { ...args.where },
+data: { deleted_at: new Date() },
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Now your “Delete” button is safe by default. And if you ever want to truly purge data, the extension exposes a hardDelete method:
+async hardDelete(where: Record<string, unknown>) {
+return (this as any).delete({
+hardDelete: true,
+where,
+});
+}
+//call to hard delete method
+await prisma.post.hardDelete({ id: "123" });
+Enter fullscreen mode
+Exit fullscreen mode
+Restoring Soft Deleted Records: Your Data’s Resurrection Button
+One of the best parts about soft deletes is the ability to undo mistakes. If a record was deleted by accident, you can bring it back with the custom restore method:
+async restore(where: Record<string, unknown>) {
+return (this as any).update({
+where,
+data: { deleted_at: null as unknown as Date }, // resurrect the record
+});
+}
+async findFirstWithDeleted(
+where?: Record<string, unknown>,
+include?: Record<string, unknown>
+) {
+return (this as any).findFirst({
+includeDeleted: true,
+where,
+include,
+});
+},
+Enter fullscreen mode
+Exit fullscreen mode
+So, if a user deletes a post by mistake:
+`await prisma.post.restore({ id: "123" });`
+Enter fullscreen mode
+Exit fullscreen mode
+And just like that the post is back in the app.
+You can also query deleted records when needed (say, in an admin dashboard) using the custom helper:
+await prisma.post.findFirstWithDeleted({ id: "123" })
+Enter fullscreen mode
+Exit fullscreen mode
+Handling Relationships: The Awkward Family Drama
+Now comes the trickiest part: “relationships”. If soft deletes were a family, this is where the awkward drama begins.
+Take a simple example: you have user records and post records. A user can create posts. Easy enough. But what happens when you delete a user? You also need to delete (or soft delete) their posts. So far, manageable.
+But wait, the complexity ramps up with “soft deletes”. When you soft delete a user, you also have to soft delete all the posts connected to that user, and when you restore the user, guess what? Yup, you need to restore their posts too.
+Now here’s where things get awkward. Imagine a post was manually deleted by the user before the user account itself was soft deleted. When you restore the user later, do you also restore that post? You probably shouldn’t but unless you’re keeping track of how it was deleted, you don’t have a way to tell the difference. Suddenly, you’re not just restoring posts… you’re resurrecting ones that were meant to stay buried. Zombie posts, anyone? 🧟‍♂️
+And it doesn’t stop there. If you try to restore a post, but the author (user) is also soft deleted, do you restore the user too? This cascade effect gets complicated really fast, especially as your data model grows more complex (think User → Post → Comment → Like → Tag).
+Here’s a simplified code example of how we handle this using Prisma transactions:
+async delete({ args, query, model }) {
+const hardDeleteRecords = shouldHardDeleteRecords(args);
+return client.$transaction(async (tx) => {
+const user = await (tx as any).user.findFirst({
+where: args.where,
+});
+if (!user) {
+return user;
+}
+if (hardDeleteRecords) {
+await (tx as any).post.deleteMany({
+where: { authorId: user.id },
+});
+return (tx as any).user.delete({
+where: { id: user.id },
+});
+}
+const updatedUser = await (tx as any).user.update({
+where: { id: user.id },
+data: { deleted_at: new Date() },
+});
+await (tx as any).post.updateMany({
+where: {
+authorId: user.id,
+deleted_at: null,
+},
+data: { deleted_at: new Date() },
+});
+return updatedUser;
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Here, we use Prisma’s transaction object to make sure that when a user is deleted (hard or soft), their connected posts are handled at the same time.
+Transactions: Where My Brain Nearly Filed for Bankruptcy
+If there’s one place that really tripped me up while working with soft deletes in Prisma, it was transactions. A few things I wish someone had told me before I spent hours questioning my career choices:
+The Prisma client object and the transaction object are two different beasts. Don’t confuse them.
+Inside a transaction, the transaction object won’t have the extended methods you lovingly added with $extends. It’s bare-bones.
+Types can get very messy here. Honestly, the safest route is to keep your complex logic (like hard deletes or restore flows) fully contained inside the transaction block.
+Whatever you do, don’t use the global client object inside a transaction block. If you do, those queries will run outside the transaction… which kind of defeats the whole point.
+So yeah, think of transactions in Prisma as a special sandbox. Once you’re in, you have to play by its rules.
+Guarding Against Chaos: No deleted_at Updates on Create/Update
+We just saw how relationships can complicate soft deletes and turn them into a bit of a balancing act. But there’s another landmine you need to avoid: accidentally messing with your soft delete identifier column (deleted_at).
+Think of deleted_at as a big red button. If you (or worse, your teammate) set a value there by mistake, the record is instantly marked as deleted, even though you never meant to. Not fun.
+That’s why it’s critical to keep this column completely off-limits during “create” and “update” operations. The rule of thumb: never touch deleted_at directly in your app code. It should only be managed through your Prisma extension - your safe wrapper that knows when and how to set it.
+By keeping that guardrail in place, you reduce the risk of random “why did my user disappear?” mysteries in production.
+Unique Constraints: Can Two Ghosts Share the Same Email?
+Here’s another fun wrinkle: unique constraints.
+Take the classic case of a user model with an email field that has a unique constraint. In a hard delete world, once a user is gone, that email (or username) is free to use again. But with soft deletes, the old record is still hanging around in the database, just marked as invisible.
+So what happens if someone tries to sign up with the same email? Boom 💥, you hit a constraint violation. The database doesn’t care that the record is “soft deleted”. It still sees it as existing.
+This creates an awkward situation where ghost records can block new, legitimate ones.
+Possible ways to handle this:
+Partial unique indexes (if your database supports them): Create a unique index that only applies to records where deleted_at IS NULL. That way, soft-deleted rows won’t interfere.
+Archival tweaks: Instead of keeping the same email intact, you could append something to it during soft delete (e.g., user@example.com → user+deleted123@example.com). This frees up the original email for reuse.
+Application-level checks: Add logic in your Prisma extension or service layer to filter out soft-deleted records when enforcing uniqueness.
+Each option has trade-offs. Archival tweaks are simple but messy, partial indexes are clean but database-dependent, and app-level checks give flexibility but add complexity.
+Performance Tips: Because Nobody Likes a Slow Ghost Hunt
+Soft deletes sound simple in theory: just add a deleted_at field and filter it out in queries. Easy, right? Well… not quite.
+Once your database starts growing, those “invisible” rows still sit there, quietly bloating your tables. Every time you query WHERE deleted_at IS NULL, the database has to scan through all the rows including the ghosts. And that’s where performance can take a hit.
+Why indexing deleted_at matters?
+By adding an index on the deleted_at column, you give your database a fast way to separate the living from the dead. Instead of scanning every row, the database can jump straight to the subset you care about: those that aren’t soft deleted.
+In real-world terms, this means:
+Faster queries: when fetching active users, posts, or any entity.
+Consistent performance as your database grows.
+Less load on your database server, which translates into lower costs in the long run.
+Add this to the schema.prisma file in the required model
+@@index([deleted_at])
+Enter fullscreen mode
+Exit fullscreen mode
+Now when Prisma runs queries like:
+const activeUsers = await prisma.user.findMany({ where: { deleted_at: null } });`
+Enter fullscreen mode
+Exit fullscreen mode
+the database doesn’t slog through a swamp of deleted rows. It uses the index to quickly find the living ones.
+⚡ Pro tip: If you have composite queries (like filtering by deleted_at and authorId), consider creating a composite index ((authorId, deleted_at)) for even faster lookups.
+@@index([authorId, deleted_at])
+Enter fullscreen mode
+Exit fullscreen mode
+Counting, Grouping, and Other Math-y Things
+Soft deletes aren’t just about hiding rows, they can quietly sabotage your analytics too. Imagine pulling a report of active users and your dashboard proudly says 1,000. Except… 200 of those users are technically “deleted,” just still hanging around in the database like party guests who won’t take the hint. 🎃
+By default, Prisma’s count, aggregate, and groupBy queries don’t know about your deleted_at filter. That means they’ll happily include ghost records unless you explicitly tell them not to.
+For example, this innocent-looking query will count everyone, living and undead:
+const totalUsers = await prisma.user.count();
+Enter fullscreen mode
+Exit fullscreen mode
+Result: includes soft-deleted rows too.
+To fix it, always add a filter for deleted_at: null:
+const totalActiveUsers = await prisma.user.count({
+where: { deleted_at: null },
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Now your numbers reflect reality (well, database reality at least).
+The same applies to aggregations:
+const avgPostsPerUser = await prisma.post.aggregate({
+_avg: { id: true },
+where: { deleted_at: null },
+});
+Enter fullscreen mode
+Exit fullscreen mode
+And groupings:
+const postsByAuthor = await prisma.post.groupBy({
+by: ['authorId'],
+_count: { _all: true },
+where: { deleted_at: null },
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Key takeaway 📝:
+Always filter out deleted records in analytical queries.
+Or better yet, bake this logic into your Prisma extension so you don’t have to remember it each time (your future self will thank you).
+Otherwise, your analytics will be haunted by numbers that don’t match what your users actually see and nothing freaks out a product manager faster than “phantom” users.
+Wrap-Up: Congrats, You’re Now a Soft Delete Whisperer
+If you’ve made it this far, give yourself a pat on the back (or at least a strong coffee). You’ve survived the rollercoaster of soft deletes, from handling relationships (aka the family drama nobody asked for) to making sure your analytics don’t get haunted by ghost rows.
+A few best practices to keep in mind:
+Keep deletes consistent: Don’t mix hard and soft deletes without a clear strategy.
+Guard your deleted_at column: Only your Prisma extension should touch it. Treat it like the “Do Not Disturb” sign on your database’s hotel door.
+Index smartly: Adding an index on deleted_at can save you from painfully slow queries.
+Watch your analytics: Remember, ghosts love to sneak into counts and aggregates.
+The truth is, soft deletes aren’t magic, they’re just a way of giving your data a comfy afterlife instead of sending it straight to oblivion. But like anything in engineering, the devil’s in the details.
+And hey, if your database seems like it needs therapy after all those “not-quite-deletes,” don’t worry, it’s just part of growing up in a world where nothing ever really goes away (except maybe your weekend plans).
+Thank you for reading! I’d love to hear your thoughts or questions in the comments. If you are passionate about building global-ready products, let’s connect on X (@gauravnadkarni) or reach out via email (nadkarnigaurav@gmail.com).
+Github Code (NextJS project with instructions to setup, execute and see soft deletes in action):
+https://github.com/gauravnadkarni/prisma-soft-delete-article-code
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Gaurav Nadkarni
+Follow
+Engineer who loves exploring new tech, simplifying code, and sharing what I’ve learned. Join me as I dive into tools, tips, and tech insights!
+Joined
+Dec 12, 2024
+Trending on DEV Community
+Hot
+How We Built An AI-Assisted Dependency Vulnerability Scanner
+#kiro
+#kirohackathon
+#productivity
+#kirodotdev
+Automate GitHub Security Reviews with Glama’s AI Automation and MCP Servers
+#ai
+#beginners
+#tutorial
+#discuss
+Orchestrating Real-World Agent Workflows with MCP
+#ai
+#beginners
+#tutorial
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

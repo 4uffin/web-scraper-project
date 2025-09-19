@@ -1,0 +1,487 @@
+Kubernetes on the cloud vs on bare metal : Deception 101 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Akash Singh
+Posted on Sep 18
+Kubernetes on the cloud vs on bare metal : Deception 101
+#kubernetes
+#cloud
+#aws
+#programming
+The Great LoadBalancer Debate of 2:13 AM
+It started innocently enough. My friend Govind and I were debugging our Kubernetes setup when he dropped this bombshell:
+"Bro, my LoadBalancer is provisioned by Digital Ocean. It's not a K8s LoadBalancer service."
+I stared at my screen. It was 2:13 AM. My brain was running on pure chai.
+"Are you sure about what you're saying?" I typed back. "Why do you have LoadBalancer + Ingress then? What does it LoadBalance to?"
+What followed was a 20-minute debate that would fundamentally change how I understood Kubernetes. We were both right. We were both wrong. And we were both about to discover that "Cloud Native" is the tech industry's greatest marketing scam.
+# What Govind showed me
+$ kubectl get svc -n ingress-nginx
+NAME
+TYPE
+CLUSTER-IP
+EXTERNAL-IP
+ingress-nginx-controller
+LoadBalancer
+10.109.16.98
+152.42.156.235
+# My claim: "This is a K8s service"
+# His claim: "This is a Digital Ocean Load Balancer"
+# The truth: We were having different conversations
+Enter fullscreen mode
+Exit fullscreen mode
+The debate got so heated that at 2:20 AM, Govind literally said, "Ye debate settle karna padega. Coming to your house."
+At 2:21 AM. On a Sunday.
+The Revelation That Changed Everything
+After our debate (which we settled by asking Claude at 2:30 AM like real engineers), I decided to test something. I spun up the exact same Kubernetes cluster on a bare metal server.
+Same YAML. Same configurations. Same everything.
+# On Digital Ocean - Govind's setup
+$ kubectl apply -f ingress-service.yaml
+$ kubectl get svc
+NAME
+TYPE
+EXTERNAL-IP
+ingress-nginx-controller
+LoadBalancer
+152.42.156.235
+✅
+# On my bare metal server - The shocking truth
+$ kubectl apply -f ingress-service.yaml
+# EXACT SAME YAML
+$ kubectl get svc
+NAME
+TYPE
+EXTERNAL-IP
+ingress-nginx-controller
+LoadBalancer
+<pending>
+❌
+Enter fullscreen mode
+Exit fullscreen mode
+One hour passed. Still <pending>.
+That's when it hit me like a ton of YAML files: I was right. The LoadBalancer was a K8s service. But he was also right – it was provisioning a Digital Ocean Load Balancer.
+The real mindfuck? On bare metal, it does... nothing. It just sits there. Pending. Forever.
+type: LoadBalancer doesn't create a load balancer. It just asks your cloud provider to create one. No cloud provider? No load balancer. Just eternal pending and sadness.
+The Architecture of Deception : Kubernetes on the cloud vs on bare metal
+Here's what nobody tells you about type: LoadBalancer in Kubernetes: It doesn't create a load balancer. It just asks someone else to create one for you.
+apiVersion: v1
+kind: Service
+metadata:
+name: my-service
+spec:
+type: LoadBalancer
+# <- This is just a prayer to the cloud gods
+ports:
+- port: 80
+Enter fullscreen mode
+Exit fullscreen mode
+On AWS, this YAML whispers to the AWS Cloud Controller Manager, which calls the AWS API, which provisions an Elastic Load Balancer, which costs you $20/month, which... works.
+On bare metal, this YAML whispers into the void. Nobody's listening. Nobody's home.
+How Kubernetes Actually Works on Cloud
+When you deploy Kubernetes on AWS, GCP, or Azure, there's a hidden component doing all the heavy lifting: the Cloud Controller Manager. It's like having a rich uncle who secretly pays for everything while you pretend to be independent.
+Your YAML → K8s API → Cloud Controller Manager → AWS API → Real Infrastructure
+↑
+This guy has your credit card
+Enter fullscreen mode
+Exit fullscreen mode
+Every cloud resource you think Kubernetes is managing? It's not. It's just asking the cloud provider to do it:
+LoadBalancer Service → Creates AWS ELB/ALB/NLB
+PersistentVolume → Creates EBS volumes
+Cluster Autoscaler → Calls EC2 APIs
+Ingress → Often creates another load balancer
+Your monthly AWS bill is basically a list of things Kubernetes couldn't do by itself lmao.
+How Kubernetes "Works" on Bare Metal
+On bare metal, that same YAML becomes a wish list with no Santa:
+Your YAML → K8s API → ??? → Nothing happens → <pending> → Sadness
+Enter fullscreen mode
+Exit fullscreen mode
+To make it work, you need to install the Kubernetes Extended Universe™:
+MetalLB: Pretends to be a cloud load balancer
+Longhorn/OpenEBS: Pretends to be cloud storage
+Cluster API: Pretends to be cloud compute
+Cert-Manager: Because clouds gave you free SSL
+External-DNS: Because clouds handled DNS
+Some IPAM solution: Because clouds managed IPs
+By the time you're done, you've basically rebuilt AWS in your data center, poorly.
+The Real Cost Comparison
+Cloud Kubernetes:
+# Time to Production: 10 minutes
+# Monthly Cost: $500-2000
+# Mental Health: Intact
+# What You're Actually Paying For:
+- EKS/GKE/AKS Control Plane: $75/month
+- Load Balancers: $20 each
+- NAT Gateways: $45 each
+- Data Transfer: $0.09/GB (the silent killer)
+- Persistent Volumes: $0.10/GB/month
+- The privilege of not thinking about any of this
+Enter fullscreen mode
+Exit fullscreen mode
+Bare Metal Kubernetes:
+# Time to Production: 3 days to 3 weeks
+# Monthly Cost: $100-500 (hardware/colocation)
+# Mental Health: What mental health?
+# Hidden Costs Nobody Mentions:
+- Your time: 40-80 hours of setup
+- Ongoing maintenance: 10-20 hours/month
+- That 3 AM phone call when the node dies
+- The contractor you'll hire: $150/hour
+- Replacing the keyboard you broke in rage
+Enter fullscreen mode
+Exit fullscreen mode
+The Uncomfortable Solutions
+Option 1: Embrace the Lock-in
+# The path of least resistance
+$ kubectl apply -f application.yaml
+$ aws eks update-kubeconfig --name my-cluster
+$ kubectl get svc
+# Everything has IPs!
+$ # Go home at 5 PM
+Enter fullscreen mode
+Exit fullscreen mode
+Just use EKS/GKE/AKS and accept that you're paying the "I want to sleep at night" tax. For most companies, the $500-2000/month is cheaper than the engineering time you'd spend fighting bare metal.
+Option 2: The Bare Metal Warrior Path
+# The path of pain
+$ # Install Ubuntu
+$ # Install Kubernetes
+$ # Install MetalLB
+$ # Configure IP pools
+$ # Install Longhorn
+$ # Debug networking for 6 hours
+$ # Question life choices
+$ # Finally get a LoadBalancer IP
+$ # Realize you need to do this on 5 more nodes
+Enter fullscreen mode
+Exit fullscreen mode
+This path makes sense if:
+You have dedicated ops people who enjoy suffering
+You're at a scale where cloud costs exceed engineer salaries
+You have compliance requirements that forbid cloud
+You're a masochist
+Option 3: The Reasonable Middle Ground
+Use k3s, k0s, or MicroK8s. These distributions come with batteries included:
+# k3s: Actually reasonable
+$ curl -sfL https://get.k3s.io | sh -
+$ # Includes Traefik (LoadBalancer alternative)
+$ # Includes local-path storage
+$ # Actually works on bare metal
+Enter fullscreen mode
+Exit fullscreen mode
+Or just admit defeat and use Docker Compose for anything under 10 services.
+The Plot Twist: When Cloud Kubernetes Actually Makes Sense
+Let me be clear: I'm not saying Kubernetes on cloud is bad. For many scenarios, it's the right choice:
+When Cloud Wins:
+You need to scale from 10 to 10,000 pods based on traffic
+You have a team of 5 managing infrastructure for 500 developers
+Your compliance requires "high availability" (good luck doing that on bare metal)
+You value your weekends
+When Bare Metal Wins:
+You're running a consistent workload 24/7 (cloud is just renting at that point)
+You have very specific hardware requirements (GPUs, high-frequency trading)
+You're at Facebook/Google scale (they use bare metal internally)
+You're learning and want to understand everything
+My Honest Recommendations
+After suffering through both approaches, here's my actual advice:
+For Startups (< 10 services)
+# Skip Kubernetes entirely
+$ docker-compose up -d
+$ # Use the saved money for product development
+$ # Graduate to K8s when you actually need it
+Enter fullscreen mode
+Exit fullscreen mode
+For Growing Companies (10-100 services)
+# Just pay for managed Kubernetes
+$ eksctl create cluster --name my-cluster
+$ # Focus on your product, not infrastructure
+$ # The cloud bill is cheaper than hiring more ops people
+Enter fullscreen mode
+Exit fullscreen mode
+For Large Enterprises (100+ services)
+# You can afford to do it right
+$ # Hire a platform team
+$ # Build on bare metal if it saves millions
+$ # Or stay on cloud if velocity matters more
+Enter fullscreen mode
+Exit fullscreen mode
+For Learning
+# Use kind or minikube locally
+$ kind create cluster
+$ # Learn the concepts without the pain
+$ # Deploy to cloud when you need production
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion: Making Peace with Reality
+Special thanks to Govind for the 2 AM debate that inspired this post. Yes, we're still friends. No, we still don't agree on who won. And yes, Naresh is still paying for that Digital Ocean LoadBalancer.
+After all my rage against the cloud native machine, here's where I've landed:
+Use cloud Kubernetes if:
+You value velocity over cost
+You have variable workloads
+You want to focus on your product
+You like sleeping
+Use bare metal Kubernetes if:
+You have consistent workloads
+You have a dedicated ops team
+You're at massive scale
+You enjoy pain (this is valid)
+Use something else if:
+You have less than 10 services (seriously, just use Docker Compose)
+You don't need the complexity
+You're a solo developer
+You value simplicity
+The truth is, "Cloud Native" isn't a lie – it's just poorly named. It should be called "Cloud Optimized" or "Cloud Enhanced" or, more honestly, "Only Really Works Properly On Cloud But We Can't Say That Because It Sounds Bad."
+And that's okay. Not everything needs to be portable. Not everything needs to run on your laptop. Sometimes, paying AWS to handle the complexity is the smartest business decision you can make.
+Just don't pretend it's portable. Don't pretend there's no lock-in. And definitely don't try to run LoadBalancer services on bare metal at 3 AM. Trust me on that last one.
+Top comments (4)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Hana
+Hana
+Hana
+Follow
+Location
+Bengaluru
+Education
+Dayananda Sagar College of Engineering
+Pronouns
+She/Her
+Joined
+Feb 15, 2025
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+That was such a clear explanation of a topic that honestly drives me in circles TvT Thanks for that Akash! <3
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Akash Singh
+Akash Singh
+Akash Singh
+Follow
+Devops @FinalRoundAI | LFX'25 LitmusChaos | GSoC'24 Keploy | LIFT '25 | Finalist HackGlobal 🇸🇬 | Lead at Point Blank | 6x Hackathon Winner | Ex-Aspora, CloudSek, Embeddings Co, BoleSale, SwipeGen
+Email
+akashsingh2210670@gmail.com
+Location
+Banglore, India
+Education
+Dayananda Sagar College Of Engineering, Banglore
+Pronouns
+He/Him
+Work
+SDE at Finalroundai
+Joined
+Oct 30, 2024
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+Lesgo Hana Devops arc
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Ananya Gupta
+Ananya Gupta
+Ananya Gupta
+Follow
+keep moving forward
+Joined
+Sep 7, 2025
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+really helpful breakdown! rare to see cloud vs bare metal explained this clearly:>
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Akash Singh
+Akash Singh
+Akash Singh
+Follow
+Devops @FinalRoundAI | LFX'25 LitmusChaos | GSoC'24 Keploy | LIFT '25 | Finalist HackGlobal 🇸🇬 | Lead at Point Blank | 6x Hackathon Winner | Ex-Aspora, CloudSek, Embeddings Co, BoleSale, SwipeGen
+Email
+akashsingh2210670@gmail.com
+Location
+Banglore, India
+Education
+Dayananda Sagar College Of Engineering, Banglore
+Pronouns
+He/Him
+Work
+SDE at Finalroundai
+Joined
+Oct 30, 2024
+•
+Sep 18
+Dropdown menu
+Copy link
+Hide
+Thanks for reading!
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Akash Singh
+Follow
+Devops @FinalRoundAI | LFX'25 LitmusChaos | GSoC'24 Keploy | LIFT '25 | Finalist HackGlobal 🇸🇬 | Lead at Point Blank | 6x Hackathon Winner | Ex-Aspora, CloudSek, Embeddings Co, BoleSale, SwipeGen
+Location
+Banglore, India
+Education
+Dayananda Sagar College Of Engineering, Banglore
+Pronouns
+He/Him
+Work
+SDE at Finalroundai
+Joined
+Oct 30, 2024
+More from Akash Singh
+Argo, Flux, Kustomize, Helm and all the fancy stuff about GitOps
+#devops
+#cncf
+#beginners
+#cloud
+DreamOps: The AI Agent That Fixes the Oncall Circus
+#ai
+#devops
+#programming
+#python
+The Art Of Chaos Engineering : LFX 2025 Experience
+#opensource
+#mentorship
+#go
+#cloud
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

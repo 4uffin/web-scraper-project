@@ -1,0 +1,401 @@
+Criando um Sidecar em Go para acessar o Microsoft Graph via gRPC - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Cláudio Filipe Lima Rapôso
+Posted on Sep 18
+Criando um Sidecar em Go para acessar o Microsoft Graph via gRPC
+#go
+#programming
+#microsoftgraph
+#grpc
+O Microsoft Graph é a porta de entrada para os serviços da Microsoft 365. Ele permite acessar informações como:
+Dados de usuários e grupos.
+Emails e calendários do Outlook.
+Arquivos no OneDrive.
+Mensagens no Teams.
+Mas para chamar o Graph, não basta fazer um GET com http.Client.
+É necessário autenticar via Microsoft Entra ID (antigo Azure Active Directory), obter um Access Token OAuth2, e então usá-lo em cada requisição.
+👉 Isso pode complicar a aplicação principal, que precisa conhecer detalhes de autenticação.
+Uma solução elegante é usar o padrão Sidecar: um serviço auxiliar, rodando ao lado da aplicação, que cuida dessa complexidade.
+1. O que é um Sidecar?
+Imagine que você tem uma aplicação (em Go, .NET, Python, etc) que precisa acessar o Graph.
+Você pode embutir a lógica de autenticação dentro dela. Mas, se várias aplicações precisarem fazer isso, você terá código duplicado em todos os lugares.
+O sidecar resolve esse problema:
+É um pequeno serviço separado (nesse caso em Go) que fica rodando ao lado da aplicação.
+Ele fala com o Microsoft Entra ID para buscar tokens.
+Ele chama o Microsoft Graph.
+Ele expõe uma API simples (via gRPC) para que a aplicação principal possa apenas pedir:
+"Me dê os dados do usuário X"
+E o sidecar cuida do resto.
+📌 Em arquiteturas Kubernetes, o sidecar roda no mesmo pod da aplicação principal.
+Isso significa que a aplicação acessa o sidecar por localhost, sem depender da rede externa.
+2. Arquitetura
+📌 O que acontece:
+A aplicação chama GetUser no sidecar.
+O sidecar verifica se já tem um Access Token válido em cache.
+Se não tiver, pede um novo ao Microsoft Entra ID.
+O sidecar chama o Microsoft Graph passando o token no header.
+O Graph devolve os dados do usuário.
+O sidecar converte para UserResponse e devolve para a aplicação via gRPC.
+3. Definindo o contrato gRPC
+Antes do código Go, precisamos definir o contrato de comunicação.
+Crie o arquivo graph.proto:
+syntax = "proto3";
+package graph;
+// Serviço que o sidecar vai expor
+service GraphService {
+rpc GetUser (UserRequest) returns (UserResponse);
+}
+// Requisição: o cliente pode passar um user_id
+// Se vazio, o sidecar consulta o "me" (usuário atual)
+message UserRequest {
+string user_id = 1;
+}
+// Resposta: dados básicos do usuário no Graph
+message UserResponse {
+string id = 1;
+string display_name = 2;
+string given_name = 3;
+string surname = 4;
+string user_principal_name = 5;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Explicando
+O serviço GraphService expõe o método GetUser.
+UserRequest permite consultar um usuário específico (users/{id}) ou o próprio usuário (me).
+UserResponse retorna alguns campos comuns do Graph.
+Gerando código Go
+Com o protoc instalado, rode:
+protoc --go_out=. --go-grpc_out=. graph.proto
+Enter fullscreen mode
+Exit fullscreen mode
+Isso gera os arquivos .pb.go, que contêm as interfaces gRPC que implementaremos.
+4. Implementando o sidecar em Go
+4.1 Estrutura base
+Crie um arquivo sidecar.go:
+package main
+import (
+"bytes"
+"context"
+"encoding/json"
+"fmt"
+"io"
+"net"
+"net/http"
+"os"
+"sync"
+"time"
+pb "example.com/graph/proto" // ajuste para o caminho correto
+"google.golang.org/grpc"
+)
+const (
+tokenURL = "https://login.microsoftonline.com/%s/oauth2/v2.0/token"
+graphURL = "https://graph.microsoft.com/v1.0/%s"
+)
+// Servidor gRPC que vai rodar como sidecar
+type server struct {
+pb.UnimplementedGraphServiceServer
+mu
+sync.Mutex
+accessToken string
+expiration
+time.Time
+}
+Enter fullscreen mode
+Exit fullscreen mode
+📌 Aqui definimos:
+As constantes com os endpoints de autenticação (Entra ID) e do Graph.
+Uma struct server que:
+Implementa nosso serviço gRPC.
+Guarda em memória (accessToken, expiration) o último token obtido.
+4.2 Gerenciamento de Token
+func (s *server) getToken(ctx context.Context) (string, error) {
+s.mu.Lock()
+defer s.mu.Unlock()
+// Se já temos token válido, reutiliza
+if time.Now().Before(s.expiration) && s.accessToken != "" {
+return s.accessToken, nil
+}
+// Senão, pede um novo token ao Entra ID
+tenantID := os.Getenv("ENTRA_TENANT_ID")
+clientID := os.Getenv("ENTRA_CLIENT_ID")
+clientSecret := os.Getenv("ENTRA_CLIENT_SECRET")
+url := fmt.Sprintf(tokenURL, tenantID)
+data := []byte(fmt.Sprintf(
+"client_id=%s&scope=https%%3A%%2F%%2Fgraph.microsoft.com%%2F.default&client_secret=%s&grant_type=client_credentials",
+clientID, clientSecret,
+))
+req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
+req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+resp, err := http.DefaultClient.Do(req)
+if err != nil {
+return "", err
+}
+defer resp.Body.Close()
+body, _ := io.ReadAll(resp.Body)
+if resp.StatusCode != http.StatusOK {
+return "", fmt.Errorf("erro ao obter token: %s", string(body))
+}
+var token struct {
+AccessToken string `json:"access_token"`
+ExpiresIn
+int
+`json:"expires_in"`
+}
+if err := json.Unmarshal(body, &token); err != nil {
+return "", err
+}
+// Atualiza cache (renova 1 min antes do vencimento)
+s.accessToken = token.AccessToken
+s.expiration = time.Now().Add(time.Duration(token.ExpiresIn-60) * time.Second)
+return s.accessToken, nil
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Explicando
+Cache de token: o sidecar não pede token toda hora → economiza requisições.
+Mutex (mu): garante que múltiplas chamadas concorrentes não façam POST ao mesmo tempo.
+Renovação antecipada: 1 minuto antes de expirar, o sidecar já pede um novo.
+4.3 Implementando GetUser
+func (s *server) GetUser(ctx context.Context, req *pb.UserRequest) (*pb.UserResponse, error) {
+// 1. Garantir token válido
+token, err := s.getToken(ctx)
+if err != nil {
+return nil, err
+}
+// 2. Montar endpoint
+userEndpoint := "me"
+if req.UserId != "" {
+userEndpoint = "users/" + req.UserId
+}
+url := fmt.Sprintf(graphURL, userEndpoint)
+httpReq, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+httpReq.Header.Set("Authorization", "Bearer "+token)
+// 3. Fazer requisição ao Microsoft Graph
+resp, err := http.DefaultClient.Do(httpReq)
+if err != nil {
+return nil, err
+}
+defer resp.Body.Close()
+body, _ := io.ReadAll(resp.Body)
+if resp.StatusCode != http.StatusOK {
+return nil, fmt.Errorf("erro ao buscar usuário: %s", string(body))
+}
+// 4. Mapear resposta para nosso UserResponse
+var user map[string]interface{}
+if err := json.Unmarshal(body, &user); err != nil {
+return nil, err
+}
+return &pb.UserResponse{
+Id:
+user["id"].(string),
+DisplayName:
+user["displayName"].(string),
+GivenName:
+user["givenName"].(string),
+Surname:
+user["surname"].(string),
+UserPrincipalName: user["userPrincipalName"].(string),
+}, nil
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Explicando
+Pega o token em cache (ou renova).
+Define o endpoint (/me ou /users/{id}).
+Faz um GET no Microsoft Graph.
+Converte a resposta JSON para a struct UserResponse.
+4.4 Subindo o servidor gRPC
+func main() {
+lis, err := net.Listen("tcp", ":50051")
+if err != nil {
+panic(err)
+}
+grpcServer := grpc.NewServer()
+pb.RegisterGraphServiceServer(grpcServer, &server{})
+fmt.Println("Sidecar Microsoft Graph rodando em :50051")
+if err := grpcServer.Serve(lis); err != nil {
+panic(err)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Explicando
+O sidecar ouve na porta 50051.
+Ele registra o serviço GraphService.
+Ele fica rodando, pronto para responder às chamadas gRPC da aplicação principal.
+5. Executando
+Configure variáveis de ambiente:
+export ENTRA_CLIENT_ID="seu-client-id"
+export ENTRA_CLIENT_SECRET="seu-client-secret"
+export ENTRA_TENANT_ID="seu-tenant-id"
+Enter fullscreen mode
+Exit fullscreen mode
+Rode o sidecar:
+go run sidecar.go
+Enter fullscreen mode
+Exit fullscreen mode
+Teste com grpcurl:
+grpcurl -plaintext -d '{}' localhost:50051 graph.GraphService/GetUser
+Enter fullscreen mode
+Exit fullscreen mode
+6. Exemplo de resposta
+{
+"id": "1234abcd-...",
+"display_name": "João Silva",
+"given_name": "João",
+"surname": "Silva",
+"user_principal_name": "joao@empresa.com"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+7. Por que usar Sidecar?
+Simplicidade: a aplicação só chama gRPC, sem se preocupar com OAuth2.
+Reuso: múltiplos serviços podem compartilhar o mesmo sidecar.
+Segurança: credenciais ficam apenas no sidecar.
+Escalabilidade: sidecars podem ser replicados em pods diferentes.
+Observabilidade: métricas e logs podem ser centralizados no sidecar.
+Conclusão
+Criamos um sidecar em Go que:
+Autentica no Microsoft Entra ID via Client Credentials Flow.
+Usa o Microsoft Graph para consultar usuários.
+Exponde um serviço gRPC simples para a aplicação principal.
+Com isso, conseguimos um design mais limpo, seguro e escalável, separando responsabilidades e aproveitando os benefícios do padrão Sidecar.
+💡Curtiu?
+Se quiser trocar ideia sobre IA, cloud e arquitetura, me segue nas redes:
+Redes Sociais
+Publico conteúdos técnicos direto do campo de batalha. E quando descubro uma ferramenta que economiza tempo e resolve bem, como essa, você fica sabendo também.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Cláudio Filipe Lima Rapôso
+Follow
+At NTT DATA Europe & Latam, my role as a Systems Architect harnesses the power of Typescript, Java and Phyton to creating robust and scalable solutions.
+Location
+Brazil
+Education
+Hon.D.Sc. - MBA - MCS
+Work
+Ntt Data
+Joined
+Jan 10, 2025
+More from Cláudio Filipe Lima Rapôso
+Break News!
+#azure
+#openai
+#ai
+#programming
+Construindo um Bot de Trailing Stop com Go, RabbitMQ e Bounded Contexts
+#web3
+#eventdriven
+#ddd
+#programming
+E-mails de verificação com AWS SES + Lambda (Node.js) e Terraform: do zero ao envio
+#programming
+#aws
+#serverless
+#lambda
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

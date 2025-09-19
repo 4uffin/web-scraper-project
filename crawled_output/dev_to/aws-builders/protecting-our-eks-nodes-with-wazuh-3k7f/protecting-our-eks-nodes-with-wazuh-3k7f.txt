@@ -1,0 +1,391 @@
+Protecting our EKS Nodes with Wazuh - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+David💻
+for AWS Community Builders
+Posted on Sep 18
+Protecting our EKS Nodes with Wazuh
+#todayilearned
+#aws
+#security
+#kubernetes
+This article explains how to deploy a secure Wazuh All-in-One server on AWS and configure Amazon EKS node groups to automatically install the Wazuh agent. With this setup, we can enable vulnerability detection and continuous monitoring across our Kubernetes workloads.
+Before we start with this article, have you heard of Wazuh before ?
+What is Wazuh?
+Wazuh is a powerful open source platform for threat detection, incident response, and compliance.
+Requirements
+AWS Account & CLI (and a profile with enough permissions for: VPC, EC2, ACM PCA, and Client VPN
+ACM Private CA (or an external CA you control
+OpenSSL
+What is AWS Client VPN?
+AWS Client VPN is a managed VPN service that lets users securely connect to AWS resources using OpenVPN based clients. By using ACM Private CA certificates, we can enforce mutual authentication, ensuring both the server and the client prove their identities before a session is established
+Walkthrough
+Creating the VPC
+Let's start by creating or using an existing VPC. Create subnets for:
+Public subnet – for NAT Gateway
+Private subnet – for Wazuh All-in-One
+VPN subnet – to associate with the Client VPN endpoint
+The Wazuh server must go in the private subnet. No public IP is required
+In this case, we are defining one public subnet and two private subnets. The public subnet will host the Internet Gateway and a NAT Gateway, which act as controlled egress points for outbound traffic. The private subnet will serve different purposes: one dedicated to the Wazuh server itself, and another for VPN clients that will provide secure access into the VPC
+Note: If your architecture already connects multiple VPCs through an AWS Transit Gateway (TGW), you could simplify this design by deploying Wazuh entirely in private subnets and routing access through the TGW. This way, Wazuh services remain isolated while still being reachable from other connected networks without needing multiple subnet roles or direct internet exposure
+We are going to create our VPC, for this in the AWS console we search for VPC > Your VPCs > Create VPC > VPC Only
+We follow by creating our subnets in our VPC, by following in the AWS console > VPC > Subnet > Create Subnet > Select the previously created VPC. And we follow the following segmentation, for this example we are going to use a single AZ but for reability we can use two.
+Segmentation
+VPC CIDR: 10.50.0.0/24
+WAZUH Public Subnet (10.50.0.0/28): Hosts the NAT Gateway to provide controlled outbound internet access.
+WAZUH Server Managed (10.50.0.32/27): Private subnet for the Wazuh All-in-One server.
+VPN Client Subnet (10.50.0.64/27): Private subnet dedicated to Client VPN resources.
+Client VPN Endpoint Range (10.50.8.0/22): Address pool for devices connecting through the VPN, non-overlapping with the VPC.
+Now we create. route table for our subnets, for this in the AWS Console > VPC > Route Tables > Create Route Table
+Our route table for the Wazuh subnet, should have a NAT Gateway pointing to the public subnet:
+The Peering between VPC
+Since my EKS lives in another VPC we need to make a VPC peering between both so they can communicate, this step can be ignored if the Wazuh server and EKS lives in the same VPC, but as a good practices both of them are separated.
+For this we follow this step in the AWS Console > VPC > Peering Connections. Define the request VPC as the EKS VPC and the acepter as the Wazuh VPC.
+Certificates with ACM PCA
+Create server and client certificates to use with Client VPN.
+Server Certificate:
+Generate a CSR and private key with OpenSSL:
+openssl req -new -newkey rsa:2048 -nodes \
+-keyout server.key \
+-out server.csr \
+-subj "/CN=wazuh.server" \
+-addext "extendedKeyUsage=serverAuth"
+Enter fullscreen mode
+Exit fullscreen mode
+Issue the certificate with ACM PCA:
+aws acm-pca issue-certificate \
+--certificate-authority-arn <pca-arn> \
+--csr fileb://server.csr \
+--signing-algorithm "SHA256WITHRSA" \
+--validity Value=365,Type="DAYS" \
+--idempotency-token vpn-cert-01
+Enter fullscreen mode
+Exit fullscreen mode
+Fetch the certificate (replace
+with the ARN from the previous command):
+aws acm-pca get-certificate \
+--certificate-authority-arn <pca-arn> \
+--certificate-arn <certificate-arn> \
+--output text > server.crt
+Enter fullscreen mode
+Exit fullscreen mode
+Import the certificate into ACM so it can be used by Client VPN:
+aws acm import-certificate \
+--certificate fileb://server.crt \
+--private-key fileb://server.key \
+--certificate-chain fileb://ca-chain.pem
+Enter fullscreen mode
+Exit fullscreen mode
+Client Certificate
+Generate a CSR and private key:
+openssl req -new -newkey rsa:2048 -nodes \
+-keyout client.key \
+-out client.csr \
+-subj "/CN=wazuh.client" \
+-addext "keyUsage=digitalSignature,keyEncipherment" \
+-addext "extendedKeyUsage=clientAuth"
+Enter fullscreen mode
+Exit fullscreen mode
+Issue with ACM PCA (using the EndEntityClientAuthCertificate template):
+aws acm-pca issue-certificate \
+--certificate-authority-arn <pca-arn> \
+--csr fileb://client.csr \
+--signing-algorithm "SHA256WITHRSA" \
+--validity Value=365,Type="DAYS" \
+--idempotency-token vpn-cert-02 \
+--template-arn arn:aws:acm-pca:::template/EndEntityClientAuthCertificate/V1
+Enter fullscreen mode
+Exit fullscreen mode
+Fetch the certificate:
+aws acm-pca get-certificate \
+--certificate-authority-arn <pca-arn> \
+--certificate-arn <certificate-arn> \
+--output text > client.crt
+Enter fullscreen mode
+Exit fullscreen mode
+Security Groups
+Client VPN SG – allow inbound 443 (UDP) and allow traffic from the VPN CIDR.
+Wazuh SG – allow 22, 443, 1514, and 1515 only from the VPN CIDR.
+SG for Client VPN:
+aws ec2 create-security-group \
+--group-name wazuh-clientvpn-access \
+--description "Enable traffic from Client VPN" \
+--vpc-id <vpc-id> \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+aws ec2 authorize-security-group-ingress \
+--group-id <vpn-sg-id> \
+--protocol tcp --port 22 --cidr <vpn-client-cidr> \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+aws ec2 authorize-security-group-ingress \
+--group-id <vpn-sg-id> \
+--protocol tcp --port 443 --cidr <vpn-client-cidr> \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+SG for Wazuh Server
+aws ec2 create-security-group \
+--group-name wazuh-management-access \
+--description "Enable access from VPN to Wazuh" \
+--vpc-id <vpc-id> \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+aws ec2 authorize-security-group-ingress --group-id <wazuh-sg-id> --protocol tcp --port 22
+--cidr <vpn-client-cidr> --region <region>
+aws ec2 authorize-security-group-ingress --group-id <wazuh-sg-id> --protocol tcp --port 443
+--cidr <vpn-client-cidr> --region <region>
+aws ec2 authorize-security-group-ingress --group-id <wazuh-sg-id> --protocol tcp --port 1514 --cidr <vpn-client-cidr> --region <region>
+aws ec2 authorize-security-group-ingress --group-id <wazuh-sg-id> --protocol tcp --port 1515 --cidr <vpn-client-cidr> --region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+Create Client VPN Endpoint
+Use the ACM server certificate and your root CA for mutual authentication:
+aws ec2 create-client-vpn-endpoint \
+--client-cidr-block <vpn-client-cidr> \
+--server-certificate-arn <server-cert-arn> \
+--authentication-options Type=certificate-authentication,MutualAuthentication={ClientRootCertificateChainArn=<ca-arn>} \
+--dns-servers 8.8.8.8 8.8.4.4 \
+--transport-protocol udp \
+--vpc-id <vpc-id> \
+--security-group-ids <vpn-sg-id> \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+Associate the endpoint with your VPN subnet, create a route to the Wazuh subnet, and authorize ingress
+aws ec2 associate-client-vpn-target-network \
+--client-vpn-endpoint-id <cvpn-endpoint-id> \
+--subnet-id <subnet-id> \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+Route to Wazuh subnet
+aws ec2 create-client-vpn-route \
+--client-vpn-endpoint-id <cvpn-endpoint-id> \
+--destination-cidr-block <wazuh-subnet-cidr> \
+--target-vpc-subnet-id <subnet-id> \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+Authorize access
+aws ec2 authorize-client-vpn-ingress \
+--client-vpn-endpoint-id <cvpn-endpoint-id> \
+--target-network-cidr <wazuh-subnet-cidr> \
+--authorize-all-groups \
+--region <region>
+Enter fullscreen mode
+Exit fullscreen mode
+Launch Wazuh All-in-One
+Deploy the official Wazuh All-in-One AMI from AWS Marketplace. Place it in your private subnet with the Wazuh SG attached. No public IP is needed
+Configure the VPN Client
+Download the Client VPN config file and add your client certificate, key, and CA:
+client
+dev tun
+proto udp
+remote <vpn-endpoint>.prod.clientvpn.<region>.amazonaws.com 443
+nobind
+<cert>
+(client.crt)
+</cert>
+<key>
+(client.key)
+</key>
+<ca>
+(root-ca.pem)
+</ca>
+Enter fullscreen mode
+Exit fullscreen mode
+Import this into the AWS VPN client or OpenVPN client.
+For this Download AWS VPN Client here, after installing go to File > Manage Profiles > Fill the name and import he ovpn.
+Test Access
+Connect to the VPN.
+Open Wazuh UI at https://
+Confirm agents can communicate on ports 1514 and 1515.
+At this point, your Wazuh All-in-One deployment is securely reachable only via VPN. You’ve kept your server private, used certificate-based authentication, and segmented your AWS environment properly.
+Installing Wazuh in our EKS Node
+For this we are going to create a new launch template that we can use in our managed EC2 nodes.
+Create a bash script like this and execute it after filling the fields.
+LT_NAME="wazuh-agents-lt"
+AMI_ID="ami-030da889991638ab6"
+# (AL EKS 2023 or your preferred EKS AMI)
+INSTANCE_PROFILE_ARN="<arn:aws:iam::123456789012:instance-profile/MyRole>"
+# Useful if you want to session manager into the nodes.
+SECURITY_GROUP_ID="<sg-xxx>"
+SUBNET_ID="<subnet-xxx>"
+BOUNDARY="==MYBOUNDARY=="
+read -r -d '' MIME <<'EOF'
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="==MYBOUNDARY=="
+--==MYBOUNDARY==
+Content-Type: text/x-shellscript; charset="us-ascii"
+#!/bin/bash
+set -euxo pipefail
+HOSTNAME=$(curl -s http://169.254.169.254/latest/meta-data/local-hostname || hostname)
+curl -o /root/wazuh-agent-4.12.0-1.x86_64.rpm https://packages.wazuh.com/4.x/yum/wazuh-agent-4.12.0-1.x86_64.rpm
+WAZUH_MANAGER=10.50.0.41 WAZUH_AGENT_NAME="$HOSTNAME" rpm -ihv /root/wazuh-agent-4.12.0-1.x86_64.rpm
+systemctl daemon-reload
+systemctl enable wazuh-agent
+systemctl start wazuh-agent
+--==MYBOUNDARY==--
+EOF
+UD_B64=$(printf "%s" "$MIME" | base64 | tr -d '\n')
+aws ec2 create-launch-template \
+--launch-template-name "$LT_NAME" \
+--version-description "v1-wazuh-agent" \
+--launch-template-data "{
+\"ImageId\": \"${AMI_ID}\",
+\"InstanceType\": \"<your-node-group-instance>\",
+\"IamInstanceProfile\": { \"Arn\": \"${INSTANCE_PROFILE_ARN}\" },
+\"NetworkInterfaces\": [
+{
+\"DeviceIndex\": 0,
+\"SubnetId\": \"${SUBNET_ID}\",
+\"Groups\": [ \"${SECURITY_GROUP_ID}\" ],
+\"AssociatePublicIpAddress\": false
+}
+],
+\"MetadataOptions\": { \"HttpTokens\": \"required\", \"HttpEndpoint\": \"enabled\" },
+\"TagSpecifications\": [
+{
+\"ResourceType\": \"instance\",
+\"Tags\": [
+{ \"Key\": \"Name\", \"Value\": \"wazuh-agent\" },
+{ \"Key\": \"Role\", \"Value\": \"wazuh\" }
+]
+}
+],
+\"UserData\": \"${UD_B64}\"
+}"
+Enter fullscreen mode
+Exit fullscreen mode
+After creating the launch template, create the nodegroup, by going to AWS Console > EKS > Compute > Node Groups > Add > Launch Template
+Now inside our Wazuh server dashboard we can see our nodes being registered.
+Lessons learned and a conclusion
+While setting up a Client VPN with private certificates ensures a secure and private connection, it can become costly in the long run. A practical alternative is to leverage AWS Systems Manager Session Manager with port forwarding to reach the Wazuh dashboard. This approach shifts access control to the AWS service layer instead of the networking layer, reducing complexity and cost while still maintaining strong security
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Community Builders
+Follow
+Build On!
+Would you like to become an AWS Community Builder? Learn more about the program and apply to join when applications are open next.
+Learn more
+More from AWS Community Builders
+Amazon ElastiCache Redis as a Vector Embeddings Storage for Semantic Search in AWS Community Blog posts
+#database
+#ai
+#aws
+#machinelearning
+Running analytics queries from your machine with Zero-BigData stack needed on top of AWS S3
+#aws
+The 9 AM Discovery That Saved Our Production: An ECS Fargate Circuit Breaker Story
+#aws
+#ecs
+#fargate
+#docker
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

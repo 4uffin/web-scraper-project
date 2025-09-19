@@ -1,0 +1,395 @@
+Connecting to LLMs: Building a Simple HTTP Client for AI Integration - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Sebastiao Gazolla Jr
+Posted on Sep 19
+Connecting to LLMs: Building a Simple HTTP Client for AI Integration
+#tutorial
+#ai
+#llm
+#java
+Part 4 of the "From Zero to AI Agent: My Journey into Java-based Intelligent Applications" series
+Now that we have our MCPService handling tool connections, we need to add the "intelligence" to our agent. This means connecting to Large Language Models (LLMs) that will help us understand user queries and decide which tools to use.
+Today we'll build a HTTP client that can talk to popular LLM providers like Groq and Google Gemini. No complex libraries, just modern Java HTTP calls with clean JSON parsing using records and Jackson.
+Why These LLM Providers?
+These providers are chosen for their generous free tiers, offering high token quotas ideal for prototyping and learning.
+Groq: Fast inference with Llama models, great for real-time apps. Its free tier supports up to 131,072 tokens per minute, allowing millions daily for rapid iteration.
+Google Gemini: Strong reasoning for complex queries. Its free tier offers up to 1 million tokens per context window and high daily quotas, supporting token-heavy tasks like code generation.
+Both: Simple REST APIs, good for learning and for building and testing AI integrations.
+The LLM Client Interface
+Let's start with a simple interface that any LLM provider can implement:
+public interface LLMClient {
+String send(String prompt) throws Exception;
+String getProviderName();
+boolean isHealthy();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Building the HTTP Foundation
+Here's our base class with all the common HTTP functionality:
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import com.fasterxml.jackson.databind.ObjectMapper;
+public abstract class BaseLLMClient implements LLMClient {
+protected final HttpClient httpClient = HttpClient.newBuilder()
+.connectTimeout(Duration.ofSeconds(30))
+.build();
+protected final ObjectMapper objectMapper = new ObjectMapper()
+.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+protected final String apiKey;
+public BaseLLMClient(String apiKey) {
+this.apiKey = apiKey;
+if (apiKey == null || apiKey.isBlank()) {
+throw new IllegalArgumentException("API key is required");
+}
+}
+@Override
+public String send(String prompt) throws RuntimeException {
+if (prompt == null || prompt.isBlank()) {
+throw new RuntimeException("Prompt cannot be null or empty");
+}
+try {
+HttpRequest request = buildRequest(prompt);
+HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+if (response.statusCode() != 200) {
+throw new RuntimeException("API error: status=%d, body=%s".formatted(
+response.statusCode(), response.body()));
+}
+return extractAnswer(response.body()).trim();
+} catch (Exception e) {
+throw new RuntimeException("Error sending request: " + e.getMessage(), e);
+}
+}
+protected abstract HttpRequest buildRequest(String prompt) throws Exception;
+protected abstract String extractAnswer(String jsonResponse) throws Exception;
+@Override
+public boolean isHealthy() {
+try {
+send("Hello");
+return true;
+} catch (Exception e) {
+return false;
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The BaseLLMClient Java class is an abstract base for interacting with large language model (LLM) APIs. The class requires an API key, validated in the constructor, and provides a send method to transmit a prompt to the LLM, handling HTTP requests and responses. The buildRequest method, also abstract, must be implemented by subclasses to define the HTTP request structure.
+Groq Implementation with Records
+Groq uses an OpenAI-compatible API. Here's our clean implementation using Java records:
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.util.List;
+public class GroqClient extends BaseLLMClient {
+private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+private final String model;
+public GroqClient(String apiKey, String model) {
+super(apiKey);
+this.model = model != null ? model : "llama-3.3-70b-versatile";
+}
+@Override
+protected HttpRequest buildRequest(String prompt) throws Exception {
+String jsonBody = objectMapper.writeValueAsString(
+new GroqRequest(
+model,
+List.of(new GroqRequest.Message("user", prompt)),
+1000,
+0.1
+)
+);
+return HttpRequest.newBuilder(URI.create(GROQ_URL))
+.header("Content-Type", "application/json")
+.header("Authorization", "Bearer %s".formatted(apiKey))
+.POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+.build();
+}
+@Override
+protected String extractAnswer(String jsonResponse) throws Exception {
+GroqResponse response = objectMapper.readValue(jsonResponse, GroqResponse.class);
+List<GroqResponse.Choice> choices = response.choices();
+if (choices == null || choices.isEmpty()) {
+throw new IllegalStateException("No choices in response");
+}
+return choices.getFirst().message().content();
+}
+@Override
+public String getProviderName() {
+return "Groq (%s)".formatted(model);
+}
+}
+// Clean record definitions for JSON mapping
+record GroqRequest(
+String model,
+List<Message> messages,
+int max_tokens,
+double temperature
+) {
+record Message(String role, String content) {}
+}
+record GroqResponse(List<Choice> choices) {
+record Choice(Message message) {}
+record Message(String content) {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Google Gemini Implementation
+Gemini has a different API structure, but the pattern is the same:
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.util.List;
+public class GeminiClient extends BaseLLMClient {
+private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+private final String model;
+private final String endpointUrl;
+public GeminiClient(String apiKey, String model) {
+super(apiKey);
+this.model = model != null ? model : "gemini-1.5-flash";
+this.endpointUrl = "%s%s:generateContent?key=%s".formatted(BASE_URL, this.model, apiKey);
+}
+@Override
+protected HttpRequest buildRequest(String prompt) throws Exception {
+String jsonBody = objectMapper.writeValueAsString(
+new GeminiRequest(
+List.of(new GeminiRequest.Content(List.of(new GeminiRequest.Part(prompt)))),
+new GeminiRequest.GenerationConfig(0.1, 1000)
+)
+);
+return HttpRequest.newBuilder(URI.create(endpointUrl))
+.header("Content-Type", "application/json")
+.POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+.build();
+}
+@Override
+protected String extractAnswer(String jsonResponse) throws Exception {
+GeminiResponse response = objectMapper.readValue(jsonResponse, GeminiResponse.class);
+List<GeminiResponse.Candidate> candidates = response.candidates();
+if (candidates == null || candidates.isEmpty()) {
+throw new IllegalStateException("No candidates in response");
+}
+List<GeminiResponse.Part> parts = candidates.getFirst().content().parts();
+if (parts == null || parts.isEmpty()) {
+throw new IllegalStateException("No parts in content");
+}
+return parts.getFirst().text();
+}
+@Override
+public String getProviderName() {
+return "Google Gemini (%s)".formatted(model);
+}
+}
+// Gemini request/response records
+record GeminiRequest(
+List<Content> contents,
+GenerationConfig generationConfig
+) {
+record Content(List<Part> parts) {}
+record Part(String text) {}
+record GenerationConfig(double temperature, int maxOutputTokens) {}
+}
+record GeminiResponse(List<Candidate> candidates) {
+record Candidate(Content content) {}
+record Content(String role, List<Part> parts) {}
+record Part(String text) {}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Simple Factory for Easy Creation
+Keep client creation clean and simple:
+public class LLMClientFactory {
+public static LLMClient createGroqClient(String apiKey) {
+return new GroqClient(apiKey, "llama-3.3-70b-versatile");
+}
+public static LLMClient createGeminiClient(String apiKey) {
+return new GeminiClient(apiKey, "gemini-1.5-flash");
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Usage Example
+Here's how simple it is to use our LLM clients:
+public class LLMClientDemo {
+public static void main(String[] args) {
+testGroq();
+testGemini();
+}
+private static void testGroq() {
+try {
+LLMClient groq = LLMClientFactory.createGroqClient(System.getenv("GROQ_API_KEY"));
+System.out.println("Testing " + groq.getProviderName());
+String response = groq.send("What is 2+2? Answer briefly.");
+System.out.println("Response: " + response);
+System.out.println("Healthy: " + groq.isHealthy());
+System.out.println();
+} catch (Exception e) {
+System.out.println("Groq test failed: " + e.getMessage());
+}
+}
+private static void testGemini() {
+try {
+LLMClient gemini = LLMClientFactory.createGeminiClient(System.getenv("GEMINI_API_KEY"));
+System.out.println("Testing " + gemini.getProviderName());
+String response = gemini.send("What is the capital of France? Answer briefly.");
+System.out.println("Response: " + response);
+System.out.println("Healthy: " + gemini.isHealthy());
+System.out.println();
+} catch (Exception e) {
+System.out.println("Gemini test failed: " + e.getMessage());
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Sample Output:
+Testing Groq (llama-3.3-70b-versatile)
+Response: 2+2 = 4
+Healthy: true
+Testing Google Gemini (gemini-1.5-flash)
+Response: The capital of France is Paris.
+Healthy: true
+Enter fullscreen mode
+Exit fullscreen mode
+Environment Setup
+Make sure to set your API keys as environment variables:
+# Windows
+set GROQ_API_KEY=your_groq_key_here
+set GEMINI_API_KEY=your_gemini_key_here
+# Unix/MacOS
+export GROQ_API_KEY=your_groq_key_here
+export GEMINI_API_KEY=your_gemini_key_here
+Enter fullscreen mode
+Exit fullscreen mode
+What's Next?
+In our next post, we'll build a simple inference strategy that bridges the gap between user queries and tool execution. We'll keep it minimal and focused - just enough to understand the core concepts.
+The clean HTTP foundation we built today will power all the intelligent features in our Java MCP client!
+This is part 4 of our series "From Zero to AI Agent: My Journey into Java-based Intelligent Applications". Next up: inference strategies that bring it all together!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Sebastiao Gazolla Jr
+Follow
+Passionate about Java development and the emerging world of AI agents. Since mid-2024, I've been deep in the trenches building production MCP clients and sharing every lesson learned.
+Location
+Brasilia, DF - Brazil
+Joined
+May 20, 2024
+More from Sebastiao Gazolla Jr
+Building the Heart of Your Java MCP Client: The MCPService Core
+#ai
+#java
+#mcp
+#llm
+MCP Fundamentals: Your First Java Client in 30 Lines of Code
+#mcp
+#tutorial
+#beginners
+#java
+From Zero to AI Agent: My Journey into Java-based Intelligent Applications
+#learning
+#beginners
+#ai
+#java
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

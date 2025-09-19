@@ -1,0 +1,735 @@
+Nextcloud behind Caddy as a reverse proxy, using Docker · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+tmo1/nextcloud-caddy-docker.md
+Last active
+September 18, 2025 05:08
+Show Gist options
+Download ZIP
+Star
+68
+(68)
+You must be signed in to star a gist
+Fork
+6
+(6)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tmo1/72a9dc98b0b6b75f7e4ec336cdc399e1.js&quot;&gt;&lt;/script&gt;
+Save tmo1/72a9dc98b0b6b75f7e4ec336cdc399e1 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+16
+Stars
+68
+Forks
+6
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tmo1/72a9dc98b0b6b75f7e4ec336cdc399e1.js&quot;&gt;&lt;/script&gt;
+Save tmo1/72a9dc98b0b6b75f7e4ec336cdc399e1 to your computer and use it in GitHub Desktop.
+Download ZIP
+Nextcloud behind Caddy as a reverse proxy, using Docker
+Raw
+nextcloud-caddy-docker.md
+Introduction
+This is a guide to deploying Nextcloud behind a Caddy reverse proxy, both running in Docker containers (an official Nextcloud one and a caddy-docker-proxy one), with the goal of implementing as much as possible via docker-compose files. This is much more difficult than it should be, for a variety of reasons:
+As with Docker versions of software in general, documentation of the software does not always apply to the Docker versions, and the Docker documentation does not always include the Docker equivalent ways of doing things.
+Docker images do not always expose the desired configuration knobs of the underlying software.
+Nextcloud requires special configuration to run correctly behind a reverse proxy (and again, some of the instructions for this configuration requires modification for Dockerized versions of Nextcloud and the reverse proxy).
+Workarounds are necessary for various outstanding issues (and again, these workarounds have to be modified to work in a Dockerized configuration).
+This guide documents in detail one method of deploying and configuring Nextcloud and Caddy in Docker containers. The guide consists primarily of instructions and configuration files; for explanations of some of the problems encountered and solutions thereto, follow the links provided. The customization in this guide is almost entirely for the Nextcloud container; the Caddy reverse proxy one is deployed in its basic, standard form, and can be used to reverse proxy additional services as desired.
+This guide has been updated several times, in response to updates to the Nextcloud software and its Docker containerization, and to improve the instructions and provided configuration files. (Some of the updates have incorporated suggestions found in the comments to this guide.)
+This guide assumes that ports 80 and 443 on the host are available for use by Caddy. System commands used in this guide are for Debian Stable, but they should be easily adaptable to other distributions.
+Domain Name
+To make the Nextcloud instance publicly available, a valid domain name should be pointed at the server on which the Docker containers will be run. This can be a second level domain name (example.com), a third level one (nextcloud.example.com), and even one handled by a dynamic DNS (DDNS) provider (as long as the second level domain in question has been added to the public suffix list - see here and here).
+It can be useful, particularly if multiple services or websites are to be made available behind the reverse proxy, to utilize a DNS provider that offers wildcard functionality, where all subdomains of the registered domain will automatically resolve to the IP address of the registered domain, i.e., if 'mydomain.example.com' is registered, Nextcloud and Caddy can be configured to be available at 'nextcloud.mydomain.example.com' without any further domain registration or configuration. Similarly, additional services can be deployed under other subdomains of 'mydomain.example.com' (e.g. 'web.mydomain.example.com', 'mail.mydomain.example.com'), again without any further domain registration or configuration.
+Some DDNS providers do not offer wildcard support, or only offer it on a paid service tier, but at the time of this writing, the free DDNS provider Duck DNS provides automatic wildcard support out of the box. This guide will utilize the DDNS name example.duckdns.org, and make the Nextcloud instance available at nextcloud.example.duckdns.org.
+SSL
+Caddy provides "Automatic HTTPS". This means exactly what it says: as long as a valid domain name is used, Caddy will automagically implement HTTPS on its own, with no user configuration required. When the steps in this guide are completed, the Nextcloud instance will be available via HTTPS at https://nextcloud.example.duckdns.org, with no further configuration required.
+Docker
+Install Docker / Docker Compose:
+# apt install docker-compose
+Docker Network
+Create the Docker network that the Nextcloud and Caddy containers will use to communicate with each other:
+# docker network create caddy --subnet=172.16.0.0/24
+Although manual specification of IP subnets and addresses is not really in the spirit of Docker, it is sometimes necessary, or at least convenient; in our case, it enables us to set the Nextcloud Docker container's TRUSTED_PROXIES environment variable (see below).
+Nextcloud
+Create the following file as something like $HOME/docker/nextcloud/docker-compose.yml. It is a version of the official Nextcloud "Base version - apache" docker-compose file, modified for Caddy integration:
+version: '2'
+# most of this is taken from here: https://github.com/nextcloud/docker / https://hub.docker.com/_/nextcloud
+# changes and additions are documented in the comments below
+# see also: https://github.com/nextcloud/docker/issues/1414
+services:
+db:
+# See the official Nextcloud documentation for recommended MariaDB versions:
+# https://docs.nextcloud.com/server/latest/admin_manual/installation/system_requirements.html#server
+# https://help.nextcloud.com/t/mariadb-version-11-5-2-mariadb-deb12-detected-mariadb-10-6-and-11-4-is-suggested-for-best/203872
+image: mariadb:11.4
+restart: always
+command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+volumes:
+- db:/var/lib/mysql
+environment:
+- MYSQL_ROOT_PASSWORD=<password1>
+- MYSQL_PASSWORD=<password2>
+- MYSQL_DATABASE=nextcloud
+- MYSQL_USER=nextcloud
+networks:
+caddy:
+ipv4_address: 172.16.0.8
+# The following alias is only necessary when there are other Docker Compose stacks connected to the same network
+# that contain 'db:' services. If there are not, the alias can be omitted (in which case 'MYSQL_HOST' in the 'app' service should be set to 'db').
+# See:
+# https://stackoverflow.com/questions/78983153/intermittent-error-establishing-a-database-connection-errors-with-wordpress-on
+# https://github.com/docker/compose/issues/8223
+# https://forums.docker.com/t/add-option-to-remove-service-name-as-default-alias-on-networks/106172
+aliases:
+- nextcloud_db
+app:
+image: nextcloud:30.0
+restart: always
+networks:
+caddy:
+ipv4_address: 172.16.0.7
+# see: https://github.com/nextcloud/documentation/blob/master/admin_manual/configuration_server/reverse_proxy_configuration.rst
+labels:
+caddy: nextcloud.example.duckdns.org
+caddy.reverse_proxy: "{{upstreams}}"
+# see: https://github.com/lucaslorentz/caddy-docker-proxy/issues/114
+caddy.header: /*
+# see: https://docs.nextcloud.com/server/23/admin_manual/installation/harden_server.html#enable-http-strict-transport-security
+caddy.header.Strict-Transport-Security: '"max-age=15552000;"'
+# see: https://docs.nextcloud.com/server/23/admin_manual/issues/general_troubleshooting.html#service-discovery
+# https://github.com/lucaslorentz/caddy-docker-proxy/issues/222
+caddy.redir_0: /.well-known/carddav /remote.php/dav/ 301
+caddy.redir_1: /.well-known/caldav /remote.php/dav/ 301
+volumes:
+- nextcloud:/var/www/html
+environment:
+- MYSQL_PASSWORD=<password2>
+- MYSQL_DATABASE=nextcloud
+- MYSQL_USER=nextcloud
+- MYSQL_HOST=nextcloud_db
+# See: https://hub.docker.com/_/nextcloud/
+- APACHE_DISABLE_REWRITE_IP=1
+# See: https://github.com/nextcloud/documentation/issues/7005
+# and: https://old.reddit.com/r/NextCloud/comments/s3skdn/nextcloud_behind_caddy_as_a_reverse_proxy_using/hsnj5wh/
+- TRUSTED_PROXIES=172.16.0.6
+links:
+- db
+cron:
+# Nextcloud cron functionality with Docker deployments is not well documented:
+# https://github.com/nextcloud/docker/blob/master/.examples/docker-compose/with-nginx-proxy/mariadb/apache/docker-compose.yml#L39
+# https://github.com/nextcloud/docker/blob/master/.examples/docker-compose/insecure/mariadb/apache/docker-compose.yml#L35
+# https://github.com/nextcloud/docker/issues/1695
+# https://docs.nextcloud.com/server/latest/admin_manual/configuration_server/background_jobs_configuration.html
+image: nextcloud:30.0
+restart: always
+volumes:
+- nextcloud:/var/www/html
+networks:
+caddy:
+ipv4_address: 172.16.0.9
+entrypoint: /cron.sh
+depends_on:
+- db
+volumes:
+db:
+nextcloud:
+networks:
+caddy:
+external: true
+An alternative to including the database passwords in the docker-compose.yml file itself is to configure them via environment variables. A convenient way to do so is via an .env file. To use this method, modify the MYSQL_ROOT_PASSWORD and MYSQL_PASSWORD lines in the docker-compose.yml file as follows:
+- MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+- MYSQL_PASSWORD=${MYSQL_PASSWORD}
+and create a file named .env in the same directory as that file, containing the following:
+MYSQL_ROOT_PASSWORD=<password1>
+MYSQL_PASSWORD=<password2>
+The permissions of whichever file contains the passwords should be set to something like 600.
+Choosing An Image Tag
+The above file specifies the Nextcloud Docker stable image tag. There are actually dozens of available tags to choose from. For the purposes of this guide, one of the apache, rather than one of the fpm, tags should be chosen (i.e., the tag should either contain apache or contain neither apache nor fpm). Beyond that, any tag should work.
+In general, the more specific a version is specified in the configuration, the less the likelihood of something breaking on update, at the price of not receiving various improvements and enhancements. (This is true for all containers, but is particularly significant for software as complex and as rapidly changing as Nextcloud. See here for Nextcloud's explanation of its release channels.)
+Starting the Container
+Set the password environment variables to strong random passwords. The two references to MYSQL_PASSWORD must contain the same value, and MYSQL_ROOT_PASSWORD should contain a different value. (They are only used internally, and will not be needed anywhere outside this file.)
+Then, in $HOME/docker/nextcloud/, run:
+# docker-compose up -d
+Caddy
+Create the following file as something like $HOME/docker/caddy/docker-compose.yml:
+version: "3.7"
+services:
+caddy:
+# see here for guidance on which image / tag to choose:
+# https://github.com/lucaslorentz/caddy-docker-proxy#docker-images
+image: lucaslorentz/caddy-docker-proxy:2.9.1
+ports:
+- 80:80
+- 443:443
+environment:
+- CADDY_INGRESS_NETWORKS=caddy
+networks:
+caddy:
+ipv4_address: 172.16.0.6
+volumes:
+- /var/run/docker.sock:/var/run/docker.sock
+- caddy_data:/data
+restart: unless-stopped
+networks:
+caddy:
+external: true
+volumes:
+caddy_data: {}
+Then, in $HOME/docker/caddy/, run:
+# docker-compose up -d
+Nextcloud Installation Wizard
+If everything has worked correctly, it will now be possible to finish the Nextcloud installation by running the Installation Wizard by navigating to https://nextcloud.example.duckdns.org and following the prompts. (If the database configuration via the Docker environment variables has worked correctly, then the "Storage and Databases" choices will not be available; if they are, then something has gone wrong with the configuration.)
+Configuration
+Navigate to https://nextcloud.example.duckdns.org/settings/admin/, and adjust the following configuration settings:
+Follow the directions to configure an email server
+Miscellaneous Steps
+There are a few remaining configuration settings that should be set which can only be set by directly editing Nextcloud's config.php file (documented here), or via the occ command (see below), and cannot (currently) be set using Docker. The config.php file is located (in Debian, when following this guide) at /var/lib/docker/volumes/nextcloud_nextcloud/_data/config/config.php. Edit this file and set the following values:
+'default_phone_region' => '<ISO 3166-1 country code>' (e.g. 'US' - see here)
+Using the occ Command
+To run the occ command inside the docker Nextcloud instance, run the following on the host system:
+docker exec -ti --user www-data <nextcloud_container_name> /var/www/html/occ <occ parameters>
+where nextcloud_container_name is the name of the Nextcloud container (e.g., nextcloud_app_1), and occ parameters are the desired occ parameters.
+To use the occ command to set Nextcloud configuration values, see the occ documentation.
+Conclusion
+Nextcloud shows a health check ("Security & setup warnings") at https://nextcloud.example.duckdns.org/settings/admin/overview. Even if everything in this guide has worked, some of the following warnings may appear:
+The database is used for transactional file locking. To enhance performance, please configure memcache, if available. For more details see the documentation.
+See the documentation - the author of this guide has no experience with configuring memcache.
+Server has no maintenance window start time configured. This means resource intensive daily background jobs will also be executed during your main usage time. We recommend to set it to a time of low usage, so users are less impacted by the load caused from these heavy tasks. For more details see the documentation.
+See the documentation - the author of this guide has not yet bothered to set a maintenance window start time.
+Additionally, there may be a reference to "an error in the logs," and the logs may contain an error like the following:
+[index] Error: Could not create folder "/appdata_ocxxxxxxxxxx/theming/global"
+GET /apps/theming/favicon?v=yyyyyyyy
+from zz.zz.zz.zz by admin at Jan xx, 2024, yy:yy:yy PM
+It is likely that this, too, may be safely ignored - see here.
+Updating
+To update the containers, run (in the same directory as the appropriate docker-compose.yml file)
+docker-compose pull && docker-compose up -d
+This will update the containers to the latest versions (of the specified image tags). This can be automated with solutions such as Watchtower.
+Manual Upgrade
+If the Nextcloud web interface displays the following message:
+Update needed
+Please use the command line updater because updating via browser is disabled in your config.php.
+then try running a manual upgrade with the following command (on the Docker host system):
+docker exec -ti --user www-data <nextcloud_container_name> /var/www/html/occ upgrade
+(See here.)
+General information on the maintenance of Docker containers and images, including the pruning of unused images and containers, is readily available online; see, e.g., here, here, and here.
+Copy link
+factorten
+commented
+Mar 11, 2022
+Thank you, this worked great. Best not to install all the recommended apps at the beginning; it was painfully slow and I ended up uninstalling and reinstalling with just a basic setup and then configuring later.
+FYI when logging in with a mobile app, it throws up
+the error: "Strict mode, no HTTP connection allowed". In order to fix this, add 'overwriteprotocol' => 'https', to the config.php file.
+See here
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tmo1
+commented
+Mar 13, 2022
+Thanks for the feedback - I'm glad the guide was useful. And thanks for your additional notes.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+notDavid
+commented
+May 12, 2022
+Hi there, fyi the block starting with cron: in the Nextcloud docker-compose.yml is not correctly indented, causing an error...
+Also, i'm getting this error for some reason starting the Caddy container, any idea what the fix might be?
+❯ docker compose up -d
+networks.caddy Additional property ipv4_address is not allowed
+Are you using a different docker compose version maybe?
+❯ docker-compose --version
+Docker Compose version v2.5.0
+Thank you for the detailed writeup :-)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tmo1
+commented
+May 12, 2022
+Hi there, fyi the block starting with cron: in the Nextcloud docker-compose.yml is not correctly indented, causing an error...
+Thanks, fixed.
+Also, i'm getting this error for some reason starting the Caddy container, any idea what the fix might be?
+Oopsie, my fault. I had been tinkering with the files on my system, and misentered the changes into the guide: the ipv4_address line in the Caddy docker-compose.yml was in the wrong place, and I've now corrected it.
+Thank you for the detailed writeup :-)
+Thanks! Let me know if the corrected version works.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+notDavid
+commented
+May 14, 2022
+Hey @tmo1 , i have not followed your guide "exactly" because i made some minor adjustments for my use case, but all is working well now, after the latest updates you made.
+Thank you again for the guide 👍🏼
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tmo1
+commented
+May 15, 2022
+You're welcome! I'm glad you got it working.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+SamyDjemai
+commented
+Jun 29, 2022
+Hey, thanks for the guide! I have some suggestions, which I have applied in my home deployment and work fine:
+Removing the app's ports block works and prevents anyone from directly accessing it via the IP
+Passwords can (and should!) be declared somewhere else than the docker-compose.yml file. Luckily, using an .env file and replacing values with ${MYSQL_PASSWORD} works perfectly :)
+I've had trouble getting GNOME to sync my Nextcloud calendar. This might be unrelated, but the problem seems to be fixed after using the following labels (this is also the recommended way to enable service discovery according to the documentation)
+caddy.redir_0: /.well-known/carddav /remote.php/dav 301
+caddy.redir_1: /.well-known/caldav /remote.php/dav 301
+I've managed to enable video thumbnails using a hack: I created the following Dockerfile that I use as the app's image, then followed the "Configure NextCloud previews" section of this tutorial.
+FROM nextcloud:production
+RUN apt-get update && apt-get -y install ffmpeg
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+notDavid
+commented
+Jun 29, 2022
+Removing the app's ports block works and prevents anyone from directly accessing it via the IP
+Indeed;
+But note that it's probably a good idea to use an external firewall outside of the host anyway... : https://news.ycombinator.com/item?id=31839936
+Cloud providers often provide a firewall for a VPS in the cloud too.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tmo1
+commented
+Jun 30, 2022
+Hey, thanks for the guide! I have some suggestions, which I have applied in my home deployment and work fine:
+Thanks for the suggestions!
+* Removing the app's `ports` block works and prevents anyone from directly accessing it via the IP
+Good point - modified.
+* Passwords can (and should!) be declared somewhere else than the docker-compose.yml file. Luckily, using an `.env` file and replacing values with `${MYSQL_PASSWORD}` works perfectly :)
+Good point - I added a mention of this option.
+* I've had trouble getting GNOME to sync my Nextcloud calendar. This might be unrelated, but the problem seems to be fixed after using the following labels (this is also the recommended way to enable service discovery [according to the documentation](https://docs.nextcloud.com/server/23/admin_manual/issues/general_troubleshooting.html#service-discovery))
+```
+caddy.redir_0: /.well-known/carddav /remote.php/dav 301
+caddy.redir_1: /.well-known/caldav /remote.php/dav 301
+```
+I'm not sure I understand - do your rewrite rules differ from mine, beyond the appending of 301? In any event, my rewrite rules came straight from this page of the official documentation, which does not append the 301.
+* I've managed to enable video thumbnails using a hack: I created the following Dockerfile that I use as the app's image, then followed the "Configure NextCloud previews" section of [this tutorial](https://anto.online/guides/how-to-enable-video-previews-for-nextcloud/).
+```
+FROM nextcloud:production
+Thanks!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+SamyDjemai
+commented
+Jul 1, 2022
+I'm not sure I understand - do your rewrite rules differ from mine, beyond the appending of 301? In any event, my rewrite rules came straight from this page of the official documentation, which does not append the 301.
+I'm using the redir directive instead of rewrite but, as I said, I'm not really sure if that changes anything 😅
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+williamblair333
+commented
+Jul 13, 2022
+Send me a link so I can paypal you some $$ ninja.
+I've been fighting this for almost a week and your config worked like a champ.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+williamblair333
+commented
+Jul 14, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+What's the easiest to modify the caddy image so we can use Let's Encrypt's staging feature?
+https://letsencrypt.org/docs/rate-limits/"
+edit: found it.. caddy_data/caddy/certificates/acme.zerossl.com-v2-dv90/your.domain.com/your.domain.com.json
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tmo1
+commented
+Jul 19, 2022
+@williamblair333: I'm glad the guide was useful, and that you figured out that last point. There's no need to donate anything, but if you want to, you can do so here.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blazekjan
+commented
+Sep 3, 2022
+I'm not sure I understand - do your rewrite rules differ from mine, beyond the appending of 301? In any event, my rewrite rules came straight from this page of the official documentation, which does not append the 301.
+I'm using the redir directive instead of rewrite but, as I said, I'm not really sure if that changes anything 😅
+Actually it should be set up as redir, it simply doesn't work with rewrite. Nextcloud also warns you it's not correctly setup, thus it wont work. I am using fpm image instead of the one used here with integrated apache webserver, which should perform a little bit better.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tmo1
+commented
+Sep 4, 2022
+Actually it should be set up as redir, it simply doesn't work with rewrite.
+rewrite works fine for me, and as I mentioned above, the official documentation uses rewrite.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blazekjan
+commented
+Sep 4, 2022
+Actually it should be set up as redir, it simply doesn't work with rewrite.
+rewrite works fine for me, and as I mentioned above, the official documentation uses rewrite.
+It has probably to do something with bundled Apache. I use fpm version which has no builtin webserver, so the caddy-docker-proxy has to take care of everything.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jmollerhoj
+commented
+Sep 6, 2022
+Actually it should be set up as redir, it simply doesn't work with rewrite.
+rewrite works fine for me, and as I mentioned above, the official documentation uses rewrite.
+It has probably to do something with bundled Apache. I use fpm version which has no builtin webserver, so the caddy-docker-proxy has to take care of everything.
+Thanks for the info everybody. Super useful. @blazekjan do you have a working example compose using fpm, one could have a look at?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blazekjan
+commented
+Sep 14, 2022
+@jmollerhoj Of course, I have completely working solution based on fpm image, postgres and redis served purely through caddy-docker-proxy. I will post it to my github later today.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coro1404
+commented
+Oct 27, 2022
+@blazekjan are you still planning to do this?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blazekjan
+commented
+Oct 27, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@blazekjan are you still planning to do this?
+@coro1404 Did you check my repo? It is available there for a long time. Just check it out.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coro1404
+commented
+Oct 28, 2022
+@blazekjan are you still planning to do this?
+@coro1404 Did you check my repo? It is available there for a long time. Just check it out.
+found it thanks
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+craigkh
+commented
+May 19, 2023
+Is it possible to use this method with AIO? I have this working but I want Imaginary and Talk which do not appear to be included with the Base version used here (and appear to be a pain to add). I have tried ading the caddy labels from here to the AIO docker-compose.yml but all I'm getting is too many redirect errors or refusal to connect.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jomuench
+commented
+Apr 29, 2024
+I would like to use my caddy instance to publish another website under a different domainname (that resolves to the same public IP I am owning). Has anybody here managed to get a similar setup working? I created Caddyfile, but my caddy docker-compose doesn't recognize it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+vuongtuha
+commented
+Jun 20, 2024
+I just made it public by your guide. TYVM!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+tmo1
+commented
+Jun 21, 2024
+I just made it public by your guide. TYVM!
+You're welcome! I'm glad you found this helpful.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+SamyDjemai
+commented
+Jun 25, 2024
+I'm not sure I understand - do your rewrite rules differ from mine, beyond the appending of 301? In any event, my rewrite rules came straight from this page of the official documentation, which does not append the 301.
+I'm using the redir directive instead of rewrite but, as I said, I'm not really sure if that changes anything 😅
+I just checked the documentation, it was updated a year ago to use redir in this commit: nextcloud/documentation@590775b
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ErikSteiner
+commented
+Aug 17, 2024
+I use Caddy as a plugin on my opnsense firewall. Is it possible, that you can guide me, how I can alter your setup to mine? Basically, it is like Caddy is installed on a different server.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+neo-fetch
+commented
+Nov 13, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+The connection keeps timing out. Is there any config error on my part?
+14.058s neo ❯ fastfetch
+-`
+neo@lee
+.o+`
+-------
+`ooo/
+OS: Arch Linux x86_64
+`+oooo:
+Host: MS-7C35 (1.0)
+`+oooooo:
+Kernel: Linux 6.11.6-arch1-1
+-+oooooo+:
+Uptime: 3 hours, 39 mins
+`/:-:++oooo+:
+Packages: 1810 (pacman)
+`/++++/+++++++:
+Shell: fish 3.7.1
+`/++++++++++++++:
+Display (LG ULTRAWIDE): 1680x1050 @ 60 Hz in 34" [External] *
+`/+++ooooooooooooo/`
+Display (HP P24v G4): 1080x1920 @ 60 Hz in 24" [External]
+./ooosssso++osssssso+`
+DE: qtile
+.oossssso-````/ossssss+`
+WM: LG3D (X11)
+-osssssso.
+:ssssssso.
+Theme: Breeze-Dark [GTK2], Breeze [GTK3]
+:osssssss/
+osssso+++.
+Icons: McMojave-circle-black-dark [GTK2/3/4]
+/ossssssss/
++ssssooo/-
+Font: Noto Sans (10pt) [GTK2/3/4]
+`/ossssso+/:-
+-:/+osssso+-
+Cursor: WhiteSur (24px)
+`+sso+:-`
+`.-/+oso:
+Terminal: kitty 0.37.0
+`++:.
+`-/+/
+CPU: AMD Ryzen 9 5900X (24) @ 4.95 GHz
+.`
+`/
+GPU: NVIDIA GeForce RTX 3070 Ti
+Memory: 2.49 GiB / 31.26 GiB (8%)
+Swap: 0 B / 6.00 GiB (0%)
+Disk (/): 143.20 GiB / 239.11 GiB (60%) - ext4
+Local IP (wlan0):
+Locale: C.UTF-8
+docker -v
+Docker version 27.3.1, build ce1223035a
+nexcloud docker compose: This actually gave tab error at Line 25: found a tab character that violate indentation . So I removed the comments and it went away..
+version: '2'
+# most of this is taken from here: https://github.com/nextcloud/docker / https://hub.docker.com/_/nextcloud
+# changes and additions are documented in the comments below
+# see also: https://github.com/nextcloud/docker/issues/1414
+services:
+db:
+# See the official Nextcloud documentation for recommended MariaDB versions:
+# https://docs.nextcloud.com/server/latest/admin_manual/installation/system_requirements.html#server
+# https://help.nextcloud.com/t/mariadb-version-11-5-2-mariadb-deb12-detected-mariadb-10-6-and-11-4-is-suggested-for-best/203872
+image: mariadb:11.4
+restart: always
+command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+volumes:
+- db:/var/lib/mysql
+environment:
+- MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+- MYSQL_PASSWORD=${MYSQL_PASSWORD}
+- MYSQL_DATABASE=nextcloud
+- MYSQL_USER=nextcloud
+networks:
+caddy:
+ipv4_address: 172.16.0.8 # <-- Line 25
+aliases:
+- nextcloud_db
+app:
+image: nextcloud:30.0
+restart: always
+networks:
+caddy:
+ipv4_address: 172.16.0.7
+# see: https://github.com/nextcloud/documentation/blob/master/admin_manual/configuration_server/reverse_proxy_configuration.rst
+labels:
+caddy: nextcloud.example.duckdns.org
+caddy.reverse_proxy: "{{upstreams}}"
+# see: https://github.com/lucaslorentz/caddy-docker-proxy/issues/114
+caddy.header: /*
+# see: https://docs.nextcloud.com/server/23/admin_manual/installation/harden_server.html#enable-http-strict-transport-security
+caddy.header.Strict-Transport-Security: '"max-age=15552000;"'
+# see: https://docs.nextcloud.com/server/23/admin_manual/issues/general_troubleshooting.html#service-discovery
+# https://github.com/lucaslorentz/caddy-docker-proxy/issues/222
+caddy.redir_0: /.well-known/carddav /remote.php/dav/ 301
+caddy.redir_1: /.well-known/caldav /remote.php/dav/ 301
+volumes:
+- nextcloud:/var/www/html
+environment:
+- MYSQL_PASSWORD=${MYSQL_PASSWORD}
+- MYSQL_DATABASE=nextcloud
+- MYSQL_USER=nextcloud
+- MYSQL_HOST=nextcloud_db
+# See: https://hub.docker.com/_/nextcloud/
+- APACHE_DISABLE_REWRITE_IP=1
+# See: https://github.com/nextcloud/documentation/issues/7005
+# and: https://old.reddit.com/r/NextCloud/comments/s3skdn/nextcloud_behind_caddy_as_a_reverse_proxy_using/hsnj5wh/
+- TRUSTED_PROXIES=172.16.0.6
+links:
+- db
+cron:
+# Nextcloud cron functionality with Docker deployments is not well documented:
+# https://github.com/nextcloud/docker/blob/master/.examples/docker-compose/with-nginx-proxy/mariadb/apache/docker-compose.yml#L39
+# https://github.com/nextcloud/docker/blob/master/.examples/docker-compose/insecure/mariadb/apache/docker-compose.yml#L35
+# https://github.com/nextcloud/docker/issues/1695
+# https://docs.nextcloud.com/server/latest/admin_manual/configuration_server/background_jobs_configuration.html
+image: nextcloud:30.0
+restart: always
+volumes:
+- nextcloud:/var/www/html
+networks:
+caddy:
+ipv4_address: 172.16.0.9
+entrypoint: /cron.sh
+depends_on:
+- db
+volumes:
+db:
+nextcloud:
+networks:
+caddy:
+external: true
+nextcloud .env
+MYSQL_ROOT_PASSWORD=FuNy@m4n
+MYSQL_PASSWORD=SaDd@b0y
+caddy docker compose:
+version: "3.7"
+services:
+caddy:
+# see here for guidance on which image / tag to choose:
+# https://github.com/lucaslorentz/caddy-docker-proxy#docker-images
+image: lucaslorentz/caddy-docker-proxy:2.9.1
+ports:
+- 80:80
+- 443:443
+environment:
+- CADDY_INGRESS_NETWORKS=caddy
+networks:
+caddy:
+ipv4_address: 172.16.0.6
+volumes:
+- /var/run/docker.sock:/var/run/docker.sock
+- caddy_data:/data
+restart: unless-stopped
+networks:
+caddy:
+external: true
+volumes:
+caddy_data: {}
+docker network ls
+NETWORK ID
+NAME
+DRIVER
+SCOPE
+8383094b6172
+caddy
+bridge
+local
+Regardless, thank you so much for this. Maybe I will try it in a separate environment and see if it works there…
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

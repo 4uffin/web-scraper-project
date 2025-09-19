@@ -1,0 +1,428 @@
+How I Solved the Flooded Icons Crisis in Our React Codebase - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+RajeshRenato
+Posted on Sep 18
+How I Solved the Flooded Icons Crisis in Our React Codebase
+#react
+#frontend
+#designsystem
+#devex
+The Problem: Icon Chaos in a Growing SaaS Platform
+Picture this: You're working on a fast-growing SaaS platform with over 400+ React components. Your design system has evolved organically over 5+ years, and suddenly you realize you have 600+ icon files scattered across your codebase like digital confetti.
+Sound familiar? Here's what our icon structure looked like:
+src/common/icons/
+├── IconAdd.tsx
+├── IconAddCircle.tsx
+├── IconAddNoOutline.tsx
+├── IconPlus.tsx
+# Wait, isn't this the same as IconAdd?
+├── IconPlusCircle.tsx
+# And this too?
+├── QuickAction/
+│
+├── IconEmail.tsx
+# Different from main IconMail.tsx
+│
+└── IconLinkedIn.tsx # Different from IconLinkedin.tsx
+├── NewIcons/
+│
+├── IconCall.tsx
+# Yet another call icon variant
+│
+└── IconEmail.tsx
+# Another email icon!
+├── Leads/
+│
+└── IconLinkedIn.tsx # The third LinkedIn icon!
+└── ... 300+ more files
+Enter fullscreen mode
+Exit fullscreen mode
+The Pain Points
+1. Developer Confusion
+// Which one should I use? 🤔
+import { IconCall } from '../../common/icons/IconCall';
+import { IconCall } from '../../common/icons/NewIcons/IconCall';
+import { IconCallAlt } from '../../common/icons/IconCallAlt';
+import { IconCallHollow } from '../../common/icons/IconCallHollow';
+Enter fullscreen mode
+Exit fullscreen mode
+2. Duplicate Icons Everywhere
+We had:
+6 different "Add" icons (IconAdd, IconPlus, IconAddCircle, etc.)
+4 different "LinkedIn" icons across different folders
+8 different "Call" icon variations
+Multiple email icons with slight variations
+3. Inconsistent Props & Types
+// Icon A
+interface IconProps {
+size?: string;
+color?: string;
+}
+// Icon B
+interface IconCallProps {
+size?: string;
+color?: string;
+type?: IconCallType; // Extra prop!
+}
+// Icon C
+interface IconWarningProps {
+size: string; // Required, not optional!
+color?: string;
+variant?: ICON_WARNING_TYPE;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+4. No Visual Discovery
+Developers couldn't easily see what icons were available. They'd either:
+Create new icons instead of reusing existing ones
+Spend ages searching through folders
+Ask designers "do we have an icon for X?"
+The Solution: Icon Browser + Automated Discovery
+I built a comprehensive Icon Browser that dynamically discovers, loads, and displays all icons in our codebase. Here's how:
+1. Automated Icon Discovery
+First, I created a script that scans the entire codebase and generates a JSON manifest:
+// iconList.json (generated automatically)
+{
+"iconPaths": [
+{
+"path": "common/icons/QuickAction/IconClock.tsx",
+"importPath": "common/icons/QuickAction/IconClock",
+"pathWithoutExtension": "common/icons/QuickAction/IconClock",
+"name": "IconClock",
+"category": "Actions",
+"extension": ".tsx",
+"directory": "common/icons/QuickAction",
+"size": 751,
+"modifiedAt": "2025-02-16T07:38:13.215Z"
+}
+// ... 600+ more icons
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2. Dynamic Icon Loading System
+The tricky part was dynamically importing icons at runtime. Webpack needs static analysis, so I created a smart import system:
+const importModule = async (iconPath: IconPath) => {
+const { importPath, directory, extension } = iconPath;
+// Extract filename once
+const fileName = importPath.split('/').pop();
+// For SVG files, use different base path
+if (extension === '.svg') {
+return await import(`../../assets/bigSvgs/${fileName}`);
+}
+// For icon files, directly use the directory as target path
+const targetPath = directory; // directory already contains "common/icons/..."
+return await import(`../../${targetPath}/${fileName}`);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+3. Intelligent Component Extraction
+Different icons export their components differently. I built a system to handle all patterns:
+const extractComponent = (module: any, iconName: string) => {
+// Handle default exports
+if (module.default && isValidReactComponent(module.default)) {
+return module.default;
+}
+// Handle named exports (exact match)
+if (module[iconName] && isValidReactComponent(module[iconName])) {
+return module[iconName];
+}
+// Handle named exports (without Icon prefix)
+const nameWithoutIcon = iconName.replace(/^Icon/, '');
+if (
+module[nameWithoutIcon] &&
+isValidReactComponent(module[nameWithoutIcon])
+) {
+return module[nameWithoutIcon];
+}
+// Try all exported functions
+for (const key in module) {
+if (isValidReactComponent(module[key])) {
+return module[key];
+}
+}
+return null;
+};
+Enter fullscreen mode
+Exit fullscreen mode
+4. Safe Rendering with Error Boundaries
+Icons can fail in many ways, so I built robust error handling:
+const RenderIcon = React.memo(({ component: IconComponent, ...props }) => {
+try {
+if (!IconComponent) {
+return <div className="error-icon">🚫</div>;
+}
+// Sanitize props to prevent crashes
+const safeProps = {
+...props,
+size: String(props.size || '32').replace(/[^0-9]/g, '') || '32',
+color: props.color || '#080C2B',
+iconType: props.iconType || ICON_TYPE.SOLID,
+};
+const element = React.createElement(IconComponent, safeProps);
+return React.isValidElement(element) ? (
+element
+) : (
+<div className="error-icon">⚠️</div>
+);
+} catch (error) {
+console.error('Error rendering icon:', error);
+return <div className="error-icon">❌</div>;
+}
+});
+Enter fullscreen mode
+Exit fullscreen mode
+5. The Final Icon Browser UI
+const IconBrowser = () => {
+const { icons, loading, error } = useIconLoader();
+const [searchTerm, setSearchTerm] = useState('');
+const [selectedCategory, setSelectedCategory] = useState('all');
+const filteredIcons = icons.filter((icon) => {
+const matchesSearch = icon.name
+.toLowerCase()
+.includes(searchTerm.toLowerCase());
+const matchesCategory =
+selectedCategory === 'all' || icon.category === selectedCategory;
+return matchesSearch && matchesCategory;
+});
+return (
+<div className="icon-browser">
+<div className="controls">
+<input
+placeholder="Search icons..."
+value={searchTerm}
+onChange={(e) => setSearchTerm(e.target.value)}
+/>
+<select
+value={selectedCategory}
+onChange={(e) => setSelectedCategory(e.target.value)}
+>
+<option value="all">All Categories</option>
+<option value="Actions">Actions</option>
+<option value="Navigation">Navigation</option>
+{/* ... more categories */}
+</select>
+</div>
+<div className="icon-grid">
+{filteredIcons.map((icon) => (
+<IconErrorBoundary key={icon.uniqueId} iconName={icon.name}>
+<div className="icon-item" onClick={() => copyToClipboard(icon)}>
+<RenderIcon
+component={icon.component}
+size="32"
+color="#080C2B"
+/>
+<span className="icon-name">{icon.name}</span>
+<span className="icon-path">{icon.path}</span>
+</div>
+</IconErrorBoundary>
+))}
+</div>
+</div>
+);
+};
+Enter fullscreen mode
+Exit fullscreen mode
+The Results: From Chaos to Clarity
+✅ Immediate Benefits
+100% Icon Visibility: Developers can now see all 383+ icons in one place
+Smart Search: Find icons by name, category, or functionality
+Copy-Paste Ready: Click any icon to copy the import statement
+Duplicate Detection: Easily spot similar icons and consolidate
+Zero Maintenance: Automatically updates when new icons are added
+🎯 Developer Experience Impact
+Before:
+// 😫 The old way
+// 1. Search through folders for 10 minutes
+// 2. Guess which IconCall to use
+// 3. Import and hope it works
+// 4. Realize it's the wrong one
+// 5. Repeat process
+import { IconCall } from '../../common/icons/IconCall'; // Maybe?
+Enter fullscreen mode
+Exit fullscreen mode
+After:
+// 😍 The new way
+// 1. Open Icon Browser
+// 2. Search "call"
+// 3. See all call-related icons visually
+// 4. Click to copy import
+// 5. Done in 30 seconds!
+import { IconCall } from '../../common/icons/NewIcons/IconCall';
+Enter fullscreen mode
+Exit fullscreen mode
+📊 Measurable Improvements
+Icon Discovery Time: 10+ minutes → 30 seconds
+Duplicate Icon Creation: Reduced by ~80%
+Developer Onboarding: New devs can find icons immediately
+Designer Collaboration: Designers can quickly see existing icons before creating new ones
+Design System Consistency: Much easier to spot and fix inconsistencies
+Key Technical Challenges & Solutions
+1. Webpack Dynamic Import Limitations
+Problem: Webpack can't analyze completely dynamic imports
+Solution: Leverage existing directory structure data to build import paths dynamically
+2. Inconsistent Icon Interfaces
+Problem: 600+ icons with different prop interfaces
+Solution: Built a prop sanitization layer that handles all variations
+3. Runtime Failures
+Problem: Some icons crash when rendered
+Solution: Error boundaries around every icon with fallback UI
+4. Performance with 600+ Icons
+Problem: Loading hundreds of icons at once
+Solution: Batch loading + lazy rendering + virtual scrolling
+Lessons Learned
+1. Tooling Prevents Technical Debt
+Without visibility into our icon mess, the problem just kept growing. The Icon Browser made the chaos visible and actionable.
+2. Developer Experience = Product Quality
+When developers can easily find and use the right icons, the product becomes more consistent. UX wins when DX wins.
+3. Automation > Documentation
+Instead of maintaining docs about "which icons to use," I built a tool that shows them all. Self-documenting systems are better than documented systems.
+4. Small Improvements, Big Impact
+This wasn't a major architectural change, but it dramatically improved daily developer productivity.
+What's Next?
+Now that we have the Icon Browser, our next steps are:
+Icon Consolidation: Merge duplicate icons using the browser to identify them
+Design System Integration: Work with designers to standardize our icon library
+Automated Linting: Add ESLint rules to prevent duplicate icon creation
+Icon Analytics: Track which icons are actually used vs. abandoned
+Want to Build This for Your Team?
+The core pattern is:
+Discover: Use custom scripts to scan your codebase for icon files
+Load: Dynamically import them at runtime
+Display: Build a searchable, visual interface
+Handle Errors: Gracefully handle all the edge cases
+The investment in developer tooling pays compound dividends. When developers can easily discover and reuse existing assets, your codebase becomes more consistent and your team becomes more productive.
+Have you solved similar design system challenges in your codebase? I'd love to hear about your approach in the comments!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+RajeshRenato
+Follow
+Location
+Chennai
+Education
+MCA
+Work
+Senior Tech Lead at Klenty
+Joined
+Jan 21, 2020
+Trending on DEV Community
+Hot
+How We Built An AI-Assisted Dependency Vulnerability Scanner
+#kiro
+#kirohackathon
+#productivity
+#kirodotdev
+Meme Monday
+#discuss
+#watercooler
+#jokes
+Build Your Own Infinite Carousel in React (with a Custom Hook)❗
+#react
+#javascript
+#tutorial
+#css
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
