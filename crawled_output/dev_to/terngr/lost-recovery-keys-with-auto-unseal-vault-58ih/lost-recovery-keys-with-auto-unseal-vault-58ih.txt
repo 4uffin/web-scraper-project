@@ -1,0 +1,212 @@
+Lost Recovery Keys with Auto Unseal – Vault - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+terngr
+Posted on Sep 19
+Lost Recovery Keys with Auto Unseal – Vault
+#hashicorp
+#vault
+#recoverykey
+#wrapping
+เป็นหนึ่งจากหลายๆ เคสที่ถูก Raise มาถึงเราในสัปดาห์นี้ และน่าจะเป็นเคสที่สนุกสุดด้วยเพราะผู้เขียนยอมอดกินเนื้อย่างคืนวันศุกร์เพื่อมาแก้เคสนี้
+ด้วยตัว HashiCorp Vault ทางทฤษฏี เคสนี้ควรจะถูกแก้ได้ แต่พอไปดูเครื่องมืออาจจะยังไม่ครอบคลุม (หรือจะมองอีกมุม ว่าเพื่อความปลอดภัยและความชัดเจนในมุมการใช้งานของ Product เองก็ได้ครับ) ในที่นี้ wrapped key ที่ต้องการมีพร้อม ขาดแค่เครื่องมือ ซึ่งเราสร้างเพิ่มขึ้นมา
+Introduction
+Vault provides centralized, well-audited privileged access and secret management for mission-critical data whether you deploy systems on-premises, in the cloud, or in a hybrid environment.
+With a modular design based around a growing plugin ecosystem, Vault lets you integrate with your existing systems and customize your application workflow.
+Vault เป็นเครื่องมือช่วยบริหารจัดการ Secrets โดยปกติจะมี 2 Modes
+Unseal: พร้อมใช้งาน จัดการ Secrets ได้ เรียกขอ Secrets ไปใช้งานก็ได้
+Seal: ไม่พร้อมใช้งาน ต้อง Unseal ก่อน, ถ้ามี Incident เกิดขึ้นเราสามารถสั่ง Seal Vault ได้ทันที เพื่อหยุดยั้งการเข้าถึง Secrets
+โดยปกติการ Unseal จะใช้ผู้ถือ Key หลายๆ คน เช่น 5 ท่าน แล้วตั้งข้อกำหนดขั้นต่ำ (ที่เกินกึ่งหนึ่ง) เช่นต้องใช้ 3 ท่าน เพื่อจะทำการ Unseal เพื่อให้ Vault พร้อมใช้งาน ซึ่งกระบวนการนี้ หากต้อง Seal/Unseal บ่อยๆ ก็จะไม่สะดวก
+การ Seal/Unseal โดยใช้ Shamir portions
+อีกทางเลือกหนึ่ง เราสามารถใช้ Auto Unseal โดยให้หน้าที่ในการปกป้อง Unseal Key ตกไปอยู่ที่ Trusted device / service เช่น AWS Key Management Service (AWS KMS)
+การทำ Auto unseal
+ทั้งนี้ การใช้ Auto unseal จะมีการสร้าง Recovery key ในทำนองเดียวกับการสร้าง Unseal key (แต่ไม่ได้ใช้เพื่อ Unseal) เพื่อให้ครอบคลุมการทำงานบางอย่างนอกเหนือการทำ Auto unseal เช่นการสร้าง root token, rekey
+ฉะนั้น เมื่อเราใช้ Auto unseal แล้วต้องการสร้าง Root token ใหม่ ก็จะต้องมี Recovery key ตามจำนวนที่กำหนด เช่น 3 ท่าน จาก 5 ท่าน
+Problem
+ในระบบ มีการรัน Vault แบบ Auto unseal ไว้แล้ว เช่นใช้ AWS KMS ช่วย
+ฉะนั้นสถานะปัจจุบัน จึงเป็น unseal (Sealed = false) หรือพร้อมใช้งานนั่นเอง
+แต่ Recovery key หายไป ทำให้ไม่สามารถสร้าง root token ใหม่ และ ไม่สามารถ Save/Restore snapshot
+ตอนที่สร้าง root token ใหม่ เราตรวจสอบได้ว่าตอนนี้เป็น unseal mode ปกติ (ใช้ Unseal key) หรือเป็น Auto unseal (ใช้ Recovery key) โดยดูจากรูป vault status แสดง Recovery Seal Type ก็คือเป็น Recovery key นั่นเอง
+Investigation
+หลักของการทำ Shamir's secret sharing (SSS) เริ่มจากเรามี　Secret ที่ต้องการปกป้องกันก่อน
+ในที่นี้ก็คือ มี Recovery key แล้วจึงสร้าง Recovery key portion ตามมา เพื่อที่ตอนใช้งานเราจะนำแต่ละ Recovery key portion ทั้งหมดหรือบางส่วน มาประกอบเป็น Recovery key เพื่อได้รับ Authorization จาก Vault operator ให้สร้าง Root token, rekey, etc ได้นั่นเอง ทั้งนี้ Recovery key จะยังใช้ Unseal ไม่ได้(เพราะการ Unseal ต้องใช้ Trusted device /service เช่น AWS KMS โดยท่าที่แนะนำคือเรานำเข้าคีย์เอง เพื่อให้มีสำรองไว้กรณี service ใช้งานไม่ได้ ก็จะนำเข้าคีย์เข้าไปใหม่ได้)
+จากข้อมูลใน Vault's Document จำเป็นต้องใช้ Recovery key portion และเราทราบว่าสามารถสร้าง Recovery key portion ได้ใหม่จาก Recovery key โดย Recovery key portion ที่สร้างใหม่นี้ อาจไม่ซ้ำกันในแต่ละครั้งก็ได้ แต่เมื่อรวม portion ในจำนวนที่กำหนดแล้วจะได้ Recovery key ฉะนั้นเราต้องหา Recovery key, เช็ค Storage Path ได้จาก Configuration file และเช็คไฟล์ข้างใน พบ _recovery-key
+ก่อนหน้าที่เราจะเช็คไฟล์ มีการตรวจสิทธิ์ของ aws_kms_key ที่ใช้ พบว่าสามารถทำ Encryption, Decryption, DescribeKey ได้ ซึ่งสิทธิ์พวกนี้เพียงพอต่อการทำ Auto unseal แต่จะถูกใช้กับ Recovery key ด้วยไหม
+เรายังรู้อีกว่า HashiCorp มี go library ที่สามารถ Wrap (Encrypt/Decrypt secret) ด้วย aws_kms_key ได้
+ซึ่งการเรียกใช้ wrapper.Decrypt นี้ ต้องมี AWSKMS_WRAPPER_KEY_ID ซึ่งเรามีอยู่แล้ว จะอยู่ใน vault configuration file เป็นคีย์ที่ใช้ทำ Auto unseal นั่นเอง
+ส่วนสิ่งที่เราจะ Decrypt ก็คือไฟล์ที่อยู่ใน storage นั่นเอง
+/opt/vault/core/_recovery-key
+จากไฟล์ _recovery-key เราใช้ jq ดึงเฉพาะ .Value และ Encode ด้วย Basd64
+sudo cat /opt/vault/core/_recovery-key
+| jq -r .Value | base64 -d > key.enc
+จากนั้น go run โดยใส่ parameter ค่าที่ได้จาก _recovery-key, ระบุจำนวน shares และ threshold เพื่อใช้ในการสร้าง portions ของ SSS โดยแต่ละครั้งอาจได้ SSS portion ต่างกัน และยังต้องระบุ AWSKMS_WRAPPER_KEY_ID เพื่อใช้ decrypt
+go run main.go -enc-key key.enc -env awskms -shamir-shares 5 -shamir-threshold 3
+ตอนนี้เราก็สามารถเรียกใช้ vault operator ที่ต้องใช้ Recovery key portion ได้แล้ว
+ทำการ Rekey
+vault operator rekey \
+-target=recovery \
+-init \
+-key-shares=5 \
+-key-threshold=3
+ทั้งนี้ หากใช้ Recovery Key portion ที่มาจาก SSS คนละชุดกัน จะใช้รวมกันสร้าง Recovery Key ไม่ได้
+เราลองมาสร้าง root token ใหม่ แต่ใช้ Recovery Key portion เก่า (ก่อน rekey)
+sukkarin@ubuntu:~$ vault operator generate-root -init
+A One-Time-Password has been generated for you and is shown in the OTP field.
+You will need this value to decode the resulting root token, so keep it safe.
+Nonce
+7d60070e-32c3-a3c0-eaa8-758992802f1a
+Started
+true
+Progress
+0/3
+Complete
+false
+OTP
+oS2IqxJ06xhPrv5yms6WP7dpwY6B
+OTP Length
+28
+Enter fullscreen mode
+Exit fullscreen mode
+พบว่า rekey สำเร็จ เพราะ Recovery Key portion เก่า เมื่อประกอบร่างกันแล้วไม่ตรง
+ทดสอบใช้ Recovery Key ตัวใหม่ สร้าง root token จะได้ Encoded Token มา
+นำ Encoded Token ไป Decode ด้วย NONCE_OTP ที่ได้ตอน init กระบวนการ generate-root
+ทดสอบ new root token login successfully
+เสร็จจากเคสแล้วลองหาข้อมูลเพิ่ม ในมุมที่เราเห็น Solution แล้ว พบว่าการลงลึกๆยังคงขาดแคลน ขอฝากไว้ต่อยอดการ Integrate กับ Kubernetes Secrets ด้วยครับ
+ตอนที่ทำ wrapper.Decrypt แนะนำเรียกใช้จาก Library เพราะบรรทัดเดียว สะดวกและเห็นผลกระทบสิ่งที่ทำอยู่ได้ชัดเจน
+หากไม่อยากเขียนเอง มี Community แชร์โค้ดไว้ สำหรับ go run (as your own risk ควรตรวจสอบโค้ดก่อนรัน) และไม่แนะนำให้รัน Binary โดยตรง
+Conclusion & Future plan
+ด้วยหลักการของ Shamir's secret sharing (SSS) ถ้าเรามี Secret เราสามารถสร้าง (SSS) ใหม่ได้หลายชุด ทำให้เราสามารถใช้งาน Vault Operator ที่ Require Recovery Key portion ได้นั่นเอง
+ใน Community มีการพูดถึงประเด็นต้องการให้ Recovery Key สามารถ Unseal ได้ด้วย แต่ในเมื่อปัจจุบันยังไม่เปิดให้ทำได้ จึงแนะนำให้ใช้ Bring your own key เพื่อจะได้มี Key สำรองใช้งานเป็น Auto unseal ได้ กรณีตัว Auto unseal หลักเกิดปัญหา
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+terngr
+Follow
+Joined
+Oct 17, 2020
+More from terngr
+Recursion in Terraform, with example
+#terraform
+#hashicorp
+#recursion
+#loop
+จัดการ Azure Key Vaults ด้วย HashiCorp Vault KMS
+#hashicorp
+#vault
+#azure
+#keyvault
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,653 @@
+/etc/modprobe.d/nvidia.conf · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+denji/01-nvidia.conf
+Last active
+September 19, 2025 12:17
+Show Gist options
+Download ZIP
+Star
+6
+(6)
+You must be signed in to star a gist
+Fork
+2
+(2)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/denji/52b9b0980ef3dadde0ff3d3ccf74a2a6.js&quot;&gt;&lt;/script&gt;
+Save denji/52b9b0980ef3dadde0ff3d3ccf74a2a6 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+53
+Stars
+6
+Forks
+2
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/denji/52b9b0980ef3dadde0ff3d3ccf74a2a6.js&quot;&gt;&lt;/script&gt;
+Save denji/52b9b0980ef3dadde0ff3d3ccf74a2a6 to your computer and use it in GitHub Desktop.
+Download ZIP
+/etc/modprobe.d/nvidia.conf
+Raw
+01-nvidia.conf
+# /etc/modprobe.d/nvidia.conf
+# NVIDIA Linux modprobe.d Configuration
+#
+# Memory and Performance Enhancements:
+#
+#
+- NVreg_UsePageAttributeTable=1 (Default: 0)
+#
+Activates the Page Attribute Table (PAT) for improved memory management.
+#
+PAT creates a partition table at a fixed register-mapped address, potentially enhancing CPU performance.
+#
+#
+- NVreg_InitializeSystemMemoryAllocations=0 (Default: 1)
+#
+Disables clearing system memory before GPU use to boost performance (at a potential security cost).
+#
+Recommended for KDE 6 + Wayland users to prevent issues when waking from sleep.
+#
+Symptoms of issues with the default setting (1):
+#
+- Black screen or freeze after sleep resume
+#
+- Flickering or graphical glitches
+#
+- Unexpected session restarts
+#
+To disable memory clearing, add the following to /etc/modprobe.d/nvidia.conf:
+#
+options nvidia NVreg_InitializeSystemMemoryAllocations=0
+#
+# PCIe & Display:
+#
+#
+- NVreg_EnablePCIeGen3
+#
+0 - Gen3 is disabled. Gen2 is used.
+#
+1 - Enable Gen3 if the driver considers it safe (default behavior).
+#
+2 - Same as 1 (legacy behavior).
+#
+3 - Force Gen3, even if the driver considers the system potentially unstable with Gen3. Used to override safety checks.
+#
+Enables PCIe Gen 3 support for compatible graphics cards, unlocking high-speed 8 GT/s transfers.
+#
+(The driver defaults to PCIe Gen 2.x for broader compatibility.)
+#
+#
+- nvidia_drm.modeset=1 (Default: 0)
+#
+Enables modesetting support, which is critical for Wayland compatibility and proper PRIME Offload operation.
+#
+# GPUDirect & Advanced Operations:
+#
+#
+- NVreg_EnableGpuFirmware
+#
+Some GPUs include a GPU System Processor (GSP) which can be used to offload GPU initialization and management tasks.
+#
+This processor is driven by firmware files distributed with the driver.
+#
+The GSP firmware is used by default on GPUs which support it.
+#
+Offloading tasks which were traditionally performed by the driver on the CPU can improve performance
+#
+due to lower latency access to GPU hardware internals.
+#
+#
+https://download.nvidia.com/XFree86/Linux-x86_64/570.144/README/gsp.html
+#
+https://www.reddit.com/r/linux_gaming/comments/1ecyo8y/is_disabling_gsp_still_ideal_for_nvidia_cards_on/
+#
+https://forums.developer.nvidia.com/t/306019
+#
+https://forums.developer.nvidia.com/t/298694
+#
+#
+- NVreg_EnableResizableBar
+#
+Activates Resizable BAR support, allowing the GPU to access larger contiguous regions of system memory,
+#
+which can enhance GPUDirect RDMA performance.
+#
+#
+- NVreg_EnableStreamMemOPs=1 (Default: 0)
+#
+Enables CUDA Stream Memory Operations in user-mode applications.
+#
+Requires nvidia.ko version 510.40.3 or later and must be loaded with:
+#
+NVreg_RegistryDwords="PeerMappingOverride=1;"
+#
+More details: https://docs.nvidia.com/nvshmem/release-notes-install-guide/install-guide/abstract.html
+#
+# Device File Permission Settings:
+#
+#
+- NVreg_DeviceFileUID
+#
+Specifies the user ID for NVIDIA device nodes (e.g., /dev/nvidia0) to control file ownership.
+#
+#
+- NVreg_DeviceFileGID
+#
+Specifies the group ID for NVIDIA device nodes to facilitate group-based access control.
+#
+#
+- NVreg_DeviceFileMode
+#
+Sets the permission bits (read/write/execute) for NVIDIA device nodes.
+#
+# Registry Overrides and Resource Manager Tweaks:
+#
+#
+- NVreg_RegistryDwords
+#
+#
+Allows internal driver settings to be overridden via a comma-separated list of key–value pairs.
+#
+Usage: `options nvidia NVreg_RegistryDwords="<key1>=<value1>;<key2>=<value2>;..."`
+#
+Common keys include:
+#
+#
+- RMIntrLockingMode (if available, Default: 0)
+#
+An experimental setting to improve frame-pacing this mainly improves it for high refresh rate
+#
+particularly in PRIME configurations where the dGPU drives an external monitor with VRR or VR headsets.
+#
+#
+For example: At 240Hz each frame is expected every 4ms. But if a 1ms
+#
+task—say, in the kernel or on the GSP — runs when a frame is about to be
+#
+displayed, it can delay the rendering. Instead of a neat sequence at T+4ms,
+#
+T+8ms, T+12ms, the frames might appear at T+4ms, T+9ms, T+12ms, etc. This
+#
+shows how even small delays can shift frame timing, potentially impacting
+#
+smooth display output.
+#
+#
+Usage: `options nvidia NVreg_RegistryDwords="RMIntrLockingMode=1;"`
+#
+Default: `0`
+#
+Note: This setting is experimental and may not be suitable for all systems.
+#
+#
+- PeerMappingOverride=1
+#
+Forces specific peer memory mapping behavior required for GPUDirect Async support.
+#
+#
+- NVreg_RMFailAllocCount (if available)
+#
+Sets the number of retry attempts for memory allocation failures in the resource manager.
+#
+#
+- NVreg_RMFailAllocTimeout (if available)
+#
+Specifies the timeout duration for resource manager memory allocation attempts.
+#
+#
+- RMUseSwI2c (if available)
+#
+Enables software-based I2C implementation.
+#
+Usage: `options nvidia NVreg_RegistryDwords="RMUseSwI2c=0x01;"`
+#
+Default: `0`
+#
+Note: Useful for systems where hardware I2C support is unreliable
+#
+Reference: https://www.ddcutil.com/nvidia/
+#
+#
+- RMI2cSpeed (if available)
+#
+Sets the speed of the I2C bus in kHz.
+#
+Usage: `options nvidia NVreg_RegistryDwords="RMI2cSpeed=100;"`
+#
+Default: Driver-determined
+#
+Note: Adjusting this can help with monitor communication issues.
+#
+Reference: https://www.ddcutil.com/nvidia/
+#
+#
+- OverrideMaxPerf (if available)
+#
+Forces the GPU to operate at a specific performance level.
+#
+Usage: `options nvidia NVreg_RegistryDwords="OverrideMaxPerf=0x1;"`
+#
+Default: `0`
+#
+Note: Setting this to `0x1` can force maximum power-saving mode.
+#
+Reference: https://forums.developer.nvidia.com/t/145573
+#
+#
+- PowerMizerEnable (if available)
+#
+Controls the enabling of PowerMizer, NVIDIA's dynamic performance and power management technology.
+#
+Usage: `options nvidia NVreg_RegistryDwords="PowerMizerEnable=0x1;"`
+#
+Default: `1`
+#
+Note: As of driver version 530.41.03, this functionality may have been removed.
+#
+Reference: https://forums.developer.nvidia.com/t/247610
+#
+#
+- PerfLevelSrc (if available)
+#
+Determines the source of performance level decisions.
+#
+Usage: `options nvidia NVreg_RegistryDwords="PerfLevelSrc=0x3333;"`
+#
+Default: Driver-determined
+#
+Note: Often used in conjunction with `PowerMizerEnable` to control performance levels.
+#
+Reference: https://forums.developer.nvidia.com/t/145573
+#
+# Additional Power Management and Stability Options:
+#
+#
+- NVreg_DynamicPowerManagement (if available)
+#
+Configures the NVIDIA driver's runtime power management behavior, allowing the GPU to enter low-power states when idle. This can enhance power efficiency, particularly on laptops and hybrid graphics systems.
+#
+Available settings:
+#
+* `0x00` (Default on unsupported systems):
+#
+Disables runtime D3 (RTD3) power management. The GPU remains fully powered, relying solely on its internal power-saving mechanisms. This setting ensures maximum compatibility but may lead to higher power consumption.
+#
+* `0x01` (Coarse-Grained Power Control):
+#
+Enables the GPU to transition to its lowest power state when no applications are utilizing the NVIDIA driver stack. The GPU returns to an active state upon application demand. This mode offers basic power savings without active monitoring.
+#
+* `0x02` (Fine-Grained Power Control):
+#
+Extends the behavior of `0x01` by actively monitoring GPU usage. If the GPU remains idle for a short duration, it is powered down even if applications are running. The GPU is reactivated upon usage. Note: If the GPU is driving a display or a CUDA application is running, it will remain active unless additional configurations (e.g., enabling `HardDPMS`) are applied.
+#
+Usage: `options nvidia NVreg_DynamicPowerManagement=0x02`
+#
+Reference: https://download.nvidia.com/XFree86/Linux-x86_64/570.144/README/dynamicpowermanagement.html
+#
+#
+- NVreg_UseFBDefExclusionArea (if available)
+#
+Reserves an exclusion area for the framebuffer to prevent conflicts with system memory mappings,
+#
+thereby enhancing system stability.
+#
+# General Notes:
+#
+#
+- Some options are experimental or reserved for internal testing; defaults may vary between proprietary drivers
+#
+(e.g., 570.124.04) and open kernel modules.
+#
+- Changing these settings can improve performance or unlock additional features but may also introduce
+#
+stability or security risks if misconfigured.
+#
+- Always refer to the latest NVIDIA documentation and header files for up-to-date details:
+#
+• Open NVIDIA nv-reg.h:
+#
+https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/kernel-open/nvidia/nv-reg.h
+#
+• Proprietary nv-reg.h (e.g., /usr/src/nvidia-570.124.04/nvidia/nv-reg.h)
+#
+• Open NVIDIA nvrm_registry.h:
+#
+https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/nvidia/interface/nvrm_registry.h
+#
+# Links:
+#
+#
+- https://wiki.archlinux.org/title/NVIDIA
+#
+- https://wiki.archlinux.org/title/NVIDIA/Troubleshooting
+#
+- https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks
+#
+- https://forums.developer.nvidia.com/t/does-modprobe-d-nvidia-conf-nvreg-enablestreammemops-need-to-be-set-for-gpudirect-to-work/79511
+#
+- https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/nvidia/interface/nvrm_registry.h
+#
+- Requires nvidia.ko >= 510.40.3 loaded with PeerMappingOverride=1. https://docs.nvidia.com/nvshmem/install-guide/index.html
+#
+- https://wiki.gentoo.org/wiki/NVIDIA/nvidia-drivers/en
+#
+- https://github.com/ventureoo/nvidia-tweaks
+#
+- https://nvdam.widen.net/s/k8vrp9xkft/tech-overview-magnum-io-1790750-r5-web
+#
+- https://developer.download.nvidia.com/devzone/devcenter/cuda/docs/GPUDirect_Technology_Overview.pdf
+#
+- https://docs.nvidia.com/nvshmem/pdf/NVSHMEM-Installation-Guide.pdf
+#
+- https://github.com/CachyOS/CachyOS-Settings/blob/master/usr/lib/modprobe.d/nvidia.conf
+#
+- https://download.nvidia.com/XFree86/Linux-x86_64/570.144/README/procinterface.html
+# modules verbose options:
+# nvidia-settings -q all -t
+# cat /proc/driver/nvidia/params
+# cat /proc/driver/nvidia/version
+# cat /proc/driver/nvidia/gpus/*/power
+# cat /proc/driver/nvidia/gpus/*/information
+# modinfo nvidia nvidia_drm nvidia_uvm nvidia_modeset nvidia_peermem typec_nvidia nvidia_wmi_ec_backlight i2c_nvidia_gpu
+# sudo systool -m nvidia_drm -v
+# sudo systool -m nvidia_uvm -v
+# sudo systool -m nvidia_modeset -v
+# sudo systool -m nvidia_peermem -v
+# blacklist nouveau
+#NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"
+#options nvidia \
+#
+NVreg_EnablePCIeGen3=1 \
+#
+NVreg_UsePageAttributeTable=1 \
+#
+NVreg_PreserveVideoMemoryAllocations=1 \
+#
+NVreg_OpenRmEnableUnsupportedGpus=1 \
+#
+NVreg_EnableResizableBar=1 \
+#
+NVreg_EnableGpuFirmware=1 \
+#
+NVreg_RegistryDwords="RMIntrLockingMode=1;"
+# NVreg_DynamicPowerManagement (/lib/udev/rules.d/80-nvidia-pm.rules)
+#
+- https://download.nvidia.com/XFree86/Linux-x86_64/570.144/README/dynamicpowermanagement.html#AutomatedSetup803b0
+options nvidia \
+NVreg_UsePageAttributeTable=1 \
+NVreg_DynamicPowerManagement=0x02 \
+NVreg_RegistryDwords="RMIntrLockingMode=1;" \
+NVreg_EnableGpuFirmware=0
+# options nvidia_drm modeset=1 fbdev=1
+options nvidia_drm modeset=1
+blacklist i2c_nvidia_gpu
+Raw
+02-environment
+###############################################################################
+# /etc/environment
+#
+# To reload the Wayland environment, run:
+#
+kwin_wayland --replace
+#
+env KEY=VAL KEY2=VAL2 ... kwin_wayland --replace
+###############################################################################
+###############################################################################
+# Vendor / Graphics Driver Settings
+###############################################################################
+# __GL_VRR_ALLOWED
+# Enables Variable Refresh Rate (VRR) support for NVIDIA drivers.
+# Set to 1 to allow VRR for smoother display output on compatible monitors.
+#__GL_VRR_ALLOWED=1
+# __GL_GSYNC_ALLOWED
+# Enables NVIDIA G-SYNC functionality for supported displays.
+# Set to 1 to allow G-SYNC for reduced screen tearing.
+#__GL_GSYNC_ALLOWED=1
+# __GL_SYNC_TO_VBLANK
+# Synchronizes OpenGL rendering with the display’s vertical blank.
+# Set to 1 to enable vertical synchronization (vsync) and minimize tearing.
+#__GL_SYNC_TO_VBLANK=1
+# __GL_THREADED_OPTIMIZATIONS
+# Enables threaded optimizations in OpenGL.
+# Set to 1 to allow multi-threaded improvements in rendering performance.
+#__GL_THREADED_OPTIMIZATIONS=1
+# __GL_YIELD
+# Controls whether OpenGL should yield processing time to other threads.
+# Set to 1 to yield processor time during intensive rendering.
+#__GL_YIELD=1
+# __GLX_VENDOR_LIBRARY_NAME
+# Specifies the vendor library to use for GLX.
+# This variable is used to select the appropriate graphics driver.
+# For NVIDIA proprietary drivers, set to "nvidia".
+#__GLX_VENDOR_LIBRARY_NAME=nvidia
+# LIBGL_DEBUG
+# Activates debug output for Mesa’s libGL.
+# Useful for troubleshooting OpenGL issues (e.g., set to "verbose").
+#LIBGL_DEBUG=verbose
+# MESA_DEBUG
+# Enables additional debugging output from the Mesa graphics library.
+# Set to 1 for enhanced debugging information.
+#MESA_DEBUG=1
+# MESA_NO_ERROR
+# Disables Mesa’s error checking to improve performance.
+# Set to 1 to disable error reporting (use with caution).
+#MESA_NO_ERROR=1
+# MESA_GL_VERSION_OVERRIDE
+# Overrides the OpenGL version reported by Mesa.
+# Useful for testing compatibility with specific OpenGL versions.
+#MESA_GL_VERSION_OVERRIDE=...
+# MESA_GLES_VERSION_OVERRIDE
+# Overrides the OpenGL ES version reported by Mesa.
+# Useful for compatibility testing on mobile or embedded systems.
+#MESA_GLES_VERSION_OVERRIDE=...
+# MESA_SHADER_CACHE_DISABLE
+# Disables the shader caching mechanism in Mesa.
+# Set to 1 to disable caching (typically for debugging purposes).
+#MESA_SHADER_CACHE_DISABLE=1
+# VDPAU_DRIVER
+# Specifies the VDPAU (Video Decode and Presentation API for Unix) driver to use.
+# For NVIDIA, set to "nvidia" to enable proper video decoding acceleration.
+#VDPAU_DRIVER=nvidia
+# __NV_PRIME_RENDER_OFFLOAD
+# Enables NVIDIA Prime Render Offload for offloading rendering tasks to the NVIDIA GPU.
+# Set to 1 to activate offloading for hybrid graphics configurations.
+#__NV_PRIME_RENDER_OFFLOAD=1
+###############################################################################
+# Additional OpenGL Driver Options
+###############################################################################
+# __GL_ALLOW_FXAA_USAGE
+# Allows the use of Fast Approximate Anti-Aliasing (FXAA) to smooth jagged edges.
+# Set to 1 to enable FXAA.
+#__GL_ALLOW_FXAA_USAGE=1
+# __GL_ALLOW_UNOFFICIAL_PROTOCOL
+# Allows usage of unofficial or non-standard OpenGL protocols.
+# Set to 1 to enable such protocols.
+#__GL_ALLOW_UNOFFICIAL_PROTOCOL=1
+# __GL_ConformantBlitFramebufferScissor
+# Enforces conformant scissor behavior during framebuffer blit operations.
+# Set to 1 to standardize scissor operations during blit.
+#__GL_ConformantBlitFramebufferScissor=1
+# __GL_DOOM3
+# Enables specific optimizations or compatibility features for the Doom 3 engine.
+# Set to 1 to activate Doom 3–related rendering adjustments.
+#__GL_DOOM3=1
+# __GL_ExtensionStringVersion
+# Overrides the reported version of the OpenGL extension string.
+# Useful for compatibility with applications expecting a specific extension version.
+#__GL_ExtensionStringVersion=...
+# __GL_FSAA_MODE
+# Sets the Full-Scene Anti-Aliasing (FSAA) mode for rendering.
+# Specify an integer value corresponding to the desired FSAA level.
+#__GL_FSAA_MODE=...
+# __GL_IGNORE_GLSL_EXT_REQS
+# Instructs the driver to ignore certain GLSL extension requirements.
+# Set to 1 to bypass strict GLSL extension checks.
+#__GL_IGNORE_GLSL_EXT_REQS=1
+# __GL_LOG_MAX_ANISO
+# Defines the maximum anisotropic filtering level to be logged for debugging.
+# Set a numeric value to specify the maximum anisotropy level.
+#__GL_LOG_MAX_ANISO=...
+# __GL_NO_DSO_FINALIZER
+# Disables finalization routines for dynamically loaded shared objects (DSO).
+# Set to 1 to disable finalizers when troubleshooting cleanup issues.
+#__GL_NO_DSO_FINALIZER=1
+# __GL_SELINUX_BOOLEANS
+# Configures SELinux booleans related to OpenGL driver behavior.
+# Set the appropriate booleans for your security context.
+#__GL_SELINUX_BOOLEANS=...
+# __GL_SHADER_DISK_CACHE
+# Enables or disables the use of a disk cache for compiled shaders.
+# Set to 1 to enable caching for improved shader load performance.
+#__GL_SHADER_DISK_CACHE=1
+# __GL_SHADER_DISK_CACHE_PATH
+# Specifies the file system path for storing the shader disk cache.
+# Set this to a directory where cached shaders should be stored.
+#__GL_SHADER_DISK_CACHE_PATH=/path/to/shader/cache
+# __GL_SHARPEN_ENABLE
+# Enables a sharpening filter in the OpenGL rendering pipeline.
+# Set to 1 to activate image sharpening.
+#__GL_SHARPEN_ENABLE=1
+# __GL_SHARPEN_IGNORE_FILM_GRAIN
+# Configures the sharpening filter to ignore film grain effects.
+# Set to 1 to bypass film grain during the sharpening process.
+#__GL_SHARPEN_IGNORE_FILM_GRAIN=1
+# __GL_SHARPEN_VALUE
+# Sets the intensity value for the sharpening filter.
+# Use a numeric value to define the level of sharpening applied.
+#__GL_SHARPEN_VALUE=...
+# __GL_SHOW_GRAPHICS_OSD
+# Displays an on-screen display (OSD) for graphics diagnostics and performance.
+# Set to 1 to enable the graphics OSD.
+#__GL_SHOW_GRAPHICS_OSD=1
+# __GL_SINGLE_THREADED
+# Forces OpenGL operations to run in a single-threaded mode.
+# Set to 1 to disable multi-threading, which may help in debugging.
+#__GL_SINGLE_THREADED=1
+# __GL_SORT_FBCONFIGS
+# Enables sorting of framebuffer configurations for optimal selection.
+# Set to 1 to automatically sort and choose the best framebuffer configuration.
+#__GL_SORT_FBCONFIGS=1
+# __GL_SYNC_DISPLAY_DEVICE
+# Synchronizes rendering with a specific display device.
+# Set this variable to the identifier of the target display device.
+#__GL_SYNC_DISPLAY_DEVICE=...
+# __GL_WRITE_TEXT_SECTION
+# Controls whether textual sections of shaders are written for debugging purposes.
+# Set to 1 to enable writing of shader text sections.
+#__GL_WRITE_TEXT_SECTION=1
+###############################################################################
+# Platform and Environment Settings
+###############################################################################
+# XDG_SESSION_TYPE
+# Defines the type of session (e.g., "x11" or "wayland").
+# This setting determines which window system will be used.
+#XDG_SESSION_TYPE=wayland
+# CLUTTER_BACKEND
+# Sets the backend for Clutter applications.
+# Common values include "x11" or "wayland" depending on your environment.
+#CLUTTER_BACKEND=wayland
+# GBM_BACKEND
+# Specifies the backend for the Generic Buffer Manager (GBM).
+# Used in rendering systems that support GBM.
+#GBM_BACKEND=...
+# LIBVA_DRIVER_NAME
+# Defines the driver for VA-API (Video Acceleration API) for hardware video decoding.
+# Common values might be "i965", "vaapi", or "nvidia" for NVIDIA proprietary drivers.
+#LIBVA_DRIVER_NAME=nvidia
+# QT_ENABLE_HIGHDPI_SCALING
+# Enables High DPI scaling for Qt applications.
+# Set to 1 to automatically adjust application scaling on high-resolution displays.
+QT_ENABLE_HIGHDPI_SCALING=1
+# QT_AUTO_SCREEN_SCALE_FACTOR
+# Allows Qt to automatically scale the user interface based on screen DPI.
+# Uncomment and set to 1 if you want automatic DPI adjustments.
+#QT_AUTO_SCREEN_SCALE_FACTOR=1
+# QT_SCALE_FACTOR
+# Manually sets the scaling factor for Qt applications.
+# Useful for overriding automatic scaling; default is typically 1.0.
+#QT_SCALE_FACTOR=1.0
+# QT_QPA_PLATFORM
+# Determines the Qt platform plugin to use.
+# Valid options include "xcb" for X11 and "wayland" for Wayland.
+#QT_QPA_PLATFORM=wayland
+# QT_QPA_PLATFORMTHEME
+# Sets the platform theme for Qt applications.
+# Common themes include "gtk2", "qt5ct", etc.
+QT_QPA_PLATFORMTHEME=qt5ct
+# QT_LOGGING_CONF
+# Specifies the file path for Qt’s logging configuration.
+# Use this to define custom logging settings for Qt applications.
+#QT_LOGGING_CONF=/path/to/logging.conf
+###############################################################################
+# Window Manager and Compositor Settings
+###############################################################################
+# QT_XCB_NO_COMPOSITE
+# Disables Qt’s internal compositing on XCB (X11).
+# Set to 1 if you want to force the use of an external compositor.
+#QT_XCB_NO_COMPOSITE=1
+# QT_WAYLAND_DISABLE_WINDOWDECORATION
+# Disables Qt’s internal window decorations under Wayland.
+# This allows the compositor (e.g., KWin) to manage window borders and title bars.
+QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+# KWIN_X11_FORCE_SOFTWARE_VSYNC
+# Forces KWin to use software vsync on X11.
+# Useful for testing or when hardware vsync causes issues.
+#KWIN_X11_FORCE_SOFTWARE_VSYNC=1
+# KWIN_X11_REFRESH_RATE
+# Specifies the refresh rate (in Hz) for KWin on X11.
+# Define your display's refresh rate here (e.g., 60, 144).
+#KWIN_X11_REFRESH_RATE=60
+# KWIN_TRIPLE_BUFFER
+# Enables triple buffering in KWin.
+# Triple buffering may smooth display output at the cost of increased latency.
+#KWIN_TRIPLE_BUFFER=1
+# KWIN_DRM_NO_AMS
+# Disables Atomic Modesetting (AMS) in KWin's DRM backend.
+# Use this setting to troubleshoot display issues on some hardware configurations.
+#KWIN_DRM_NO_AMS=1
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

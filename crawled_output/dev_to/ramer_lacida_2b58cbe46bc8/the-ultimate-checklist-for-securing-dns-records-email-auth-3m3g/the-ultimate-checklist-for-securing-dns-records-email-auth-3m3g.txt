@@ -1,0 +1,230 @@
+The Ultimate Checklist for Securing DNS Records & Email Auth - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ramer Lacida
+Posted on Sep 19
+The Ultimate Checklist for Securing DNS Records & Email Auth
+#dns
+#security
+#devops
+Introduction
+A mis‑configured DNS zone can expose your brand to phishing, spam abuse, and even downtime. As a DevOps lead, you’re probably juggling CI pipelines, monitoring dashboards, and a growing list of services. This checklist gives you a practical, step‑by‑step way to lock down the most common attack surfaces in DNS and email authentication – all without breaking your existing workflow.
+1️⃣ Verify Core DNS Records
+Before you dive into security extensions, make sure the basics are solid.
+A / AAAA records – Point to the correct IPs, and avoid CNAME chains that increase latency.
+CNAME flattening – If your provider supports it, use flattening for apex domains to reduce extra lookups.
+MX records – Ensure they reference only mail servers you control.
+NS records – Keep them limited to the authoritative name servers you actually run.
+TTL values – Set a low TTL (300–600 seconds) during changes, then raise to 1 hour or more for stability.
+2️⃣ Harden Email with SPF, DKIM, and DMARC
+These three records work together to prove that your domain is the legitimate sender of email.
+SPF (Sender Policy Framework)
+Create a TXT record that lists every server allowed to send mail on behalf of your domain.
+example.com.
+IN
+TXT
+"v=spf1 ip4:192.0.2.0/24 include:_spf.google.com -all"
+Enter fullscreen mode
+Exit fullscreen mode
+ip4/ip6 – List your own mail server ranges.
+include – Pull in third‑party services (Gmail, SendGrid, etc.).
+-all – Hard‑fail any unauthorized sender.
+DKIM (DomainKeys Identified Mail)
+Generate a public/private key pair and publish the public key as a TXT record.
+default._domainkey.example.com.
+IN
+TXT
+"v=DKIM1; k=rsa; p=MIIBIjANBgkqh..."
+Enter fullscreen mode
+Exit fullscreen mode
+Rotate keys every 6‑12 months.
+Align the selector (default above) with your mail server configuration.
+DMARC (Domain-based Message Authentication, Reporting & Conformance)
+DMARC tells receiving servers what to do when SPF or DKIM fail, and where to send aggregate reports.
+_dmarc.example.com.
+IN
+TXT
+"v=DMARC1; p=reject; rua=mailto:dmarc-reports@example.com; ruf=mailto:forensic@example.com; fo=1"
+Enter fullscreen mode
+Exit fullscreen mode
+p=reject – Instruct receivers to discard unauthenticated mail.
+rua / ruf – Collect daily reports to monitor abuse.
+Start with p=none for monitoring, then move to quarantine and finally reject.
+3️⃣ Deploy DNSSEC
+DNSSEC adds a cryptographic signature to each DNS response, preventing cache poisoning.
+Generate ZSK and KSK keys on your authoritative server (BIND, PowerDNS, etc.).
+Sign the zone and publish the DS record at your registrar.
+Enable DNSSEC validation on recursive resolvers (e.g., Unbound, Cloudflare DNS).
+# Example with BIND
+dnssec-keygen -a RSASHA256 -b 2048 -n ZONE example.com
+dnssec-signzone -o example.com -k Kexample.com.+005+12345 example.com.zone
+Enter fullscreen mode
+Exit fullscreen mode
+Rotate keys annually.
+Verify signatures with dig +dnssec example.com.
+4️⃣ Add CAA Records to Prevent Unauthorized Certificate Issuance
+Certification Authority Authorization (CAA) tells CAs which ones are allowed to issue certs for your domain.
+example.com.
+IN
+CAA
+0 issue "letsencrypt.org"
+example.com.
+IN
+CAA
+0 issuewild ";"
+Enter fullscreen mode
+Exit fullscreen mode
+Use issue for normal certificates.
+Use issuewild "" to block wildcard certs unless explicitly allowed.
+Add iodef tags to receive violation reports.
+5️⃣ Harden the Resolver Layer
+Even if your authoritative zone is locked down, a permissive resolver can leak information.
+Enable DNS over TLS (DoT) or DNS over HTTPS (DoH) on your recursive servers.
+Rate‑limit queries to mitigate amplification attacks (rate-limit in BIND).
+Block public resolvers from querying internal zones using allow-query ACLs.
+options {
+rate-limit {
+responses-per-second 5;
+window 5;
+};
+allow-query { trusted; };
+listen-on { 127.0.0.1; };
+};
+Enter fullscreen mode
+Exit fullscreen mode
+6️⃣ Continuous Monitoring & Alerting
+Automation is key. Integrate DNS checks into your CI/CD pipeline.
+Health checks – Use dig +short @ns1.example.com example.com in a cron job.
+Expiry alerts – Tools like certbot can also warn when DNSSEC keys are near rotation.
+Log analysis – Forward BIND logs to a SIEM (e.g., Elastic Stack) and set alerts for NXDOMAIN spikes.
+7️⃣ Backup & Disaster Recovery
+Never assume a zone file is immutable.
+Store signed zone files in version‑controlled storage (Git).
+Keep encrypted snapshots of your DNS server configuration.
+Test restoration by loading the zone on a staging resolver before a real incident.
+Final Thoughts
+Securing DNS and email authentication is a marathon, not a sprint. By following this checklist you’ll dramatically reduce the risk of spoofing, phishing, and DNS‑based attacks while keeping your infrastructure observable and recoverable. For teams that need a partner to review their DNS hardening strategy or provide on‑demand expertise, consider checking out https://lacidaweb.com for a low‑friction consultation.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Ramer Lacida
+Follow
+Joined
+Sep 19, 2025
+More from Ramer Lacida
+Security Hardening for Nginx: TLS, Firewalls, and Fail2Ban Basics
+#security
+#linux
+#devops
+The Ultimate Checklist for Building a Secure Docker CI/CD Pipeline
+#devops
+#linux
+#security
+#performance
+The Ultimate Checklist for Zero‑Downtime Deploys with Docker & Nginx
+#cloud
+#devops
+#performance
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

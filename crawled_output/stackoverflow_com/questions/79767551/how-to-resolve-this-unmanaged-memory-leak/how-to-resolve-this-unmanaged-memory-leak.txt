@@ -1,0 +1,463 @@
+c# - How to resolve this unmanaged memory leak? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to resolve this unmanaged memory leak? [closed]
+Ask Question
+Asked
+2 days ago
+Modified
+today
+Viewed
+116 times
+-9
+Closed. This question needs debugging details. It is not currently accepting answers.
+Edit the question to include desired behavior, a specific problem or error, and the shortest code necessary to reproduce the problem. This will help others answer the question.
+Closed 2 days ago.
+This post was edited and submitted for review 2 days ago and failed to reopen the post:
+Original close reason(s) were not resolved
+Improve this question
+I've written a small mpv renderer for Avalonia using OpenGL.
+So far everything seems to work except when I'm done and call dispose almost no memory involved with the renderer is released even though I destroy the native pointers in a safe way.
+public class MpvPlayer : IDisposable
+{
+private nint _mpvContext = nint.Zero;
+private bool _disposed = false;
+private MpvWakeupCallback? _wakeupCallback;
+private MpvOpenglGetProcAddressCallback? _procAddressCallback;
+private MpvRenderUpdateFn? _renderUpdateCallback;
+private AutoResetEvent _eventSignal = new(false);
+private Task? _backgroundWorkerTask = null;
+private CancellationTokenSource _backgroundWorkerCancellationTokenSource = new();
+internal event Action? OnRenderRequested;
+internal GlInterface? _glInterface = null;
+internal MediaControl? _mediaControl = null;
+internal nint _mpvRenderContext = nint.Zero;
+internal ConcurrentQueue<CustomEventType> _eventQueue = new();
+private readonly Dictionary<string, (object, MpvFormat)> _mpvPropertyChangeEvents = new();
+public void Dispose()
+{
+Dispose(true);
+GC.SuppressFinalize(this);
+}
+//initialise MPV
+internal void Initialise()
+{
+if (_glInterface is null) { throw new Exception("OpenGL interface was null. Did you bind MpvPlayer to a MediaControl?"); }
+var mpv = mpv_create();
+_mpvContext = mpv;
+if (mpv == nint.Zero)
+{
+throw new Exception("Failed to create mpv context");
+}
+mpv_set_option_string(mpv, "vo", "libmpv");
+if (mpv_initialize(mpv) < 0)
+{
+Console.WriteLine("MPV failed to init");
+}
+mpv_request_log_messages(mpv, "debug");
+_procAddressCallback = GetProcAddress;
+var initParams = new MpvOpenglInitParams
+{
+get_proc_address = Marshal.GetFunctionPointerForDelegate(_procAddressCallback),
+get_proc_address_ctx = nint.Zero,
+};
+var enableAdvancedControl = 1;
+byte[] managedParamApiType = Encoding.UTF8.GetBytes("opengl" + "\0");
+unsafe
+{
+fixed (byte* paramApiType = managedParamApiType)
+{
+MpvRenderParam[] renderParams = {
+new(){
+type = mpv_render_param_type.MPV_RENDER_PARAM_API_TYPE, data = (void*)paramApiType,
+},
+new() {
+type = mpv_render_param_type.MPV_RENDER_PARAM_OPENGL_INIT_PARAMS , data = &initParams
+},
+new() {
+type = mpv_render_param_type.MPV_RENDER_PARAM_ADVANCED_CONTROL ,
+data = &enableAdvancedControl
+},
+new()
+};
+fixed (MpvRenderParam* ParamPtr = &renderParams[0])
+{
+nint mpv_gl;
+int status = mpv_render_context_create(
+out mpv_gl,
+mpv,
+ParamPtr
+);
+_mpvRenderContext = mpv_gl;
+_wakeupCallback = MpvEvent;
+_renderUpdateCallback = MpvRenderUpdate;
+mpv_set_wakeup_callback(mpv, Marshal.GetFunctionPointerForDelegate(_wakeupCallback), nint.Zero);
+mpv_render_context_set_update_callback(mpv_gl, Marshal.GetFunctionPointerForDelegate(_renderUpdateCallback), nint.Zero);
+}
+}
+}
+//Start the background worker
+_backgroundWorkerTask = Task.Run(() => BackgroundWorker(_backgroundWorkerCancellationTokenSource.Token));
+}
+//mpv event callback
+private void MpvEvent(nint data)
+{
+Dispatcher.UIThread.Post(() =>
+{
+_eventSignal.Set();
+_eventQueue.Enqueue(CustomEventType.Wakeup);
+});
+}
+//mpv render callback
+private void MpvRenderUpdate(nint data)
+{
+Dispatcher.UIThread.Post(() =>
+{
+_eventSignal.Set();
+_eventQueue.Enqueue(CustomEventType.Render);
+});
+}
+//get gl procedure address
+private nint GetProcAddress(nint fn_ctx, [MarshalAs(UnmanagedType.LPStr)] string name)
+{
+//this should not be null
+return _glInterface!.GetProcAddress(name);
+}
+//main event loop inspired by the sdl gl example in mpv-examples
+private void BackgroundWorker(CancellationToken ctx)
+{
+while (true)
+{
+bool redraw = false;
+_eventSignal.WaitOne();
+if (ctx.IsCancellationRequested) return;
+CustomEventType _ev;
+while (_eventQueue.TryDequeue(out _ev))
+{
+if (ctx.IsCancellationRequested) return;
+switch (_ev)
+{
+case CustomEventType.Wakeup:
+Dispatcher.UIThread.Post(() =>
+{
+while (true)
+{
+if (_mpvContext.isNullPtr()) continue;
+nint evPtr = mpv_wait_event(_mpvContext, 0.0);
+if (evPtr == nint.Zero) break;
+MpvEvent ev = Marshal.PtrToStructure<MpvEvent>(evPtr);
+if (ev.event_id == MpvEventId.MPV_EVENT_NONE) break;
+if (ev.event_id == MpvEventId.MPV_EVENT_PROPERTY_CHANGE)
+{
+var prop = Marshal.PtrToStructure<MpvEventProperty>(ev.data);
+var name = Marshal.PtrToStringAnsi(prop.name);
+if (name is null) continue;
+if (prop.data == nint.Zero) continue;
+if (_mpvPropertyChangeEvents.TryGetValue(name, out (object ev, MpvFormat format) _data))
+{
+switch (_data.format)
+{
+case MpvFormat.MPV_FORMAT_DOUBLE:
+{
+if (_data.ev is EventSource<double> eventSource)
+{
+var value = Marshal.PtrToStructure<double>(prop.data);
+eventSource.Raise(this, value);
+}
+break;
+}
+case MpvFormat.MPV_FORMAT_FLAG:
+{
+if (_data.ev is EventSource<int> eventSource)
+{
+var value = Marshal.PtrToStructure<int>(prop.data);
+eventSource.Raise(this, value);
+}
+break;
+}
+}
+}
+}
+}
+});
+break;
+case CustomEventType.Render:
+if (_mpvRenderContext.isNullPtr()) continue;
+var flags = mpv_render_context_update(_mpvRenderContext);
+if ((flags & (1 << 0)) != 0)
+{
+redraw = true;
+}
+break;
+}
+}
+if (redraw)
+{
+if (ctx.IsCancellationRequested) return;
+//trigger render here
+Dispatcher.UIThread.Post(() =>
+{
+_mediaControl?.TriggerRender();
+});
+}
+}
+}
+//dispose
+protected virtual void Dispose(bool disposing)
+{
+if (!_disposed)
+{
+if (disposing)
+{
+}
+mpv_set_wakeup_callback(_mpvContext, nint.Zero, nint.Zero);
+if (!_mpvRenderContext.isNullPtr())
+mpv_render_context_set_update_callback(_mpvRenderContext, nint.Zero, nint.Zero);
+foreach (var p in _mpvPropertyChangeEvents.Values)
+{
+if (p.Item1 is IDisposable disposable) disposable.Dispose();
+}
+_mpvPropertyChangeEvents.Clear();
+mpv_unobserve_property(_mpvContext, 0);
+_backgroundWorkerCancellationTokenSource.Cancel();
+_eventSignal.Set();
+_backgroundWorkerTask?.Wait(300);
+_mpvPropertyChangeEvents.Clear();
+if (!_mpvRenderContext.isNullPtr())
+{
+mpv_render_context_free(_mpvRenderContext);
+_mpvRenderContext = nint.Zero;
+}
+if (!_mpvContext.isNullPtr())
+{
+mpv_destroy(_mpvContext);
+_mpvContext = nint.Zero;
+}
+_disposed = true;
+}
+}
+}
+I also have a reproducible sample at : https://www.github.com/saverinonrails/avaloniampv
+I believe there is a leak because after manually calling Dispose(), say at a button click, I expect memory usage to fall substantially, to about where it was before we ran initialise(), but this is not the case.
+c#openglmemory-leakspinvokeavaloniaui
+Share
+Improve this question
+Follow
+edited 11 hours ago
+TankorSmash
+12.8k66 gold badges7070 silver badges108108 bronze badges
+asked 2 days ago
+Noble EugeneNoble Eugene
+73922 gold badges77 silver badges2121 bronze badges
+11
+2
+That's quite a lot of code. Reducing it to a minimal reproducible example will help us help you.
+wohlstad
+–
+wohlstad
+2025-09-17 15:47:07 +00:00
+Commented
+2 days ago
+I understand @wohlstad, I just didn't want to leave anything off incase that was the source of the leak. I'll try to reduce it. There's also a runnable sample at github.com/saverinonrails/avaloniampv if I'm allowed to link that
+Noble Eugene
+–
+Noble Eugene
+2025-09-17 15:55:14 +00:00
+Commented
+2 days ago
+1
+Posting a github link is ok as long as the sample behind is simple enough, but you really want to explain how do you see a leak (conditions, tests, etc.), maybe in another question
+Simon Mourier
+–
+Simon Mourier
+2025-09-17 16:49:01 +00:00
+Commented
+2 days ago
+3
+Your MRE needs to be included as text formatted in a code block in your post, not a link in a comment.
+Please remove the code dump and replace it with your MRE.
+Then also provide details that lead you to believe there's a memory leak.
+You say memory is not released, but we need to know exactly what steps you're taking to come to that conclusion so we're able to reproduce the problem.
+devlin carnate
+–
+devlin carnate
+2025-09-17 16:49:16 +00:00
+Commented
+2 days ago
+You're looping, queueing and dequeueing. I don't know where "dispose" is "called" (if ever), but you can count and see if your queue is running away.
+Gerry Schmitz
+–
+Gerry Schmitz
+2025-09-18 04:47:54 +00:00
+Commented
+yesterday
+|
+Show 6 more comments
+Related questions
+3755
+How can I create a memory leak in Java?
+4419
+How can I enumerate an enum?
+3946
+How do I cast int to enum in C#?
+Related questions
+3755
+How can I create a memory leak in Java?
+4419
+How can I enumerate an enum?
+3946
+How do I cast int to enum in C#?
+3348
+How to iterate over a dictionary?
+1304
+performSelector may cause a leak because its selector is unknown
+2135
+How do I remedy "The breakpoint will not currently be hit. No symbols have been loaded for this document." warning?
+2483
+How do I generate a random integer in C#?
+2272
+How do I calculate someone's age based on a DateTime type birthday?
+417
+possible EventEmitter memory leak detected
+2373
+How do I get a consistent byte representation of strings in C# without manually specifying an encoding?
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c#openglmemory-leakspinvokeavaloniaui
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Hot Network Questions
+Which letter is missing?
+What is the legal ramification, if any, of this traffic sign in Sofia, Bulgaria?
+Word choice errors in submitted thesis
+Is it legal to forward declare just some, but not all of the overloads?
+How does boss dialogue change if fought at max level?
+Can I ask to postpone publication after acceptance?
+New in my job, made a mistake with crediting a colleague – how should I handle this?
+What happens when a creature with the See Invisibility spell is blinded?
+Lewis & Short disagrees with Wiktionary and Latin Lexicon on vowel length?
+Can a Heavy Crossbow be used to push an opponent backwards 10 feet?
+Making `apt-get` read answers from stdin on graphical Ubuntu
+Statistics for Theoreticians
+Why does make's `dir` function add additional directories?
+How do I work around loops in GEE to get a big grid of data in space/time?
+Cannot Query MessagingSession.EndedByType via Dynamic Soql or in Apex Class
+Do you have another one in mind? If so, just post it!
+How would a Callan-Rubakov based drive work?
+How does Trump come up with the sizes of his lawsuits?
+Proof that NP is a subset of EXP
+What is the probability that a plane through three random points on the surface of the Earth intersects the Moon?
+Is there a way to name 1,4-dimethylcyclohexan-1-ol in a way that indicates the methyl groups must be cis?
+Runtime estimation in "How to factor 2048 bit RSA integers with less than a million noisy qubits"
+Where can I view the history of the texts decoded from QR codes on iOS?
+post hoc tests after running repeated measures ANOVA
+more hot questions
+lang-cs
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

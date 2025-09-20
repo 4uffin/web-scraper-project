@@ -1,0 +1,463 @@
+r - How to stream LLM responses in a Shiny app instead of waiting for full output? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to stream LLM responses in a Shiny app instead of waiting for full output?
+Ask Question
+Asked
+2 days ago
+Modified
+yesterday
+Viewed
+152 times
+Part of R Language Collective
+5
+I am creating a Shiny app in R. One of its features is to display processed text within the app, and then allow the user to click a button to send that text to an LLM (Large Language Model).
+The tricky problem I’m facing is: the LLM’s response cannot be streamed word-by-word like in most web-based AI chat interfaces. Instead, my app only shows the result once the entire output is returned.
+My question: How can I implement functionality where clicking a button sends the app’s text to the LLM, and then the response is streamed back and displayed progressively in the Shiny app (rather than waiting for the whole result)?
+Below is a simplified version of my app. If you don’t have Ollama installed locally, you can try testing with my DeepSeek key (this account still has a small remaining balance — please use sparingly).
+# My app without streaming replies
+library(shiny)
+library(ellmer)
+# An ollama model
+chat <- ellmer::chat_ollama(
+model = "gemma3:4b"
+)
+# A DeepSeek key **For testing purposes only**
+# chat <- chat_deepseek(
+#
+api_key = "API-Key-removed",
+#
+model
+= "deepseek-chat"
+# )
+ui <- fluidPage(
+uiOutput("text"),
+actionButton("ask_llm", "Ask", icon("robot")),
+uiOutput("ans")
+)
+server <- function(input, output, session) {
+sometext <- "Show me a prime number: "
+output$text <- renderUI({
+tags$pre(sometext)
+})
+# ask llm
+observeEvent(input$ask_llm, {
+res <- chat$chat(sometext)
+output$ans <- renderUI({
+HTML(commonmark::markdown_html(res))
+})
+})
+}
+shinyApp(ui, server)
+In fact, the ellmer::live_browser function already demonstrates perfect streaming output. However, its UI is fixed, and it only supports input directly through the chat window, which doesn’t meet my requirements. I also tried breaking down its code but was unsuccessful.
+As a reference, I’ve turned the core logic of live_browser into a Shiny app, and included the code below.
+# `live_browser` essentially calls `chat_app` to implement the conversation.
+# Packages
+library(shiny)
+library(shinychat)
+library(magrittr)
+# LLM model
+chat <- ellmer::chat_ollama(model = "gemma3:4b")
+# Parameters
+id <- "chat"
+placeholder <- "Enter a message..."
+width <- "min(680px, 100%)"
+height <- "auto"
+fill <- TRUE
+client_msgs <- list() #historical messages
+# Additional functions
+# From shinychat-main/pkg-r/R/chat.r and shinychat-main/pkg-r/R/zzz.r
+chat_deps <- function() {
+htmltools::htmlDependency(
+"shinychat",
+utils::packageVersion("shinychat"),
+package = "shinychat",
+src = "lib/shiny",
+script = list(
+list(src = "chat/chat.js", type = "module"),
+list(src = "markdown-stream/markdown-stream.js", type = "module")
+),
+stylesheet = c(
+"chat/chat.css",
+"markdown-stream/markdown-stream.css"
+)
+)
+}
+tag_require <- function(tag, version = 5, caller = "") {
+tag_req <- asNamespace("bslib")[["tag_require"]]
+if (!is.function(tag_req)) {
+stop("Expected tag_require() function to exist in bslib.")
+}
+tag_req(tag, version, caller)
+}
+### Create UI
+message_tags <- lapply(client_msgs, function(x) {
+role <- "assistant"
+content <- x
+if (is.list(x) && ("content" %in% names(x))) {
+content <- x[["content"]]
+role <- x[["role"]] %||% role
+}
+tag_name <- if (isTRUE(role == "user")) "shiny-user-message" else "shiny-chat-message"
+if (is.character(content)) {
+ui <- list(html = paste(content, collapse = "\n"))
+} else {
+ui <- with_current_theme(htmltools::renderTags(content))
+}
+tag(tag_name, rlang::list2(content = ui[["html"]], ui[["dependencies"]]))
+})
+res <- tag(
+"shiny-chat-container",
+rlang::list2(
+id = shiny::NS(id, "chat"),
+style = bslib::css(width = width, height = height),
+placeholder = placeholder,
+fill = if (isTRUE(fill)) NA else NULL,
+tag("shiny-chat-messages", message_tags),
+tag(
+"shiny-chat-input",
+list(
+id = paste0(shiny::NS(id, "chat"), "_user_input"),
+placeholder = placeholder
+)
+),
+chat_deps()
+)
+) %>%
+bslib::as_fill_carrier() %>%
+tag_require(version = 5, caller = "chat_ui")
+ui <- bslib::page_fillable(res)
+### Create server
+server <- function(input, output, session) {
+# asynchronous tasks
+append_stream_task <- shiny::ExtendedTask$new(
+function(client, ui_id, user_input) {
+promises::then(
+promises::promise_resolve(
+client$stream_async(user_input)
+),
+function(stream) {
+chat_append(ui_id, stream)
+}
+)
+}
+)
+# moduleServer
+shiny::moduleServer("chat", function(input, output, session) {
+shiny::observeEvent(input$chat_user_input, {
+append_stream_task$invoke(chat, "chat", input$chat_user_input)
+})
+shiny::reactive({
+if (append_stream_task$status() == "success") {
+chat$last_turn()
+}
+})
+})
+}
+# Run app
+shinyApp(ui, server)
+rshinylarge-language-model
+Share
+Improve this question
+Follow
+edited yesterday
+LIANG ChenLIANG Chen
+asked 2 days ago
+LIANG ChenLIANG Chen
+14999 bronze badges
+2
+1
+The app described here works very well. All credits to Albert. Working Code: codefile.io/f/UK6oQtNVtI. I'd suggest removing your API-key from this question, although it's still visible in the edit history. It's nice for testing but someone might abuse it.
+Tim G
+–
+Tim G
+2025-09-17 20:33:55 +00:00
+Commented
+2 days ago
+@TimG Thanks for the tutorial and app code, they gave me a clear direction to solve my issue. And thanks as well for reminding me about the API key — it was just a temporary one and I had already removed it.
+LIANG Chen
+–
+LIANG Chen
+2025-09-18 03:06:03 +00:00
+Commented
+yesterday
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+6
+You could check streaming markdown interface from {shinychat}, output_markdown_stream() + markdown_stream().
+There's a complete example for this in {ellmer}'s Streaming and async APIs Vignette (2nd code block under Shiny example, at the time of writing) which also makes use of shiny::ExtendedTask to avoid blocking other users & rest of the app.
+Here's a slightly modified version of that example for reference, for {ellmer} experiments we can use models from Github marketplace for free (API rate limits do apply) through ellmer::chat_github() . JustWorks(tm) as long as gitcreds::gitcreds_get() is able to get your GitHub personal access token, either from GITHUB_PAT env. variable or from credential store; https://usethis.r-lib.org/articles/git-credentials.html for details.
+library(shiny)
+library(bslib)
+library(ellmer)
+library(shinychat)
+ui <-
+page_fluid(
+card(
+verbatimTextOutput("text"),
+input_task_button("ask_llm", label = "Ask", icon = icon("robot")),
+shinychat::output_markdown_stream("response")
+)
+)
+server <- function(input, output) {
+sometext <- "Show me 50 prime numbers"
+output$text <- renderText(sometext)
+chat_task <- ExtendedTask$new(function(user_query) {
+chat <- chat_github(
+model = "gpt-4.1-nano"
+)
+shinychat::markdown_stream("response", chat$stream_async(user_query))
+})
+bind_task_button(chat_task, "ask_llm")
+observeEvent(input$ask_llm, {
+chat_task$invoke(sometext)
+})
+}
+shinyApp(ui = ui, server = server)
+sessioninfo::session_info(pkgs = c("shiny", "shinychat", "coro", "ellmer"), dependencies = FALSE)
+#> ─ Session info ───────────────────────────────────────────────────────────────
+#>
+setting
+value
+#>
+version
+R version 4.5.1 (2025-06-13 ucrt)
+#>
+os
+Windows 11 x64 (build 26100)
+#>
+system
+x86_64, mingw32
+#>
+ui
+RTerm
+#>
+language (EN)
+#>
+collate
+English_United Kingdom.utf8
+#>
+ctype
+English_United Kingdom.utf8
+#>
+tz
+Europe/Tallinn
+#>
+date
+2025-09-18
+#>
+pandoc
+3.6.3 @ C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools/ (via rmarkdown)
+#>
+#> ─ Packages ───────────────────────────────────────────────────────────────────
+#>
+! package
+* version date (UTC) lib source
+#>
+P coro
+1.1.0
+2024-11-05 [?] RSPM
+#>
+P ellmer
+* 0.3.2
+2025-09-03 [?] RSPM
+#>
+P shiny
+* 1.11.1
+2025-07-03 [?] RSPM
+#>
+shinychat * 0.2.0
+2025-05-16 [1] RSPM
+#> ──────────────────────────────────────────────────────────────────────────────
+Share
+Improve this answer
+Follow
+edited yesterday
+answered yesterday
+marguslmargusl
+20.1k33 gold badges2323 silver badges3333 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+rshinylarge-language-model
+See similar questions with these tags.
+R Language
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Related
+2
+Displaying htmlTable in Shiny
+101
+How to save plots that are made in a shiny app
+1
+Performing Function Calling with Mistral AI through Hugging Face Endpoint
+2
+Shiny plot not showing full output
+2
+FastAPI endpoint stream LLM output word for word
+97
+How to listen for more than one event expression within a Shiny eventReactive handler
+10
+How to run R Shiny App in full-sized window?
+14
+Shiny: printing console output to a text object without waiting for a function to finish
+Hot Network Questions
+Workflow in Texstudio for Article and Presentation Mode of Beamer
+What is the probability that a plane through three random points on the surface of the Earth intersects the Moon?
+Why aren't these functions o-minimal?
+I Received a Secondary Dataset that Has Already Gone Through Data Imputations. Is It Okay If I Round Them Up?
+In what circumstances is projecting an image of a politican in public an offence?
+How to model a twisted vase geometry with vertical ridges using Geometry Nodes?
+AdminUI (Preview) (how to activate)
+Classifying Lie algebras over a finite field
+What was the ultimate fate of the 'Doomsday Machine'?
+How to change the alignment of \bibitem?
+Was my travel companion unfairly denied entry to Aruba due to discrimination?
+What does, "as having nothing" mean in 2 Corinthians 6:10?
+Word choice errors in submitted thesis
+Would an ontological pluralist view existence as a relation between an object and its mode?
+Does every ultrafilter on real numbers contain a meager set?
+What's the translation of "to test out" in French?
+How to completely disable Google Chrome page translate function?
+Is there an FFC socket compatible with this FPC?
+Get function parameter for functions fitting "between" two other functions
+How do you calculate Delta V for electric propulsion?
+Firefox will not scale up PDF to fill print page
+Why does make's `dir` function add additional directories?
+Incorrect spath3 "split at" mehtod with a continued line?
+Cannot Query MessagingSession.EndedByType via Dynamic Soql or in Apex Class
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-r
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

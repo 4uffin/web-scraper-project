@@ -1,0 +1,346 @@
+Rails View Helper Scope and the include_all_helpers Option - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Takashi SAKAGUCHI
+Posted on Sep 19
+Rails View Helper Scope and the include_all_helpers Option
+#ruby
+#rails
+About the Scope of Default View Helpers
+In this article, I’ll explain what scope the methods defined in Rails view helpers apply to,
+how to change this scope, and a reasonable step-by-step procedure for safely changing the scope in an existing application.
+Methods Defined in Helpers Can Be Called from Any View
+For example, suppose you have UsersHelper#display_name defined like this:
+# app/helpers/users_helper.rb
+module UsersHelper
+def display_name(user)
+"#{user.lastname} #{user.firstname}"
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+This method can be used not only in views rendered by UsersController, but also in views rendered by other controllers:
+# app/controllers/posts_controller.rb
+class PostsController
+def index
+@posts = Post.all
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+<% # app/views/posts/index.html.erb %>
+<% @posts.each do |post| %>
+<p><%= post.content %></p>
+<small><%= display_name(post.user) %></small> <!-- display_name is usable -->
+<% end %>
+Enter fullscreen mode
+Exit fullscreen mode
+In other words, methods defined in view helpers are basically usable in any view.
+You might just accept this as “that’s the spec,” but because the scope is so broad, there are concerns.
+Some issues include:
+To confirm that a helper method is unused, you must check the entire application.
+It’s difficult to predict behavior when methods with the same name are defined in different helpers.
+Rails provides an option to address such concerns.
+The config.action_controller.include_all_helpers Option
+As noted above, by default Rails controllers load all helpers.
+This behavior depends on the setting of config.action_controller.include_all_helpers.
+https://guides.rubyonrails.org/configuring.html#config-action-controller-include-all-helpers
+Configures whether all view helpers are available everywhere or are scoped to the corresponding controller.
+The default value is true.
+So, if you set this option in config/application.rb, the behavior changes:
+module Example
+class Application < Rails::Application # Initialize configuration defaults for originally generated Rails version.
+config.load_defaults 8.0
++
++
+config.action_controller.include_all_helpers = false
+Enter fullscreen mode
+Exit fullscreen mode
+With this setting, a method like display_name defined in UsersHelper
+can no longer be called from a view rendered by PostsController:
+# app/helpers/users_helper.rb
+module UsersHelper
+def display_name(user)
+"#{user.lastname} #{user.firstname}"
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+# app/controllers/posts_controller.rb
+class PostsController
+def index
+@posts = Post.all
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+<% # app/views/posts/index.html.erb %>
+<% @posts.each do |post| %>
+<p><%= post.content %></p>
+<!-- Cannot be called! -->
+<small><%= display_name(post.user) %></small> <!-- undefined method 'display_name' for ... -->
+<% end %>
+Enter fullscreen mode
+Exit fullscreen mode
+How Is the Applicable Helper Determined?
+Suppose we have the following controller and helper inheritance structure:
+app/
+├── controllers
+│ ├── admin
+│ │ ├── application_controller.rb
+│ │ └── users_controller.rb
+│ ├── application_controller.rb
+│ ├── posts_controller.rb
+│ └── users_controller.rb
+└── helpers
+├── admin
+│ ├── application_helper.rb
+│ └── users_helper.rb
+├── application_helper.rb
+├── posts_helper.rb
+└── users_helper.rb
+Enter fullscreen mode
+Exit fullscreen mode
+class ApplicationController < ActionController::Base; end
+class UsersController < ApplicationController; end
+class PostsController < ApplicationController; end
+class Admin::ApplicationController < ApplicationController; end
+class Admin::UsersController < Admin::ApplicationController; end
+Enter fullscreen mode
+Exit fullscreen mode
+In the context of UsersController, the following helpers are included:
+UsersHelper
+ApplicationHelper (always)
+This depends on controller inheritance.
+UsersController automatically includes UsersHelper, and ApplicationController includes ApplicationHelper.
+Thus, UsersController has both UsersHelper and ApplicationHelper methods available.
+As another example, in the context of Admin::UsersController, the included helpers are:
+Admin::UsersHelper
+Admin::ApplicationHelper
+ApplicationHelper
+This aligns with the inheritance chain:
+Admin::UsersHelper, Admin::ApplicationHelper, and then ApplicationHelper.
+This behavior is the same as the template lookup inheritance mechanism used for rendering templates and partials:
+https://guides.rubyonrails.org/layouts_and_rendering.html#template-inheritance
+Migrating an Existing Application to include_all_helpers = false
+This setting is very useful.
+Here’s a migration path for existing applications.
+First Step
+The first step is, of course, to set config.action_controller.include_all_helpers = false:
+module Example
+class Application < Rails::Application # Initialize configuration defaults for originally generated Rails version.
+config.load_defaults 8.0
++
++
+config.action_controller.include_all_helpers = false
+Enter fullscreen mode
+Exit fullscreen mode
+With this alone, you’ll get errors in places where helper methods “happened to be available.”
+As a temporary measure, include all helpers in ApplicationHelper to maintain existing behavior:
+# app/helpers/application_helper.rb
+module ApplicationHelper
+include Admin::ApplicationHelper
+include Admin::UsersHelper
+include PostsHelper
+include UsersHelper
+end
+Enter fullscreen mode
+Exit fullscreen mode
+(In many apps, all controllers ultimately inherit from ApplicationController, so ApplicationHelper is available in every view.)
+Narrowing Things Down Gradually
+From here, reduce dependencies step by step.
+For example, if everything under Admin::\* inherits from Admin::ApplicationController, group them there:
+# app/helpers/application_helper.rb
+module ApplicationHelper
+include Admin::ApplicationHelper
+include PostsHelper
+include UsersHelper
+end
+Enter fullscreen mode
+Exit fullscreen mode
+# app/helpers/admin/application_helper.rb
+module Admin::ApplicationHelper
+include Admin::UsersHelper
+end
+Enter fullscreen mode
+Exit fullscreen mode
+Then, remove helpers from ApplicationHelper if they’re only used in a specific controller:
+module ApplicationHelper
+include Admin::ApplicationHelper
+-
+include PostsHelper
+include UsersHelper
+end
+Enter fullscreen mode
+Exit fullscreen mode
+On the other hand, for utility methods used across multiple contexts, move them into ApplicationHelper:
+module ApplicationHelper
+include Admin::ApplicationHelper
+-
+include UsersHelper
++
++
+def very_useful_helper_method(user)
++
+#
++
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+module UsersHelper
+-
+def very_useful_helper_method(user)
+-
+#
+-
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+By making these adjustments, you can converge toward a scope that is “only available where needed.”
+When Helper Methods from Gems Stop Working
+This may surface with gems like font-awesome-rails.
+That gem provides the view helper method fa_icon.
+But when config.action_controller.include_all_helpers = false, you must explicitly include it.
+Simply include it in ApplicationHelper, and you’re done.
+This makes usage more explicit, which is a good thing for maintainability:
+# app/helpers/application_helper.rb
+module ApplicationHelper
+include FontAwesome::Rails::IconHelper
+end
+Enter fullscreen mode
+Exit fullscreen mode
+Related issue
+Summary
+By default, methods defined in view helpers can be called from any controller’s view.
+Setting config.action_controller.include_all_helpers = false restricts loaded helpers to those corresponding to the controller (and its inheritance chain).
+ApplicationHelper is always included regardless of the setting, making it a good place for common methods.
+For migration, the safe path is: “collect everything in ApplicationHelper first → then gradually move and reduce.”
+Disclaimer
+The content in this article was verified with Rails 8.0.2.1,
+but the behavior is basically the same in many past versions.
+(Strictly speaking, this assumes Rails 3.1 or later, when include_all_helpers was introduced.)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Takashi SAKAGUCHI
+Follow
+Software engineer. I like Rails and cigarettes.
+Favorite emoji -> 🐪
+Location
+Japan,Tottori
+Joined
+Apr 2, 2020
+More from Takashi SAKAGUCHI
+Avoiding Symbol Block-Pass (&:to_s) in Ruby and Choosing More Readable Alternatives
+#ruby
+How to Get More Detailed Information When RSpec Tests Fail
+#ruby
+#rails
+Helpful Settings When Running RSpec with parallel_tests
+#ruby
+#rails
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

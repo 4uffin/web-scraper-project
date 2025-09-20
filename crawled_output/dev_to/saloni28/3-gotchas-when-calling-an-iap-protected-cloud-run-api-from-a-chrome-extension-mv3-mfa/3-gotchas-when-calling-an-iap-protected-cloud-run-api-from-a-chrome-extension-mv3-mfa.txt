@@ -1,0 +1,235 @@
+3 Gotchas When Calling an IAP‑Protected Cloud Run API from a Chrome Extension (MV3) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Saloni Kataria
+Posted on Sep 19
+3 Gotchas When Calling an IAP‑Protected Cloud Run API from a Chrome Extension (MV3)
+#googlecloud
+#tutorial
+#javascript
+#security
+This is a short, code‑first tutorial for developers. It assumes you already have a Cloud Run service and an OAuth2 Web Client. No business case study here—just the practical bits.
+Summary
+Use chrome.identity.launchWebAuthFlow to get a Google ID token.
+Send it as Authorization: Bearer <token> to your IAP/IAM‑protected Cloud Run endpoint.
+Verify the token audience on the server and cache tokens with a small expiry buffer on the client.
+1) Getting an ID token (MV3)
+background.js
+async function getIdToken() {
+const redirectUrl = chrome.identity.getRedirectURL();
+const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+u.searchParams.set("client_id", "YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com");
+u.searchParams.set("response_type", "id_token");
+u.searchParams.set("scope", "openid email profile");
+u.searchParams.set("redirect_uri", redirectUrl);
+u.searchParams.set("nonce", String(Date.now()));
+u.searchParams.set("prompt", "select_account");
+const { url } = await chrome.identity.launchWebAuthFlow({ url: u.toString(), interactive: true });
+const params = new URLSearchParams(new URL(url).hash.substring(1));
+const idToken = params.get("id_token");
+if (!idToken) throw new Error("No id_token returned");
+return idToken;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Mini‑cache (optional):
+function decodePayload(jwt){const b=jwt.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(atob(b));}
+async function getCachedIdToken(){
+const now=Math.floor(Date.now()/1000);
+const {token,exp}=await chrome.storage.local.get(["token","exp"]);
+if(token && exp && (exp-300)>now) return token; // 5‑min buffer
+const fresh=await getIdToken(); const {exp:e}=decodePayload(fresh);
+await chrome.storage.local.set({token:fresh, exp:e}); return fresh;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2) Calling your API
+popup.js
+document.getElementById("go").addEventListener("click", async () => {
+const token = await chrome.runtime.sendMessage({ type: "GET_TOKEN" });
+const res = await fetch("https://YOUR‑SERVICE‑HASH‑ue.a.run.app/run-secure-endpoint", {
+method: "POST",
+headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+body: JSON.stringify({ url: (await chrome.tabs.query({active:true,currentWindow:true}))[0].url })
+});
+console.log(await res.text());
+});
+Enter fullscreen mode
+Exit fullscreen mode
+And in background.js:
+chrome.runtime.onMessage.addListener((m,_,send)=>{
+if(m?.type==="GET_TOKEN") getCachedIdToken().then(t=>send(t)).catch(e=>send({error:String(e)}));
+return true;
+});
+Enter fullscreen mode
+Exit fullscreen mode
+3) Verifying on Flask (Cloud Run)
+main.py
+from flask import Flask, request, jsonify
+from google.oauth2 import id_token
+from google.auth.transport import requests as greq
+import os
+app = Flask(__name__)
+IAP_AUDIENCE = os.environ.get("IAP_OAUTH_CLIENT_ID","")
+# set this for IAP
+def verify_google_id_token(tok:str)->dict:
+return id_token.verify_oauth2_token(tok, greq.Request(), audience=IAP_AUDIENCE)
+@app.post("/run-secure-endpoint")
+def run_secure():
+auth = request.headers.get("Authorization","")
+if not auth.startswith("Bearer "): return jsonify({"error":"missing bearer"}), 401
+try: payload = verify_google_id_token(auth.split()[1])
+except Exception as e: return jsonify({"error":"invalid token","detail":str(e)}), 401
+return jsonify({"ok": True, "email": payload.get("email")})
+Enter fullscreen mode
+Exit fullscreen mode
+Common gotchas (and fixes)
+401 with IAP: wrong audience. Use the IAP OAuth Client ID as aud when verifying.
+Empty id_token: check your OAuth2 client type (Web) and the redirect URI from getRedirectURL().
+Tokens expiring mid‑session: cache with a small buffer (5 minutes) and refresh on demand.
+CORS: add Access-Control-Allow-Origin + Authorization header allowances if you call from content scripts or pages.
+Minimal repo layout
+repo/
+├─ extension/ (manifest.json, background.js, popup.{html,js})
+└─ backend/
+(main.py, requirements.txt, Dockerfile)
+Enter fullscreen mode
+Exit fullscreen mode
+That’s it—short and sweet. If you need a deeper walkthrough, look for my longer guide or case‑study later.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Saloni Kataria
+Follow
+Data analyst building intelligent pricing and automation tools using BigQuery, Python, and OpenAI. I bridge analytics and engineering to solve real-world problems.
+Location
+Chicago, United States of America
+Education
+University of Illinois at Chicago
+Pronouns
+She/ Hers
+Work
+Competitive Pricing Analyst
+Joined
+Aug 2, 2025
+More from Saloni Kataria
+How I Built a Chrome Extension That Connects Securely to a Flask Backend (with Google OAuth + Cloud Run)
+#chromeextension
+#oauth
+#googlecloud
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

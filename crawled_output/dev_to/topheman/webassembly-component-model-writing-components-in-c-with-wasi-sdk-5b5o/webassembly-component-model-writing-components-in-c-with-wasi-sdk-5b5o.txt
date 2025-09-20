@@ -1,0 +1,286 @@
+Writing components in C with WASI SDK - WebAssembly Component Model - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Tophe
+Posted on Sep 19
+Writing components in C with WASI SDK - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#c
+WebAssembly Component Model (5 Part Series)
+1
+Building a plugin system - WebAssembly Component Model
+2
+Building components in multiple languages - WebAssembly Component Model
+3
+Writing components in C with WASI SDK - WebAssembly Component Model
+4
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+5
+Writing components in TypeScript with jco - WebAssembly Component Model
+What is WASI-SDK?
+Unlike Rust with cargo-component, C/C++ lacks an integrated toolchain for building WebAssembly components. The WASI SDK provides the essential tooling needed to compile C code to WebAssembly.
+The WASI SDK includes:
+clang compiler configured with a WASI sysroot (complete set of target platform headers and libraries) for the wasm32-wasi target
+WASI-enabled C standard library (libc) that implements WASI interfaces
+Cross-platform support for different operating systems and architectures
+Preview 2 compatibility for building modern WebAssembly components
+This allows you to write C plugins that can access filesystem, networking, and other system resources through WASI interfaces, just like Rust plugins.
+WASI-SDK Setup
+The project uses a custom script just dl-wasi-sdk that acts like a package manager, automatically downloading and extracting the correct version of the WASI SDK for your OS/architecture into c_deps/ (which acts like a node_modules for C dependencies).
+How to write a C plugin
+Build Process
+C plugins are built using a two-step process:
+Generate bindings: wit-bindgen c ./crates/pluginlab/wit --world plugin-api --out-dir ./c_modules/plugin-name creates the C bindings from your WIT interface
+Compile and convert: Use the WASI SDK's clang to compile C code to a WebAssembly module (P1), then convert it to a P2 component
+The build process:
+Compiles component.c, plugin_api.c, and plugin_api_component_type.o to a WebAssembly module with -mexec-model=reactor:
+./c_deps/wasi-sdk/bin/clang component.c plugin_api.c plugin_api_component_type.o \
+-o plugin-name-c.module.p1.wasm -mexec-model=reactor
+Enter fullscreen mode
+Exit fullscreen mode
+Converts the P1 module to a P2 component using wasm-tools component new:
+wasm-tools component new plugin-name-c.module.p1.wasm -o plugin-name-c.wasm
+Enter fullscreen mode
+Exit fullscreen mode
+File Structure
+The C plugins follow this structure in the repo:
+c_deps/
+# WASI SDK installation
+c_modules/
+plugin-echo/
+# Plugin directory
+component.c
+# Your plugin implementation
+plugin_api.c
+# Generated bindings (from wit-bindgen)
+plugin_api.h
+# Generated header (from wit-bindgen)
+plugin_api_component_type.o
+# Generated object file (from wit-bindgen)
+plugin-echo-c.module.p1.wasm
+# Compiled WebAssembly module (P1)
+plugin-echo-c.wasm
+# Final WebAssembly component (P2)
+Enter fullscreen mode
+Exit fullscreen mode
+Plugin Implementation
+The C plugin implements the same interface as the Rust version, with function signatures generated from the WIT interface by wit-bindgen:
+exports_repl_api_plugin_name() corresponds to fn name() -> String
+exports_repl_api_plugin_man() corresponds to fn man() -> String
+exports_repl_api_plugin_run() corresponds to fn run(payload: String) -> Result<PluginResponse, ()>
+Here's the key implementation details - plugin-echo/component.c:
+#include "plugin_api.h"
+#include <string.h>
+#include <stdlib.h>
+void exports_repl_api_plugin_name(plugin_api_string_t *ret)
+{
+// Populate ret with "echoc" as the plugin name
+// plugin_api_string_dup() allocates new memory and copies the string
+plugin_api_string_dup(ret, "echoc");
+}
+void exports_repl_api_plugin_man(plugin_api_string_t *ret)
+{
+// Populate ret with the manual text for the echo command
+// plugin_api_string_dup() allocates new memory and copies the string
+const char *man_text = "some man text ...\n";
+plugin_api_string_dup(ret, man_text);
+}
+bool exports_repl_api_plugin_run(plugin_api_string_t *payload, exports_repl_api_plugin_plugin_response_t *ret)
+{
+// Set status to success (0 = success, 1 = error)
+ret->status = REPL_API_TRANSPORT_REPL_STATUS_SUCCESS;
+// Set stdout to contain the payload
+// is_some = true means the optional string has a value
+ret->stdout.is_some = true;
+// Create a properly null-terminated string from the payload
+// The payload has ptr and len, we need to ensure it's null-terminated
+char *temp_str = malloc(payload->len + 1);
+if (temp_str == NULL)
+{
+// Handle allocation failure
+ret->stdout.is_some = false;
+ret->stderr.is_some = false;
+return false;
+}
+// Copy the payload data and null-terminate it
+memcpy(temp_str, payload->ptr, payload->len);
+temp_str[payload->len] = '\0';
+// Use plugin_api_string_dup to create the output string
+plugin_api_string_dup(&ret->stdout.val, temp_str);
+// Free our temporary string
+free(temp_str);
+// Set stderr to none (no error output)
+ret->stderr.is_some = false;
+// Return true for success (false would indicate an error)
+// This corresponds to Ok(response) in the Rust Result<T, ()> pattern
+return true;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Memory Management Notes:
+Input parameters (like payload) are owned by the runtime - they MUST NOT be freed by the plugin
+Output parameters (like ret) are populated by the plugin, freed by the runtime
+plugin_api_string_dup() allocates new memory for string copies
+The generated _free functions handle cleanup automatically
+Key Differences from Rust:
+Manual memory management for temporary strings
+Explicit handling of string length vs null termination
+Boolean return values instead of Rust's Result<T, ()> pattern
+Direct manipulation of the generated C structs
+📎 Here are links to:
+the plugin-echo C implementation and the plugin_api.h header file
+PR#6 - Add C Language Plugin Support
+WebAssembly Component Model (5 Part Series)
+1
+Building a plugin system - WebAssembly Component Model
+2
+Building components in multiple languages - WebAssembly Component Model
+3
+Writing components in C with WASI SDK - WebAssembly Component Model
+4
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+5
+Writing components in TypeScript with jco - WebAssembly Component Model
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Tophe
+Follow
+❤️JavaScript, WebAssembly & Rust 🦀
+Location
+Paris, France
+Joined
+Aug 14, 2017
+More from Tophe
+Writing components in TypeScript with jco - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#typescript
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+#webassembly
+#wasi
+#go
+#tinygo
+Building components in multiple languages - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#rust
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

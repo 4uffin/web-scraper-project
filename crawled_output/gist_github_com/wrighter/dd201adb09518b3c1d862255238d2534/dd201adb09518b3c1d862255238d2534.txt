@@ -1,0 +1,1112 @@
+A command line utility to download historical data from Interactive Brokers
+· GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+wrighter/download_bars.py
+Last active
+September 19, 2025 12:16
+Show Gist options
+Download ZIP
+Star
+56
+(56)
+You must be signed in to star a gist
+Fork
+16
+(16)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/wrighter/dd201adb09518b3c1d862255238d2534.js&quot;&gt;&lt;/script&gt;
+Save wrighter/dd201adb09518b3c1d862255238d2534 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+56
+Forks
+16
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/wrighter/dd201adb09518b3c1d862255238d2534.js&quot;&gt;&lt;/script&gt;
+Save wrighter/dd201adb09518b3c1d862255238d2534 to your computer and use it in GitHub Desktop.
+Download ZIP
+A command line utility to download historical data from Interactive Brokers
+Raw
+download_bars.py
+#!/usr/bin/env python
+import os
+import sys
+import argparse
+import logging
+from datetime import datetime, timedelta
+from typing import List, Optional
+from collections import defaultdict
+from dateutil.parser import parse
+import numpy as np
+import pandas as pd
+from ibapi import wrapper
+from ibapi.common import TickerId, BarData
+from ibapi.client import EClient
+from ibapi.contract import Contract
+from ibapi.utils import iswrapper
+ContractList = List[Contract]
+BarDataList = List[BarData]
+OptionalDate = Optional[datetime]
+def make_download_path(args: argparse.Namespace, contract: Contract) -> str:
+"""Make path for saving csv files.
+Files to be stored in base_directory/<security_type>/<size>/<symbol>/
+"""
+path = os.path.sep.join(
+[
+args.base_directory,
+args.security_type,
+args.size.replace(" ", "_"),
+contract.symbol,
+]
+)
+return path
+class DownloadApp(EClient, wrapper.EWrapper):
+def __init__(self, contracts: ContractList, args: argparse.Namespace):
+EClient.__init__(self, wrapper=self)
+wrapper.EWrapper.__init__(self)
+self.request_id = 0
+self.started = False
+self.next_valid_order_id = None
+self.contracts = contracts
+self.requests = {}
+self.bar_data = defaultdict(list)
+self.pending_ends = set()
+self.args = args
+self.current = self.args.end_date
+self.duration = self.args.duration
+self.useRTH = 0
+def next_request_id(self, contract: Contract) -> int:
+self.request_id += 1
+self.requests[self.request_id] = contract
+return self.request_id
+def historicalDataRequest(self, contract: Contract) -> None:
+cid = self.next_request_id(contract)
+self.pending_ends.add(cid)
+self.reqHistoricalData(
+cid,
+# tickerId, used to identify incoming data
+contract,
+self.current.strftime("%Y%m%d 00:00:00"),
+# always go to midnight
+self.duration,
+# amount of time to go back
+self.args.size,
+# bar size
+self.args.data_type,
+# historical data type
+self.useRTH,
+# useRTH (regular trading hours)
+1,
+# format the date in yyyyMMdd HH:mm:ss
+False,
+# keep up to date after snapshot
+[],
+# chart options
+)
+def save_data(self, contract: Contract, bars: BarDataList) -> None:
+data = [
+[b.date, b.open, b.high, b.low, b.close, b.volume, b.barCount, b.average]
+for b in bars
+]
+df = pd.DataFrame(
+data,
+columns=[
+"date",
+"open",
+"high",
+"low",
+"close",
+"volume",
+"barCount",
+"average",
+],
+)
+if self.daily_files():
+path = "%s.csv" % make_download_path(self.args, contract)
+else:
+# since we fetched data until midnight, store data in
+# date file to which it belongs
+last = (self.current - timedelta(days=1)).strftime("%Y%m%d")
+path = os.path.sep.join(
+[make_download_path(self.args, contract), "%s.csv" % last,]
+)
+df.to_csv(path, index=False)
+def daily_files(self):
+return SIZES.index(self.args.size.split()[1]) >= 5
+@iswrapper
+def headTimestamp(self, reqId: int, headTimestamp: str) -> None:
+contract = self.requests.get(reqId)
+ts = datetime.strptime(headTimestamp, "%Y%m%d
+%H:%M:%S")
+logging.info("Head Timestamp for %s is %s", contract, ts)
+if ts > self.args.start_date or self.args.max_days:
+logging.warning("Overriding start date, setting to %s", ts)
+self.args.start_date = ts # TODO make this per contract
+if ts > self.args.end_date:
+logging.warning("Data for %s is not available before %s", contract, ts)
+self.done = True
+return
+# if we are getting daily data or longer, we'll grab the entire amount at once
+if self.daily_files():
+days = (self.args.end_date - self.args.start_date).days
+if days < 365:
+self.duration = "%d D" % days
+else:
+self.duration = "%d Y" % np.ceil(days / 365)
+# when getting daily data, look at regular trading hours only
+# to get accurate daily closing prices
+self.useRTH = 1
+# round up current time to midnight for even days
+self.current = self.current.replace(
+hour=0, minute=0, second=0, microsecond=0
+)
+self.historicalDataRequest(contract)
+@iswrapper
+def historicalData(self, reqId: int, bar) -> None:
+self.bar_data[reqId].append(bar)
+@iswrapper
+def historicalDataEnd(self, reqId: int, start: str, end: str) -> None:
+super().historicalDataEnd(reqId, start, end)
+self.pending_ends.remove(reqId)
+if len(self.pending_ends) == 0:
+print(f"All requests for {self.current} complete.")
+for rid, bars in self.bar_data.items():
+self.save_data(self.requests[rid], bars)
+self.current = datetime.strptime(start, "%Y%m%d
+%H:%M:%S")
+if self.current <= self.args.start_date:
+self.done = True
+else:
+for contract in self.contracts:
+self.historicalDataRequest(contract)
+@iswrapper
+def connectAck(self):
+logging.info("Connected")
+@iswrapper
+def nextValidId(self, order_id: int):
+super().nextValidId(order_id)
+self.next_valid_order_id = order_id
+logging.info(f"nextValidId: {order_id}")
+# we can start now
+self.start()
+def start(self):
+if self.started:
+return
+self.started = True
+for contract in self.contracts:
+self.reqHeadTimeStamp(
+self.next_request_id(contract), contract, self.args.data_type, 0, 1
+)
+@iswrapper
+def error(self, req_id: TickerId, error_code: int, error: str):
+super().error(req_id, error_code, error)
+if req_id < 0:
+logging.debug("Error. Id: %s Code %s Msg: %s", req_id, error_code, error)
+else:
+logging.error("Error. Id: %s Code %s Msg: %s", req_id, error_code, error)
+# we will always exit on error since data will need to be validated
+self.done = True
+def make_contract(symbol: str, sec_type: str, currency: str, exchange: str, localsymbol: str) -> Contract:
+contract = Contract()
+contract.symbol = symbol
+contract.secType = sec_type
+contract.currency = currency
+contract.exchange = exchange
+if localsymbol:
+contract.localSymbol = localsymbol
+return contract
+class ValidationException(Exception):
+pass
+def _validate_in(value: str, name: str, valid: List[str]) -> None:
+if value not in valid:
+raise ValidationException(f"{value} not a valid {name} unit: {','.join(valid)}")
+def _validate(value: str, name: str, valid: List[str]) -> None:
+tokens = value.split()
+if len(tokens) != 2:
+raise ValidationException("{name} should be in the form <digit> <{name}>")
+_validate_in(tokens[1], name, valid)
+try:
+int(tokens[0])
+except ValueError as ve:
+raise ValidationException(f"{name} dimenion not a valid number: {ve}")
+SIZES = ["secs", "min", "mins", "hour", "hours", "day", "week", "month"]
+DURATIONS = ["S", "D", "W", "M", "Y"]
+def validate_duration(duration: str) -> None:
+_validate(duration, "duration", DURATIONS)
+def validate_size(size: str) -> None:
+_validate(size, "size", SIZES)
+def validate_data_type(data_type: str) -> None:
+_validate_in(
+data_type,
+"data_type",
+[
+"TRADES",
+"MIDPOINT",
+"BID",
+"ASK",
+"BID_ASK",
+"ADJUSTED_LAST",
+"HISTORICAL_VOLATILITY",
+"OPTION_IMPLIED_VOLATILITY",
+"REBATE_RATE",
+"FEE_RATE",
+"YIELD_BID",
+"YIELD_ASK",
+"YIELD_BID_ASK",
+"YIELD_LAST",
+],
+)
+def main():
+now = datetime.now()
+class DateAction(argparse.Action):
+"""Parses date strings."""
+def __call__(
+self,
+parser: argparse.ArgumentParser,
+namespace: argparse.Namespace,
+value: str,
+option_string: str = None,
+):
+"""Parse the date."""
+setattr(namespace, self.dest, parse(value))
+argp = argparse.ArgumentParser()
+argp.add_argument("symbol", nargs="+")
+argp.add_argument(
+"-d", "--debug", action="store_true", help="turn on debug logging"
+)
+argp.add_argument(
+"--logfile", help="log to file"
+)
+argp.add_argument(
+"-p", "--port", type=int, default=7496, help="local port for TWS connection"
+)
+argp.add_argument("--size", type=str, default="1 min", help="bar size")
+argp.add_argument("--duration", type=str, default="1 D", help="bar duration")
+argp.add_argument(
+"-t", "--data-type", type=str, default="TRADES", help="bar data type"
+)
+argp.add_argument(
+"--base-directory",
+type=str,
+default="data",
+help="base directory to write bar files",
+)
+argp.add_argument(
+"--currency", type=str, default="USD", help="currency for symbols"
+)
+argp.add_argument(
+"--exchange", type=str, default="SMART", help="exchange for symbols"
+)
+argp.add_argument(
+"--localsymbol", type=str, default="", help="local symbol (for futures)"
+)
+argp.add_argument(
+"--security-type", type=str, default="STK", help="security type for symbols"
+)
+argp.add_argument(
+"--start-date",
+help="First day for bars",
+default=now - timedelta(days=2),
+action=DateAction,
+)
+argp.add_argument(
+"--end-date", help="Last day for bars", default=now, action=DateAction,
+)
+argp.add_argument(
+"--max-days", help="Set start date to earliest date", action="store_true",
+)
+args = argp.parse_args()
+logargs = dict(format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+datefmt='%H:%M:%S')
+if args.debug:
+logargs['level'] = logging.DEBUG
+else:
+logargs['level'] = logging.INFO
+if args.logfile:
+logargs['filemode'] = 'a'
+logargs['filename'] = args.logfile
+logging.basicConfig(**logargs)
+try:
+validate_duration(args.duration)
+validate_size(args.size)
+args.data_type = args.data_type.upper()
+validate_data_type(args.data_type)
+except ValidationException as ve:
+print(ve)
+sys.exit(1)
+logging.debug(f"args={args}")
+contracts = []
+for s in args.symbol:
+contract = make_contract(s, args.security_type, args.currency, args.exchange, args.localsymbol)
+contracts.append(contract)
+os.makedirs(make_download_path(args, contract), exist_ok=True)
+app = DownloadApp(contracts, args)
+app.connect("127.0.0.1", args.port, clientId=0)
+app.run()
+if __name__ == "__main__":
+main()
+Load earlier comments...
+Copy link
+haltuf
+commented
+Mar 26, 2021
+Thanks for awesome code, and your article as well.
+I would like to add some self-throttling to the code, to keep the "no more than 60 requests within any ten minute period". Where would you recommend to put it?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Mar 26, 2021
+@haltuf if you're hitting this throttling limit then I'd think you could just cap args.symbol to 60 symbols. I haven't hit the limit before, but if each symbol counts as 1 request, that should do it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+wardster-ai
+commented
+Jun 3, 2021
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@wrighter This is very helpful code.
+I've been using it to download historical bars and it is working well.
+The only issue I'm having is that occasionally the "SMART" exchange isn't the right one.
+A stock is only has historical data on "ISLAND" or some other exchange. Do you know if there is a way to query for the correct exchange in advance?
+I've been trying the reqContractDetails request but haven't been able to get it to work yet.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Jun 3, 2021
+@wardster-ai you can use this page to see what is listed on each exchange. Or maybe this one? I don't know if they have better search options than that. Usually I have looked up the symbol in TWS one at a time and the exchange is shown when you search there.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ElvisChowChow
+commented
+Jun 7, 2021
+@wrighter - Very helpful - Thanks for this!
+I have been able to download stock data but I am struggling a little with futures contract data.
+download_bars.py --max-days --size '1 day' --security-type 'FUT' ESM1
+Returns an error asking for an expiry date for the futures contract. Any ideas how to get round this?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Jun 7, 2021
+@jdoldham1 that's a good question. I had not downloaded futures before using IB. I updated the gist and added a local symbol option.
+If you look at the IB API docs, that's one mechanism to fetch a future, if you want a single expiration.
+./download_bars.py --start-date 20210601 --end-date 20210607 --security-type FUT --localsymbol ESM1 --exchange GLOBEX ES
+However, if you want a continuous futures price stream (with rolls done by IB), it looks like you can just do this with the existing code:
+./download_bars.py --start-date 20210601 --end-date 20210607 --security-type "CONTFUT" --exchange GLOBEX ES
+I should probably just make this into a full git project at some point.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ElvisChowChow
+commented
+Jun 8, 2021
+@wrighter Thanks for the quick response and adding the local system option.
+You were right that the cont futures were available with the exisiting code - I forgot that IB specified those as CONTFUT and not just FUT, thanks for pointing this out....
+I should probably just make this into a full git project at some point. <- Great idea! Your code is the most convenient/user friendly way to download historical data that I have found!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+daniellefisla
+commented
+Jun 19, 2021
+Awesome, thx!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blackbeansoup
+commented
+Mar 23, 2022
+@wrighter Using your Jun 7, 2021 comment syntax (similar, but with current futures dates) with Python 3.7.11 I'm consistently getting the following error output:
+Traceback (most recent call last):
+File "./download_bars.py", line 360, in
+main()
+File "./download_bars.py", line 356, in main
+app.run()
+File "C:\Users\xyz\AppData\Roaming\Python\Python37\site-packages\ibapi\client.py", line 263, in run
+self.decoder.interpret(fields)
+File "C:\Users\xyz\AppData\Roaming\Python\Python37\site-packages\ibapi\decoder.py", line 1377, in interpret
+handleInfo.processMeth(self, iter(fields))
+File "C:\Users\xyz\AppData\Roaming\Python\Python37\site-packages\ibapi\decoder.py", line 1271, in processErrorMsg
+self.wrapper.error(reqId, errorCode, errorString, advancedOrderRejectJson)
+TypeError: error() takes 4 positional arguments but 5 were given
+Any thoughts on a workaround? Thanks.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Mar 24, 2022
+@blackbeansoup my environment hasn't been updated in a long time, but that looks like it's a different version than what I have installed. If you're running a bleeding edge version of the API, I'd suggest dropping down a version. wrapper.error does only take 4 arguments (self + 3 more), so that looks like a bug in their API to me.
+The version I have installed is 9.76.1.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+blackbeansoup
+commented
+Mar 25, 2022
+@wrighter 981.3 here so that may be a clue to the problem. I'll poke around some more.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+max-fic
+commented
+May 21, 2022
+@blackbeansoup, @wrighter,
+I am using TWS 10.15 and it so appears that the interface has changed in the following way:
+wrapper.error now expects 5 parameters instead of 4 (IB added a parameter called advancedOrderRejectJson)
+The BarData class does not have the 'average' attribute anymore but a 'wap' attribute
+These changes have been probably been introduced in a version anterior to 10.15
+I have attached a file that has the the required modification to run with TWS 10.15
+@wrighter
+In its original version the program does not terminate after completing the download of the historical data (at least in my case). I had to kill the process explicitly.
+I changed the program so that app.run is executed as a separate thread. The main thread waits for the completion of the app.run thread and disconnects.
+I marked the changes with # MAX: comments.
+#!/usr/bin/env python
+import os
+import sys
+import argparse
+import logging
+from datetime import datetime, timedelta
+# MAX: necessary imports for multi-threading
+from threading import Thread
+from queue import Queue
+from typing import List, Optional
+from collections import defaultdict
+from dateutil.parser import parse
+import numpy as np
+import pandas as pd
+from ibapi import wrapper
+from ibapi.common import TickerId, BarData
+from ibapi.client import EClient
+from ibapi.contract import Contract
+from ibapi.utils import iswrapper
+ContractList = List[Contract]
+BarDataList = List[BarData]
+OptionalDate = Optional[datetime]
+def make_download_path(args: argparse.Namespace, contract: Contract) -> str:
+"""Make path for saving csv files.
+Files to be stored in base_directory/<security_type>/<size>/<symbol>/
+"""
+path = os.path.sep.join(
+[
+args.base_directory,
+args.security_type,
+args.size.replace(" ", "_"),
+contract.symbol,
+]
+)
+return path
+class DownloadApp(EClient, wrapper.EWrapper):
+def __init__(self, contracts: ContractList, args: argparse.Namespace):
+EClient.__init__(self, wrapper=self)
+wrapper.EWrapper.__init__(self)
+self.request_id = 0
+self.started = False
+self.next_valid_order_id = None
+self.contracts = contracts
+self.requests = {}
+self.bar_data = defaultdict(list)
+self.pending_ends = set()
+self.args = args
+self.current = self.args.end_date
+self.duration = self.args.duration
+self.useRTH = 0
+# MAX: message queue for inter thread communication
+self.queue = Queue()
+# MAX: function to send the termination signal
+def send_done(self, code):
+print(f'Sending code {code}')
+self.queue.put(code)
+# MAX: function to wait for the termination signal
+def wait_done(self):
+print('Waiting for thread to finish ...')
+code = self.queue.get()
+print(f'Received code {code}')
+self.queue.task_done()
+return code
+def next_request_id(self, contract: Contract) -> int:
+self.request_id += 1
+self.requests[self.request_id] = contract
+return self.request_id
+def historicalDataRequest(self, contract: Contract) -> None:
+cid = self.next_request_id(contract)
+self.pending_ends.add(cid)
+self.reqHistoricalData(
+cid,
+# tickerId, used to identify incoming data
+contract,
+self.current.strftime("%Y%m%d 00:00:00"),
+# always go to midnight
+self.duration,
+# amount of time to go back
+self.args.size,
+# bar size
+self.args.data_type,
+# historical data type
+self.useRTH,
+# useRTH (regular trading hours)
+1,
+# format the date in yyyyMMdd HH:mm:ss
+False,
+# keep up to date after snapshot
+[],
+# chart options
+)
+def save_data(self, contract: Contract, bars: BarDataList) -> None:
+data = [
+# MAX: IBAPI 10.15 does not provide bar.average anymore
+# MAX: IBAPI 10.15 has an attribute bar.wap (weighted average)
+[b.date, b.open, b.high, b.low, b.close, b.volume, b.barCount, b.wap]
+for b in bars
+]
+# MAX: IBAPI 10.15 does not provide bar.average anymore
+# MAX: IBAPI 10.15 has an attribute bar.wap (weighted average)
+df = pd.DataFrame(
+data,
+columns=[
+"date",
+"open",
+"high",
+"low",
+"close",
+"volume",
+"barCount",
+"wap"
+],
+)
+if self.daily_files():
+path = "%s.csv" % make_download_path(self.args, contract)
+else:
+# since we fetched data until midnight, store data in
+# date file to which it belongs
+last = (self.current - timedelta(days=1)).strftime("%Y%m%d")
+path = os.path.sep.join(
+[make_download_path(self.args, contract), "%s.csv" % last,]
+)
+df.to_csv(path, index=False)
+def daily_files(self):
+return SIZES.index(self.args.size.split()[1]) >= 5
+@iswrapper
+def headTimestamp(self, reqId: int, headTimestamp: str) -> None:
+contract = self.requests.get(reqId)
+ts = datetime.strptime(headTimestamp, "%Y%m%d
+%H:%M:%S")
+logging.info("Head Timestamp for %s is %s", contract, ts)
+if ts > self.args.start_date or self.args.max_days:
+logging.warning("Overriding start date, setting to %s", ts)
+self.args.start_date = ts
+# TODO make this per contract
+if ts > self.args.end_date:
+logging.warning("Data for %s is not available before %s", contract, ts)
+# MAX: send termination signal
+self.send_done(-1)
+return
+# if we are getting daily data or longer, we'll grab the entire amount at once
+if self.daily_files():
+days = (self.args.end_date - self.args.start_date).days
+if days < 365:
+self.duration = "%d D" % days
+else:
+self.duration = "%d Y" % np.ceil(days / 365)
+# when getting daily data, look at regular trading hours only
+# to get accurate daily closing prices
+self.useRTH = 1
+# round up current time to midnight for even days
+self.current = self.current.replace(
+hour=0, minute=0, second=0, microsecond=0
+)
+self.historicalDataRequest(contract)
+@iswrapper
+def historicalData(self, reqId: int, bar) -> None:
+self.bar_data[reqId].append(bar)
+@iswrapper
+def historicalDataEnd(self, reqId: int, start: str, end: str) -> None:
+super().historicalDataEnd(reqId, start, end)
+self.pending_ends.remove(reqId)
+if len(self.pending_ends) == 0:
+print(f"All requests for {self.current} complete.")
+for rid, bars in self.bar_data.items():
+self.save_data(self.requests[rid], bars)
+self.current = datetime.strptime(start, "%Y%m%d
+%H:%M:%S")
+print(f'XXX {self.current} - {self.args.start_date}')
+if self.current <= self.args.start_date:
+# MAX: send termination signal
+self.send_done(0)
+else:
+for contract in self.contracts:
+self.historicalDataRequest(contract)
+@iswrapper
+def connectAck(self):
+logging.info("Connected")
+@iswrapper
+def nextValidId(self, order_id: int):
+super().nextValidId(order_id)
+self.next_valid_order_id = order_id
+logging.info(f"nextValidId: {order_id}")
+# we can start now
+self.start()
+def start(self):
+if self.started:
+return
+self.started = True
+for contract in self.contracts:
+self.reqHeadTimeStamp(
+self.next_request_id(contract), contract, self.args.data_type, 0, 1
+)
+@iswrapper
+# MAX: IBAPI 10.15 defines an additional parameter: advancedOrderRejectJson
+def error(self, req_id: TickerId, error_code: int, error: str, advancedOrderRejectJson: str):
+super().error(req_id, error_code, error)
+if req_id < 0:
+logging.debug("Error. Id: %s Code %s Msg: %s", req_id, error_code, error)
+else:
+logging.error("Error. Id: %s Code %s Msg: %s", req_id, error_code, error)
+# we will always exit on error since data will need to be validated
+self.done = True
+self.send_done(error_code)
+def make_contract(symbol: str, sec_type: str, currency: str, exchange: str, localsymbol: str) -> Contract:
+contract = Contract()
+contract.symbol = symbol
+contract.secType = sec_type
+contract.currency = currency
+contract.exchange = exchange
+if localsymbol:
+contract.localSymbol = localsymbol
+return contract
+class ValidationException(Exception):
+pass
+def _validate_in(value: str, name: str, valid: List[str]) -> None:
+if value not in valid:
+raise ValidationException(f"{value} not a valid {name} unit: {','.join(valid)}")
+def _validate(value: str, name: str, valid: List[str]) -> None:
+tokens = value.split()
+if len(tokens) != 2:
+raise ValidationException("{name} should be in the form <digit> <{name}>")
+_validate_in(tokens[1], name, valid)
+try:
+int(tokens[0])
+except ValueError as ve:
+raise ValidationException(f"{name} dimenion not a valid number: {ve}")
+SIZES = ["secs", "min", "mins", "hour", "hours", "day", "week", "month"]
+DURATIONS = ["S", "D", "W", "M", "Y"]
+def validate_duration(duration: str) -> None:
+_validate(duration, "duration", DURATIONS)
+def validate_size(size: str) -> None:
+_validate(size, "size", SIZES)
+def validate_data_type(data_type: str) -> None:
+_validate_in(
+data_type,
+"data_type",
+[
+"TRADES",
+"MIDPOINT",
+"BID",
+"ASK",
+"BID_ASK",
+"ADJUSTED_LAST",
+"HISTORICAL_VOLATILITY",
+"OPTION_IMPLIED_VOLATILITY",
+"REBATE_RATE",
+"FEE_RATE",
+"YIELD_BID",
+"YIELD_ASK",
+"YIELD_BID_ASK",
+"YIELD_LAST",
+],
+)
+def main():
+now = datetime.now()
+class DateAction(argparse.Action):
+"""Parses date strings."""
+def __call__(
+self,
+parser: argparse.ArgumentParser,
+namespace: argparse.Namespace,
+value: str,
+option_string: str = None,
+):
+"""Parse the date."""
+setattr(namespace, self.dest, parse(value))
+argp = argparse.ArgumentParser()
+argp.add_argument("symbol", nargs="+")
+argp.add_argument(
+"-d", "--debug", action="store_true", help="turn on debug logging"
+)
+argp.add_argument(
+"--logfile", help="log to file"
+)
+argp.add_argument(
+"-p", "--port", type=int, default=7496, help="local port for TWS connection"
+)
+argp.add_argument("--size", type=str, default="1 min", help="bar size")
+argp.add_argument("--duration", type=str, default="1 D", help="bar duration")
+argp.add_argument(
+"-t", "--data-type", type=str, default="TRADES", help="bar data type"
+)
+argp.add_argument(
+"--base-directory",
+type=str,
+default="data",
+help="base directory to write bar files",
+)
+argp.add_argument(
+"--currency", type=str, default="USD", help="currency for symbols"
+)
+argp.add_argument(
+"--exchange", type=str, default="SMART", help="exchange for symbols"
+)
+argp.add_argument(
+"--localsymbol", type=str, default="", help="local symbol (for futures)"
+)
+argp.add_argument(
+"--security-type", type=str, default="STK", help="security type for symbols"
+)
+argp.add_argument(
+"--start-date",
+help="First day for bars",
+default=now - timedelta(days=2),
+action=DateAction,
+)
+argp.add_argument(
+"--end-date", help="Last day for bars", default=now, action=DateAction,
+)
+argp.add_argument(
+"--max-days", help="Set start date to earliest date", action="store_true",
+)
+args = argp.parse_args()
+logargs = dict(format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+datefmt='%H:%M:%S')
+if args.debug:
+logargs['level'] = logging.DEBUG
+else:
+logargs['level'] = logging.INFO
+if args.logfile:
+logargs['filemode'] = 'a'
+logargs['filename'] = args.logfile
+logging.basicConfig(**logargs)
+try:
+validate_duration(args.duration)
+validate_size(args.size)
+args.data_type = args.data_type.upper()
+validate_data_type(args.data_type)
+except ValidationException as ve:
+print(ve)
+sys.exit(1)
+logging.debug(f"args={args}")
+contracts = []
+for s in args.symbol:
+contract = make_contract(s, args.security_type, args.currency, args.exchange, args.localsymbol)
+contracts.append(contract)
+os.makedirs(make_download_path(args, contract), exist_ok=True)
+app = DownloadApp(contracts, args)
+app.connect("127.0.0.1", args.port, clientId=0)
+# MAX: Start the application as a separate thread
+Thread(target=app.run).start()
+# MAX: Wait for the application to terminate
+code = app.wait_done()
+app.disconnect()
+return code
+if __name__ == "__main__":
+main()
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+DeciusMus
+commented
+May 26, 2022
+Guys, simple question. Is the download thing possible on paper trading account regarding options that have free tier level? I am reffering to IPE COIL, that is brent crude oil on ICE (IPE is an old name for ICE). I am new to this API thing but what i want is only SOME data regarding option contracts, for exaple prices and possibly IV in one month period. Now this is miles away from real time data, but still can it be done on non-margin account?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+May 26, 2022
+@max-fic thanks for the update, when I can find some time I'll merge this with my version and try to get this into a separate repo.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+May 26, 2022
+@DeciusMus I haven't downloaded options prices using this code, and it would most likely need a few changes. You'd need to set the expiration, strike, right, etc on the contract (see here: https://interactivebrokers.github.io/tws-api/classIBApi_1_1Contract.html). But even with those changes, in my experience you can't download historical data unless you pay for the real time data. In TWS, I can see delayed historical data but don't think I've ever been able to download it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+DeciusMus
+commented
+May 27, 2022
+Yes, You are right. Paper trading does not allow that, however i managed to ommit some of the restrictions and got some data anyways.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+InNeedOfHelpALOT
+commented
+Jun 10, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+sorry if this sounds really dumb, but I'm new to coding.
+How would I run this from another script?
+I m trying to run a for loop and requesting historical data for each of the tickers in a list, and at the moment I haven't got any idea on how to start!
+Thanks
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Jun 11, 2022
+I finally pushed this into a separate repo. It runs with the latest TWS stable version (9.81).
+I merged in @max-fic 's Threading fix, and then modified the code to check for TWS version, so it should work on Latest (10.x) as well. Thanks for the fix!
+And @InNeedOfHelpALOT, if you have a list of symbols to pull data for, the easiest way to do it is get this script running for one, then write a shell script to just run the script multiple times to download them all.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Pl0414141
+commented
+Jul 10, 2022
+Hi,
+using size '1 secs' shows an fatal error, anyone can help?, see below:
+trade@trade-virtual-machine:~/PycharmProjects/bot$ /usr/bin/python3.8 /home/trade/PycharmProjects/bot/datadownload.py --start-date 20220601 --end-date 20220701 --size "1 secs" --security-type "CONTFUT" --exchange GLOBEX MNQ
+17:08:26,532 root INFO Head Timestamp for 0,MNQ,CONTFUT,,0,,,GLOBEX,,USD,,,False,,combo: is 2019-10-31 22:00:00
+17:08:26,532 ibapi.client INFO REQUEST reqHistoricalData {'reqId': 2, 'contract': 140539116660048: 0,MNQ,CONTFUT,,0,,,GLOBEX,,USD,,,False,,combo:, 'endDateTime': '20220701 00:00:00', 'durationStr': '1 D', 'barSizeSetting': '1 secs', 'whatToShow': 'TRADES', 'useRTH': 0, 'formatDate': 1, 'keepUpToDate': False, 'chartOptions': []}
+17:08:26,532 ibapi.client INFO SENDING reqHistoricalData b'\x00\x00\x00U20\x002\x000\x00MNQ\x00CONTFUT\x00\x000.0\x00\x00\x00GLOBEX\x00\x00USD\x00\x00\x000\x0020220701 00:00:00\x001 secs\x001 D\x000\x00TRADES\x001\x000\x00\x00'
+17:08:26,805 ibapi.wrapper INFO ANSWER error {'reqId': 2, 'errorCode': 162, 'errorString': 'Mensaje de error de los servicios de datos de mercado históricos:invalid step: 1', 'advancedOrderRejectJson': ''}
+17:08:26,805 ibapi.wrapper ERROR ERROR 2 162 Mensaje de error de los servicios de datos de mercado históricos:invalid step: 1
+17:08:26,805 root ERROR Error. Id: 2 Code 162 Msg: Mensaje de error de los servicios de datos de mercado históricos:invalid step: 1
+Sending code 162
+Received code 162
+17:08:26,806 ibapi.client INFO disconnecting
+17:08:26,806 ibapi.wrapper INFO ANSWER connectionClosed {}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Aug 21, 2022
+Hi @Pl0414141 ,
+I'll make an issue in the new project for your issue. I looked at it a bit and if you request very small bars you can start to hit the pacing violations that IB describes in their docs much faster. I've downloaded more 1-minute bars and haven't seen this happen as much. Basically, the code needs to track the pacing and prevent too many requests.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Albon2000
+commented
+Sep 21, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hello, I use TWS but I am absolutely not a programmer, so is it possible to directly download daily historical data for the last 20-25 years from the NYSE and Nasdaq without using the API. I am currently using the data provided by Microsoft in Excel but I have unfortunately noticed very big errors, notably splits implemented very late in the courses. thanks
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+t-ara-fan
+commented
+Oct 15, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+This is a great project - thank you.
+I do have a bit of a glitch. I am downloading 15 second data for ES futures.
+The Dec'15 2023 expiry.
+I get lots of data, but not full days of data.
+With my TWS set to use New York time, and example is I get a file called 20230830.csv. It contains data from 20230830
+18:00:00 to 20230830
+23:59:45.
+I used the command below.
+python download_bars.py --size "15 secs" --start-date 20230820 --end-date 20230901
+--exchange CME --security-type FUT --localsymbol ESU3 ES
+The output in the Python console relating to 20230830 is below.
+It looks like (2nd last line below) it requested 24 hours of data ending at the start of 20230830.
+16:01:18,273 ibapi.client INFO REQUEST reqHistoricalData {'reqId': 4, 'contract': 2534678494944: 0,ES,FUT,,0.0,,,CME,,USD,ESU3,,True,,combo:, 'endDateTime': '20230830 00:00:00', 'durationStr': '1 D', 'barSizeSetting': '15 secs', 'whatToShow': 'TRADES', 'useRTH': 0, 'formatDate': 1, 'keepUpToDate': False, 'chartOptions': []}
+16:01:18,274 ibapi.client INFO SENDING reqHistoricalData b'\x00\x00\x00R20\x004\x000\x00ES\x00FUT\x00\x000.0\x00\x00\x00CME\x00\x00USD\x00ESU3\x00\x001\x0020230830 00:00:00\x0015 secs\x001 D\x000\x00TRADES\x001\x000\x00\x00'
+16:01:18,491 ibapi.wrapper INFO ANSWER historicalDataEnd {'reqId': 4, 'start': '20230829
+00:00:00', 'end': '20230830
+00:00:00'}
+All requests for 2023-08-30 00:00:00 complete.
+Am I requesting too much data? Maybe getting a UTC time mixed in there too?
+TIA.
+EDIT: When I request "5 mins" data I get the same 18:00:00 start, and end at 23:55:00.
+So possibly it the query format, not the amount of data requested.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Dec 22, 2023
+@t-ara-fan Sorry for the super late reply, cleaning out my inbox. I believe this issue is taken care of in the version in the full project. It could be a UTC issue. But if it still is not working with that version, you can make an issue there. I haven't had any time to use this project in a while, but at least it's worth a try if you're interested.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MrBolt177
+commented
+Mar 11, 2024
+I still receive an error:
+Warning: This script does not work with IBPy versions below 10: 9.81.1-1
+Please upgrade to version 10 of IBPy, you can download it from https://interactivebrokers.github.io.
+I do have latest IBPy, but the version of ibapi is 9.81.1-1. Who faced with the same issue?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Mar 11, 2024
+Latest version of TWS stable linked above is 10.19. This code won't work correctly with 9.81.1-1. Did you try downloading and updating the API from https://interactivebrokers.github.io?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MrBolt177
+commented
+Mar 11, 2024
+Hi, wrighter, thanks for the prompt reply. What I did:
+Install TWS API through msi setup
+Create virutal env as you suggested
+Tried to execute your scipt, and it threw such an error
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MrBolt177
+commented
+Mar 11, 2024
+The problem is here
+version = ibapi.version
+print(version)
+9.81.1-1
+can't understand how to install latest ibapi.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wrighter
+commented
+Mar 11, 2024
+@MrBolt177 I'd recommend reading https://www.wrighters.io/how-to-connect-to-interactive-brokers-using-python/ or the official documentation here: https://ibkrcampus.com/ibkr-api-page/trader-workstation-api/ . Also note that you should probably be running the code that's https://github.com/wrighter/ib-scripts, not the version here since this code is older.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MrBolt177
+commented
+Mar 12, 2024
+Hey! So, I managed to create a wheel, install the wheel, but still have an error on old library.
+(ib_env) D:\Trading\US Stocks\IB_data>python -m pip install --user --upgrade C:\TWS_API\source\pythonclient\dist\ibapi-10.19.2-py3-none-any.whl
+Processing c:\tws_api\source\pythonclient\dist\ibapi-10.19.2-py3-none-any.whl
+Installing collected packages: ibapi
+Successfully installed ibapi-10.19.2
+(ib_env) D:\Trading\US Stocks\IB_data>download_bars.py --max-days --size '1 day' AAPL
+Warning: This script does not work with IBPy versions below 10: 9.76.1
+Please upgrade to version 10 of IBPy, you can download it from https://interactivebrokers.github.io.
+Don't understand how it might be possible?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+LuqDaMan
+commented
+Sep 25, 2024
+Running into the same issue, pyproject.toml generates a requirements.txt file that has ibapi==9.81.1.post1 by default but when you try to run the script it throws the warning,
+Warning: This script does not work with IBPy versions below 10: 9.81.1-1
+Please upgrade to version 10 of IBPy, you can download it from https://interactivebrokers.github.io.
+Tried reinstalling ibapi==10.19.4 but it did not run with the same error message
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

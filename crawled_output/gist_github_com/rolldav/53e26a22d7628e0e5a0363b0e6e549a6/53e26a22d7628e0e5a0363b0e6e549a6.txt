@@ -1,0 +1,193 @@
+pdf-viewer.orion · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+rolldav/pdf-viewer.user.js
+Last active
+September 19, 2025 22:20
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/rolldav/53e26a22d7628e0e5a0363b0e6e549a6.js&quot;&gt;&lt;/script&gt;
+Save rolldav/53e26a22d7628e0e5a0363b0e6e549a6 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+19
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/rolldav/53e26a22d7628e0e5a0363b0e6e549a6.js&quot;&gt;&lt;/script&gt;
+Save rolldav/53e26a22d7628e0e5a0363b0e6e549a6 to your computer and use it in GitHub Desktop.
+Download ZIP
+pdf-viewer.orion
+Raw
+pdf-viewer.user.js
+// ==UserScript==
+// @name
+Universal PDF Blob Viewer - child-tab
+// @namespace
+com.github.universal.pdf.blob.viewer
+// @version
+3.0.5
+// @description
+Open only PDFs (.pdf, blob:, data:application/pdf) in a named child tab. Keep current tab unchanged.
+// @match
+*://*/*
+// @run-at
+document-start
+// @inject-into
+auto
+// @grant
+none
+// @noframes
+// @downloadURL
+https://gist.github.com/rolldav/53e26a22d7628e0e5a0363b0e6e549a6/raw/28fd94c72cf3ea7c92a4e145d10c1dc6f477e0d2/pdf-viewer.user.js
+// @updateURL
+https://gist.github.com/rolldav/53e26a22d7628e0e5a0363b0e6e549a6/raw/28fd94c72cf3ea7c92a4e145d10c1dc6f477e0d2/pdf-viewer.user.js
+// ==/UserScript==
+(function () {
+'use strict';
+var CHILD_NAME = 'PDF_BLOB_VIEWER_TAB';
+var child = null;
+var origOpen = window.open.bind(window);
+function openChildSync() {
+try { var w = origOpen('about:blank', CHILD_NAME); if (w) { try { w.opener = null; } catch (e) {} } return w || null; }
+catch (e) { return null; }
+}
+function isPdfHref(href) {
+if (!href || typeof href !== 'string') return false;
+if (href.startsWith('blob:')) return true;
+if (href.startsWith('data:application/pdf')) return true;
+return /\.pdf(?:[?#]|$)/i.test(href);
+}
+function isPdfType(t) { return t && /application\/(pdf|x-pdf)/i.test(t); }
+function looksPdfBytes(buf) { try { var a = new Uint8Array(buf); return a.length>=5 && a[0]===37 && a[1]===80 && a[2]===68 && a[3]===70 && a[4]===45; } catch (e) { return false; } }
+function buildViewerHTML(src, title) {
+var safe = (title || 'document.pdf').replace(/[<>"'&]/g, '');
+return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'
++ safe + '</title><style>*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;overflow:hidden;font-family:sans-serif}'
++ 'iframe{width:100%;height:100%;border:0;display:block}.toolbar{position:fixed;top:10px;right:10px;z-index:9;background:rgba(0,0,0,.8);padding:8px;border-radius:6px;display:flex;gap:6px}'
++ '.toolbar button{background:#007AFF;color:#fff;border:0;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px}</style></head><body>'
++ '<iframe src="' + src + '" allowfullscreen sandbox="allow-scripts allow-popups allow-modals" title="' + safe + '"></iframe>'
++ '<div class="toolbar"><button onclick="try{document.querySelector(\'iframe\').contentWindow.print()}catch(e){window.print()}">Print</button>'
++ '<button onclick="window.close()">Close</button></div></body></html>';
+}
+function fillWindow(w, html) { try { if (!w || w.closed) return false; w.document.open(); w.document.write(html); w.document.close(); return true; } catch (e) { return false; } }
+async function resolveBlob(url) {
+try {
+var resp = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
+if (!resp.ok) return null;
+var b = await resp.blob();
+if (isPdfType(b.type)) return b;
+if ((!b.type || b.type === 'application/octet-stream') && b.size >= 5) {
+var head = await b.slice(0, 5).arrayBuffer();
+if (looksPdfBytes(head)) return b;
+}
+return null;
+} catch (e) { return null; }
+}
+async function renderPdfInChild(url, filename, w) {
+if (url.endsWith('.pdf') || url.startsWith('data:application/pdf')) {
+var html1 = buildViewerHTML(url, filename);
+if (!fillWindow(w, html1)) { try { w.location.href = url; } catch (e) {} }
+return;
+}
+if (url.startsWith('blob:')) {
+var blob = await resolveBlob(url);
+if (!blob) { try { w.location.href = url; } catch (e) {} return; }
+var objectUrl = null; try { objectUrl = URL.createObjectURL(blob); } catch (e) {}
+var src = objectUrl || url;
+var html2 = buildViewerHTML(src, filename);
+if (!fillWindow(w, html2)) { try { w.location.href = src; } catch (e) {} }
+if (objectUrl) setTimeout(function () { try { URL.revokeObjectURL(objectUrl); } catch (e) {} }, 500);
+}
+}
+function onClick(e) {
+var link = e.target && e.target.closest ? e.target.closest('a') : null;
+if (!link || !link.href) return;
+if (!isPdfHref(link.href) && !isPdfType(link.type || '')) return;
+var w = child && !child.closed ? child : openChildSync();
+if (!w) return;
+e.preventDefault(); e.stopPropagation();
+var name = link.download || (link.textContent ? link.textContent.trim() : '') || 'document.pdf';
+renderPdfInChild(link.href, name, w);
+}
+if (!window.__pdfOpenPatched) {
+window.__pdfOpenPatched = true;
+window.open = function (u, t, f) {
+try { if (typeof u === 'string' && u.startsWith('blob:')) { var w = child && !child.closed ? child : openChildSync(); if (!w) return origOpen(u, '_blank'); renderPdfInChild(u, 'document.pdf', w); return w; } }
+catch (e) {}
+return origOpen(u, t, f);
+};
+}
+function observeDom() {
+var mo = new MutationObserver(function (muts) {
+for (var i = 0; i < muts.length; i++) {
+var nodes = muts[i].addedNodes;
+for (var j = 0; j < nodes.length; j++) {
+var n = nodes[j]; if (!(n instanceof Element)) continue;
+var els = n.matches && n.matches('iframe[src^="blob:"],embed[src^="blob:"],object[data^="blob:"]') ? [n]
+: Array.from(n.querySelectorAll('iframe[src^="blob:"],embed[src^="blob:"],object[data^="blob:"]'));
+if (!els.length) continue;
+var w = child && !child.closed ? child : null; if (!w) return;
+for (var k = 0; k < els.length; k++) {
+var el = els[k]; var url = el.src || el.data || '';
+if (typeof url === 'string' && url.startsWith('blob:')) renderPdfInChild(url, 'document.pdf', w);
+}
+}
+}
+});
+var start = function () { if (!document.documentElement) { setTimeout(start, 10); return; } mo.observe(document.documentElement, { childList: true, subtree: true }); };
+start();
+}
+document.addEventListener('click', onClick, { capture: true });
+observeDom();
+window.addEventListener('beforeunload', function () { child = null; });
+})();
+Comments are disabled for this gist.
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

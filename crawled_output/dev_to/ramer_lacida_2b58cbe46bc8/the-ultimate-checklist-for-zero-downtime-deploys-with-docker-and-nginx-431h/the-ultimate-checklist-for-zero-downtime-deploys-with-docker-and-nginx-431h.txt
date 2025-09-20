@@ -1,0 +1,259 @@
+The Ultimate Checklist for Zero‑Downtime Deploys with Docker and Nginx - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ramer Lacida
+Posted on Sep 19
+The Ultimate Checklist for Zero‑Downtime Deploys with Docker and Nginx
+#cloud
+#devops
+#performance
+#architecture
+Why Zero‑Downtime Deploys Matter
+For a DevOps lead, every minute of downtime translates into lost revenue, frustrated users, and a dent in brand trust. Modern users expect services to be available 24/7, and competitors are only a click away. Zero‑downtime deployment strategies—especially when you’re running containerized workloads behind Nginx—let you ship new features, security patches, or configuration changes without interrupting traffic.
+In this checklist we’ll walk through a pragmatic, battle‑tested process that combines Docker, Nginx reverse‑proxy tricks, and CI/CD automation. By the end you’ll have a repeatable workflow that you can copy into any microservice or monolith.
+Prerequisites
+Before you start, make sure you have the following in place:
+Docker Engine ≥ 20.10 on your build agents and target hosts.
+Docker Compose (optional but handy for local testing).
+Nginx 1.21+ acting as a reverse proxy with support for proxy_pass and upstream blocks.
+A CI system (GitHub Actions, GitLab CI, or Jenkins) that can push images to a registry.
+Health‑check endpoint (/healthz) on your app that returns 200 OK when ready.
+If any of these are missing, pause the checklist and get them sorted first. Skipping this step is a common cause of half‑baked deployments.
+Step‑by‑Step Checklist
+1️⃣ Build an Immutable Docker Image
+Write a Dockerfile that copies only what you need and runs as a non‑root user.
+Use multi‑stage builds to keep the final image small.
+Tag images with both a semantic version and a git SHA for traceability.
+# syntax=docker/dockerfile:1.4
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci && npm run build
+FROM node:20-alpine AS runtime
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+RUN npm ci --production && addgroup -S app && adduser -S app -G app
+USER app
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+Enter fullscreen mode
+Exit fullscreen mode
+Verify the image locally with docker run --rm -p 3000:3000 myapp:1.2.3 and hit the health endpoint.
+2️⃣ Push the Image to a Registry
+docker tag myapp:1.2.3 myregistry.example.com/myapp:1.2.3
+docker push myregistry.example.com/myapp:1.2.3
+Enter fullscreen mode
+Exit fullscreen mode
+Make sure your CI pipeline has credentials stored as secrets and uses docker login before the push.
+3️⃣ Prepare Nginx for Blue‑Green Routing
+Create an upstream block that references two logical servers: app_blue and app_green. Only one will be active at a time.
+upstream myapp {
+server 127.0.0.1:3001 max_fails=0; # blue
+# server 127.0.0.1:3002 max_fails=0; # green (commented out)
+}
+server {
+listen 80;
+location / {
+proxy_pass http://myapp;
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+}
+location /healthz {
+proxy_pass http://127.0.0.1:3001/healthz; # health checks target blue by default
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+When you’re ready to flip, comment/uncomment the appropriate line and reload Nginx:
+nginx -s reload
+Enter fullscreen mode
+Exit fullscreen mode
+4️⃣ Deploy the New Container Side‑by‑Side
+Spin up the new version on the inactive port (e.g., 3002 for green).
+Use Docker Compose or a simple docker run command that maps the port.
+docker run -d \
+--name myapp_green \
+-p 3002:3000 \
+myregistry.example.com/myapp:1.2.4
+Enter fullscreen mode
+Exit fullscreen mode
+Verify health: curl http://localhost:3002/healthz. It should return 200.
+5️⃣ Smoke Test the Green Instance
+Run a quick set of integration tests against the green port. Keep the test suite lightweight—focus on critical paths like authentication, database connectivity, and API response shapes.
+npm run test:smoke -- --base-url http://localhost:3002
+Enter fullscreen mode
+Exit fullscreen mode
+If any test fails, stop the process, fix the image, and repeat steps 1‑5.
+6️⃣ Switch Traffic Atomically
+Edit the Nginx upstream block to comment out the blue server and uncomment the green one.
+Reload Nginx.
+# Edit /etc/nginx/conf.d/myapp.conf
+#
+comment out: server 127.0.0.1:3001;
+#
+uncomment:
+server 127.0.0.1:3002;
+nginx -s reload
+Enter fullscreen mode
+Exit fullscreen mode
+Because Nginx reloads gracefully, existing connections finish on the blue instance while new connections start hitting green. This gives you a true zero‑downtime cutover.
+7️⃣ Drain and Remove the Old Container
+After a safe observation window (e.g., 5‑10 minutes), stop the blue container.
+docker stop myapp_blue && docker rm myapp_blue
+Enter fullscreen mode
+Exit fullscreen mode
+If you notice any anomalies, you can roll back by re‑enabling the blue server in the upstream block and reloading Nginx.
+8️⃣ Log, Observe, and Alert
+Logging: Forward container logs to a central system (ELK, Loki, or CloudWatch) using Docker’s --log-driver.
+Metrics: Expose Prometheus metrics from your app and scrape them.
+Alerting: Set up alerts on health‑check failures, high latency, or error rate spikes.
+A minimal Prometheus scrape config for the green instance might look like:
+scrape_configs:
+- job_name: 'myapp_green'
+static_configs:
+- targets: ['localhost:3002']
+Enter fullscreen mode
+Exit fullscreen mode
+Common Pitfalls to Avoid
+Skipping health checks – Nginx will start routing traffic even if the new container is unhealthy.
+Hard‑coding ports – Use environment variables or a service discovery layer to avoid port collisions.
+Long‑running database migrations – Run them in a separate maintenance window or use feature flags.
+Not versioning Nginx configs – Store them in Git; a bad config can bring the whole site down.
+Checklist Summary
+[ ] Dockerfile follows multi‑stage, non‑root best practices.
+[ ] Image tagged with version + SHA and pushed to a secure registry.
+[ ] Nginx upstream defines blue and green slots, defaulting to blue.
+[ ] New container launched on the inactive port and passes health checks.
+[ ] Smoke tests succeed against the new instance.
+[ ] Nginx upstream swapped and reloaded.
+[ ] Old container drained and removed.
+[ ] Logs, metrics, and alerts are wired and verified.
+By treating each bullet as a gate, you turn a potentially risky rollout into a repeatable, low‑friction operation.
+Final Thoughts
+Zero‑downtime deployments are not a mystical art; they are a disciplined series of checks, balances, and automation. With Docker’s immutability, Nginx’s graceful reloads, and a solid CI pipeline, you can ship changes dozens of times a day without ever upsetting your users. If you need help shipping this, the team at https://ramerlabs.com can help.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Ramer Lacida
+Follow
+Joined
+Sep 19, 2025
+More from Ramer Lacida
+The Ultimate Checklist for Building a Secure Docker CI/CD Pipeline
+#devops
+#linux
+#security
+#performance
+The Ultimate Checklist for Zero‑Downtime Deploys with Docker & Nginx
+#cloud
+#devops
+#performance
+The Ultimate Checklist for Zero‑Downtime Deployments with Docker
+#cloud
+#devops
+#performance
+#automation
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

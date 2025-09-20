@@ -1,0 +1,229 @@
+Use Your Machine Name (Not Just localhost) with HTTPS on ASP.NET Core — and Make Node.js Trust It - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ruxo Zheng
+Posted on Sep 19
+Use Your Machine Name (Not Just localhost) with HTTPS on ASP.NET Core — and Make Node.js Trust It
+#dotnet
+#node
+#browser
+When you run dotnet dev-certs https --trust, .NET creates and trusts a localhost-only developer certificate. That’s great for https://localhost:1234, but it won’t cover https://my-machine:1234.
+If you want to reach your service by machine name (e.g., https://my-machine:7164) you need to create your own self-signed certificate that lists all the names you’ll use (machine name, localhost, and optionally 127.0.0.1) and then configure Kestrel to use it. You’ll also need to trust that certificate for browsers — and tell Node.js how to trust it.
+Below are clean, copy-pasteable steps for Windows/PowerShell.
+1) Create a self-signed certificate (.pfx) for your machine name
+# Names you want this cert to cover (add/remove as needed)
+$dns = @("my-machine", "localhost", "127.0.0.1")
+# Create a leaf certificate in CurrentUser\My
+$cert = New-SelfSignedCertificate -DnsName $dns -CertStoreLocation Cert:\CurrentUser\My
+# Export a PFX with a password (change YOUR-PASSWORD and FILENAME)
+$pwd = ConvertTo-SecureString "YOUR-PASSWORD" -AsPlainText -Force
+Export-PfxCertificate -Cert $cert -FilePath "$env:USERPROFILE\FILENAME.pfx" -Password $pwd
+Enter fullscreen mode
+Exit fullscreen mode
+Tip: Keep localhost and 127.0.0.1 in the SAN list so existing tooling continues to work.
+2) (Optional) Replace the default dotnet dev-certs certificate
+If you want your new cert to become the default dev cert:
+dotnet dev-certs https --clean `
+--import "$env:USERPROFILE\FILENAME.pfx" `
+-p YOUR-PASSWORD --trust
+Enter fullscreen mode
+Exit fullscreen mode
+3) Or: Point Kestrel to your PFX in appsettings.json
+If you don’t want to replace the global dev cert, configure your app explicitly:
+{
+"Kestrel": {
+"Certificates": {
+"Default": {
+"Path": "C:/Users/USER/FILENAME.pfx",
+"Password": "YOUR-PASSWORD"
+}
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+4) Trust the certificate (for browsers)
+Export a .cer (public cert) from the cert you created, then import it into Trusted Root Certification Authorities for Current User.
+$cer = "$env:USERPROFILE\FILENAME.cer"
+# Export the public part of the certificate to .cer
+Export-Certificate -Cert $cert -FilePath $cer
+# Import into CurrentUser\Root (Trusted Root)
+Import-Certificate -FilePath $cer -CertStoreLocation Cert:\CurrentUser\Root
+Enter fullscreen mode
+Exit fullscreen mode
+Recommendation: Do not generate directly into the Trust store. Create the cert in CurrentUser\My, then export/import. Your actual private key lives with the leaf cert; keeping the flow explicit reduces mistakes.
+5) Make it work with Node.js
+Node.js 22.x
+Node 22 does not use the Windows trust store by default and also doesn’t accept .cer via NODE_EXTRA_CA_CERTS. Convert the .cer to .pem and set NODE_EXTRA_CA_CERTS:
+# Convert CER -> PEM (Base64)
+certutil -encode C:\Users\USER\FILENAME.cer C:\Users\USER\FILENAME.pem
+# For the current PowerShell session:
+$env:NODE_EXTRA_CA_CERTS = "C:\Users\USER\FILENAME.pem"
+# Or persist for new shells:
+# setx NODE_EXTRA_CA_CERTS "C:\Users\USER\FILENAME.pem"
+node
+Enter fullscreen mode
+Exit fullscreen mode
+Now fetch("https://my-machine:7164/...") should stop complaining about a self-signed certificate.
+Node.js 23.8+
+Newer Node supports using the OS trust store directly:
+node --use-system-ca your-script.js
+Enter fullscreen mode
+Exit fullscreen mode
+6) Deleting the certificate later
+If you still have the $cert object from creation:
+$thumb = $cert.Thumbprint
+# Remove from CurrentUser\My and delete the private key as well
+Remove-Item "Cert:\CurrentUser\My\$thumb" -DeleteKey -Force
+Enter fullscreen mode
+Exit fullscreen mode
+(If you no longer have $cert, find it by subject/issuer in Cert:\CurrentUser\My and remove by thumbprint.)
+Common Gotchas
+Name mismatch: The URL’s host must be listed in the certificate’s DNS names (SAN). If you access https://my-machine:7164, my-machine must be in the cert.
+Node still failing: On Node 22, ensure NODE_EXTRA_CA_CERTS points to a PEM file, not .cer. Restart the shell or set it in the same session.
+Browser trust: Make sure you imported the public cert into Current User → Trusted Root Certification Authorities.
+Paths: Use absolute Windows paths for Kestrel’s "Path".
+Summary
+Generate a self-signed PFX with SANs for my-machine, localhost, and 127.0.0.1.
+Either import it as the global dev cert or reference it in Kestrel.
+Export the .cer and import it into Trusted Root so browsers trust it.
+For Node: use NODE_EXTRA_CA_CERTS with a .pem (Node 22) or --use-system-ca (Node 23.8+).
+This setup lets you develop and test HTTPS endpoints using your machine name, avoiding the limitations of dotnet dev-certs’ default localhost scope.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Ruxo Zheng
+Follow
+Location
+Bankok, Thailand
+Joined
+Nov 5, 2024
+More from Ruxo Zheng
+Host React with Blazor Server
+#dotnet
+#blazor
+#webdev
+#react
+Pre-render issue in Blazor server interaction
+#dotnet
+#blazor
+การใช้งาน Polyglot notebook กับ Python
+#python
+#vscode
+#dotnet
+#windows
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

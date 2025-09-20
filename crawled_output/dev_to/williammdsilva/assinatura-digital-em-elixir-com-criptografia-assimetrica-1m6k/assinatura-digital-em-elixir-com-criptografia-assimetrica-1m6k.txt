@@ -1,0 +1,214 @@
+Assinatura Digital em Elixir com Criptografia Assimétrica - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+William Moreira da Silva
+Posted on Sep 19
+Assinatura Digital em Elixir com Criptografia Assimétrica
+#backend
+#cybersecurity
+#tutorial
+Você já se perguntou como funciona um fluxo de assinatura digital?
+Quando falamos de documentos digitais, surge a dúvida: como garantir que esse arquivo é autêntico e não foi alterado? É justamente para resolver isso que existe a assinatura digital.
+A ideia é simples: você gera um hash do documento (uma espécie de “impressão digital”) e usa sua chave privada para assinar esse hash. Quem receber o documento pode, com a chave pública correspondente, verificar se a assinatura é legítima. Assim, temos duas garantias:
+O documento não foi adulterado.
+A assinatura só poderia ter vindo do dono da chave privada.
+No caso de PDFs — pense em contratos ou qualquer documento de valor jurídico — isso é ainda mais relevante. No Brasil, por exemplo, a assinatura digital é regulamentada pela ICP-Brasil, dando validade legal a documentos assinados eletronicamente.
+E aí entra o nosso protagonista: Elixir. Por rodar na máquina virtual do Erlang (a BEAM), a linguagem já oferece ferramentas nativas de criptografia, prontas para uso. Ou seja, você não precisa de bibliotecas externas para começar a brincar com chaves e assinaturas digitais.
+Mão na massa: assinando em Elixir
+1. Gerando um par de chaves
+Primeiro passo: criar o par de chaves RSA (privada e pública). Com elas, vamos assinar e validar os documentos.
+# Criando um par de chaves RSA com 2048 bits
+{:ok, rsa_key} = :public_key.generate_key({:rsa, 2048, 65537})
+{:RSAPrivateKey, _, modulus, public_exp, _private_exp, _, _, _, _} = rsa_key
+# private_key é a chave que você deve manter em segredo absoluto. Ela nunca deve ser compartilhada.
+public_key = {:RSAPublicKey, modulus, public_exp}
+# public_key é a chave que pode ser distribuída para qualquer pessoa que precise validar suas assinaturas.
+private_key = rsa_key
+Enter fullscreen mode
+Exit fullscreen mode
+Pronto, agora temos as duas chaves na mão.
+⚠️ Boa prática: em um sistema real, essa chave privada não deve ficar no código nem em arquivos simples. algum tipo de cofres digitais como HashiCorp Vault.
+2. Gerando o hash de um PDF
+Antes de assinar, precisamos transformar o conteúdo do arquivo em um hash. Esse hash vai ser a base da assinatura.
+pdf_content = File.read!("contrato.pdf")
+# O hash é como a impressão digital do documento (podemos dizer que é um resumo criptográfico).
+hash = :crypto.hash(:sha256, pdf_content)
+Enter fullscreen mode
+Exit fullscreen mode
+Alterou uma vírgula no PDF? O hash já muda completamente. Isso garante a integridade.
+⚠️ Boa prática: sempre use algoritmos de hash considerados seguros. Evite MD5 ou SHA-1, que já foram quebrados e não são confiáveis para assinatura digital.
+3. Assinando com a chave privada
+Com o hash pronto, agora é só assinar:
+# Estamos aplicando a chave privada sobre o hash.
+signature = :public_key.sign(hash, :sha256, private_key)
+Enter fullscreen mode
+Exit fullscreen mode
+O resultado, signature, é uma sequência de bytes que comprova que você (e só você) poderia ter gerado essa assinatura, já que só você tem a chave privada. Esse signature é o que vai junto do documento. Ele prova que quem assina tinha a chave privada correta.
+⚠️ Boa prática: normalmente, essa assinatura é guardada separada do arquivo (como um .sig) ou embutida em metadados do PDF. Assim, o documento em si continua intacto.
+4. Validando com a chave pública
+Quem recebe o documento precisa verificar se está tudo certo:
+# Aqui, usamos a chave pública para verificar a assinatura.
+valid? = :public_key.verify(hash, :sha256, signature, public_key)
+# Se valid? for true, temos duas garantias: o documento não foi alterado e foi assinado por quem realmente possui a chave privada correspondente.
+if valid? do
+IO.puts("Tudo certo: assinatura válida e documento íntegro.")
+else
+IO.puts("Ops! Assinatura inválida ou documento adulterado.")
+end
+Enter fullscreen mode
+Exit fullscreen mode
+⚠️ Boa prática: sempre valide o hash antes de confiar no documento. Não basta “parecer” assinado; é preciso confirmar criptograficamente.
+Simples assim!!
+5. Indo além
+Esse fluxo básico já garante muita coisa. Mas no mundo real, é importante expandir nos seguintes pontos:
+Múltiplas assinaturas em um mesmo PDF, cada uma com seu carimbo.
+Metadados no próprio PDF, guardando assinatura, certificados e tudo mais.
+timestamp, pra provar não só que o documento é válido, mas quando foi assinado.
+Esses que pontos são super úteis em cenários jurídicos ou financeiros, onde cada detalhe pode toda faz diferença.
+Conclusão
+A assinatura digital é essencial para garantir autenticidade, integridade e validade jurídica de documentos. E vimos como o Elixir + Erlang tornam esse processo simples e confiável: em poucas linhas conseguimos gerar chaves, assinar e validar documentos, com a robustez de uma plataforma madura.
+Entendemos o conceito de assinatura digital, vimos como gerar chaves RSA, como criar e assinar o hash de um PDF e como validar essa assinatura. A pergunta da introdução era: como funciona um fluxo de assinatura digital? Agora temos a resposta clara — ele envolve gerar um hash, assinar com a chave privada e validar com a chave pública.
+Ou seja, além de mostrar a versatilidade do Elixir no mundo da criptografia, conseguimos destrinchar um processo que, no fim das contas, é bem mais direto do que parece.
+No fim, o fluxo de assinatura digital nada mais é do que hash + chave privada + chave pública — simples na teoria, poderoso na prática.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+William Moreira da Silva
+Follow
+👨‍💻 Software Engineer | 🌐 Full Stack Engineer | 💡Solving real-world problems with code | 🚀 Always learning and exploring new technologies
+Location
+Brasil
+Work
+Software engineer
+Joined
+Sep 12, 2023
+Trending on DEV Community
+Hot
+Build Your Own Infinite Carousel in React (with a Custom Hook)❗
+#react
+#javascript
+#tutorial
+#css
+Automate GitHub Security Reviews with Glama’s AI Automation and MCP Servers
+#ai
+#beginners
+#tutorial
+#discuss
+Top 7 Featured DEV Posts of the Week
+#top7
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

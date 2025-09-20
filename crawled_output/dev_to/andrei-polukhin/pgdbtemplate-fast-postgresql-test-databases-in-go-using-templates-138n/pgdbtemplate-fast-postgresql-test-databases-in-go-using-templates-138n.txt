@@ -75,6 +75,7 @@ Share to Mastodon
 Report Abuse
 Andrei Polukhin
 Posted on Sep 13
+• Edited on Sep 19
 pgdbtemplate – fast PostgreSQL test databases in Go using templates
 #testing
 #go
@@ -103,50 +104,86 @@ go get github.com/andrei-polukhin/pgdbtemplate
 Enter fullscreen mode
 Exit fullscreen mode
 Here's how you use it in your test suite:
-package main
+package myapp_test
 import (
 "context"
+"fmt"
+"log"
+"os"
 "testing"
 "github.com/andrei-polukhin/pgdbtemplate"
+"github.com/andrei-polukhin/pgdbtemplate-pgx"
 )
 var templateManager *pgdbtemplate.TemplateManager
 func TestMain(m *testing.M) {
-ctx := context.Background()
-// Set up the template manager once
-connStringFunc := func(dbName string) string {
-return "postgres://user:pass@localhost/" + dbName
+// Setup template manager once.
+if err := setupPgxTemplateManager(); err != nil {
+log.Fatalf("failed to setup template manager: %v", err)
 }
-provider := pgdbtemplate.NewPgxConnectionProvider(connStringFunc)
+// Run tests.
+code := m.Run()
+// Cleanup.
+templateManager.Cleanup(context.Background())
+os.Exit(code)
+}
+func setupPgxTemplateManager() error {
+baseConnString := "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
+// Create pgx connection provider with connection pooling.
+connStringFunc := func(dbName string) string {
+return pgdbtemplate.ReplaceDatabaseInConnectionString(baseConnString, dbName)
+}
+// Configure connection pool settings using options.
+provider := pgdbtemplatepgx.NewConnectionProvider(
+connStringFunc,
+pgdbtemplatepgx.WithMaxConns(10),
+pgdbtemplatepgx.WithMinConns(2),
+)
+// Create migration runner.
 migrationRunner := pgdbtemplate.NewFileMigrationRunner(
-[]string{"./migrations"},
+[]string{"./testdata/migrations"},
 pgdbtemplate.AlphabeticalMigrationFilesSorting,
 )
-tm, _ := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+// Configure template manager.
+config := pgdbtemplate.Config{
 ConnectionProvider: provider,
 MigrationRunner:
 migrationRunner,
-})
-// Initialize template with migrations (one-time operation)
-tm.Initialize(ctx)
-templateManager = tm
-code := m.Run()
-// Cleanup everything
-tm.Cleanup(ctx)
-os.Exit(code)
 }
-func TestUserRepository(t *testing.T) {
+templateManager, err = pgdbtemplate.NewTemplateManager(config)
+if err != nil {
+return fmt.Errorf("failed to create template manager: %w", err)
+}
+// Initialize template database with migrations.
+if err := templateManager.Initialize(context.Background()); err != nil {
+return fmt.Errorf("failed to initialize template: %w", err)
+}
+return nil
+}
+// Individual test function using pgx.
+func TestUserRepositoryPgx(t *testing.T) {
 ctx := context.Background()
-// Each test gets its own isolated database instantly!
-testDB, testDBName, err := templateManager.CreateTestDatabase(ctx)
+// Create isolated test database with pgx connection.
+testConn, testDBName, err := templateManager.CreateTestDatabase(ctx)
 if err != nil {
 t.Fatal(err)
 }
-defer testDB.Close()
+defer testConn.Close()
 defer templateManager.DropTestDatabase(ctx, testDBName)
-// Run your test logic on a fresh database
-repo := NewUserRepository(testDB)
-user, err := repo.CreateUser("test@example.com")
-// ... your assertions
+// Use pgx-specific features like native PostgreSQL types.
+_, err = testConn.ExecContext(ctx,
+"INSERT INTO users (name, email, created_at) VALUES ($1, $2, NOW())",
+"Jane Doe", "jane@example.com")
+if err != nil {
+t.Fatal(err)
+}
+var count int
+err = testConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+if err != nil {
+t.Fatal(err)
+}
+if count != 1 {
+t.Errorf("Expected 1 user, got %d", count)
+}
 }
 Enter fullscreen mode
 Exit fullscreen mode
@@ -212,29 +249,13 @@ postgres.WithDatabase("testdb"),
 // ... other config
 )
 connStr, _ := pgContainer.ConnectionString(ctx, "sslmode=disable")
-provider := pgdbtemplate.NewStandardConnectionProvider(
+provider := pgdbtemplatepgx.NewConnectionProvider(
 func(dbName string) string {
 return pgdbtemplate.ReplaceDatabaseInConnectionString(connStr, dbName)
 })
 // Create and use template manager as before
 // ...
 }
-Enter fullscreen mode
-Exit fullscreen mode
-Connection Pooling Options
-Configure your connections for optimal performance:
-// For database/sql + pq
-provider := pgdbtemplate.NewStandardConnectionProvider(
-connStringFunc,
-pgdbtemplate.WithMaxOpenConns(25),
-pgdbtemplate.WithMaxIdleConns(10),
-)
-// For pgx
-provider := pgdbtemplate.NewPgxConnectionProvider(
-connStringFunc,
-pgdbtemplate.WithPgxMaxConns(10),
-pgdbtemplate.WithPgxMinConns(2),
-)
 Enter fullscreen mode
 Exit fullscreen mode
 When Should You Use pgdbtemplate?
@@ -294,20 +315,9 @@ Neon is the official database partner of DEV
 Algolia is the official search partner of DEV
 DEV Community — A space to discuss and keep up software development and manage your software career
 Home
-DEV++
-Podcasts
-Videos
 Tags
-DEV Education Tracks
-DEV Challenges
-DEV Help
-Advertise on DEV
-DEV Showcase
 About
 Contact
-Free Postgres Database
-Software comparisons
-Forem Shop
 Code of Conduct
 Privacy Policy
 Terms of Use

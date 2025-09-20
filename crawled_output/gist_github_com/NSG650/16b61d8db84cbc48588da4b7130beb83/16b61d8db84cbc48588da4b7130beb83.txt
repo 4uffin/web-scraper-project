@@ -1,0 +1,425 @@
+XNU on a Raspberry Pi. Patches for limine · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+NSG650/console.c
+Last active
+September 20, 2025 00:34
+Show Gist options
+Download ZIP
+Star
+2
+(2)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/NSG650/16b61d8db84cbc48588da4b7130beb83.js&quot;&gt;&lt;/script&gt;
+Save NSG650/16b61d8db84cbc48588da4b7130beb83 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+2
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/NSG650/16b61d8db84cbc48588da4b7130beb83.js&quot;&gt;&lt;/script&gt;
+Save NSG650/16b61d8db84cbc48588da4b7130beb83 to your computer and use it in GitHub Desktop.
+Download ZIP
+XNU on a Raspberry Pi. Patches for limine
+Raw
+console.c
+noreturn void enter_in_el1_without_paging(uint64_t entry, uint64_t sp, uint64_t target_x0);
+static void macho_highest_lowest(struct macho_header* mh, uint64_t *lowaddr, uint64_t *highaddr) {
+struct load_command* cmd = (struct load_command*)((uint8_t*)mh + sizeof(struct macho_header));
+// iterate through all the segments once to find highest and lowest addresses
+uint64_t low_addr_temp = ~0;
+uint64_t high_addr_temp = 0;
+for (uint32_t i = 0; i < mh->command_count; i++) {
+switch (cmd->cmd) {
+case 0x19: {
+struct segment_command_64* seg_cmd = (struct segment_command_64*)cmd;
+if (seg_cmd->filesize != 0 || seg_cmd->vmsize != 0) {
+if (seg_cmd->vmaddr < low_addr_temp) {
+low_addr_temp = seg_cmd->vmaddr;
+}
+if (seg_cmd->vmaddr + seg_cmd->vmsize > high_addr_temp) {
+high_addr_temp = seg_cmd->vmaddr + seg_cmd->vmsize;
+}
+}
+break;
+}
+}
+cmd = (struct load_command*)((char*)cmd + cmd->cmdsize);
+}
+*lowaddr = low_addr_temp;
+*highaddr = high_addr_temp;
+}
+noreturn void enter_in_el1_without_paging(uint64_t entry, uint64_t sp, uint64_t target_x0);
+void this_shouldnt_be_where_i_should_put_code_for_loading_macho_but_anyways(void) {
+#if defined (__aarch64__)
+print("=======================================\n"
+"::\n"
+":: XIMI LOADER, Copyleft 2023 0x650\n"
+"::\n"
+"::\tBUILD_TAG: %s\n"
+"::\n"
+"::\tBUILD_STYLE: %s\n"
+"::\n"
+"::\tCOMPILE_DATE: " __DATE__ " " __TIME__ "\n"
+"::\n"
+"=======================================\n", "Not even close to alpha", "DEBUG as always");
+char *file_path = "/EFI/BOOT/kernel.development.bcm2837.unstripped";
+char *dtb_path = "/EFI/BOOT/rpi.dtb";
+struct file_handle *f = NULL;
+struct file_handle *f_dtb = NULL;
+print("Loading kernel %s dtb %s\n", file_path, dtb_path);
+for (size_t i = 0; i < volume_index_i; i++) {
+f = fopen(volume_index[i], file_path);
+f_dtb = fopen(volume_index[i], dtb_path);
+if (f != NULL && f_dtb != NULL) break;
+}
+if (f == NULL || f_dtb == NULL) {
+print("Not found :(((\n");
+return;
+}
+uint8_t *kernel = freadall(f, MEMMAP_KERNEL_AND_MODULES);
+uint8_t *dtb = freadall(f_dtb, MEMMAP_KERNEL_AND_MODULES);
+struct macho_header *header = (struct macho_header *)kernel;
+if (header->magic != 0xfeedfacf) {
+print("Not a valid mach-o :(\n");
+return;
+}
+if (header->cpu_type != 0x0100000c) {
+print("Not for aarch64 :(\n");
+return;
+}
+if (header->cpu_subtype != 0) {
+print("Somethings off with this aarch64 mach-o? Possibly arm64e???\n");
+return;
+}
+if (header->file_type != 0x2) {
+print("Non executable mach-o :(\n");
+return;
+}
+print("Command count: %x\n", header->command_count);
+print("Command size: %x\n", header->command_size);
+print("Flags: %x\n", header->flags);
+uint64_t entry_point = 0;
+uint64_t low_addr_temp;
+uint64_t high_addr_temp;
+macho_highest_lowest(kernel, &low_addr_temp, &high_addr_temp);
+uint64_t size = high_addr_temp - low_addr_temp;
+print("From %p to %p Total Size: %x\n", low_addr_temp, high_addr_temp, size);
+uint8_t *kernel_buffer = ext_mem_alloc_type((1024 * 1024 * 128), MEMMAP_KERNEL_AND_MODULES);
+if (!kernel_buffer) {
+print("Failed to allocate memory buffer :(\n");
+return;
+}
+struct load_command* cmd = (struct load_command*)((uint8_t*)header + sizeof(struct macho_header));
+for (uint32_t i = 0; i < header->command_count; i++) {
+switch (cmd->cmd) {
+case 0x19: {
+struct segment_command_64* seg_cmd = (struct segment_command_64*)cmd;
+if (seg_cmd->filesize != 0 || seg_cmd->vmsize != 0) {
+print("Section name: %s from %p to %p.\n", seg_cmd->segname, (seg_cmd->vmaddr - low_addr_temp) + kernel_buffer, (seg_cmd->vmaddr - low_addr_temp) + seg_cmd->filesize + kernel_buffer);
+memcpy(kernel_buffer + (seg_cmd->vmaddr - low_addr_temp), kernel + seg_cmd->fileoff, seg_cmd->filesize);
+}
+break;
+}
+case 0x5: {
+struct thread_command *thread_cmd = (struct thread_command *)cmd;
+entry_point = (thread_cmd->state.pc - low_addr_temp) + kernel_buffer;
+break;
+}
+}
+cmd = (struct load_command*)((char*)cmd + cmd->cmdsize);
+}
+print("Entry point at %p\n", entry_point);
+/*
+Zhuowei has provided a QEMU implementation that can load XNU kernel(or kernalcache) Mach-O file to QEMU's RAM.
+As his blog pointed out, we need to load Mach-O file to a base address that leading 1s are erased.
+For example, data located at (virtual address) 0xfffffff0070059c0 should be loaded to (physical address) 0x70059c0
+*/
+uint64_t phys_base = kernel_buffer;
+uint64_t virt_base = (low_addr_temp & ~0x3fffffff) + kernel_buffer;
+print("Phys base: %p Virt Base: %p\n", phys_base, virt_base);
+struct boot_args *boot_arguments = (void *)(kernel_buffer + size);
+memcpy((void *)(kernel + size + sizeof(struct boot_args)), dtb, f_dtb->size);
+uint8_t *stack = (uint8_t *)(kernel + size + sizeof(struct boot_args) + f_dtb->size + (64 * 1024)); // Always remind me that the stack grows downward
+uint8_t *actual_memory = (uint8_t *)(kernel + size + sizeof(struct boot_args) + f_dtb->size + (64 * 1024));
+memset(boot_arguments, 0, sizeof(struct boot_args));
+boot_arguments->Revision = kBootArgsRevision2;
+boot_arguments->Version = kBootArgsVersion2;
+boot_arguments->physBase = phys_base;
+boot_arguments->virtBase = virt_base;
+boot_arguments->memSize = (128 * 1024 * 1024);
+boot_arguments->memSizeActual = 0;
+boot_arguments->deviceTreeP = (virt_base + size + sizeof(struct boot_args));
+boot_arguments->deviceTreeLength = f_dtb->size;
+boot_arguments->topOfKernelData = (virt_base + size + sizeof(boot_args) + f_dtb->size + (64 * 1024) + 0xffff) & ~0xffff;
+/*
+struct fb_info *fb;
+size_t fb_count = 0;
+fb_init(&fb, &fb_count, 0, 0, 0);
+boot_arguments->Video.v_baseAddr = fb[0].framebuffer_addr;
+boot_arguments->Video.v_depth = fb[0].framebuffer_bpp;
+boot_arguments->Video.v_width = fb[0].framebuffer_width;
+boot_arguments->Video.v_height = fb[0].framebuffer_height;
+boot_arguments->Video.v_rowBytes = (fb[0].framebuffer_pitch * 8) / boot_arguments->Video.v_depth;
+*/
+print("boot_arguments is at %p\n", (void *)(kernel_buffer + size));
+print("dtb is at %p\n", (void *)(kernel + size + sizeof(struct boot_args)));
+print("stack is at %p\n", stack);
+print("usable memory begins from %p\n", actual_memory);
+char *command_line = "debug=0x8 kextlog=0xffff cpus=1 ";
+memcpy(boot_arguments->CommandLine, command_line, strlen(command_line));
+print("boot_arguments->Revision: %p\n", boot_arguments->Revision);
+print("boot_arguments->Version : %p\n", boot_arguments->Version );
+print("boot_arguments->physBase: %p\n", boot_arguments->physBase);
+print("boot_arguments->virtBase: %p\n", boot_arguments->virtBase);
+print("boot_arguments->memSize : %p\n", boot_arguments->memSize);
+print("boot_arguments->CommandLine: %s\n", boot_arguments->CommandLine);
+print("boot_arguments->deviceTreeP: %p\n", boot_arguments->deviceTreeP);
+print("boot_arguments->deviceTreeLength: %p\n", boot_arguments->deviceTreeLength);
+print("boot_arguments->topOfKernelData: %p\n", boot_arguments->topOfKernelData);
+// memset(boot_arguments->Video.v_baseAddr, 0xff, boot_arguments->Video.v_height * boot_arguments->Video.v_width * boot_arguments->Video.v_depth);
+enter_in_el1_without_paging(entry_point, (uint64_t)stack, (uint64_t)boot_arguments);
+panic(true, "Failed to jump into the kernel :(\n");
+#endif
+}
+/*
+Add a command for it in the console function
+} else if (strcmp(prompt, "clear") == 0) {
+print("\e[2J\e[H");
+} else if(strcmp(prompt, "ximi") == 0) {
+this_shouldnt_be_where_i_should_put_code_for_loading_macho_but_anyways();
+} else if (strcmp(prompt, "lsvol") == 0) {
+list_volumes();
+}
+*/
+Raw
+macho.h
+#ifndef MACHO_H
+#define MACHO_H
+#include <stdint.h>
+#include <stddef.h>
+struct macho_header {
+uint32_t magic;
+uint32_t cpu_type;
+uint32_t cpu_subtype;
+uint32_t file_type;
+uint32_t command_count;
+uint32_t command_size;
+uint32_t flags;
+uint32_t reserved;
+};
+struct segment_command_64 {
+uint32_t cmd;
+uint32_t cmdsize;
+char segname[16];
+uint64_t vmaddr;
+uint64_t vmsize;
+uint64_t fileoff;
+uint64_t filesize;
+uint64_t maxprot;
+uint64_t initprot;
+uint32_t nsects;
+uint32_t flags;
+};
+struct load_command {
+uint32_t cmd;
+uint32_t cmdsize;
+};
+struct section_64 {
+char sectname[16];
+char segname[16];
+uint64_t addr;
+uint64_t size;
+uint32_t offset;
+uint32_t align;
+uint32_t reloff;
+uint32_t nreloc;
+uint32_t flags;
+uint32_t reserved1;
+uint32_t reserved2;
+uint32_t reserved3;
+};
+struct arm_thread_state64 {
+uint64_t x[29];	/* General purpose registers x0-x28 */
+uint64_t fp;		/* Frame pointer x29 */
+uint64_t lr;		/* Link register x30 */
+uint64_t sp;		/* Stack pointer x31 */
+uint64_t pc;		/* Program counter */
+uint64_t cpsr;	/* Current program status register */
+uint64_t pad;
+};
+struct thread_command {
+uint32_t cmd;
+uint32_t cmdsize;
+uint32_t flavor;
+uint32_t count;
+struct arm_thread_state64 state;
+};
+#define BOOT_LINE_LENGTH
+608
+struct Boot_Video {
+unsigned long v_baseAddr;
+/* Base address of video memory */
+unsigned long v_display;
+/* Display Code (if Applicable */
+unsigned long v_rowBytes;
+/* Number of bytes per pixel row */
+unsigned long v_width;
+/* Width */
+unsigned long v_height;
+/* Height */
+unsigned long v_depth;
+/* Pixel Depth and other parameters */
+};
+#define kBootVideoDepthMask
+(0xFF)
+#define kBootVideoDepthDepthShift
+(0)
+#define kBootVideoDepthRotateShift
+(8)
+#define kBootVideoDepthScaleShift
+(16)
+#define kBootVideoDepthBootRotateShift
+(24)
+#define kBootFlagsDarkBoot
+(1ULL << 0)
+typedef struct Boot_Video Boot_Video;
+/* Boot argument structure - passed into Mach kernel at boot time.
+*/
+#define kBootArgsRevision
+1
+#define kBootArgsRevision2
+2
+/* added boot_args.bootFlags */
+#define kBootArgsVersion1
+1
+#define kBootArgsVersion2
+2
+typedef struct boot_args {
+uint16_t Revision;
+/* Revision of boot_args structure */
+uint16_t Version;
+/* Version of boot_args structure */
+uint64_t virtBase;
+/* Virtual base of memory */
+uint64_t physBase;
+/* Physical base of memory */
+uint64_t memSize;
+/* Size of memory */
+uint64_t topOfKernelData;
+/* Highest physical address used in kernel data area */
+Boot_Video Video;
+/* Video Information */
+uint32_t machineType;
+/* Machine Type */
+void *deviceTreeP;
+/* Base of flattened device tree */
+uint32_t deviceTreeLength;
+/* Length of flattened tree */
+char CommandLine[BOOT_LINE_LENGTH];
+/* Passed in command line */
+uint64_t bootFlags;
+/* Additional flags specified by the bootloader */
+uint64_t memSizeActual;
+/* Actual size of memory */
+} boot_args;
+#endif
+Raw
+spinup.asm_aarch64
+#define SCTLR_RESERVED
+(3 << 28) | (3 << 22) | (1 << 20) | (1 << 11)
+#define SCTLR_EE_LITTLE_ENDIAN
+(0 << 25)
+#define SCTLR_EOE_LITTLE_ENDIAN
+(0 << 24)
+#define SCTLR_I_CACHE_DISABLED
+(0 << 12)
+#define SCTLR_D_CACHE_DISABLED
+(0 << 2 )
+#define SCTLR_MMU_DISABLED
+(0 << 0 )
+#define SCTLR_MMU_ENABLED
+(1 << 0 )
+#define SCTLR_VALUE_MMU_DISABLED
+(SCTLR_RESERVED | SCTLR_EE_LITTLE_ENDIAN | SCTLR_I_CACHE_DISABLED | SCTLR_D_CACHE_DISABLED | SCTLR_MMU_DISABLED)
+// noreturn void enter_in_el1_without_paging(uint64_t entry, uint64_t sp, uint64_t target_x0, uint64_t target_x29)
+.global enter_in_el1_without_paging
+enter_in_el1_without_paging:
+ldr x9, =SCTLR_MMU_DISABLED
+msr sctlr_el1, x9
+msr spsel, #0
+mov sp, x1
+PICK_EL x8, in_el1, not_in_el1
+in_el1:
+mov x8, #0x3c4
+msr spsr_el1, x8
+msr elr_el1, x0
+mov x0, x2
+eret
+not_in_el1:
+mrs x8, cnthctl_el2
+orr x8, x8, #3
+msr cnthctl_el2, x8
+msr cntvoff_el2, xzr
+// Enable AArch64 in EL1
+ldr x8, =0x80000002
+msr hcr_el2, x8
+// Don't trap FP/SIMD to EL2
+mov x8, #0x33FF
+msr cptr_el2, x8
+msr hstr_el2, xzr
+// Enter kernel in EL1
+mov x8, #0x3c4
+msr spsr_el2, x8
+msr elr_el2, x0
+mov x0, x2
+eret
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

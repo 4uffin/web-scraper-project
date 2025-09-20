@@ -1,0 +1,485 @@
+A generic Burp Suite Bambdas Custom Action that finds the most recent Proxy history entry matching configurable filters (host/path/method/status/scope/highlight; plus request/response regex gates), extracts values (e.g., Cookie, aura.context, aura.token) via regex, and applies them to the current Repeater request—replacing the Cookie header and existing x-www-form-urlencoded params. Fully commented “CONFIG” section shows where to edit filters and extractors; safe defaults; AND semantics; no extra extensions required. · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+irsdl/burp-bambdas-repeater-extract-apply.bambda
+Created
+September 16, 2025 12:11
+Show Gist options
+Download ZIP
+Star
+3
+(3)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/irsdl/28bfd1fe6c54c7c98288eeb86da23e6e.js&quot;&gt;&lt;/script&gt;
+Save irsdl/28bfd1fe6c54c7c98288eeb86da23e6e to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+3
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/irsdl/28bfd1fe6c54c7c98288eeb86da23e6e.js&quot;&gt;&lt;/script&gt;
+Save irsdl/28bfd1fe6c54c7c98288eeb86da23e6e to your computer and use it in GitHub Desktop.
+Download ZIP
+A generic Burp Suite Bambdas Custom Action that finds the most recent Proxy history entry matching configurable filters (host/path/method/status/scope/highlight; plus request/response regex gates), extracts values (e.g., Cookie, aura.context, aura.token) via regex, and applies them to the current Repeater request—replacing the Cookie header and …
+Raw
+burp-bambdas-repeater-extract-apply.bambda
+// ============================================================================
+// Repeater Action: Pull tokens/values from Proxy History & Apply to THIS item
+// ----------------------------------------------------------------------------
+// WHAT IT DOES
+//
+1) Scans Proxy history (most recent first) for an entry that matches your filters.
+//
+2) Extracts values (Cookie header, form params, etc.) via regex extractors.
+//
+3) Applies the extracted values to the CURRENT Repeater request (requestResponse).
+//
+// HOW TO USE / EDIT (TL;DR)
+//
+- Set filters in CONFIG (host/path/method/status/in-scope/highlight). Blank = ignored.
+//
+- Add/remove request/response regex extractors in CONFIG > EXTRACT_* lists.
+//
+- (Included examples) Extract:
+//
+* Request header: Cookie (full value)
+//
+* Request body (x-www-form-urlencoded): aura.context, aura.token
+//
+- Replacement behavior (destination = current Repeater item):
+//
+* Replaces Cookie header if a Cookie value was extracted
+//
+* Replaces existing aura.context / aura.token params in body if extracted
+//
+* Leaves all other headers/params untouched
+//
+// NOTES
+//
+- All filter arrays use AND semantics: ALL non-empty patterns must match.
+//
+- Regex flags used (extract phase): CASE_INSENSITIVE + DOTALL + MULTILINE.
+//
+- For filter regex: add (?i) yourself where you want case-insensitive.
+//
+- Highlight filter matches rr.annotations().highlightColor().name(), e.g. "RED".
+//
+- If you need to *add* a missing form parameter (not just replace), see the
+//
+commented "ADD_IF_MISSING" example in the Apply section.
+//
+// Tested with Montoya API (Burp Suite) Bambdas Custom Action model.
+// ============================================================================
+// -----------------------
+// ---- CONFIG START
+----
+// -----------------------
+// === High-level matching ===
+// Leave any EMPTY ("") to ignore that filter.
+// TIP: Start with minimal filters (host + status) then add method/path/highlight as needed.
+// EDIT ME: Example host filter (regex). Use (?i) for case-insensitivity.
+final String REGEX_TARGET_HOST = "^(?i)example\\.com$";
+// EDIT ME: Optional path prefix filter (regex). Example for Salesforce Aura:
+// final String REGEX_PATH_PREFIX = "^/s/sfsites/aura(?:/.*)?$";
+final String REGEX_PATH_PREFIX = "";
+// EDIT ME: Optional HTTP method filter (regex), e.g. POST only:
+final String REGEX_METHOD = "^(?i)POST$";
+// "" to ignore
+// EDIT ME: Optional *response* status code filter. <=0 means ignore.
+final short FILTER_STATUS_CODE = (short)200;
+// set 0 to ignore
+// EDIT ME: Only consider requests that are "in scope" in Burp's Target tab.
+final boolean ONLY_IN_SCOPE = true;
+// EDIT ME: Optional highlight color regex filter (history row’s annotation color).
+// Valid names: RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, PINK, MAGENTA, GRAY.
+// Example: any red-ish highlight -> "(?i)^red$". Leave "" to ignore.
+final String HIGHLIGHT_COLOR_REGEX = ""; // "(?i)^red$"
+// === Request-side filters (AND). Leave arrays empty to ignore. ===
+// TIP: These filters DO NOT extract; they ONLY gate which history entry is chosen.
+// Add (?i) in your regex where you want case-insensitive matching.
+final java.util.List<String> FILTER_QUERY_REGEX = java.util.Arrays.asList(
+// e.g. "ui-identity-components-sessiontimeoutwarn\\.SessionTimeoutWarn\\.getSessionTimeoutConfig=1"
+);
+final java.util.List<String> FILTER_REQUEST_HEADER_REGEX = java.util.Arrays.asList(
+// e.g. "(?i)^Referer:\\s?https://example\\.com/.*$"
+);
+final java.util.List<String> FILTER_REQUEST_BODY_REGEX = java.util.Arrays.asList(
+// e.g. "\"grant_type\"\\s*=\\s*client_credentials"
+);
+// === Response-side filters (AND). Leave arrays empty to ignore. ===
+final java.util.List<String> FILTER_RESPONSE_HEADER_REGEX = java.util.Arrays.asList(
+// e.g. "(?i)^X-Request-Id:\\s*[^\\r\\n]+"
+);
+final java.util.List<String> FILTER_RESPONSE_BODY_REGEX = java.util.Arrays.asList(
+// e.g. "\"token_type\"\\s*:\\s*\"Bearer\""
+);
+// === Extractors ===
+// Each entry: new Object[]{ name(String), regex(String), group(Integer|omitted) }
+// - If group <= 0 or omitted => full match.
+// - Extractors run with flags: CASE_INSENSITIVE | DOTALL | MULTILINE.
+// - Extracted values go into four maps keyed by "name":
+//
+out_request_headers, out_request_body, out_response_headers, out_response_body
+// - If a name appears multiple times, values are collected into a list.
+//
+// Included examples (EDIT/REMOVE as needed):
+final java.util.List<Object[]> EXTRACT_REQUEST_HEADERS
+= new java.util.ArrayList<>();
+final java.util.List<Object[]> EXTRACT_REQUEST_BODY
+= new java.util.ArrayList<>();
+final java.util.List<Object[]> EXTRACT_RESPONSE_HEADERS = new java.util.ArrayList<>();
+final java.util.List<Object[]> EXTRACT_RESPONSE_BODY
+= new java.util.ArrayList<>();
+// --- Request header extractor examples ---
+EXTRACT_REQUEST_HEADERS.add(new Object[]{ "cookie", "(?i)^Cookie:\\s*([^\\r\\n]+)", 1 });
+// --- Request body (x-www-form-urlencoded) extractor examples ---
+EXTRACT_REQUEST_BODY.add(new Object[]{ "aura.context", "(?i)(?:^|&)(?:aura\\.context)=([^&]*)", 1 });
+EXTRACT_REQUEST_BODY.add(new Object[]{ "aura.token",
+"(?i)(?:^|&)(?:aura\\.token)=([^&]*)",
+1 });
+// --- Response examples (uncomment or add your own) ---
+// EXTRACT_RESPONSE_HEADERS.add(new Object[]{ "X-Request-Id", "(?i)^X-Request-Id:\\s*([^\\r\\n]+)", 1 });
+// EXTRACT_RESPONSE_BODY.add(
+new Object[]{ "access_token", "\"access_token\"\\s*:\\s*\"([^\"]+)\"", 1 });
+// ---------------------
+// ---- CONFIG END
+----
+// ---------------------
+// ---------------------------
+// ---- Build the history filter ----
+burp.api.montoya.proxy.ProxyHistoryFilter filter = new burp.api.montoya.proxy.ProxyHistoryFilter() {
+@Override
+public boolean matches(burp.api.montoya.proxy.ProxyHttpRequestResponse rr) {
+if (rr == null || !rr.hasResponse()) return false;
+var req = rr.request();
+var res = rr.response();
+if (req == null || res == null) return false;
+// Status code (optional)
+if (FILTER_STATUS_CODE > 0 && res.statusCode() != FILTER_STATUS_CODE) return false;
+// Scope (optional)
+if (ONLY_IN_SCOPE && !req.isInScope()) return false;
+// Highlight color (optional)
+if (HIGHLIGHT_COLOR_REGEX != null && !HIGHLIGHT_COLOR_REGEX.trim().isEmpty()) {
+var hl = rr.annotations().highlightColor();
+String hlName = (hl == null) ? "" : hl.name();
+var phl = java.util.regex.Pattern.compile(HIGHLIGHT_COLOR_REGEX,
+java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.MULTILINE);
+if (!phl.matcher(hlName).find()) return false;
+}
+// Method (optional)
+if (REGEX_METHOD != null && !REGEX_METHOD.trim().isEmpty()) {
+String method = req.method();
+var pm = java.util.regex.Pattern.compile(REGEX_METHOD,
+java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.MULTILINE);
+if (!pm.matcher(method == null ? "" : method).find()) return false;
+}
+// Host + Path (optional)
+var svc = req.httpService();
+if (svc == null) return false;
+String host = svc.host();
+String path = req.pathWithoutQuery();
+if (REGEX_TARGET_HOST != null && !REGEX_TARGET_HOST.trim().isEmpty()) {
+var ph = java.util.regex.Pattern.compile(REGEX_TARGET_HOST,
+java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.MULTILINE);
+if (!ph.matcher(host == null ? "" : host).find()) return false;
+}
+if (REGEX_PATH_PREFIX != null && !REGEX_PATH_PREFIX.trim().isEmpty()) {
+var pp = java.util.regex.Pattern.compile(REGEX_PATH_PREFIX,
+java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.MULTILINE);
+if (!pp.matcher(path == null ? "" : path).find()) return false;
+}
+// Build request-side strings for filter regexes
+String url = req.url();
+String queryPart = "";
+if (url != null) {
+int q = url.indexOf('?');
+if (q >= 0) {
+queryPart = url.substring(q + 1);
+int hash = queryPart.indexOf('#');
+if (hash >= 0) queryPart = queryPart.substring(0, hash);
+}
+}
+StringBuilder sbReqHeaders = new StringBuilder();
+for (var h : req.headers()) {
+sbReqHeaders.append(h.name()).append(": ").append(h.value() == null ? "" : h.value()).append("\n");
+}
+String reqHeadersJoined = sbReqHeaders.toString();
+String reqBody = "";
+try { reqBody = req.bodyToString(); } catch (Exception ignore) {}
+// Build response-side strings for filter regexes
+StringBuilder sbResHeaders = new StringBuilder();
+for (var h : res.headers()) {
+sbResHeaders.append(h.name()).append(": ").append(h.value() == null ? "" : h.value()).append("\n");
+}
+String resHeadersJoined = sbResHeaders.toString();
+String resBody = "";
+try { resBody = res.bodyToString(); } catch (Exception ignore) {}
+// ---- Apply request-side AND filters ----
+if (FILTER_QUERY_REGEX != null && !FILTER_QUERY_REGEX.isEmpty()) {
+for (String pat : FILTER_QUERY_REGEX) {
+if (pat == null || pat.trim().isEmpty()) continue;
+var p = java.util.regex.Pattern.compile(pat,
+java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.MULTILINE);
+if (!p.matcher(queryPart).find()) return false;
+}
+}
+if (FILTER_REQUEST_HEADER_REGEX != null && !FILTER_REQUEST_HEADER_REGEX.isEmpty()) {
+for (String pat : FILTER_REQUEST_HEADER_REGEX) {
+if (pat == null || pat.trim().isEmpty()) continue;
+var p = java.util.regex.Pattern.compile(pat,
+java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.MULTILINE);
+if (!p.matcher(reqHeadersJoined).find()) return false;
+}
+}
+if (FILTER_REQUEST_BODY_REGEX != null && !FILTER_REQUEST_BODY_REGEX.isEmpty()) {
+for (String pat : FILTER_REQUEST_BODY_REGEX) {
+if (pat == null || pat.trim().isEmpty()) continue;
+var p = java.util.regex.Pattern.compile(pat,
+java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.MULTILINE);
+if (!p.matcher(reqBody).find()) return false;
+}
+}
+// ---- Apply response-side AND filters ----
+if (FILTER_RESPONSE_HEADER_REGEX != null && !FILTER_RESPONSE_HEADER_REGEX.isEmpty()) {
+for (String pat : FILTER_RESPONSE_HEADER_REGEX) {
+if (pat == null || pat.trim().isEmpty()) continue;
+var p = java.util.regex.Pattern.compile(pat,
+java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.MULTILINE);
+if (!p.matcher(resHeadersJoined).find()) return false;
+}
+}
+if (FILTER_RESPONSE_BODY_REGEX != null && !FILTER_RESPONSE_BODY_REGEX.isEmpty()) {
+for (String pat : FILTER_RESPONSE_BODY_REGEX) {
+if (pat == null || pat.trim().isEmpty()) continue;
+var p = java.util.regex.Pattern.compile(pat,
+java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.MULTILINE);
+if (!p.matcher(resBody).find()) return false;
+}
+}
+return true;
+}
+};
+// ---------------------------
+// ---- Pull history (source to extract from) ----
+java.util.List<burp.api.montoya.proxy.ProxyHttpRequestResponse> matches = api.proxy().history(filter);
+if (matches == null || matches.isEmpty()) {
+logging.logToOutput("No Proxy history matches with current filters.");
+return;
+}
+// Select most recent matching entry as source
+burp.api.montoya.proxy.ProxyHttpRequestResponse source =
+matches.stream()
+.max(java.util.Comparator.comparing(burp.api.montoya.proxy.ProxyHttpRequestResponse::time))
+.orElse(null);
+if (source == null) {
+logging.logToOutput("Unexpected: no latest after filtering.");
+return;
+}
+// ---------------------------
+// ---- Extract phase (from source) ----
+var srcReq = source.finalRequest();
+var srcRes = source.response();
+// Build joined headers
+StringBuilder sbSrcReqH = new StringBuilder();
+for (var h : srcReq.headers()) {
+sbSrcReqH.append(h.name()).append(": ").append(h.value() == null ? "" : h.value()).append("\n");
+}
+String srcReqHeadersJoined = sbSrcReqH.toString();
+StringBuilder sbSrcResH = new StringBuilder();
+for (var h : srcRes.headers()) {
+sbSrcResH.append(h.name()).append(": ").append(h.value() == null ? "" : h.value()).append("\n");
+}
+String srcResHeadersJoined = sbSrcResH.toString();
+// Bodies
+String srcReqBody = "";
+String srcResBody = "";
+try { srcReqBody = srcReq.bodyToString(); } catch (Exception ignore) {}
+try { srcResBody = srcRes.bodyToString(); } catch (Exception ignore) {}
+// Output maps
+java.util.Map<String, java.util.List<String>> out_request_headers
+= new java.util.HashMap<>();
+java.util.Map<String, java.util.List<String>> out_request_body
+= new java.util.HashMap<>();
+java.util.Map<String, java.util.List<String>> out_response_headers = new java.util.HashMap<>();
+java.util.Map<String, java.util.List<String>> out_response_body
+= new java.util.HashMap<>();
+int extractorFlags = java.util.regex.Pattern.CASE_INSENSITIVE
+| java.util.regex.Pattern.DOTALL
+| java.util.regex.Pattern.MULTILINE;
+// --- extract from source.request headers
+for (Object[] ex : EXTRACT_REQUEST_HEADERS) {
+if (ex == null || ex.length < 2) continue;
+String name
+= (String) ex[0];
+String regex = (String) ex[1];
+int group
+= (ex.length >= 3 && ex[2] != null)
+? (ex[2] instanceof Number ? ((Number)ex[2]).intValue() : Integer.parseInt(String.valueOf(ex[2])))
+: 0;
+if (name == null || name.trim().isEmpty() || regex == null || regex.trim().isEmpty()) continue;
+var m = java.util.regex.Pattern.compile(regex, extractorFlags).matcher(srcReqHeadersJoined);
+while (m.find()) {
+String val = (group <= 0 || group > m.groupCount()) ? m.group(0) : m.group(group);
+if (val != null) out_request_headers.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(val);
+}
+}
+// --- extract from source.request body
+for (Object[] ex : EXTRACT_REQUEST_BODY) {
+if (ex == null || ex.length < 2) continue;
+String name
+= (String) ex[0];
+String regex = (String) ex[1];
+int group
+= (ex.length >= 3 && ex[2] != null)
+? (ex[2] instanceof Number ? ((Number)ex[2]).intValue() : Integer.parseInt(String.valueOf(ex[2])))
+: 0;
+if (name == null || name.trim().isEmpty() || regex == null || regex.trim().isEmpty()) continue;
+var m = java.util.regex.Pattern.compile(regex, extractorFlags).matcher(srcReqBody);
+while (m.find()) {
+String val = (group <= 0 || group > m.groupCount()) ? m.group(0) : m.group(group);
+if (val != null) out_request_body.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(val);
+}
+}
+// --- extract from source.response headers
+for (Object[] ex : EXTRACT_RESPONSE_HEADERS) {
+if (ex == null || ex.length < 2) continue;
+String name
+= (String) ex[0];
+String regex = (String) ex[1];
+int group
+= (ex.length >= 3 && ex[2] != null)
+? (ex[2] instanceof Number ? ((Number)ex[2]).intValue() : Integer.parseInt(String.valueOf(ex[2])))
+: 0;
+if (name == null || name.trim().isEmpty() || regex == null || regex.trim().isEmpty()) continue;
+var m = java.util.regex.Pattern.compile(regex, extractorFlags).matcher(srcResHeadersJoined);
+while (m.find()) {
+String val = (group <= 0 || group > m.groupCount()) ? m.group(0) : m.group(group);
+if (val != null) out_response_headers.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(val);
+}
+}
+// --- extract from source.response body
+for (Object[] ex : EXTRACT_RESPONSE_BODY) {
+if (ex == null || ex.length < 2) continue;
+String name
+= (String) ex[0];
+String regex = (String) ex[1];
+int group
+= (ex.length >= 3 && ex[2] != null)
+? (ex[2] instanceof Number ? ((Number)ex[2]).intValue() : Integer.parseInt(String.valueOf(ex[2])))
+: 0;
+if (name == null || name.trim().isEmpty() || regex == null || regex.trim().isEmpty()) continue;
+var m = java.util.regex.Pattern.compile(regex, extractorFlags).matcher(srcResBody);
+while (m.find()) {
+String val = (group <= 0 || group > m.groupCount()) ? m.group(0) : m.group(group);
+if (val != null) out_response_body.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(val);
+}
+}
+// Logging (source)
+logging.logToOutput("Matched source: " + srcReq.method() + " " + srcReq.url());
+logging.logToOutput("[Extract] source request_headers keys:
+" + out_request_headers.keySet());
+logging.logToOutput("[Extract] source request_body keys:
+" + out_request_body.keySet());
+logging.logToOutput("[Extract] source response_headers keys: " + out_response_headers.keySet());
+logging.logToOutput("[Extract] source response_body keys:
+" + out_response_body.keySet());
+// ---------------------------
+// ---- APPLY to current Repeater request (destination) ----
+// This is the request you are editing right now in Repeater.
+var dstReq = requestResponse.request();
+String dstBody = "";
+try { dstBody = dstReq.bodyToString(); } catch (Exception ignore) {}
+// Pull extracted values (first value per name)
+String newCookie
+= out_request_headers.containsKey("cookie")
+? out_request_headers.get("cookie").get(0)
+: null;
+String auraContext = out_request_body.containsKey("aura.context") ? out_request_body.get("aura.context").get(0)
+: null;
+String auraToken
+= out_request_body.containsKey("aura.token")
+? out_request_body.get("aura.token").get(0)
+: null;
+// Replace existing x-www-form-urlencoded params (if present)
+String newDstBody = dstBody;
+if (auraContext != null) {
+String repl = java.util.regex.Matcher.quoteReplacement(auraContext);
+newDstBody = newDstBody.replaceAll("(?s)(^|&)(aura\\.context)=[^&]*", "$1$2=" + repl);
+}
+if (auraToken != null) {
+String repl = java.util.regex.Matcher.quoteReplacement(auraToken);
+newDstBody = newDstBody.replaceAll("(?s)(^|&)(aura\\.token)=[^&]*", "$1$2=" + repl);
+}
+// OPTIONAL: ADD_IF_MISSING (commented). If the param does not exist and you want to add it:
+// if (auraContext != null && !newDstBody.matches("(?s).*([&^])aura\\.context=.*")) {
+//
+newDstBody = (newDstBody.isEmpty() ? "" : newDstBody + "&") + "aura.context=" + auraContext;
+// }
+// if (auraToken != null && !newDstBody.matches("(?s).*([&^])aura\\.token=.*")) {
+//
+newDstBody = (newDstBody.isEmpty() ? "" : newDstBody + "&") + "aura.token=" + auraToken;
+// }
+// Build updated destination request
+var updatedDst = dstReq;
+if (newCookie != null) {
+updatedDst = updatedDst.withUpdatedHeader("Cookie", newCookie);
+}
+updatedDst = updatedDst.withBody(newDstBody);
+// Push to editor
+httpEditor.requestPane().set(updatedDst);
+// Optional: log a short diff preview
+String bodyBefore = dstBody.length() > 160 ? dstBody.substring(0,160) + "..." : dstBody;
+String bodyAfter
+= newDstBody.length() > 160 ? newDstBody.substring(0,160) + "..." : newDstBody;
+logging.logToOutput("[Apply] Cookie replaced? " + (newCookie != null));
+logging.logToOutput("[Apply] Body before: " + bodyBefore);
+logging.logToOutput("[Apply] Body after : " + bodyAfter);
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

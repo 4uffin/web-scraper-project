@@ -1,0 +1,372 @@
+Flutter: Using Android Intent via native interop with jnigen - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Dominik Roszkowski
+Posted on Sep 19
+• Originally published at roszkowski.dev on Sep 19
+Flutter: Using Android Intent via native interop with jnigen
+#flutter
+#kotlin
+#interop
+#android
+In this post I’ll show how to access some of the Android APIs directly in Dart/Flutter. The final result will be a plugin allowing to send some basic Intents to the Android system, like opening the e-mail client or selecting a contact.
+We wanted to open user’s default e-mail client to send a properly formatted message, but the typical package:url_launcher approach of creating a mailto: was too flaky. Android allows to provide a specific intent of type ACTION_SENDTO that will query the system for the best app to handle it. I created bindings for this Intent call with jnigen and here’s a bit of overview.
+Getting started
+Create new Flutter plugin and modify the pubspec.yaml and jnigen.yaml to match the example in the jnigen repository. This will only work on Android, hence:
+flutter create --template plugin --platforms android android_intent
+cd android_intent/example
+flutter build apk --release
+Enter fullscreen mode
+Exit fullscreen mode
+After cleaning up the code and dependencies make sure to build your Android example app in release. You can also open it in Android Studio to check if everything is correct.
+This setup assumes following package versions and works as of July 2025:
+jnigen: ^0.14.0
+jni: ^0.14.2
+Enter fullscreen mode
+Exit fullscreen mode
+jnigen setup
+The basic setup of jnigen plugin works fine for me although it results with over 20k generated lines of Dart code. To be able to access Android APIs you need to specify all the classes (and their dependencies e.g. android.net.Uri) that would normally be imported in Java/Kotlin code. The following jnigen.yaml file worked for me:
+android_sdk_config:
+add_gradle_deps: true
+android_example: "example/"
+source_path:
+- "android/src/main/java"
+classes:
+- "android.content.Intent"
+- "android.content.Context"
+- "android.app.Activity"
+- "android.net.Uri"
+output:
+dart:
+path: "lib/src/bindings.dart"
+structure: "single_file"
+Enter fullscreen mode
+Exit fullscreen mode
+Once you run the jnigen code generator, you should be able to use the generated bindings directly in Dart code.
+flutter pub run jnigen --config jnigen.yaml
+Enter fullscreen mode
+Exit fullscreen mode
+Usage in Dart
+To send a simple Intent to open the e-mail client, you can use the following Dart code:
+void sendEmail() {
+try {
+final intent = Intent.new$2(Intent.ACTION_SENDTO);
+intent.setData(Uri.parse("mailto:".toJString()));
+intent.putExtra$21(
+Intent.EXTRA_EMAIL,
+JArray.of<JString>(JString.type, ["example@example.com".toJString()]),
+);
+intent.putExtra$8(Intent.EXTRA_SUBJECT, "Subject".toJString());
+intent.putExtra$8(Intent.EXTRA_TEXT, "Body text".toJString());
+intent.putExtra$21(
+Intent.EXTRA_CC,
+JArray.of<JString>(JString.type, ["cc@example.com".toJString()]),
+);
+intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+Context contextInstance = Context.fromReference(Jni.getCachedApplicationContext());
+contextInstance.startActivity(intent);
+} catch (e) {
+print('Error opening email: $e');
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What is quite cool it follows 1:1 the code from the Android documentation:
+fun composeEmail(addresses: Array<String>, subject: String) {
+val intent = Intent(Intent.ACTION_SENDTO).apply {
+data = Uri.parse("mailto:") // Only email apps handle this.
+putExtra(Intent.EXTRA_EMAIL, addresses)
+putExtra(Intent.EXTRA_SUBJECT, subject)
+}
+if (intent.resolveActivity(packageManager) != null) {
+startActivity(intent)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Obviously there are several slightly annoying differences:
+You have to cast Dart types to Jni types, e.g. toJString().
+You have to use JArray.of<JString>() to create an array of strings
+You have to use putExtra$21 and putExtra$8 methods as Dart does not support method overloading
+On the flipside, the package:jni comes with few convenience methods:
+Jni.getCachedApplicationContext() to get the application context which I can cast to Context and use it to start the intent.
+not shown here Jni.getCurrentActivity()
+Sending Intents with results
+It isn’t directly possible to receive Intent results via Activity.onActivityResult(), so I had to come up with a workaround. The main inspiration was package:receive_intent, and my previous attempt of using proxy with a listener interface. There may be other ways in the future to achieve this – see this issue for details.
+Anyway, to receive intent results like this, you need to override the onActivityResult of your main Activity.
+const val REQUEST_SELECT_CONTACT = 1
+fun selectContact() {
+val intent = Intent(Intent.ACTION_PICK).apply {
+type = ContactsContract.Contacts.CONTENT_TYPE
+}
+if (intent.resolveActivity(packageManager) != null) {
+startActivityForResult(intent, REQUEST_SELECT_CONTACT)
+}
+}
+override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent) {
+if (requestCode == REQUEST_SELECT_CONTACT && resultCode == RESULT_OK) {
+val contactUri: Uri = data.data
+// Do something with the selected contact at contactUri.
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+FlutterPlugin comes with a ActivityAware interface that allows you to register a result listener via ActivityPluginBinding:
+override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+activity = WeakReference(binding.activity)
+binding.addActivityResultListener { res, req, intent ->
+Log.i("ARLP", "addActivityResultListener called with intent: $intent")
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+So to make that work I had to implement a typical Flutter plugin class that would keep OnResultListener interface. This interface will later be implemented in Dart.
+This also means that now my plugin includes a Kotlin class of its own so it needs to be registered in the pubspec.yaml file:
+flutter:
+plugin:
+platforms:
+android:
+ffiPlugin: true
++ package: com.example.android_intent
++ pluginClass: ActivityResultListenerProxy
+Enter fullscreen mode
+Exit fullscreen mode
+Next up I created a Kotlin class ActivityResultListenerProxy:
+@Keep
+class ActivityResultListenerProxy : FlutterPlugin, ActivityAware {
+private var activity: WeakReference<Activity>? = null;
+private var callback: OnResultListener? = null;
+public interface OnResultListener {
+fun onResult(requestCode: Int, resultCode: Int, result: String?)
+}
+@Keep
+public fun onResult(requestCode: Int, resultCode: Int, intent: Intent?) : Boolean {
+if (intent != null) {
+callback?.onResult(requestCode, resultCode, intent.dataString)
+return true
+} else {
+return false
+}
+}
+override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+activity = WeakReference(binding.activity)
+binding.addActivityResultListener { res, req, intent ->
+Log.i("ARLP", "onAttachedToActivity called with intent: $intent")
+onResult(res, req, intent)
+}
+}
+override fun onDetachedFromActivityForConfigChanges() {
+activity?.clear()
+activity = null
+}
+// other methods
+}
+Enter fullscreen mode
+Exit fullscreen mode
+One challange was to get hold of the plugin instance that would be created by Flutter. To make it work I made it a singleton and added a static companion object that would hold the instance. Plugin cannot be Kotlin’s object.
+@Keep
+class ActivityResultListenerProxy : FlutterPlugin, ActivityAware {
+private var callback: OnResultListener? = null;
+companion object {
+@Volatile
+private var instance: ActivityResultListenerProxy? = null
+fun getInstance(): ActivityResultListenerProxy {
+return instance ?: synchronized(this) {
+instance ?: ActivityResultListenerProxy().also { instance = it }
+}
+}
+}
+@Keep
+public fun setOnResultListener(listener: OnResultListener) {
+callback = listener
+}
+// other methods
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Then after updating my jnigen.yaml I was able to start intent with result.
+android_sdk_config:
+add_gradle_deps: true
+android_example: "example/"
+source_path:
+- "android/src/main/java"
+classes:
+- "android.content.Intent"
+- "android.content.Context"
+- "android.app.Activity"
+- "android.net.Uri"
+- "android.provider.ContactsContract"
+- "com.example.android_intent.ActivityResultListenerProxy"
+output:
+dart:
+path: "lib/src/bindings.dart"
+structure: "single_file"
+Enter fullscreen mode
+Exit fullscreen mode
+This time I had to use Activity to start the intent and register the result listener.
+void selectContact() {
+try {
+final intent = Intent.new$2(Intent.ACTION_PICK);
+intent.setType(ContactsContract$Contacts.CONTENT_TYPE);
+listener = ActivityResultListenerProxy.Companion.getInstance();
+listener!.setOnResultListener(
+ActivityResultListenerProxy$OnResultListener.implement(
+$ActivityResultListenerProxy$OnResultListener(
+onResult: (result, request, data) {
+print('ARLP Selected contact: $result, request: $request, data: $data');
+},
+),
+),
+);
+final activity = Activity.fromReference(Jni.getCurrentActivity());
+activity.startActivityForResult(intent, 1);
+} catch (e) {
+print('Error selecting contact: $e');
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+I experimented a bit more with other Intents like selecting an image from camera and they all seemed feasible. It would take a bit more API design to make it work, but nonethelss it’s quite cool to use Android APIs directly in Dart code.
+You can find the full source code in my native_interop repository.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Dominik Roszkowski
+Follow
+Creating mobile apps in Flutter.
+🛰 Sent PW-Sat2 satellite into orbit in 2018. See more on pw-sat.pl.
+Location
+Warsaw
+Work
+Flutter Developer and Freelancer
+Joined
+May 12, 2019
+More from Dominik Roszkowski
+Native interop with Kotlin/Java in Flutter
+#flutter
+#mobile
+#android
+#kotlin
+What really grinds my gears in Flutter
+#flutter
+#mobile
+#programming
+N things I love about Flutter
+#flutter
+#mobile
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

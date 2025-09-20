@@ -120,7 +120,7 @@ Public
 Notifications
 You must be signed in to change notification settings
 Fork
-188
+190
 Star
 5.1k
 the elegant TypeScript UI framework
@@ -129,7 +129,7 @@ License
 MIT license
 5.1k
 stars
-188
+190
 forks
 Branches
 Tags
@@ -139,9 +139,9 @@ Notifications
 You must be signed in to change notification settings
 Code
 Issues
-20
+23
 Pull requests
-6
+8
 Discussions
 Actions
 Projects
@@ -160,8 +160,8 @@ Projects
 Security
 Insights
 trueadm/ripple
-mainBranchesTagsGo to fileCodeOpen more actions menuFolders and filesNameNameLast commit messageLast commit dateLatest commit History370 Commits.github.github  .livecodes.livecodes  .vscode.vscode  assetsassets  packagespackages  playgroundplayground  templates/basictemplates/basic  websitewebsite  .gitignore.gitignore  .prettierrc.prettierrc  CONTRIBUTING.mdCONTRIBUTING.md  LICENSELICENSE  README.mdREADME.md  package.jsonpackage.json  pnpm-lock.yamlpnpm-lock.yaml  pnpm-workspace.yamlpnpm-workspace.yaml  vitest.config.jsvitest.config.js  View all filesRepository files navigationREADMEContributingMIT license
-What is Ripple?
+mainBranchesTagsGo to fileCodeOpen more actions menuFolders and filesNameNameLast commit messageLast commit dateLatest commit History396 Commits.github.github  .livecodes.livecodes  .vscode.vscode  assetsassets  packagespackages  playgroundplayground  templates/basictemplates/basic  websitewebsite  .gitignore.gitignore  .prettierrc.prettierrc  CONTRIBUTING.mdCONTRIBUTING.md  LICENSELICENSE  README.mdREADME.md  package.jsonpackage.json  pnpm-lock.yamlpnpm-lock.yaml  pnpm-workspace.yamlpnpm-workspace.yaml  vitest.config.jsvitest.config.js  View all filesRepository files navigationREADMEContributingMIT license
+What is RippleJS?
 Currently, this project is still in early development, and should not be used in production.
 Ripple is a TypeScript UI framework that takes the best parts of React, Solid and Svelte and combines them into one package.
 I wrote Ripple as a love letter for frontend web – and this is largely a project that I built in less than a week, so it's very raw.
@@ -172,7 +172,7 @@ TypeScript and JSX, but with a few interesting touches. In my experience, this h
 Right now, there will be plenty of bugs, things just won't work either and you'll find TODOs everywhere. At this stage, Ripple is more of an early alpha version of something that might be, rather than something you should try and adopt. If anything, maybe some of the ideas can be shared and incubated back into other frameworks. There's also a lot of similarities with Svelte 5, and that's not by accident; that's because of my recent time working on Svelte 5.
 If you'd like to know more, join the Ripple Discord.
 Features
-Reactive State Management: Built-in reactivity with $ prefixed variables and object properties
+Reactive State Management: Built-in reactivity with track and @ reactive syntax
 Component-Based Architecture: Clean, reusable components with props and children
 JSX-like Syntax: Familiar templating with Ripple-specific enhancements
 Performance: Fine-grain rendering, with industry-leading performance and memory usage
@@ -190,6 +190,8 @@ npx degit trueadm/ripple/templates/basic my-app
 cd my-app
 npm i # or yarn or pnpm
 npm run dev # or yarn or pnpm
+If you want to install the RippleJS package directly, it is ripple on npm:
+npm i --save ripple # or yarn or pnpm
 VSCode Extension
 The Ripple VSCode extension provides:
 Syntax Highlighting for .ripple files
@@ -231,74 +233,72 @@ Ripple's templating language also supports shorthands and object spreads too:
 <div {onClick}>{text}</div>
 // and you can spread props
 <div {...properties}>{text}</div>
-Reactive Variables
-Variables prefixed with $ are automatically reactive:
-let $name = 'World';
-let $count = 0;
+Reactivity
+You use track to create a single tracked value. The track function will created a Tracked<V> object that
+is not accessible from the outside, and instead you must use @ to read or write to the tracked value. You can pass the Tracked<V> object between components, functions and context
+to read and write to the value in different parts of your codebase.
+import { track } from 'ripple';
+let name = track('World');
+let count = track(0);
 // Updates automatically trigger re-renders
-$count++;
-Object properties prefixed with $ are also automatically reactive:
-let counter = { $current: 0 };
+@count++;
+Objects can also contain tracked values with @ to access the reactive object property:
+import { track } from 'ripple';
+let counter = { current: track(0) };
 // Updates automatically trigger re-renders
-counter.$current++;
-Derived values are simply $ variables that combined different parts of state:
-let $count = 0;
-let $double = $count * 2;
-let $quadruple = $double * 2;
-That means $count itself might be derived if it were to reference another reactive property. For example:
-component Counter({ $startingCount }) {
-let $count = $startingCount;
-let $double = $count * 2;
-let $quadruple = $double * 2;
-}
-Now given $startingCount is reactive, it would mean that $count might reset each time an incoming change to $startingCount occurs. That might not be desirable, so Ripple provides a way to untrack reactivity in those cases:
-import { untrack } from 'ripple';
-component Counter({ $startingCount }) {
-let $count = untrack(() => $startingCount);
-let $double = $count * 2;
-let $quadruple = $double * 2;
-}
-Now $count will only reactively create its value on initialization.
-Note: you cannot define reactive variables in module/global scope, they have to be created on access from an active component
-Transporting Reactivity
-Ripple doesn't constrain reactivity to components only. Reactivity can be used inside other functions (and classes in the future) and be composed in a way to improve expressivity and co-location.
-Ripple provides a very nice way to transport reactivity between boundaries so that it's persisted – using objects and arrays. Here's an example using arrays to transport reactivity:
-import { effect } from 'ripple';
-function createDouble([ $count ]) {
-const $double = $count * 2;
+counter.@current++;
+Tracked derived values are also Tracked<V> objects, except you pass a function to track rather than a value:
+let count = track(0);
+let double = track(() => @count * 2);
+let quadruple = track(() => @double * 2);
+console.log(@quadruple);
+If you want to use a tracked value inside a reactive context, such as an effect but you don't want that value to be a tracked dependency, you can use untrack:
+let count = track(0);
+let double = track(() => @count * 2);
+let quadruple = track(() => @double * 2);
 effect(() => {
-console.log('Count:', $count)
+// This effect will never fire again, as we've untracked the only dependency it has
+console.log(untrack(() => @quadruple));
+})
+Note: you cannot create Tracked objects in module/global scope, they have to be created on access from an active component context.
+Transporting Reactivity
+Ripple doesn't constrain reactivity to components only. Tracked<V> objects can simply be passed by reference between boundaries:
+import { effect, track } from 'ripple';
+function createDouble([ count ]) {
+const double = track(() => @count * 2);
+effect(() => {
+console.log('Count:', @count)
 });
-return [ $double ];
+return [ double ];
 }
 export component App() {
-let $count = 0;
-const [ $double ] = createDouble([ $count ]);
-<div>{'Double: ' + $double}</div>
-<button onClick={() => { $count++; }}>{'Increment'}</button>
+let count = track(0);
+const [ double ] = createDouble([ count ]);
+<div>{'Double: ' + @double}</div>
+<button onClick={() => { @count++; }}>{'Increment'}</button>
 }
 You can do the same with objects too:
-import { effect } from 'ripple';
-function createDouble({ $count }) {
-const $double = $count * 2;
+import { effect, track } from 'ripple';
+function createDouble({ count }) {
+const double = track(() => @count * 2);
 effect(() => {
-console.log('Count:', $count)
+console.log('Count:', @count)
 });
-return { $double };
+return { double };
 }
 export component App() {
-let $count = 0;
-const { $double } = createDouble({ $count });
-<div>{'Double: ' + $double}</div>
-<button onClick={() => { $count++; }}>{'Increment'}</button>
+let count = track(0);
+const { double } = createDouble({ count });
+<div>{'Double: ' + @double}</div>
+<button onClick={() => { @count++; }}>{'Increment'}</button>
 }
-Just remember, reactive state must be connected to a component and it can't be global or created within the top-level of a module – because then Ripple won't be able to link it to your component tree.
 Reactive Arrays
-Just like, objects, you can use the $ prefix in an array literal to specify that the field is reactive.
-let $first = 0;
-let $second = 0;
-const arr = [$first, $second];
-const $total = arr.reduce((a, b) => a + b, 0);
+Just like objects, you can use the Tracked<V> objects in any standard JavaScript object, like arrays:
+let first = track(0);
+let second = track(0);
+const arr = [first, second];
+const total = track(() => arr.reduce((a, b) => a + @b, 0));
+console.log(@total);
 Like shown in the above example, you can compose normal arrays with reactivity and pass them through props or boundaries.
 However, if you need the entire array to be fully reactive, including when
 new elements get added, you should use the reactive array that Ripple provides.
@@ -311,38 +311,38 @@ const arr = RippleArray.from([1, 2, 3]);
 // using static of method
 const arr = RippleArray.of(1, 2, 3);
 The RippleArray is a reactive array, and that means you can access properties normally using numeric index. However,
-accessing the length property of a RippleArray will be not be reactive, instead you should use $length.
+accessing the length property of a RippleArray will not be reactive, instead you should use $length.
 Reactive Set
 The RippleSet extends the standard JS Set class, and supports all of its methods and properties. However,
-accessing the size property of a RippleSet will be not be reactive, instead you should use $size.
+accessing the size property of a RippleSet will not be reactive, instead you should use $size.
 import { RippleSet } from 'ripple';
 const set = new RippleSet([1, 2, 3]);
 RippleSet's reactive methods or properties can be used directly or assigned to reactive variables.
-import { RippleSet } from 'ripple';
+import { RippleSet, track } from 'ripple';
 export component App() {
 const set = new RippleSet([1, 2, 3]);
 // direct usage
 <p>{"Direct usage: set contains 2: "}{set.has(2)}</p>
-// reactive assignment with prefixed `$`
-let $has = set.has(2);
-<p>{"Assigned usage: set contains 2: "}{$has}</p>
+// reactive assignment
+let has = track(() => set.has(2));
+<p>{"Assigned usage: set contains 2: "}{@has}</p>
 <button onClick={() => set.delete(2)}>{"Delete 2"}</button>
 <button onClick={() => set.add(2)}>{"Add 2"}</button>
 }
 Reactive Map
 The RippleMap extends the standard JS Map class, and supports all of its methods and properties. However,
-accessing the size property of a RippleMap will be not be reactive, instead you should use $size.
-import { RippleMap } from 'ripple';
+accessing the size property of a RippleMap will not be reactive, instead you should use $size.
+import { RippleMap, track } from 'ripple';
 const map = new RippleMap([[1,1], [2,2], [3,3], [4,4]]);
 RippleMap's reactive methods or properties can be used directly or assigned to reactive variables.
-import { RippleMap } from 'ripple';
+import { RippleMap, track } from 'ripple';
 export component App() {
 const map = new RippleMap([[1,1], [2,2], [3,3], [4,4]]);
 // direct usage
 <p>{"Direct usage: map has an item with key 2: "}{map.has(2)}</p>
-// reactive assignment with prefixed `$`
-let $has = map.has(2);
-<p>{"Assigned usage: map has an item with key 2: "}{$has}</p>
+// reactive assignment
+let has = track(() => map.has(2));
+<p>{"Assigned usage: map has an item with key 2: "}{@has}</p>
 <button onClick={() => map.delete(2)}>{"Delete item with key 2"}</button>
 <button onClick={() => map.set(2, 2)}>{"Add key 2 with value 2"}</button>
 }
@@ -351,11 +351,11 @@ When dealing with reactive state, you might want to be able to create side-effec
 To do this, you can use effect:
 import { effect } from 'ripple';
 export component App() {
-let $count = 0;
+let count = track(0);
 effect(() => {
-console.log($count);
+console.log(@count);
 });
-<button onClick={() => $count++}>{'Increment'}</button>
+<button onClick={() => @count++}>{'Increment'}</button>
 }
 Control flow
 The JSX-like syntax might take some time to get used to if you're coming from another framework. For one, templating in Ripple
@@ -403,8 +403,7 @@ for (const item of items) {
 }
 <button onClick={() => items.push(`Item ${items.$length + 1}`)}>{"Add Item"}</button>
 }
-Clicking the <button> will create a new item, note that items is not $ prefixed, because it's not
-reactive, but rather its properties are instead.
+Clicking the <button> will create a new item.
 Try statements
 Try blocks work to build the foundation for error boundaries, when the runtime encounters
 an error in the try block, you can easily render a fallback in the catch block.
@@ -457,39 +456,38 @@ return name;
 }
 }
 So Ripple provides similar capabilities when working with composite components in a template, specifically using prop:={} rather than the typical prop={}.
-In fact, when you use an accessor, you must pass a function, and the prop must be $ prefixed, as Ripple considers accessor props as reactive:
-let $name = 'Bob';
+let name = track('Bob');
 const getName = () => {
 // I can easily debug when this property gets
 // access and track it easily
-console.log(name);
-return $name;
+console.log(@name);
+return @name;
 };
 <Person name:={getName} />
 You can also inline the function too:
-let $name = 'Bob';
+let name = track('Bob');
 <Person name:={() => {
 // I can easily debug when this property gets
 // access and track it easily
-console.log(name);
-return $name;
+console.log(@name);
+return @name;
 }} />
 Furthermore, just like property accessors in JavaScript, Ripple provides a way of capturing the set too, enabling two-way data-flow on composite component props. You just need to provide a second function after the first, separated using a comma:
-let $name = 'Bob';
+let name = track('Bob');
 const getName = () => {
-return $name;
+return @name;
 }
 const setName = (newName) => {
-$name = newName;
+@name = newName;
 }
 <Person name:={getName, setName} />
 Or an inlined version:
-let $name = 'Bob';
-<Person name:={() => $name, (newName) => $name = $newName} />
+let name = track('Bob');
+<Person name:={() => @name, (newName) => @name = newName} />
 Now changes in the Person to its props will propagate to its parent component:
 component Person(props) {
 const updateName = (newName) => {
-props.$name = newName;
+props.name = newName;
 }
 <NameInput onChange={updateName}>
 }
@@ -499,12 +497,12 @@ the syntax {ref fn} where fn is a function that captures the DOM element. If you
 this is identical to {@attach fn} in Svelte 5 and somewhat similar to ref in React. The hook function will receive
 the reference to the underlying DOM element.
 export component App() {
-let $node;
+let node = track();
 const divRef = (node) => {
-$node = node;
+@node = node;
 console.log("mounted", node);
 return () => {
-$node = undefined;
+@node = undefined;
 console.log("unmounted", node);
 };
 };
@@ -512,17 +510,17 @@ console.log("unmounted", node);
 }
 You can also create {ref} functions inline.
 export component App() {
-let $node;
+let node = track();
 <div {ref (node) => {
-$node = node;
-return () => $node = null;
+@node = node;
+return () => @node = undefined;
 }}>{"Hello world"}</div>
 }
 You can also use function factories to define properties, these are functions that return functions that do the same
 thing. However, you can use this pattern to pass reactive properties.
 import { fadeIn } from 'some-library';
-export component App({ $ms }) {
-<div {ref fadeIn({ $ms })}>{"Hello world"}</div>
+export component App({ ms }) {
+<div {ref fadeIn({ ms })}>{"Hello world"}</div>
 }
 Lastly, you can use refs on composite components.
 <Image {ref (node) => console.log(node)} {...props} />
@@ -532,12 +530,12 @@ Creates a unique object key that will be recognised as a ref when the object is 
 This allows programmatic assignment of refs without relying directly on the {ref ...} template syntax.
 import { createRefKey } from 'ripple';
 export component App() {
-let $value = '';
+let value = track('');
 const props = {
 id: "example",
-$value,
+@value,
 [createRefKey()]: (node) => {
-const removeListener = node.addEventListener('input', (e) => $value = e.target.value);
+const removeListener = node.addEventListener('input', (e) => @value = e.target.value);
 return () => {
 removeListener();
 }
@@ -548,8 +546,8 @@ removeListener();
 // with composite component
 <Input {...props} />
 }
-component Input({ id, $value, ...rest }) {
-<input type="text" {id} {$value} {...rest} />
+component Input({ id, value, ...rest }) {
+<input type="text" {id} {value} {...rest} />
 }
 Event Props
 Like React, events are props that start with on and then continue with an uppercase character, such as:
@@ -582,8 +580,7 @@ Note: the <style> element must be top-level within a component.
 Context
 Ripple has the concept of context where a value or reactive object can be shared through the component tree –
 like in other frameworks. This all happens from the createContext function that is imported from ripple.
-When you create a context, you can get and set the values, but this must happen within the component. Using them
-outside will result in an error being thrown.
+When you create a context, you can get and set the values, but this must happen within the context of a component (they can physically live anywhwere, they just need to be called from a component context). Using them outside will result in an error being thrown.
 import { createContext } from 'ripple';
 const MyContext = createContext(null);
 component Child() {
@@ -622,10 +619,10 @@ Stars
 5.1k
 stars
 Watchers
-29
+30
 watching
 Forks
-188
+190
 forks
 Report repository
 Releases
@@ -635,14 +632,12 @@ Packages
 No packages published
 Contributors
 27
-Uh oh!
-There was an error while loading. Please reload this page.
 + 13 contributors
 Languages
 JavaScript
-90.5%
+90.3%
 HTML
-8.7%
+8.9%
 Other
 0.8%
 Footer
@@ -652,6 +647,7 @@ Terms
 Privacy
 Security
 Status
+Community
 Docs
 Contact
 Manage cookies

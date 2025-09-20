@@ -1,0 +1,218 @@
+I'm building a Redis Clone in Zig: A Deep Dive into Pub/Sub, and Memory Allocation - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Charles Fonseca
+Posted on Sep 19
+I'm building a Redis Clone in Zig: A Deep Dive into Pub/Sub, and Memory Allocation
+#zig
+#redis
+#database
+#programming
+It's been a while since I started a project called Zedis (Redis written in Zig). It's been a great way to learn low-level programming.
+I want to take you on a tour of three core features I've implemented: Pub/Sub and the memory allocation strategy.
+Why Build a Redis Clone in Zig?
+I have a personal goal of mastering Zig this year; this was the perfect way to accomplish that. Zig offers a number of intriguing features for high-performance systems, such as comptime, which allows code to run at compile time, and explicit memory management. Zedis has been my playground for exploring everything from network programming to custom allocators.
+Feature Deep Dive: Pub/Sub
+Implementing the Publish/Subscribe mechanism was a fun challenge. At its core, it's a messaging system that decouples senders (publishers) from receivers (subscribers).
+Here's how it works in Zedis:
+Channels and Subscribers: When a client subscribes to a channel, they are added to a list of subscribers for that channel. I used a std.StringHashMap([]u64) to map channel names to a list of client IDs.
+Publishing a Message: When a message is published to a channel, the server iterates through the list of subscribers and writes the message to each of their connections.
+Entering Pub/Sub Mode: Once a client subscribes to a channel, they enter a special “Pub/Sub mode” where they can only receive messages and can't execute other commands.
+Here is the subscribe function:
+pub fn subscribe(client: *Client, args: []const Value) !void {
+var pubsub_context = client.pubsub_context;
+// Enter pubsub mode on first subscription
+if (!client.is_in_pubsub_mode) {
+client.enterPubSubMode();
+}
+var i: i64 = 0;
+for (args[1..]) |item| {
+const channel_name = item.asSlice();
+// Ensure channel exists
+pubsub_context.ensureChannelExists(channel_name) catch {
+try client.writeError("ERR failed to create channel");
+continue;
+};
+// Subscribe client to channel
+pubsub_context.subscribeToChannel(channel_name, client.client_id) catch |err| switch (err) {
+error.ChannelFull => {
+try client.writeError("ERR maximum subscribers per channel reached");
+continue;
+},
+else => {
+try client.writeError("ERR failed to subscribe to channel");
+continue;
+},
+};
+const subscription_count = i + 1;
+const response_tuple = .{
+"subscribe",
+channel_name,
+subscription_count,
+};
+// Use a generic writer to send the tuple as a RESP array.
+try client.writeTupleAsArray(response_tuple);
+i += 1;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Memory Allocation Strategy
+One of the most interesting aspects of this project has been designing the memory allocation strategy. I opted for a hybrid approach to balance performance and memory usage:
+KeyValueAllocator: This is a custom allocator I built for the main key-value store. It uses a fixed-size memory pool and has a simple eviction policy to stay within its budget. When the allocator runs out of memory, it can evict all keys to make space for new ones.
+Arena Allocator: For temporary, short-lived allocations (like parsing commands), I use an arena allocator. This is incredibly fast because it simply bumps a pointer for new allocations and frees all the memory at once when it's no longer needed.
+Fixed Pools: For objects that are frequently allocated and deallocated, like client connections, I use a fixed-size pool. This avoids the overhead of dynamic allocation and deallocation.
+This approach allows Zedis to be memory-efficient while still being performant.
+What's Next?
+I'm excited to keep building on this foundation. Here's what's on the roadmap:
+Implement AOF (Append Only File) logging
+Add support for more data structures like lists and sets
+Implement key expiration
+Add clustering support
+Check it out
+I'd love for you to check out Zedis on GitHub, try it out, and let me know what you think. Contributions are always welcome!
+Thanks for reading!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Charles Fonseca
+Follow
+Location
+Belo Horizonte
+Education
+Computer Science at University of London
+Work
+Software Engineer at mygardyn.com
+Joined
+Apr 19, 2020
+Trending on DEV Community
+Hot
+Automate GitHub Security Reviews with Glama’s AI Automation and MCP Servers
+#ai
+#beginners
+#tutorial
+#discuss
+Dev Culture Is Dying The Curious Developer Is Gone
+#programming
+#productivity
+#discuss
+#career
+Meme Monday
+#discuss
+#watercooler
+#jokes
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,275 @@
+Powershell - New-PSDrive - 'Specified drive root' error - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Powershell - New-PSDrive - 'Specified drive root' error
+Ask Question
+Asked
+2 days ago
+Modified
+today
+Viewed
+65 times
+2
+Using the following code snippet:
+$Username = "administrator"
+$Target = "\\target-win\ipc$"
+$Password = Read-Host -Prompt "Enter password:" -AsSecureString
+$Credential = New-Object System.Management.Automation.PSCredential($Username, $Password)
+cls
+New-PSDrive -Name "X" -Root $Target -PSProvider "FileSystem" -Credential $Credential
+"";""
+Net Use
+I can map the hidden ipc share on the remote machine (as confirmed via net use).
+However, I also receive an error:
+New-PSDrive : The specified drive root "\\target-win\ipc$" either does not exist, or it is not a folder.
+At line:10 char:1
++ New-PSDrive -Name "X" -Root $Target -PSProvider "FileSystem" -Credent ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ CategoryInfo
+: ReadError: (X:PSDriveInfo) [New-PSDrive], IOException
++ FullyQualifiedErrorId : DriveRootError,Microsoft.PowerShell.Commands.NewPSDriveCommand
+New connections will be remembered.
+Status
+Local
+Remote
+Network
+-------------------------------------------------------------------------------
+OK
+\\target-win\ipc$
+Microsoft Windows Network
+The command completed successfully.
+The top section shows the error, while the bottom section shows (via net use) that the share does indeed get mapped successfully.
+From what I've been able to determine so far, the issue only appears to occur when mapping hidden shares.
+It does not appear to have anything to do with the target, as I can recreate the exact same issue mapping a local hidden share.
+I've also confirmed that I can map other, non-hidden, remote shares without issue.
+While I can use an if/else statement to 'ignore' the error, I want to try and resolve it if possible.
+Any ideas/suggestions are welcome.
+powershellnew-psdrive
+Share
+Improve this question
+Follow
+asked 2 days ago
+sbagnatosbagnato
+51644 gold badges1616 silver badges4444 bronze badges
+1
+1
+Yes, correct.
+Alternatively stating, to test the validity of a users credentials remotely, you can utilize the ipc$ share.
+net use \\<target>\ipc$ /user:<hostname>\username.
+The share is not persistent, so you don't have to manually remove it.
+Additionally, you don't need to assign a drive letter.
+However, when using New-PSDrive, you are required to give it a "name", which is the drive letter.
+No problem with your question, however, as shown above, the command does work.
+I am just trying to determine whether or not that error can be stopped, as opposed to surpressed.
+sbagnato
+–
+sbagnato
+2025-09-17 19:32:20 +00:00
+Commented
+2 days ago
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1
+The administrative share named IPC$, as its names suggests, is used for IPC (inter-process communication), and not itself part of the file-system, so it isn't surprising that you cannot map a drive letter / name to it, which is what New-PSDrive by definition requires.
+It follows that you cannot prevent New-PSDrive from reporting an error, and while you could just suppress the error, you wouldn't be able to distinguish the expected, irrelevant error from a true error, such as the target UNC path being non-existent or unreachable.
+Thus, the simpler solution is to avoid New-PSDrive and to instead call net use (a direct call to the external executable net.exe), as it does not require a drive letter for connecting to the IPC$ share:
+$username = 'administrator'
+$target = '\\target-win\ipc$'
+$password = Read-Host -Prompt 'Enter password:' -AsSecureString
+net use $target /user:$username ([Net.NetworkCredential]::new('', $password).Password)
+if ($LASTEXITCODE) { throw "Connecting to $target as user $username failed with exit code $LASTEXITCODE" }
+Note:
+[Net.NetworkCredential]::new('', $password).Password (using type System.Net.NetworkCredential) is a simple way to convert a [securestring] instance such as returned by Read-Host -AsSecureString to its plain-text equivalent.
+For a PowerShell (Core) 7 alternative and a discussion of the risks of using plain-text passwords (unavoidable with use of net.exe), see this answer.
+To readers wondering what the purpose of a net use call targeting the (inherently non-file-system) IPC$ share is: per your own feedback, it can be used to indirectly verify user credentials, i.e. a successful connection implies that the supplied credentials are valid.
+Share
+Improve this answer
+Follow
+edited 3 hours ago
+answered 2 days ago
+mklement0mklement0
+450k6868 gold badges722722 silver badges974974 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+powershellnew-psdrive
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Linked
+6
+How do you decrypt securestring in powershell
+Related
+1
+Can't map Azure drive storage as netword drive using PowerShell
+0
+script to map drive in powershell
+0
+In Azure Runbook - map a drive to remote server
+0
+Make New-PSDrive drive viewable to another device when a USB cable is plugged into each device
+1
+Powershell: mapped network drive disappear after reboot
+0
+I want to use powershell to map a network hard disk on a remote machine
+1
+New-PSDrive not visible to other shells contrary to MS documentation
+432
+How to stop a PowerShell script on the first error?
+Hot Network Questions
+Proof that NP is a subset of EXP
+post hoc tests after running repeated measures ANOVA
+Interpretation of slope coefficient when a variable appears in multiple powers
+The Number on the Card
+How do I Lock a Car from the Outside with no Key
+Is there a substance that passes through gasses, but reacts violently (explosive) when confronted with solid matter?
+Historical Survey: What elements in D&D can affect a character's level outside of leveling up?
+Editor's responsibilities vis-à-vis referee reports
+How do we account for inefficiency of digestion when determining dietary calories?
+How to block an entire page with uBlock Origin?
+How does energy abundance affect materials science?
+Is there an FFC socket compatible with this FPC?
+Any explanation for the COVID-19 market surge?
+Where can a French citizen with Russian visa legally cross by bike/foot/car from China into Russia at a border point as close as possible to Dongning?
+Lewis & Short disagrees with Wiktionary and Latin Lexicon on vowel length?
+How to end mob silencing? Targeted Canceling? Negative Votes require Feedback suggestion
+Clarification of "Trautes Heim, Glück allein"
+Why aren't these functions o-minimal?
+Which letter is missing?
+AdminUI (Preview) (how to activate)
+Scalars, Vectors, Tensors: are they all?
+Word choice errors in submitted thesis
+Incorrect spath3 "split at" mehtod with a continued line?
+I Received a Secondary Dataset that Has Already Gone Through Data Imputations. Is It Okay If I Round Them Up?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-bash
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

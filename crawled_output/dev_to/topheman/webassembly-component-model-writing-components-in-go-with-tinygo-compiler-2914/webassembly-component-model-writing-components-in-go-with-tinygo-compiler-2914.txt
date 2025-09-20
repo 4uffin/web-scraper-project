@@ -1,0 +1,282 @@
+Writing components in Go with TinyGo compiler - WebAssembly Component Model - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Tophe
+Posted on Sep 19
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+#webassembly
+#wasi
+#go
+#tinygo
+WebAssembly Component Model (5 Part Series)
+1
+Building a plugin system - WebAssembly Component Model
+2
+Building components in multiple languages - WebAssembly Component Model
+3
+Writing components in C with WASI SDK - WebAssembly Component Model
+4
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+5
+Writing components in TypeScript with jco - WebAssembly Component Model
+Setup
+Required tools for TinyGo WebAssembly Component Model support:
+TinyGo compiler v0.39.0+: Compiles Go code to WebAssembly components
+wkg: Resolves and bundles WIT dependencies into a single package
+wasm-tools: Converts WebAssembly modules to components
+Build Process
+Go plugins require a specific build process due to TinyGo's Component Model requirements:
+1. Prepare WIT files for TinyGo
+TinyGo has specific requirements that differ from other languages. The prepare-wit-files.sh script (a custom script for this project) copies WIT files from crates/pluginlab/wit to go_modules/wit and uncomments TinyGo-specific lines:
+./scripts/prepare-wit-files.sh -i crates/pluginlab/wit -o go_modules/wit -s "SPECIFIC TinyGo"
+Enter fullscreen mode
+Exit fullscreen mode
+Why this workflow exists: The go_modules/wit directory is gitignored and contains modified versions of the WIT files specifically for TinyGo. This workflow maintains crates/pluginlab/wit as the single source of truth for all WIT definitions, while automatically generating TinyGo-compatible versions.
+Why this is needed: The wasip2 target of TinyGo assumes that component is targeting wasi:cli/command@0.2.0 and requires explicit inclusion of WASI imports. The script searches for lines containing "SPECIFIC TinyGo" and uncomments them:
+world plugin-api {
+// The wasip2 target of TinyGo assumes that the component is targeting
+// wasi:cli/command@0.2.0 world (part of wasi:cli), so it needs to
+// include the imports from that world.
+// It's only included for the versions of the wit files destined for TinyGo.
+- // include wasi:cli/imports@0.2.0; // SPECIFIC TinyGo - DO NOT CHANGE THIS LINE
++ include wasi:cli/imports@0.2.0; // SPECIFIC TinyGo - DO NOT CHANGE THIS LINE
+import http-client;
+import host-state-plugin;
+export plugin;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2. Bundle WIT dependencies with wkg
+Why wkg is used: TinyGo cannot resolve WIT imports on its own - it needs all dependencies to be either bundled into a single WASM file or pre-resolved into a local directory. For example, when TinyGo sees include wasi:cli/imports@0.2.0;, it doesn't know where to find that external package or what's inside it. The wkg tool handles dependency resolution by fetching all imported WIT interfaces and creating a complete WIT package:
+cd go_modules/
+wkg wit build
+Enter fullscreen mode
+Exit fullscreen mode
+This creates repl:api.wasm containing all the WIT definitions needed by the plugin. The command also generates a wkg.lock file that locks the dependency versions for reproducible builds.
+3. Generate Go bindings
+Use wit-bindgen-go to generate Go code from the bundled WIT package:
+cd go_modules/plugin-name/
+go tool wit-bindgen-go generate --world plugin-api --out internal ../repl:api.wasm
+Enter fullscreen mode
+Exit fullscreen mode
+This creates the internal/ directory with all the generated Go bindings for the plugin interfaces.
+4. Compile with TinyGo
+TinyGo compiles the Go code directly to a WebAssembly component:
+cd go_modules/plugin-name/
+tinygo build -target=wasip2 --wit-package ../repl:api.wasm --wit-world plugin-api -o plugin-name-go.wasm main.go
+Enter fullscreen mode
+Exit fullscreen mode
+File Structure
+Project organization: Go plugins follow this structure in the repo:
+go_modules/
+wit/
+# Modified WIT files for TinyGo
+plugin-api.wit
+# Contains TinyGo-specific includes
+shared.wit
+# Shared types and interfaces
+host-api.wit
+# Host API definitions
+repl:api.wasm
+# Bundled WIT package (from wkg)
+wkg.lock
+# Lock file for WIT dependencies (from wkg)
+plugin-echo/
+# Plugin directory
+go.mod
+# Go module with wit-bindgen-go tool
+main.go
+# Plugin implementation
+internal/
+# Generated bindings (from wit-bindgen-go)
+repl/api/plugin/
+# Plugin interface bindings
+repl/api/transport/
+# Transport type bindings
+wasi/
+# WASI interface bindings
+plugin-echo-go.wasm
+# Final WebAssembly component
+Enter fullscreen mode
+Exit fullscreen mode
+Plugin Implementation
+Standard pattern: Go plugins use the init() function to register their exports, following the WebAssembly Component Model pattern:
+package main
+import (
+"webassembly-repl/plugin-echo/internal/repl/api/plugin"
+"webassembly-repl/plugin-echo/internal/repl/api/transport"
+"go.bytecodealliance.org/cm"
+)
+func init() {
+plugin.Exports.Name = func() string {
+return "echogo"
+}
+plugin.Exports.Man = func() string {
+return `... some man text ...`
+}
+plugin.Exports.Run = func(payload string) cm.Result[plugin.PluginResponse, plugin.PluginResponse, struct{}] {
+response := plugin.PluginResponse{
+Status: transport.ReplStatusSuccess,
+Stdout: cm.Some(payload),
+Stderr: cm.None[string](),
+}
+return cm.OK[cm.Result[plugin.PluginResponse, plugin.PluginResponse, struct{}]](response)
+}
+}
+// main is required for the wasip2 target
+func main() {}
+Enter fullscreen mode
+Exit fullscreen mode
+Go Module Configuration
+Required setup: The go.mod file must include the wit-bindgen-go tool as a Go tool dependency:
+module webassembly-repl/plugin-echo
+go 1.24
+tool go.bytecodealliance.org/cmd/wit-bindgen-go
+// ... other dependencies
+Enter fullscreen mode
+Exit fullscreen mode
+This allows the project to use go tool wit-bindgen-go commands for generating bindings.
+📎 Here are links to:
+the go_modules directory that contains the Go plugins
+the justfile file that contains the build commands for Go plugins
+PR#16 - Add Go Language Plugin Support
+WebAssembly Component Model (5 Part Series)
+1
+Building a plugin system - WebAssembly Component Model
+2
+Building components in multiple languages - WebAssembly Component Model
+3
+Writing components in C with WASI SDK - WebAssembly Component Model
+4
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+5
+Writing components in TypeScript with jco - WebAssembly Component Model
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Tophe
+Follow
+❤️JavaScript, WebAssembly & Rust 🦀
+Location
+Paris, France
+Joined
+Aug 14, 2017
+More from Tophe
+Writing components in TypeScript with jco - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#typescript
+Writing components in C with WASI SDK - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#c
+Building components in multiple languages - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#rust
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

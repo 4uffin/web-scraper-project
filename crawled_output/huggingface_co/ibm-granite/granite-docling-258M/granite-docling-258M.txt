@@ -1,0 +1,447 @@
+ibm-granite/granite-docling-258M · Hugging Face
+Hugging Face
+Models
+Datasets
+Spaces
+Community
+Docs
+Enterprise
+Pricing
+Log In
+Sign Up
+ibm-granite
+/
+granite-docling-258M
+like
+345
+Follow
+IBM Granite
+2.48k
+Image-Text-to-Text
+Transformers
+Safetensors
+4 datasets
+English
+idefics3
+image-to-text
+text-generation
+documents
+code
+formula
+chart
+ocr
+layout
+table
+document-parse
+docling
+granite
+extraction
+math
+conversational
+arxiv:
+2501.17887
+arxiv:
+2503.11576
+arxiv:
+2305.03393
+License:
+apache-2.0
+Model card
+Files
+Files and versions
+xet
+Community
+18
+Train
+Deploy
+Use this model
+granite-docling-258m
+Getting started
+Intended Use
+Evaluations
+Supported Instructions
+Model Architecture:
+granite-docling-258m
+Granite Docling is a multimodal Image-Text-to-Text model engineered for efficient document conversion. It preserves the core features of Docling while maintaining seamless integration with DoclingDocuments to ensure full compatibility.
+Model Summary:
+Granite Docling 258M builds upon the IDEFICS3 architecture, but introduces two key modifications: it replaces the vision encoder with siglip2-base-patch16-512 and substitutes the language model with a Granite 165M LLM. Try out our Granite-Docling-258 demo today.
+Developed by: IBM Research
+Model type: Multi-modal model (image+text-to-text)
+Language(s): English (NLP)
+License: Apache 2.0
+Release Date: September 17, 2025
+Granite-docling-258M is fully integrated into the Docling pipelines, carrying over existing features while introducing a number of powerful new features, including:
+🔢 Enhanced Equation Recognition: More accurate detection and formatting of mathematical formulas
+🧩 Flexible Inference Modes: Choose between full-page inference, bbox-guided region inference
+🧘 Improved Stability: Tends to avoid infinite loops more effectively
+🧮 Enhanced Inline Equations: Better inline math recognition
+🧾 Document Element QA: Answer questions about a document’s structure such as the presence and order of document elements
+🌍 Japanese, Arabic and Chinese support (experimental)
+Getting started
+The easiest way to use this model is through the 🐥Docling library. It will automatically download this model and convert documents to various formats for you.
+Install the latest version of docling through pip, then use the following CLI command:
+# Convert to HTML and Markdown:
+docling --to html --to md --pipeline vlm --vlm-model granite_docling "https://arxiv.org/pdf/2501.17887" # accepts files, urls or directories
+# Convert to HTML including layout visualization:
+docling --to html_split_page --show-layout --pipeline vlm --vlm-model granite_docling "https://arxiv.org/pdf/2501.17887"
+You can also set this model up within the Docling SDK:
+from docling.datamodel import vlm_model_specs
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import (
+VlmPipelineOptions,
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.pipeline.vlm_pipeline import VlmPipeline
+source = "https://arxiv.org/pdf/2501.17887"
+###### USING SIMPLE DEFAULT VALUES
+# - GraniteDocling model
+# - Using the transformers framework
+converter = DocumentConverter(
+format_options={
+InputFormat.PDF: PdfFormatOption(
+pipeline_cls=VlmPipeline,
+),
+}
+)
+doc = converter.convert(source=source).document
+print(doc.export_to_markdown())
+###### USING MACOS MPS ACCELERATOR
+# For more options see the compare_vlm_models.py example.
+pipeline_options = VlmPipelineOptions(
+vlm_options=vlm_model_specs.GRANITEDOCLING_MLX,
+)
+converter = DocumentConverter(
+format_options={
+InputFormat.PDF: PdfFormatOption(
+pipeline_cls=VlmPipeline,
+pipeline_options=pipeline_options,
+),
+}
+)
+doc = converter.convert(source=source).document
+print(doc.export_to_markdown())
+Alternatively, you can use bare transformers, vllm, onnx or mlx-vlm to perform inference, and docling-core APIs to convert results to variety of output formats (md, html, etc.):
+📄 Single page image inference using plain 🤗 tranformers 🤖
+# Prerequisites:
+# pip install torch
+# pip install docling_core
+# pip install transformers
+import torch
+from docling_core.types.doc import DoclingDocument
+from docling_core.types.doc.document import DocTagsDocument
+from transformers import AutoProcessor, AutoModelForVision2Seq
+from transformers.image_utils import load_image
+from pathlib import Path
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# Load images
+image = load_image("https://huggingface.co/ibm-granite/granite-docling-258M/resolve/main/assets/new_arxiv.png")
+# Initialize processor and model
+processor = AutoProcessor.from_pretrained("ibm-granite/granite-docling-258M")
+model = AutoModelForVision2Seq.from_pretrained(
+"ibm-granite/granite-docling-258M",
+torch_dtype=torch.bfloat16,
+_attn_implementation="flash_attention_2" if DEVICE == "cuda" else "sdpa",
+).to(DEVICE)
+# Create input messages
+messages = [
+{
+"role": "user",
+"content": [
+{"type": "image"},
+{"type": "text", "text": "Convert this page to docling."}
+]
+},
+]
+# Prepare inputs
+prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
+inputs = processor(text=prompt, images=[image], return_tensors="pt")
+inputs = inputs.to(DEVICE)
+# Generate outputs
+generated_ids = model.generate(**inputs, max_new_tokens=8192)
+prompt_length = inputs.input_ids.shape[1]
+trimmed_generated_ids = generated_ids[:, prompt_length:]
+doctags = processor.batch_decode(
+trimmed_generated_ids,
+skip_special_tokens=False,
+)[0].lstrip()
+print(f"DocTags: \n{doctags}\n")
+# Populate document
+doctags_doc = DocTagsDocument.from_doctags_and_image_pairs([doctags], [image])
+# create a docling document
+doc = DoclingDocument.load_from_doctags(doctags_doc, document_name="Document")
+print(f"Markdown:\n{doc.export_to_markdown()}\n")
+## export as any format.
+# Path("out/").mkdir(parents=True, exist_ok=True)
+# HTML:
+# output_path_html = Path("out/") / "example.html"
+# doc.save_as_html(output_path_html)
+# Markdown:
+# output_path_md = Path("out/") / "example.md"
+# doc.save_as_markdown(output_path_md)
+🚀 Fast Batch Inference with VLLM
+# Prerequisites:
+# pip install vllm
+# pip install docling_core
+# place page images you want to convert into "img/" dir
+import time
+import os
+from vllm import LLM, SamplingParams
+from transformers import AutoProcessor
+from PIL import Image
+from docling_core.types.doc import DoclingDocument
+from docling_core.types.doc.document import DocTagsDocument
+from pathlib import Path
+# Configuration
+MODEL_PATH = "ibm-granite/granite-docling-258M"
+IMAGE_DIR = "img/"
+# Place your page images here
+OUTPUT_DIR = "out/"
+PROMPT_TEXT = "Convert this page to docling."
+messages = [
+{
+"role": "user",
+"content": [
+{"type": "image"},
+{"type": "text", "text": PROMPT_TEXT},
+],
+},
+]
+# Ensure output directory exists
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Initialize LLM
+llm = LLM(model=MODEL_PATH, revision="untied", limit_mm_per_prompt={"image": 1})
+processor = AutoProcessor.from_pretrained(MODEL_PATH)
+sampling_params = SamplingParams(
+temperature=0.0,
+max_tokens=8192,
+skip_special_tokens=False,
+)
+# Load and prepare all images and prompts up front
+batched_inputs = []
+image_names = []
+for img_file in sorted(os.listdir(IMAGE_DIR)):
+if img_file.lower().endswith((".png", ".jpg", ".jpeg")):
+img_path = os.path.join(IMAGE_DIR, img_file)
+with Image.open(img_path) as im:
+image = im.convert("RGB")
+prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
+batched_inputs.append({"prompt": prompt, "multi_modal_data": {"image": image}})
+image_names.append(os.path.splitext(img_file)[0])
+# Run batch inference
+start_time = time.time()
+outputs = llm.generate(batched_inputs, sampling_params=sampling_params)
+# Postprocess all results
+for img_fn, output, input_data in zip(image_names, outputs, batched_inputs):
+doctags = output.outputs[0].text
+output_path_dt = Path(OUTPUT_DIR) / f"{img_fn}.dt"
+output_path_md = Path(OUTPUT_DIR) / f"{img_fn}.md"
+with open(output_path_dt, "w", encoding="utf-8") as f:
+f.write(doctags)
+# Convert to DoclingDocument and save markdown
+doctags_doc = DocTagsDocument.from_doctags_and_image_pairs([doctags], [input_data["multi_modal_data"]["image"]])
+doc = DoclingDocument.load_from_doctags(doctags_doc, document_name="Document")
+doc.save_as_markdown(output_path_md)
+print(f"Total time: {time.time() - start_time:.2f} sec")
+💻 Local inference on Apple Silicon with MLX: see here
+Intended Use
+Granite-Docling is designed to complement the Docling library, not replace it. It integrates as a component within larger Docling library, consolidating the functions of multiple single-purpose models into a single, compact VLM.
+However, Granite-Docling is not intended for general image understanding. For tasks focused solely on image-text input, we recommend using Granite Vision models, which are purpose-built and optimized for image-text processing.
+Evaluations
+A comprehensive discussion of evaluation methods and findings has already been presented in our previous publication [citation]. As this model is an update, we refer readers to that work for additional details.
+The evaluation can be performed using the docling-eval framework for the document related tasks, and lmms-eval for MMStar and OCRBench.
+Layout
+MAP ↑
+F1 ↑
+Precision ↑
+Recall ↑
+smoldocling-256m-preview
+0.230.850.90.84
+granite-docling-258m
+0.270.860.920.88
+Full Page OCR
+Edit-distance ↓
+F1 ↑
+Precision ↑
+Recall ↑
+BLEU ↑
+Meteor ↑
+smoldocling-256m-preview
+0.480.800.89
+0.790.580.67
+granite-docling-258m
+0.450.840.91
+0.830.650.72
+Code Recognition
+Edit-distance ↓
+F1 ↑
+Precision ↑
+Recall ↑
+BLEU ↑
+Meteor ↑
+smoldocling-256m-preview
+0.1140.9150.940.9090.8750.889
+granite-docling-258m
+0.0130.9880.990.988
+0.9830.986
+Equation Recognition
+Edit-distance ↓
+F1 ↑
+Precision ↑
+Recall ↑
+BLEU ↑
+Meteor ↑
+smoldocling-256m-preview
+0.1190.9470.9590.9410.8240.878
+granite-docling-258m
+0.0730.9680.9680.969
+0.8930.927
+Table Recognition (FinTabNet 150dpi)
+TEDS (structure) ↑
+TEDS (w/content) ↑
+smoldocling-256m-preview
+0.820.76
+granite-docling-258m
+0.970.96
+Other Benchmarks
+MMStar ↑
+OCRBench ↑
+smoldocling-256m-preview
+0.17338
+granite-docling-258m
+0.30500
+💻 Local inference on Apple Silicon with MLX: see here
+Supported Instructions
+Description
+Instruction
+Short Instruction
+Full conversion
+Convert this page to docling.
+-
+Chart
+Convert chart to table.
+<chart>
+Formula
+Convert formula to LaTeX.
+<formula>
+Code
+Convert code to text.
+<code>
+Table
+Convert table to OTSL. (Lysak et al., 2023)
+<otsl>
+Actions and Pipelines
+OCR the text in a specific location: <loc_155><loc_233><loc_206><loc_237>
+-
+Identify element at: <loc_247><loc_482><loc_252><loc_486>
+-
+Find all 'text' elements on the page, retrieve all section headers.
+-
+Detect footer elements on the page.
+-
+Model Architecture:
+The architecture of granite-docling-258m consists of the following components:
+(1) Vision encoder: siglip2-base-patch16-512.
+(2) Vision-language connector: pixel shuffle projector (as in idefics3)
+(3) Large language model: Granite 165M.
+We built upon Idefics3 to train our model. We incorporated DocTags into our LLM’s supervised fine-tuning (SFT) data to help the model become familiar with the format, enabling faster convergence and mitigating issues previously observed with SmolDocling.
+The model was trained using the nanoVLM framework, which provides a lightweight and efficient training setup for vision-language models
+Training Data: Our training corpus consists of two principal sources: (1) publicly available datasets and (2) internally constructed synthetic datasets designed to elicit specific document understanding capabilities.
+In particular, we incorporate:
+SynthCodeNet — a large-scale collection of synthetically rendered code snippets spanning over 50 programming languages
+SynthFormulaNet — a dataset of synthetic mathematical expressions paired with ground-truth LaTeX representations
+SynthChartNet — synthetic chart images annotated with structured table outputs
+DoclingMatix — a curated corpus of real-world document pages sampled from diverse domains
+Infrastructure: We train granite-docling-258m using IBM's super computing cluster, Blue Vela, which is outfitted with NVIDIA H100 GPUs. This cluster provides a scalable and efficient infrastructure for training our models over thousands of GPUs.
+Responsible Use and Limitations Some use cases for Vision Language Models can trigger certain risks and ethical considerations, including but not limited to: bias and fairness, misinformation, and autonomous decision-making.
+Although our alignment processes include safety considerations, the model may in some cases produce inaccurate, biased, offensive or unwanted responses to user prompts. Additionally, whether smaller models may exhibit increased susceptibility
+to hallucination in generation scenarios due to their reduced sizes, which could limit their ability to generate coherent and contextually accurate responses, remains uncertain. This aspect is currently an active area of research,
+and we anticipate more rigorous exploration, comprehension, and mitigations in this domain. We urge the community to use granite-docling-258m in a responsible way and avoid any malicious utilization. We recommend using this model only as part of the Docling library.
+More general vision tasks may pose higher inherent risks of triggering unwanted output. To enhance safety, we recommend using granite-docling-258m alongside Granite Guardian. Granite Guardian is a fine-tuned instruct model designed to detect and flag risks in prompts and responses across key dimensions outlined in the IBM AI Risk Atlas.
+Its training, which includes both human-annotated and synthetic data informed by internal red-teaming, enables it to outperform similar open-source models on standard benchmarks, providing an additional layer of safety.
+Resources
+⭐️ Learn about the latest updates with Docling: https://docling-project.github.io/docling/#features
+🚀 Get started with Docling concepts, integrations and tutorials: https://docling-project.github.io/docling/getting_started/
+💡 Learn about the latest Granite learning resources: https://ibm.biz/granite-learning-resources
+🖥️ Learn more about how to use Granite-Docling, explore the Docling library, and see what’s coming next for Docling in the release blog: https://ibm.com/new/announcements/granite-docling-end-to-end-document-conversion
+Downloads last month7,750
+Safetensors
+Model size
+258M params
+Tensor type
+BF16
+·
+Chat template
+Files info
+Inference Providers
+NEW
+Image-Text-to-Text
+This model isn't deployed by any Inference Provider.
+🙋
+4
+Ask for provider support
+Model tree for ibm-granite/granite-docling-258M
+Finetunes
+2 models
+Datasets used to train
+ibm-granite/granite-docling-258M
+HuggingFaceM4/DoclingMatix
+Viewer
+•
+Updated
+Jul 31
+•
+1.27M
+•
+5.12k
+•
+39
+ds4sd/SynthCodeNet
+Viewer
+•
+Updated
+Jul 16
+•
+9.33M
+•
+3.42k
+•
+6
+ds4sd/SynthChartNet
+Viewer
+•
+Updated
+Jul 15
+•
+1.98M
+•
+2.06k
+•
+8
+Spaces using
+ibm-granite/granite-docling-258M
+2
+ibm-granite/granite-docling-258m-demo
+💻
+akhaliq/granite-docling-258M
+Collection including
+ibm-granite/granite-docling-258M
+Granite Docling
+Collection
+4 items
+•
+Updated
+2 days ago
+•
+39
+System theme
+Company
+TOS
+Privacy
+About
+Jobs
+Website
+Models
+Datasets
+Spaces
+Pricing
+Docs

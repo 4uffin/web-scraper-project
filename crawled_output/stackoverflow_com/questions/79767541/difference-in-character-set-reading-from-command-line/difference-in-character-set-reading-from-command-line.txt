@@ -1,0 +1,511 @@
+java - Difference in character-set reading from command line - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Difference in character-set reading from command line
+Ask Question
+Asked
+2 days ago
+Modified
+today
+Viewed
+117 times
+0
+I am trying to compile/convert a Java program that I wrote from using the "normal" JDK (Java v24) to natively compiled code using the GraalVM (v25). The "classic" version runs fine. The native version starts up OK but then it has an issue with program arguments read-in from the command-line which are apparently in a different character set than the ones being used by the original Java application (or the filename are being dealt with differently).
+The issue is triggerend by passing a filename-argument to the application (via drag-and-drop) that contains Umlauts. Both program variants echo the passed-in filename (actually the full file-path) as:
+U:\Documents\Kontoauszï¿½ge\...\Umsatzï¿½bersicht_20250401-20250831.csv
+i.e. also in the classic version the filename echoed on the console seems "garbled" (the ï¿½ is actually an ü in the file system), but the classic Java version finds, opens and processes that file without any issue. The GraalVM's compiled native executable echoes the very same filename also "garbled" but then throws a FileNotFound-Exception:
+java.io.FileNotFoundException: U:\Documents\Kontoauszï¿½ge\...\Umsatzï¿½bersicht_20250401-20250831_AT221600000100586916.csv (The system cannot find the path specified)
+(Note: I left out irrelevant fractions of the path here for privacy reason and replaced them with ...).
+Why is this name/path handling behavior is different? Is there an option to align the command-line character set used by the GraalVM generated native's code's with the character set being used by the JDK-based "vanilla" Java code?
+Later addition - answering misc. questions:
+This is on Windows 10 (all current fixes/patches/updates installed).
+No "VM" other than the Java VM is involved here. The actual filename/path is U:\Documents\Kontoauszüge\...\Umsatzübersicht_20250401-20250831.csv
+(the ...-part of the path does not contain any Umlauts or other special characters).
+C:\>chcp
+Active code page: 437
+My Windows system region settings are "English (Switzerland)" (yes - that exists). The system's display language is "English (US)".
+The drag-and-drop I mentioned is via the Windwos Explorer, the "GUI" that some respondents wanted to know about is the Windows desktop. I drag the file that I want to be processed over a command-file which then calls the java application passing the argument via %1 to the command line calling the java application (or the .exe in the GraalVM case).
+javagraalvm
+Share
+Improve this question
+Follow
+edited yesterday
+mmommo
+asked 2 days ago
+mmommo
+4,3261515 gold badges5353 silver badges8888 bronze badges
+9
+1
+Post the actual string, before it is garbled. And post the code doing the text-reading. And name the host OS as well as its character-encoding.
+Basil Bourque
+–
+Basil Bourque
+2025-09-17 16:52:15 +00:00
+Commented
+2 days ago
+1
+So it looks like there's a character encoding mismatch somewhere.
+What does each VM, launched as you presently are doing, report for the native.encoding system property?
+And for good measure, how about the stdout.encoding and stderr.encoding properties?
+And what encoding is your shell (PowerShell or cmd.exe, I guess) using?
+John Bollinger
+–
+John Bollinger
+2025-09-17 16:58:46 +00:00
+Commented
+2 days ago
+"Why is this name/path handling behavior is different?" -- possibly because one is buggy (or both are buggy in different ways).
+Or possibly because your program's behavior is not well defined under the circumstances in the first place, leaving both results consistent with the language and API specifications.
+John Bollinger
+–
+John Bollinger
+2025-09-17 17:34:20 +00:00
+Commented
+2 days ago
+1
+Can you provide a minimal reproducible example, including an example file name and contents? You mention drag-and-drop, so I assume your real application involves a GUI. If you can reproduce the problem without a GUI, that would be ideal.
+Slaw
+–
+Slaw
+2025-09-17 18:14:24 +00:00
+Commented
+2 days ago
+Yes, there seems to be an ambiguity about whether arguments are coming from the command line, or via drag-and-drop ...
+g00se
+–
+g00se
+2025-09-17 20:25:00 +00:00
+Commented
+2 days ago
+|
+Show 4 more comments
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+2
+Known Issue on Windows
+This appears to be a known issue on Windows: [GR-52826] Non-ASCII characters in command line arguments are replaced by U+FFFD in Windows (native-image) #8593. Unfortunately, there doesn't seem to be any motivation to fix this issue quickly. See this comment (March 2024):
+Ok, so I have discussed this internally: The JDK seems to convert arguments in their app launchers: https://github.com/openjdk/jdk/blob/700d2b91defd421a2818f53830c24f70d11ba4f6/src/jdk.jpackage/windows/native/common/WinSysInfo.cpp#L137
+Instead of doing this, we can avoid the additional overhead (and potential for errors) by switching to wmain on Windows. This will also allow us to provide other features on Windows such as a javaw.exe like entry point that allows running an app without a command prompt.
+We currently have no ETA for this but we will update this ticket when we do [emphasis added].
+And this comment (April 2024):
+I would be surprised if this bug gets a fix this year. It just can't be a priority: it's only in Windows while the majority of Java apps run on Linux + it's in command line parsing and the majority of Java apps don't do much of it.
+Possible Solution
+The last comment (June 2024) on the issue, as of this answer, says:
+Apparently Microsoft does a U-turn with their encodings zoo and now promotes using UTF-8 for new applications using a dedicated manifest property. The introduced activeCodePage manifest property was introduced in Windows 10 Version 1903.
+Until recently, Windows has emphasized "Unicode" -W variants over -A APIs. However, recent releases have used the ANSI code page and -A APIs as a means to introduce UTF-8 support to apps. If the ANSI code page is configured for UTF-8, then -A APIs typically operate in UTF-8. This model has the benefit of supporting existing code built with -A APIs without any code changes.
+The articles goes so far as to call "Win32 API [that] might only understand WCHAR" legacy.
+It's also possible to slap this manifest onto an existing exe. I'll try it in the meantime.
+See also a blog post from Raymond Chen about this feature.
+That suggests you can update the executable's manifest so its activeCodePage is UTF-8. Searching around, I found that mt.exe is apparently the tool to do this. From some testing, native-image does not add a manifest. At least for simple applications. So, you should be able to just insert a new manifest without worrying about overriding anything. I found the following manifest to work with some trial-and-error:
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+<assemblyIdentity
+type="win32"
+name="Organization.Division.Name"
+version="1.0.0.0"/>
+<asmv3:application>
+<asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">
+<activeCodePage>UTF-8</activeCodePage>
+</asmv3:windowsSettings>
+</asmv3:application>
+</assembly>
+I don't know if there's a better way to define the manifest. But once you have it, you can insert it with:
+mt -manifest <manifest-file> -outputresource:<exe-file>;#1
+Example
+Here's an example using the manifest solution. Note you'll need mt.exe on the path for the test.ps1 script to work.
+Versions
+Windows 11 (English language, United States)
+GraalVM JDK 25+37.1
+PowerShell Core 7.5.3
+Project Structure
+C:\GRAALVM-TESTS
+|
+app.manifest
+|
+Umsatzübersicht.txt
+|
+test.ps1
+|
+\---src
+|
+module-info.java
+|
+\---com
+\---example
+\---app
+Main.java
+Source Code
+module-info.java:
+module app {}
+Main.java:
+package com.example.app;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Collectors;
+public class Main {
+public static void main(String[] args) {
+if (args.length != 1) {
+System.err.println("Expected a single path argument.");
+System.exit(1);
+}
+System.out.println("stdout.encoding = " + System.getProperty("stdout.encoding"));
+System.out.println("stderr.encoding = " + System.getProperty("stderr.encoding"));
+System.out.println("file.encoding = " + System.getProperty("file.encoding"));
+System.out.println();
+try {
+System.out.println("========== java.nio.file API ==========");
+var path = Path.of(args[0]).toAbsolutePath().normalize();
+System.out.println("Path = " + path);
+String contents = Files.readString(path);
+System.out.println("Contents:");
+System.out.println(contents.indent(3));
+} catch (Exception ex) {
+ex.printStackTrace();
+}
+System.out.println();
+try {
+System.out.println("========== java.io API ==========");
+var file = new File(args[0]).getCanonicalFile();
+System.out.println("File = " + file);
+String contents;
+try (var in = new FileInputStream(file)) {
+var br = new BufferedReader(new InputStreamReader(in, UTF_8));
+contents = br.lines().collect(Collectors.joining("\n"));
+}
+System.out.println("Contents:");
+System.out.println(contents.indent(3));
+} catch (Exception ex) {
+ex.printStackTrace();
+}
+System.out.println();
+}
+}
+Umsatzübersicht.txt
+Hello, World!
+app.manifest
+Same XML as given previously in this answer.
+test.ps1 (PowerShell script):
+param(
+[Parameter(Position=0, Mandatory=$true)]
+[ValidateNotNullOrEmpty()]
+[string]$GraalVMHome,
+[switch]$Rebuild
+)
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'Ignore'
+$GraalVMHome = Resolve-Path $GraalVMHome
+$javac = Resolve-Path (Join-Path $GraalVMHome 'bin\javac.exe')
+$jar = Resolve-Path (Join-Path $GraalVMHome 'bin\jar.exe')
+$java = Resolve-Path (Join-Path $GraalVMHome 'bin\java.exe')
+$native = Resolve-Path (Join-Path $GraalVMHome 'bin\native-image.cmd')
+# configure PowerShell to use UTF-8 for output
+chcp 65001 | Out-Null
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+# build project if requested or output folder doesn't exist
+if ($Rebuild -or !(Test-Path out)) {
+Write-Host "########## Building Project ##########" -ForegroundColor Magenta
+# remove old output
+if (Test-Path .\out) {
+Write-Host "Deleting previous output..." -ForegroundColor Yellow
+Remove-Item .\out -Recurse
+}
+# compile source files
+Write-Host "Compiling sources..." -ForegroundColor Yellow
+& $javac --module-source-path app=.\src --module app --module-version 1.0 -d .\out\modules
+if ($LASTEXITCODE -ne 0) { Exit }
+# package class files into JAR file
+Write-Host "Creating JAR file..." -ForegroundColor Yellow
+& $jar --create --file .\out\app-1.0.jar --main-class com.example.app.Main -C .\out\modules\app .
+if ($LASTEXITCODE -ne 0) { Exit }
+# create native image from JAR file
+Write-Host "Creating native image..." -ForegroundColor Yellow
+& $native --module-path .\out\app-1.0.jar --module app -Ob -o .\out\app-1.0 --silent
+if ($LASTEXITCODE -ne 0) { Exit }
+# copy native image and insert manifest "patch"
+Write-Host "Creating patched copy of native image..." -ForegroundColor Yellow
+Copy-Item .\out\app-1.0.exe .\out\app-patched-1.0.exe
+& mt -manifest .\app.manifest '-outputresource:.\out\app-patched-1.0.exe;#1' | Out-Null
+if ($LASTEXITCODE -ne 0) { Exit }
+Write-Host
+}
+# test running JAR file
+Write-Host "########## Running JAR File ##########" -ForegroundColor Magenta
+& $java --module-path .\out\app-1.0.jar --module app .\Umsatzübersicht.txt
+if ($LASTEXITCODE -ne 0) { Exit }
+Write-Host
+# test running native image
+Write-Host "########## Running Native Image ##########" -ForegroundColor Magenta
+& .\out\app-1.0.exe .\Umsatzübersicht.txt
+if ($LASTEXITCODE -ne 0) { Exit }
+Write-Host
+# test running "patched" native image
+Write-Host "########## Running Native Image (Patched) ##########" -ForegroundColor Magenta
+& .\out\app-patched-1.0.exe .\Umsatzübersicht.txt
+if ($LASTEXITCODE -ne 0) { Exit }
+Write-Host
+Write-Host "Done!" -ForegroundColor Green
+Output
+PS C:\graalvm-tests> ./test $env:GRAALVM_HOME
+########## Building Project ##########
+Compiling sources...
+Creating JAR file...
+Creating native image...
+Creating patched copy of native image...
+########## Running JAR File ##########
+stdout.encoding = UTF-8
+stderr.encoding = UTF-8
+file.encoding = UTF-8
+========== java.nio.file API ==========
+Path = C:\graalvm-tests\Umsatzübersicht.txt
+Contents:
+Hello, World!
+========== java.io API ==========
+File = C:\graalvm-tests\Umsatzübersicht.txt
+Contents:
+Hello, World!
+########## Running Native Image ##########
+stdout.encoding = UTF-8
+stderr.encoding = UTF-8
+file.encoding = UTF-8
+========== java.nio.file API ==========
+Path = C:\graalvm-tests\Umsatz�bersicht.txt
+java.nio.file.NoSuchFileException: C:\graalvm-tests\Umsatz�bersicht.txt
+at java.base@25/sun.nio.fs.WindowsFileSystemProvider.newByteChannel(WindowsFileSystemProvider.java:231)
+at java.base@25/java.nio.file.Files.newByteChannel(Files.java:357)
+at java.base@25/java.nio.file.Files.newByteChannel(Files.java:399)
+at java.base@25/java.nio.file.Files.readAllBytes(Files.java:2973)
+at java.base@25/java.nio.file.Files.readString(Files.java:3043)
+at java.base@25/java.nio.file.Files.readString(Files.java:3006)
+at [email protected]/com.example.app.Main.main(Main.java:32)
+at java.base@25/java.lang.invoke.LambdaForm$DMH/sa346b79c.invokeStaticInit(LambdaForm$DMH)
+========== java.io API ==========
+File = C:\graalvm-tests\Umsatz�bersicht.txt
+java.io.FileNotFoundException: C:\graalvm-tests\Umsatz�bersicht.txt (The system cannot find the file specified)
+at java.base@25/java.io.FileInputStream.open0(Native Method)
+at java.base@25/java.io.FileInputStream.open(FileInputStream.java:185)
+at java.base@25/java.io.FileInputStream.<init>(FileInputStream.java:139)
+at [email protected]/com.example.app.Main.main(Main.java:48)
+at java.base@25/java.lang.invoke.LambdaForm$DMH/sa346b79c.invokeStaticInit(LambdaForm$DMH)
+########## Running Native Image (Patched) ##########
+stdout.encoding = UTF-8
+stderr.encoding = UTF-8
+file.encoding = UTF-8
+========== java.nio.file API ==========
+Path = C:\graalvm-tests\Umsatzübersicht.txt
+Contents:
+Hello, World!
+========== java.io API ==========
+File = C:\graalvm-tests\Umsatzübersicht.txt
+Contents:
+Hello, World!
+Done!
+Results
+Executable
+Output
+out/app-1.0.jar
+Finds file and prints contents successfully.
+out/app-1.0.exe
+Fails to find file. Exception printed.
+out/app-patched-1.0.exe
+Finds file and prints contents successfully.
+Note sdout.encoding, stderr.encoding, and file.encoding are UTF-8 in all cases.
+Also note out/app-1.0.exe prints C:\graalvm-tests\Umsatz�bersicht.txt, which contains a replacement character, even though the output is UTF-8. This, along with the "patched" executable working, strongly indicates argument decoding is the primary issue.
+Share
+Improve this answer
+Follow
+edited 21 hours ago
+answered 23 hours ago
+SlawSlaw
+49.2k88 gold badges6565 silver badges108108 bronze badges
+1 Comment
+Add a comment
+mmo mmo 13 hours ago
+Thanks a lot for your research and this detailed explanation! I very much appreciate your effort in analyzing and explaining the entire issue. Using your manifest and then calling mt ... as described (I first had to dig deep to locate that utility - found it in C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64 which was not on my path - just for the benefit of anyone trying to reproduced this) I was then indeed able to get this working. :-) 2025-09-19T12:06:32.34Z+00:00
+1
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+javagraalvm
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Visit chat
+Related
+1759
+How to fix java.lang.UnsupportedClassVersionError: Unsupported major.minor version
+596
+How to deal with "java.lang.OutOfMemoryError: Java heap space" error?
+248
+'Java' is not recognized as an internal or external command
+822
+Dealing with "Xerces hell" in Java/Maven?
+227
+Installing Java 7 on Ubuntu
+4
+can a GraalVM app be deployed on a "regular" VM
+698
+How do I parse command line arguments in Java?
+373
+Android Studio installation on Windows 7 fails, no JDK found
+598
+How do I get a platform-independent new line character?
+Hot Network Questions
+AdminUI (Preview) (how to activate)
+Why does make's `dir` function add additional directories?
+What happens when a creature with the See Invisibility spell is blinded?
+Was my travel companion unfairly denied entry to Aruba due to discrimination?
+Is there a way to name 1,4-dimethylcyclohexan-1-ol in a way that indicates the methyl groups must be cis?
+Cannot Query MessagingSession.EndedByType via Dynamic Soql or in Apex Class
+What is the probability that a plane through three random points on the surface of the Earth intersects the Moon?
+Lewis & Short disagrees with Wiktionary and Latin Lexicon on vowel length?
+Are staggered rafters a problem?
+How could triangles exist?
+New larger artificial satellite created from natural gravity and existing space debris
+post hoc tests after running repeated measures ANOVA
+Is the yeast used in chicken breading yeast or yeast extract
+Word choice errors in submitted thesis
+Would an ontological pluralist view existence as a relation between an object and its mode?
+finding leading order behaviour of an integral
+Is there an FFC socket compatible with this FPC?
+Making `apt-get` read answers from stdin on graphical Ubuntu
+How to end mob silencing? Targeted Canceling? Negative Votes require Feedback suggestion
+How do we account for inefficiency of digestion when determining dietary calories?
+In what circumstances is projecting an image of a politican in public an offence?
+Is it legal to forward declare just some, but not all of the overloads?
+What is the legal ramification, if any, of this traffic sign in Sofia, Bulgaria?
+Where can I view the history of the texts decoded from QR codes on iOS?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-java
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

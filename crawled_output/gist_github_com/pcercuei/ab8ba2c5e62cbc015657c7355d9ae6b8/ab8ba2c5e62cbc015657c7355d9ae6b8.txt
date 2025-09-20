@@ -1,0 +1,134 @@
+shz_get_circle_matrix.c · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+pcercuei/shz_get_circle_matrix.c
+Created
+September 19, 2025 12:03
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/pcercuei/ab8ba2c5e62cbc015657c7355d9ae6b8.js&quot;&gt;&lt;/script&gt;
+Save pcercuei/ab8ba2c5e62cbc015657c7355d9ae6b8 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/pcercuei/ab8ba2c5e62cbc015657c7355d9ae6b8.js&quot;&gt;&lt;/script&gt;
+Save pcercuei/ab8ba2c5e62cbc015657c7355d9ae6b8 to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+shz_get_circle_matrix.c
+#include <sh4zam/shz_vector.h>
+#include <sh4zam/shz_xmtrx.h>
+#include <stdio.h>
+static shz_vec4_t shz_process_stuff(shz_vec4_t a, shz_vec4_t b)
+{
+return shz_vec4_init(a.x * b.x + a.y * b.z,
+a.x * b.y + a.y * b.w,
+a.z * b.x + a.w * b.z,
+a.z * b.y + a.w * b.w);
+}
+/* Get the transform matrix to replace the following circle-drawing algorithm:
+* for (i = 0; i < order; i++) {
+*
+x += y / factor;
+*
+y -= x / factor;
+* }
+*
+* To compute the final X/Y from the matrix, all you need to do then is:
+* x1 = x0 * matrix.x + y0 * matrix.y;
+* y1 = x0 * matrix.z + y0 * matrix.w;
+*/
+static shz_vec4_t shz_get_circle_matrix(unsigned int order, float factor)
+{
+unsigned int i;
+float factor_squared = factor * factor;
+shz_vec4_t m = shz_vec4_init(1.0f, 1.0f / factor,
+-1.0f / factor,
+(factor_squared - 1.0f) / factor_squared);
+shz_vec4_t result = shz_vec4_init(1.0f, 0.0f, 0.0f, 1.0f);
+for (i = 0; i < order; i++)
+result = shz_process_stuff(result, m);
+return result;
+}
+int main(int argc, char **argv)
+{
+float x = 19.0f, y = 268.0f;
+unsigned int order = 7;
+float factor = 128.0f;
+/* Using a matrix */
+shz_vec4_t matrix = shz_get_circle_matrix(order, factor);
+shz_vec4_t matrix_x = shz_vec4_init(matrix.x, matrix.y, 0.0f, 0.0f);
+shz_vec4_t matrix_y = shz_vec4_init(matrix.z, matrix.w, 0.0f, 0.0f);
+shz_vec4_t matrix_dummy = shz_vec4_init(0.0f, 0.0f, 0.0f, 0.0f);
+shz_xmtrx_load_rows_4x4(&matrix_x, &matrix_y, &matrix_dummy, &matrix_dummy);
+/* Get the result with the matrix approach */
+shz_vec4_t result = shz_xmtrx_transform_vec4(shz_vec4_init(x, y, 0.0f, 0.0f));
+/* Iterative approach */
+for (int i = 0; i < order; i++) {
+x += y / factor;
+y -= x / factor;
+}
+printf("Iterative: %f %f\n", x, y);
+printf("Matrix:
+%f %f\n", result.x, result.y);
+printf("Matrix coefficients:\n");
+printf("
+%0.16f %0.16f\n
+%0.16f %0.16f\n", matrix.x, matrix.y, matrix.z, matrix.w);
+return 0;
+}
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

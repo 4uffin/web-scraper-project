@@ -1,0 +1,380 @@
+Building a plugin system - WebAssembly Component Model - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Tophe
+Posted on Sep 19
+Building a plugin system - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#rust
+WebAssembly Component Model (5 Part Series)
+1
+Building a plugin system - WebAssembly Component Model
+2
+Building components in multiple languages - WebAssembly Component Model
+3
+Writing components in C with WASI SDK - WebAssembly Component Model
+4
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+5
+Writing components in TypeScript with jco - WebAssembly Component Model
+The WebAssembly Component Model (WCM) is still very early days, but it's a very promising technology. However, the examples out there are either too simple or too complex.
+The goal of my project topheman/webassembly-component-model-experiments is to demonstrate the power of WCM — with more than just a simple "Hello, World".
+1. Introduction
+This project is an experiment to explore and understand the WebAssembly Component Model through a concrete application: a modular REPL where each command is implemented as a Wasm component.
+The goals were:
+Build a real-world project using WebAssembly Component Model.
+Evaluate DX, tooling, portability, and interoperability.
+Use WIT files to define interfaces and enforce isolation/sandboxing.
+Run the same plugin code (examples in Rust, C, Go and TypeScript) across CLI (Rust) and browser (TypeScript) hosts.
+That way, it would demonstrate features like:
+You could run a third-party plugin that is written in a different language
+Without having to trust the author, since the plugins are sandboxed and isolated from the host
+I'll first go over the basics of WebAssembly Component Model, then dig into the project and its architecture — so you get a more hands-on understanding of the technology through an actual use case.
+🧪 Try the online demo (web version)
+▶️ Example of running the CLI pluginlab 👇
+2. From WebAssembly MVP to Component Model
+WebAssembly has evolved over time:
+WebAssembly → WASI → WebAssembly Component Model
+WebAssembly MVP (2017)
+WebAssembly began as a low-level binary format — portable, secure and fast — but everything had to be wired manually when dealing with multiple modules.
+WASI (WebAssembly System Interface)
+WASI added a way for Wasm modules to interact with the host (files, networking, etc.) securely. It has evolved through previews:
+Preview 1 (deprecated): Initial WASI specification
+Preview 2 (current): Stable APIs used in this project
+Preview 3 (future): Enhanced capabilities like async operations
+But WASI didn't really solve how to compose multiple modules easily.
+WebAssembly Component Model
+That’s where WCM comes in:
+WIT (WebAssembly Interface Types): define interfaces with strong typing.
+Componentization: encapsulate logic into reusable, sandboxed units.
+Typed imports/exports: clean separation of responsibilities.
+It makes it much easier to build systems from Wasm components — like plugins — without glue code everywhere.
+3. Defining Interfaces with WIT
+WIT (WebAssembly Interface Types) is an IDL (Interface Description Language). It defines the contract between components and host.
+Here’s a simplified version of the plugin-api.wit file used in this project:
+package repl:api;
+interface plugin {
+enum repl-status { success, error }
+record plugin-response {
+status: repl-status,
+stdout: option<string>,
+stderr: option<string>,
+}
+name: func() -> string;
+man: func() -> string;
+run: func(payload: string) -> result<plugin-response>;
+}
+interface http-client {
+record http-header { name: string, value: string }
+record http-response {
+status: u16,
+ok: bool,
+headers: list<http-header>,
+body: string,
+}
+get: func(url: string, headers: list<http-header>) -> result<http-response, string>;
+}
+world plugin-api {
+import http-client;
+export plugin;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+A WIT world is a higher-level contract that describes a component's capabilities and needs.
+The world plugin-api enforces the following:
+The plugin (Wasm Component) implements the plugin interface.
+The host provides the http-client interface.
+This separation lets plugins remain unaware of the host environment (CLI or browser).
+4. Creating WebAssembly Components in Rust
+For C, Go and TypeScript, see the following posts.
+With Rust, you use cargo-component (which relies on wit-bindgen) to generate bindings from your WIT definitions. Here’s a stripped-down version of the echo plugin:
+mod bindings;
+use crate::bindings::exports::repl::api::plugin::{Guest, PluginResponse, ReplStatus};
+struct Component;
+impl Guest for Component {
+fn name() -> String { "echo".to_string() }
+fn man() -> String { "Some man page".to_string() }
+fn run(payload: String) -> Result<PluginResponse, ()> {
+Ok(PluginResponse {
+status: ReplStatus::Success,
+stdout: Some(payload),
+stderr: None,
+})
+}
+}
+bindings::export!(Component with_types_in bindings);
+Enter fullscreen mode
+Exit fullscreen mode
+If you need to do networking or filesystem access:
+networking: you will use the http-client interface, the host will provide its own implementation
+filesystem: you will use the standard library of your language, like std::fs::* in Rust or fs.readFileSync() in TypeScript - the host will provide transparent bindings to the host's filesystem
+Build process
+cargo component build -p plugin-echo
+Enter fullscreen mode
+Exit fullscreen mode
+This will generate a target/wasm32-wasip1/debug/plugin_echo.wasm file.
+5. Hosts: CLI and Browser
+🔧 CLI Host (Rust)
+The CLI host (pluginlab) uses wasmtime, which supports WebAssembly Component Model natively, as its underlying runtime.
+pluginlab implements security and functionality features on top of wasmtime's capabilities, including:
+Filesystem sandboxing via flags (--allow-read, --allow-write, --dir, etc.)
+Network access via --allow-net (you can also whitelist domains/IPs)
+Plugin loading (--plugins) from local or HTTP sources
+REPL logic injection (--repl-logic)
+The http-client interface is implemented using the reqwest crate and only works if networking is allowed. Calls to http-client.get() will fail without --allow-net.
+Since the reqwest crate is async, we need to use wasmtime_wasi::p2::add_to_linker_async when we link a plugin component so that it will share the same async runtime as the host, otherwise, you will get Cannot start a runtime from within a runtime. error (see d057660).
+Handling mismatched versions
+To work together, the host and the plugins must share the same version of the WIT file, otherwise, the bindings will not match and you will get a runtime error.
+The CLI host will handle such errors and tell the user to update their cli - more infos on PR#10.
+🌐 Browser Host (TypeScript)
+Since browsers only support Wasm modules, not components, we use jco transpile in the build step to convert the compiled .wasm components into a compatible format for the browser:
+.js glue code (exports typed functions)
+.core.wasm files (transpiled WebAssembly modules)
+Example of call to jco to transpile a component:
+jco transpile --no-nodejs-compat --no-namespaced-exports public/plugins/plugin_echo.wasm -o ./src/wasm/generated/plugin_echo/transpiled
+Enter fullscreen mode
+Exit fullscreen mode
+Networking
+Because jco doesn’t support async functions yet, the http-client interface is implemented with a synchronous XMLHttpRequest wrapper inside the browser host.
+This implementation lives in src/wasm/host/http-client.ts, and is mapped via the build system so that it will be used when the repl:api/http-client interface is called:
+vite.config.ts
+tsconfig.app.json
+Filesystem
+Browsers don’t have access to a real filesystem, so a virtual one is injected at runtime. I use @bytecodealliance/preview2-shim/filesystem to mount an in-memory virtual FS that shims wasi:filesystem.
+A CLI script prepareFilesystem.ts generates a JSON structure from a directory. That structure is passed to @bytecodealliance/preview2-shim/filesystem#_setFileData at runtime so that plugins can access a filesystem without changing their code.
+You can check it out on the demo and try commands like ls or cat README.md to see it in action.
+Local fork of @bytecodealliance/preview2-shim
+@bytecodealliance/preview2-shim doesn't support WRITE operations properly out of the box (see issue #12).
+I forked the project and added support for WRITE operations, you can check the implementation details in the PR#15, that way, plugins like tee can write to the filesystem in the browser (see demo).
+6. REPL Logic
+The REPL logic itself is also a Wasm component (repl-logic-guest.wasm). It handles:
+Variable expansion (export VAR=value, echo $VAR)
+Help and man routing
+Plugin dispatching
+Why a separate REPL logic component? Because it’s reused between CLI and browser — no need to duplicate logic accross platforms.
+WIT definition
+interface repl-logic {
+record plugin-response {
+status: repl-status,
+stdout: option<string>,
+stderr: option<string>,
+}
+record parsed-line {
+command: string,
+payload: string,
+}
+variant readline-response {
+to-run(parsed-line),
+ready(plugin-response),
+}
+readline: func(line: string) -> readline-response;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Implemented in crates/repl-logic-guest and compiled to a repl-logic-guest.wasm file.
+Input Flow Example
+When the user prompts the REPL, the host sends the input to the readline function exposed by the repl-logic-guest component, which returns a readline-response. Then there are two possibilities:
+Reserved Command: If the input is a reserved command (like help, man, list-commands or export ), the repl-logic-guest component executes the command directly and returns the output as a readline-response.ready(plugin-response) variant which will be displayed to the user by the host.
+Plugin Command: Otherwise, the repl-logic-guest component returns a readline-response.to-run(parsed-line) variant with the parsed payload to be executed by a plugin.
+Then the host dispatches this payload to the run function of the targetted plugin which will return a readline-response.ready(plugin-response) variant which will be displayed to the user by the host.
+This back and forth is necessary because the run of each plugin is only accessible in the host (not via the repl-logic-guest component), since it's the host which instantiates the plugins.
+Here is a sequence diagram that illustrates the flow:
+Reserved Command (help)
+Plugin Command (echo Hello)
+These flows show the system's ability to handle both built-in logic and plugin delegation using the same architecture.
+7. Testing and CI/CD
+Testing
+The project includes comprehensive end-to-end (e2e) tests that ensure any regression is caught without being tightly coupled to any specific implementation. These tests cover both the terminal REPL and the web interface.
+Terminal E2E Tests
+Uses rexpect for testing the CLI REPL behavior
+Tests plugin loading, execution, and error handling
+Ensures the terminal interface works correctly across different scenarios
+Web E2E Tests
+Uses Playwright for testing the web interface
+Tests plugin functionality in the browser environment
+Validates the web-host integration with WebAssembly components
+CI/CD
+The project maintains a robust CI/CD pipeline that covers multiple programming languages and targets:
+Multi-Language Pipeline
+Rust: CLI application with WebAssembly target + Plugins
+TypeScript/Node.js: Web interface and tooling
+Go: Plugin implementations with TinyGo
+C: Plugin implementations with WASI SDK
+Checkout the source code of the CI/CD pipeline in the .github/workflows folder.
+Automated Testing
+E2E tests run automatically for both CLI and web targets
+Deployment Automation
+Website is automatically published on successful builds
+Release drafts are automatically created when git tags are pushed
+Pre-uploaded wasm plugin files are included in releases (that way, plugins from previous versions are still available)
+View releases: GitHub Releases
+Cross-compilation & Publication to Hombrew tap automation PR#17
+When tagged, the cli is cross-compiled to linux/macos - (Intel/ARM)
+Uploaded to a draft release
+When the release is published, the version is published to my Homebrew tap repo
+8. Conclusion
+This project was a playground to:
+Go deep into the WebAssembly Component Model
+Work with WIT interfaces, sandboxing, and plugin-based architecture
+Share logic between CLI and browser using Wasm components
+What's next?
+This project was the necessary step to understand the Wasm Component Model, get familiar with the tooling and the ecosystem and make a real-world project with it.
+The goal was never to build a full-featured shell, but to focus on WASM Components, this project will eventually be the foundation for a more advanced project.
+This project will let me keep experimenting with WebAssembly Component Model as new features, languages, tooling, and versions come out. It's basically my playground for testing new ideas and concepts.
+Resources
+Repo: topheman/webassembly-component-model-experiments
+A few PRs that are worth checking out:
+PR#6 - Add C plugin support
+PR#16 - Add Go plugin support
+PR#10 - Handle mismatched versions
+PR#15 - Add support for WRITE operations
+PR#17 - Add Homebrew Support and Cross-Compilation Pipeline
+Website: topheman.github.io/webassembly-component-model-experiments
+Previous work with WebAssembly:
+topheman/bevy-rust-wasm-experiments: Basic video game in rust that compiles both to a binary file and a web (via WebAssembly, binding the accelerometer and gyroscope sensors from the mobile device)
+topheman/webassembly-wasi-experiments: Discover WebAssembly System Interface (WASI) with C/Rust targetting NodeJS, python, Wasmtime and the browser
+topheman/rust-wasm-experiments: Discover how to use Rust to generate WebAssembly, called by JavaScript
+📺🇫🇷 Utiliser WebAssembly, dès aujourd'hui - ParisJS #86
+Bytecode Alliance - The WebAssembly Component Model
+WebAssembly Component Model (5 Part Series)
+1
+Building a plugin system - WebAssembly Component Model
+2
+Building components in multiple languages - WebAssembly Component Model
+3
+Writing components in C with WASI SDK - WebAssembly Component Model
+4
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+5
+Writing components in TypeScript with jco - WebAssembly Component Model
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Tophe
+Follow
+❤️JavaScript, WebAssembly & Rust 🦀
+Location
+Paris, France
+Joined
+Aug 14, 2017
+More from Tophe
+Writing components in TypeScript with jco - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#typescript
+Writing components in Go with TinyGo compiler - WebAssembly Component Model
+#webassembly
+#wasi
+#go
+#tinygo
+Writing components in C with WASI SDK - WebAssembly Component Model
+#webassembly
+#wasi
+#plugin
+#c
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

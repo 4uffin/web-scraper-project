@@ -1,0 +1,219 @@
+Constant Folding in .NET 10: Turning Dead Weight Into Pure Throughput - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Sukhpinder Singh
+Posted on Sep 19
+Constant Folding in .NET 10: Turning Dead Weight Into Pure Throughput
+#dotnet
+#csharp
+#programming
+#webdev
+I still remember the first time I looked at JIT-generated assembly and thought, Why on earth is the processor adding six and two inside a hot loop? It turned out the compiler hadn’t spotted the constants in my code. That one oversight ballooned into cache misses, battery drain, and eventually an expensive post-mortem. Since then I’ve had a standing rule: always check what your compiler can fold, and celebrate when it folds more.
+.NET 10 gives us a lot to celebrate.
+What constant folding really means
+At its core, constant folding is nothing more than the compiler saying, “I’m smarter than doing this math a billion times; let me do it once now.” When you write:
+int Add(int i) => i + 2 * 3;
+Enter fullscreen mode
+Exit fullscreen mode
+the C# compiler rewrites the IL so the multiplication happens at build time, not at run time. The generated method is effectively i + 6.
+But compile time is a moving target:
+C# compiler stage – Only literals the source code can see.
+JIT stage – Can fold static readonly values, Environment.ProcessorCount, and anything exposed by inlining.
+Link-time trimming / AOT – May know even more, especially if dead code is removed.
+Each step lets the runtime shave off more instructions, unlock dead-code elimination, and free up registers for the stuff that really matters—your business logic.
+The classic math fold: beyond the C# compiler
+Take the pair of methods below:
+int M1(int i) => i + M2(2 * 3);
+int M2(int j) => j * Environment.ProcessorCount;
+Enter fullscreen mode
+Exit fullscreen mode
+The C# compiler folds 2 * 3 into 6. Nice, but the bigger win is inlining. The JIT in .NET 9 can inline M2, notice that Environment.ProcessorCount is a constant on this machine (say 16), and produce:
+lea eax, [rsi + 60h] ; i + 96
+(0x60 = 96)
+ret
+Enter fullscreen mode
+Exit fullscreen mode
+Four bytes of machine code, zero multiplications, zero memory loads.
+Null-check folding: a practical win
+Null checks are cheap—until you have two in a row inside every string.AsSpan() call:
+s ??= "";
+return s.AsSpan();
+Enter fullscreen mode
+Exit fullscreen mode
+.NET 9 emitted two test rsi, rsi instructions. .NET 10 folds the second away, dropping method size from 41 to 25 bytes. For a one-off call you’d never notice; inside a UTF-8 parser that runs millions of times a second, the branches and T-front-end pressure disappear.
+Folding conditional expressions
+Consider:
+string tmp = condition ? GetOne() : GetTwo();
+return tmp is not null;
+Enter fullscreen mode
+Exit fullscreen mode
+Because both helpers return hard-coded strings, the nullness is guaranteed. .NET 9 still materialized the variable and tested it. .NET 10 punts directly to mov eax, 1; ret—six bytes. The engine knew the answer before your code ran.
+SIMD comparison folding
+Vector logic is a performance superpower—right up until the JIT refuses to pre-compute obvious comparisons. Two PRs (#117099 and #117572) teach .NET 10’s JIT to fold more vector relations:
+Vector128<int> mask = vec == Vector128<int>.Zero; // constant result? Fold it!
+Enter fullscreen mode
+Exit fullscreen mode
+That cuts register pressure, frees up cache bandwidth, and—counter-intuitively—makes auto-vectorization easier because the IR is simpler.
+Why you should care (even if you never open a disassembler)
+Higher hot-path throughput – Fewer instructions means better IPC and lower power draw.
+Unlocks other optimizations – When bounds checks fold away, the JIT can unroll loops it previously skipped.
+Safer refactors – Move code into helper methods without fearing that a constant will “escape” and become runtime overhead.
+Cleaner APIs – You can write expressive guard clauses (value ?? throw) knowing the JIT often erases them.
+Guidelines for “fold-friendly” code
+Prefer static readonly over lazy singletons when the value is immutable; the JIT treats them as constants.
+Keep helpers small and stateless—better inline odds equal better folding odds.
+Mark trivial wrappers with [MethodImpl(MethodImplOptions.AggressiveInlining)] only when measurements prove it helps.
+Use pattern matching (is null, is not null) freely; modern JITs see through them.
+Rely on Vector128<T>.Count, IntPtr.Size, and similar “configuration constants”; .NET will fold them.
+A dev-ops anecdote
+Our logging pipeline builds interpolated strings in a tight loop. After moving to .NET 10 RC1, CPU usage on the ingestion service dropped by 8% without a single code change. Root cause? Null-check folding inside string.Create and the SIMD tweaks in IndexOfAny. The dev team got to brag, but the real hero was the JIT’s constant-prop engine.
+Takeaways
+Constant folding isn’t new, but the scope keeps expanding. .NET 10 folds more math, more null checks, and more vector ops than any release before it—while generating smaller, tighter machine code.
+Next time your profiler shows an unexpected bump in a supposedly trivial method, peek at the assembly. If you spot a multiply by sixteen or a redundant null test, upgrade the runtime—or file an issue and watch the .NET team fold your constant in the next preview.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Sukhpinder Singh
+Follow
+A questionable humor from a developer who’s convinced his bugs are funnier than yours.
+Location
+Surrey, Canada
+Education
+M.Tech & B.Tech Computer Science
+Pronouns
+he/him
+Work
+Technical Lead at SourceFuse
+Joined
+May 8, 2021
+More from C# Programming
+🚀 September Highlights: Big Wins & Fresh .NET Content 🚀
+#csharp
+#dotnet
+#programming
+#news
+Write for “.Net Programming” on Medium! 🚀
+#csharp
+#dotnet
+#news
+#beginners
+Unlock 50K Views on Medium with This Winning Article Template
+#writing
+#beginners
+#webdev
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

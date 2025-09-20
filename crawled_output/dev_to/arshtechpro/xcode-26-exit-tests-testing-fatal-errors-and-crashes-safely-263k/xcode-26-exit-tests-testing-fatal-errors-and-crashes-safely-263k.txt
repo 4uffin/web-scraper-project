@@ -1,0 +1,347 @@
+Xcode 26 Exit Tests: Testing Fatal Errors and Crashes Safely - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+ArshTechPro
+Posted on Sep 19
+Xcode 26 Exit Tests: Testing Fatal Errors and Crashes Safely
+#ios
+#mobile
+#swift
+#programming
+How Exit Tests solve the decade-old problem of testing crashes safely
+The Problem Every iOS Developer Faces
+Picture this: You write defensive code with fatalError() and precondition() to catch bugs early. But how do you test code that's designed to crash your app?
+extension Customer {
+func eat(_ food: consuming some Food) {
+precondition(food.isDelicious, "Tasty food only!")
+precondition(food.isNutritious, "Healthy food only!")
+// ... rest of implementation
+}
+}
+// How do you test this?
+func testUndeliciousFood() {
+var food = SomeFood()
+food.isDelicious = false
+Customer.current.eat(food) // This crashes everything!
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Before Xcode 26: You couldn't test this without crashing your entire test suite. Most developers just... didn't test these scenarios.
+Enter Exit Tests: The Game Changer
+Swift Testing in Xcode 26 introduces Exit Tests - they run your crash-prone code in isolated child processes. When your code crashes, it only kills that isolated process, not your test suite.
+The Magic Syntax
+Use the #expect(processExitsWith:) or #require(processExitsWith:) macros:
+import Testing
+@Test
+func `Customer won't eat food unless it's delicious`() async {
+await #expect(processExitsWith: .failure) {
+var food = SomeFood()
+food.isDelicious = false
+Customer.current.eat(food) // Crashes safely in child process
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The #expect(processExitsWith: .failure) tells Swift Testing: "This code should crash - run it safely in a child process."
+Real-World Example
+class PaymentValidator {
+static func validateAmount(_ amount: Decimal) {
+precondition(amount > 0, "Payment amount must be positive")
+precondition(amount <= 10000, "Payment exceeds maximum limit")
+if amount < 0.01 {
+fatalError("Invalid payment amount: \(amount)")
+}
+}
+}
+// Test all the crash scenarios
+@Test
+func testNegativePaymentAmount() async {
+await #expect(processExitsWith: .failure) {
+PaymentValidator.validateAmount(-100)
+}
+}
+@Test
+func testExcessivePaymentAmount() async {
+await #expect(processExitsWith: .failure) {
+PaymentValidator.validateAmount(50000)
+}
+}
+@Test
+func testTinyPaymentAmount() async {
+await #expect(processExitsWith: .failure) {
+PaymentValidator.validateAmount(0.001)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Different Types of Exit Conditions
+You can be specific about how you expect the process to exit:
+@Test
+func testSpecificExitCode() async {
+await #expect(processExitsWith: .exitCode(1)) {
+exit(1) // Expects specific exit code
+}
+}
+@Test
+func testSuccessfulExit() async {
+await #expect(processExitsWith: .success) {
+// Code that should exit cleanly
+exit(0)
+}
+}
+@Test
+func testSignalTermination() async {
+await #expect(processExitsWith: .signal(SIGABRT)) {
+fatalError("Will raise SIGABRT")
+}
+}
+@Test
+func testAnyFailure() async {
+await #expect(processExitsWith: .failure) {
+// Any abnormal exit is acceptable
+precondition(false, "This will fail")
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Advanced: Capturing Process Output
+Exit Tests can capture stdout and stderr from the crashed child process:
+extension Customer {
+func eat(_ food: consuming some Food) {
+print("Let's see if I want to eat \(food)...")
+precondition(food.isDelicious, "Tasty food only!")
+precondition(food.isNutritious, "Healthy food only!")
+}
+}
+@Test
+func `Customer won't eat food unless it's delicious`() async {
+let result = await #expect(
+processExitsWith: .failure,
+observing: [\.standardOutputContent]
+) {
+var food = SomeFood()
+food.isDelicious = false
+Customer.current.eat(food)
+}
+if let result {
+#expect(result.standardOutputContent.contains(UInt8(ascii: "L")))
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Using #require for Stricter Testing
+Use #require instead of #expect when you need the exit test result and want the test to stop if the exit condition isn't met:
+@Test
+func testCrashWithRequiredOutput() async throws {
+let result = try await #require(
+processExitsWith: .failure,
+observing: [\.standardErrorContent, \.standardOutputContent]
+) {
+print("Debug information")
+fatalError("Something went wrong")
+}
+#expect(result.standardOutputContent.contains("Debug".utf8))
+#expect(!result.standardErrorContent.isEmpty)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Important Limitations
+State Capture Restriction: The exit test body cannot capture any state from the parent process:
+@Test
+func testWithCaptureError() async {
+let isDelicious = false
+await #expect(processExitsWith: .failure) {
+var food = SomeFood()
+food.isDelicious = isDelicious // ❌ ERROR: Cannot capture parent state
+Customer.current.eat(food)
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Nested Exit Tests: You cannot run an exit test within another exit test.
+Best Practices
+Do:
+Keep exit tests simple and focused on the crash scenario
+Use #expect(processExitsWith: .failure) for most precondition/fatalError tests
+Test actual production crash scenarios
+Group related crash tests together
+Use descriptive test names that explain the crash condition
+Don't:
+Try to capture variables from the parent process in exit test bodies
+Put complex setup logic inside exit test closures
+Nest exit tests within other exit tests
+Forget that exit tests are async functions
+Platform Support
+Exit Tests are available on:
+macOS
+Linux
+FreeBSD
+OpenBSD
+Windows
+Requirement
+Requirements:
+Swift 6.2+
+Xcode 26.0+
+Swift Testing framework (not XCTest)
+The Bottom Line
+Before Exit Tests:
+Skip testing crash scenarios entirely
+Use complex workarounds that don't test real behavior
+Discover crash bugs in production
+Accept incomplete test coverage
+With Exit Tests:
+Test every crash scenario confidently
+Write simple tests that match your production code
+Catch failure modes during development
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+ArshTechPro
+ArshTechPro
+ArshTechPro
+Follow
+A mobile expert primarily focused on the iOS ecosystem. Passionate about building robust, user-centric apps and exploring the latest in Swift, UIKit and SwiftUI.
+Location
+London
+Joined
+Jun 11, 2025
+•
+Sep 19
+Dropdown menu
+Copy link
+Hide
+Every fatalError(), every precondition(), every edge case that should never happen - they're all testable now.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+ArshTechPro
+Follow
+A mobile expert primarily focused on the iOS ecosystem. Passionate about building robust, user-centric apps and exploring the latest in Swift, UIKit and SwiftUI.
+Location
+London
+Joined
+Jun 11, 2025
+More from ArshTechPro
+Xcode 26 Key Features for Developers
+#ios
+#mobile
+#programming
+#swift
+Type-Aware Memory Allocation: The Secret Weapon Against Memory Corruption in iOS
+#ios
+#mobile
+#programming
+#security
+Xcode Enhanced Security: iPhone 17
+#ios
+#mobile
+#programming
+#security
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

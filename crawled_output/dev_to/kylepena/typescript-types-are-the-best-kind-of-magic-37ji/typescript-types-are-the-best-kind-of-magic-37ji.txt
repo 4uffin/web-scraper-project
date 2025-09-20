@@ -1,0 +1,257 @@
+TypeScript Types Are The Best Kind Of Magic - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Kyle Pena
+Posted on Sep 19
+TypeScript Types Are The Best Kind Of Magic
+#typescript
+#programming
+Sufficiently Advanced Technology
+The received wisdom among developers is to avoid magic: magic numbers, magic strings, and framework-flavored "auto-magic".
+It's brittle, it's unpredictable, and it's not explicit.
+On the other hand, Arthur C. Clarke stated that any sufficiently advanced technology is indistinguishable from magic.
+So: Is some bit of magic code a hand grenade with the pin pulled, or are we just not clever enough to get it?
+Is there any way to tell the difference?
+It Depends
+I had a colleague who was tasked with building a Bun-compatible auto-instrumentation framework.
+The goal was to create a developer-friendly mechanism to add instrumentation around a wide variety of ES2020+ features - method calls, property access, yields from a generator, and so on.
+By way of attribute or a call to instrument(...), a function would become "blessed" with rich diagnostic and logging capabilities without much (or any) extra manual setup.
+I'm sure I'm missing the finer points, but that was the gist of it as best as I could gather from the sidelines.
+Sadly, it all went a bit sideways.
+The edge cases multiplied, the rewrites intensified every week. After two months of work, it just wasn't reliable enough to use in production and leaked memory.
+I felt nothing but sympathy - he correctly diagnosed the problem as having "relied too much on magic", but the valuable time was already down the drain.
+What was the deeper reason the project didn't pan out? I think it boils down to scope.
+In this case, the "thing" that the magic was wrangling - its domain, or "scope" - was an entire language.
+And ES2020+ is one of the more complicated language specifications out there.
+Check out the obscure corners.
+For "magic" to work reliably, a restricted domain of operation seems necessary.
+A language's type system is usually quite a bit better behaved than the language itself.
+That is why, as I dive deeper into TypeScript, I'm warming up to the idea of "type magic".
+Quick Case Study
+Suppose we have some unmanaged resource that we retrieve by scoped ID:
+employee/543293 represents Employee 543293.
+department/55 represents Department 55.
+building/3 represents Building 3.
+Because the resource is ingested into the runtime as some kind of untyped "thing" (bytes, JSON, database record, etc.) we have to parse and then cast with as (if we want to avoid unknown or any).
+Frankly, writing as Employee, as Department, or as Building - even within dedicated methods like getEmployee - makes my skin crawl a little.
+That looks like an opportunity for a late-night miscast with no compile error.
+But thankfully it is possible (through the kind of magic that I think Arthur C. Clarke would smile upon) to write the code very cleanly:
+const employee : Employee = retrieve(`employee/${key}`);
+const department : Department = retrieve(`department/${employee.departmentId}`);
+const building : Building = retrieve(`building/${department.buildingId}`);
+Enter fullscreen mode
+Exit fullscreen mode
+The magic is that the return type of retrieve automatically varies depending on which keyword precedes / in the object identifier : employee, department, or building.
+Here's the source, followed by an explanation:
+type Employee = {
+name : string
+departmentId : string;
+}
+type Department = {
+id : string
+name : string
+budget : number
+buildingId: string
+}
+type Building = {
+id : string
+name : string
+}
+type KeywordToObjectType = {
+employee : Employee,
+department : Department,
+building : Building
+}
+// Keyword ::= employee, department, building
+type Keyword = keyof KeywordToObjectType;
+// Format of the string literal
+type ObjectIdentifier = `${Keyword}/${string}`;
+// Utility: Extracts the keyword out of the string literal
+type ExtractKeyword<T> = T extends `${infer K extends Keyword}/${string}` ?
+K :
+never;
+// Utility: Maps ObjectIdentifier to appropriate type
+type TypeForObjectIdentifier<T> = T extends ObjectIdentifier ?
+KeywordToObjectType[ExtractKeyword<T>] :
+never;
+// And this is the retrieve function, which handles the cast
+export async function retrieve<T extends ObjectIdentifier>(identifier: T) :
+Promise<TypeForObjectIdentifier<T>> {
+const retrievedValue = {}; // fetch / parse / etc.
+return retrievedValue as TypeForObjectIdentifier<T>;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Here's a step-by-step breakdown.
+Generic Types As "Functions On Types"
+Note the return type of retrieve: TypeForObjectIdentifier<T>.
+It's helpful to think of TypeForObjectIdentifier<T> as a "function on type T", rather than a generic type in the traditional sense.
+Therefore the declaration of TypeForObjectIdentifier<T> amounts to a simple "type program" which accepts an object identifier T and returns the appropriate object type. For example, by mapping building/3 to object type Building.
+Template Literal Parsing
+One of the most powerful features in TypeScript is the ability to perform type inference on template literals - some portions of which may have values that are only known at runtime!
+In our declaration of ExtractKeyword<T>, we ask TypeScript to match T to the template literal ${infer K extends Keyword}/${string}, otherwise return never (which can trigger a compiler failure).
+type ExtractKeyword<T> = T extends `${infer K extends Keyword}/${string}` ?
+K :
+never;
+Enter fullscreen mode
+Exit fullscreen mode
+When TypeScript matches building/${department.buildingId} to ${infer K extends Keyword}/${string}, department.buildingId is statically known to be a string.
+Likewise, building is bound to K by way of the keyword infer.
+We can think of the binding to K as if K is a named capture group in a regex - it's a side effect of matching the object identifier to the template literal type.
+Referring back to the definition of ExtractKeyword<T>, we return the captured K provided T "extends" (read: "matches") the string template.
+Indexed Access Types
+In TypeScript's "type language", the syntax Type['property'] produces the type corresponding to the property property on Type.
+This is called a indexed access type.
+Therefore, KeywordToObjectTypeMap['building'] produces the type Building.
+Putting It All Together
+Now it should be clearer how TypeForObjectIdentifier<T> works.
+If T is an ObjectIdentifier, extract the Keyword portion of the string template via KeywordOf<T>, and then map it to the object type.
+type TypeForObjectIdentifier<T> = T extends ObjectIdentifier ?
+KeywordToObjectType[ExtractKeyword<T>] :
+never;
+Enter fullscreen mode
+Exit fullscreen mode
+Drawbacks
+This trick does not guarantee runtime safety.
+If the shape of the retrieved object does not conform to the expected type given its identifier, we're past the limits of what compile-time safety can guarantee.
+We can remedy this with some clever use of Zod schemas, but I'll save that for a future post.
+Conclusion
+It is possible, helpful, and practical to implement "magic type tricks" for cleaner TypeScript code.
+Rather than create trouble, these tricks increase type safety and make for a better developer experience.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Kyle Pena
+Follow
+Software Engineer with a flair for Machine Learning, Statistics and the Mathematical
+Joined
+Oct 27, 2024
+Trending on DEV Community
+Hot
+Top 7 Featured DEV Posts of the Week
+#top7
+#discuss
+Kubernetes on the cloud vs on bare metal : Deception 101
+#kubernetes
+#cloud
+#aws
+#programming
+Meme Monday
+#discuss
+#watercooler
+#jokes
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
