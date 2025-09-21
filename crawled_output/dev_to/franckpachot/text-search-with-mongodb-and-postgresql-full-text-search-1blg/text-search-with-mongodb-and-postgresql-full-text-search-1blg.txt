@@ -1,4 +1,4 @@
-Text Search with MongoDB and PostgreSQL - DEV Community
+Text Search with MongoDB (BM25 TF-IDF) and PostgreSQL - DEV Community
 Forem Feed
 Follow new Subforems to improve your feed
 DEV Community
@@ -75,10 +75,11 @@ Share to Mastodon
 Report Abuse
 Franck Pachot
 Posted on Sep 19
-Text Search with MongoDB and PostgreSQL
+Text Search with MongoDB (BM25 TF-IDF) and PostgreSQL
 #database
 #mongodb
 #postgres
+#elasticsearch
 MongoDB Search Indexes provide full‑text search capabilities directly within MongoDB, allowing complex queries to be run without copying data to a separate search system. Initially deployed in Atlas, MongoDB’s managed service, Search Indexes are now also part of the community edition. This post compares the default full‑text search behaviour between MongoDB and PostgreSQL, using a simple example to illustrate the ranking algorithm.
 Setup: a small dataset
 I’ve inserted nine small documents, each consisting of different fruits, using emojis to make it more visual. The 🍎 and 🍏 emojis represent our primary search terms. They appear at varying frequencies in documents of different lengths.
@@ -381,14 +382,71 @@ Gala 🍌 Orange Orange Orange
 (9 rows)
 Enter fullscreen mode
 Exit fullscreen mode
-PostgreSQL’s built-in search only provides basic, local term frequency scoring. To get a full-feature text search that can be used in application's search boxes, it can be extended with third-party tools like ParadeDB's pg_search.
+It looks very similar to the MongoDB result. Lucene may give a slight edge to terms that appear more frequently (🍎 🍌 🍊 🍎), even if the document length penalty is higher. Tantivy might apply length normalization in a slightly different way, so the shorter (🍎 🍌) gets a bigger boost.
+Here is the execution plan in ParadeDB:
+EXPLAIN(ANALYZE, BUFFERS, VERBOSE)
+SELECT description, paradedb.score(id) AS score
+FROM articles
+WHERE description @@@ 'Gala' OR description @@@ 'Granny Smith'
+ORDER BY score DESC, description
+;
+Gather Merge
+(cost=1010.06..1010.68 rows=5 width=31) (actual time=5.893..8.237 rows=8 loops=1)
+Output: description, (score(id))
+Workers Planned: 2
+Workers Launched: 2
+Buffers: shared hit=333
+->
+Sort
+(cost=10.04..10.05 rows=3 width=31) (actual time=0.529..0.540 rows=3 loops=3)
+Output: description, (score(id))
+Sort Key: (score(articles.id)) DESC, articles.description
+Sort Method: quicksort
+Memory: 25kB
+Buffers: shared hit=306
+Worker 0:
+actual time=0.548..0.558 rows=0 loops=1
+Sort Method: quicksort
+Memory: 25kB
+Buffers: shared hit=64
+Worker 1:
+actual time=0.596..0.607 rows=0 loops=1
+Sort Method: quicksort
+Memory: 25kB
+Buffers: shared hit=64
+->
+Parallel Custom Scan (ParadeDB Scan) on public.articles
+(cost=10.00..10.02 rows=3 width=31) (actual time=0.367..0.444 rows=3 loops=3)
+Output: description, score(id)
+Table: articles
+Index: search_idx
+Segment Count: 5
+Heap Fetches: 8
+Virtual Tuples: 0
+Invisible Tuples: 0
+Parallel Workers: {"-1":{"query_count":0,"claimed_segments":[{"id":"a17b19a2","deleted_docs":0,"max_doc":9},{"id":"3fa71653","deleted_docs":6,"max_doc":6},{"id":"3c243f8e","deleted_docs":1,"max_doc":1},{"id":"badbcd7e","deleted_docs":8,"max_doc":8},{"id":"add79d5d","deleted_docs":9,"max_doc":9}]}}
+Exec Method: NormalScanExecState
+Scores: true
+Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Gala","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Granny Smith","lenient":null,"conjunction_mode":null}}}}]}}
+Buffers: shared hit=216
+Worker 0:
+actual time=0.431..0.441 rows=0 loops=1
+Buffers: shared hit=19
+Worker 1:
+actual time=0.447..0.457 rows=0 loops=1
+Buffers: shared hit=19
+Enter fullscreen mode
+Exit fullscreen mode
+This PostgreSQL plan shows ParadeDB executing a parallel full-text search with Tantivy. The Parallel Custom Scan node issues a BM25 query (Gala OR "Granny Smith") to the segmented Tantivy index. Each worker searches its segments, scores, fetches matching descriptions, and sorts locally. The Gather Merge then combines these into a single ranked list. Since search and scoring are done within Tantivy across CPU cores and results are fetched from shared memory, the query is quick and efficient.
+In the execution plan, the Tantivy query closely resembles a MongoDB search query. Specifically, "boolean" in Tantivy is equivalent to "compound" in MongoDB, "should" matches "should", "parse_with_field.field" is similar to "path".
+PostgreSQL’s built-in search only provides basic, local term frequency scoring. To get a full-featured text search that can be used in an application's search boxes, it can be extended with third-party tools like ParadeDB's pg_search.
 Conclusion
 Relevance scoring in text search can differ widely between systems because each uses its own ranking algorithms and analyzers. To better visualize my results in these tests, I used emojis and opted for the simplest definitions. I selected PostgreSQL's to_tsvector('simple') configuration to prevent language-specific processing, while for MongoDB Atlas Search, I used the default dynamic mapping.
 MongoDB Atlas Search (and now in MongoDB Community Edition) uses Lucene’s BM25 algorithm, combining:
 Term Frequency (TF): Frequent terms in a document boost scores, but with diminishing returns
 Inverse Document Frequency (IDF): Rare terms across the corpus get higher weight
 Length normalization: Matches in shorter documents are weighted more than the same matches in longer ones
-PostgreSQL’s full-text search (ts_rank_cd()) evaluates only term frequency and position, overlooking other metrics like IDF. For more advanced features such as BM25, extensions like ParadeDB’s pg_search are needed, which require extra configuration and are not always available on managed platforms. PostgreSQL offers a modular approach, where extensions can add advanced ranking algorithms like BM25. MongoDB provides built‑in BM25‑based full‑text search in both Atlas and the Community Edition.
+PostgreSQL’s full-text search (ts_rank_cd()) evaluates only term frequency and position, overlooking other metrics like IDF. For more advanced features such as BM25, extensions like ParadeDB’s pg_search are needed, which require extra configuration and are not always available on managed platforms. PostgreSQL offers a modular approach, allowing extensions to add advanced ranking algorithms, such as BM25. MongoDB provides built‑in BM25‑based full‑text search in both Atlas and the Community Edition.
 Top comments (0)
 Subscribe
 Personal

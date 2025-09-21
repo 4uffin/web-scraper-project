@@ -1,0 +1,709 @@
+FFmpeg video Playback in Native WGPU - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+The Lone Engineer
+Posted on Sep 20
+FFmpeg video Playback in Native WGPU
+#webgpu
+#ffmpeg
+#programming
+#gamedev
+Hi there!
+In this quick tutorial/overview, we will discuss how to use the updated Dawn API to import external textures into WebGPU, and more precisely how to use this API to import a video stream generated with FFmpeg in a DirectX11 context.
+But first: if you prefer to follow this tutorial in a video, there is a compagnon youtube version for it available at:
+References
+Here are some links relevant to this article:
+Microsoft DXGI Format Documentation: https://learn.microsoft.com/en-us/windows/win32/api/dxgiformat/ne-dxgiformat-dxgi_format
+NervLand Adventures Repository: https://github.com/roche-emmanuel/nervland_adventures
+TerrainView8 reference app: https://nervtech.org/terrainview8/
+Introduction
+To implement this feature I built a dedicated VideoPlayer component in my NervLand engine, and here is an example of the usage of this component displaying a recording of a gameplay session from "Ghost of Tsushima" inside my TerrainView test application:
+Nothing too fancy here: we just start playing the video file on the start of the application, and that's it: no way to pause the playback, rewind, resize the window or anything, but we have to start somewhere, right 😉?
+Now, before we go any further into the implementation details, please note that I have also prepared a dedicated folder in the NervLand Adventures repository to share the files relevant for this video import feature:
+So if you are interested in this, you could have a look at this repository at this location: https://github.com/roche-emmanuel/nervland_adventures/
+Important note: Those source files will not compile out of the box, but this might still be useful as a reference if you want to implement something similar on your side.
+Quick Project overview:
+Here is a simplified overview of the design:
+We start with a regular video file, which in our case is some gameplay recording in mp4 format with x264 encoding.
+Then we load that file with the ffmpeg library, configuring the decoder to use hardware acceleration and produce the video image stream directly on the GPU in a DirectX context.
+Then we will copy the resulting DirectX Texture into our WebGPU context using the new Shared Texture handling API from Dawn.
+And finally we can process the final WGPU Texture as any other texture and display it in our application.
+Current limitations:
+Now, this is all just a very simple and minimal implementation with a lot of limitations:
+In the NervLand code, I have added a VideoPlayer class, which itself contains an abstract VideoDecoder class.
+Next I added a concrete implementation called FFMPEGVideoDecoder, which depends on the ffmpeg binaries, and as such, I'm currently only building this module in the native version of my engine. Which means there is currently no support for this video playback feature when I build with Emscripten.
+And on top of that, the current implementation I have is currently only provided for Windows, and explicitly requires that we use the DirectX 12 backend on the Dawn side, and the DirectX 11 Video Acceleration format on the ffmpeg side.
+So there is still quite a lot to test and investigate on this topic actually 😅.
+=> But anyway, now let' get started with some analysis of the code used to render this video clip!
+Code Analysis
+Setting up the "Video Surface":
+In my TerrainView app I'm now starting to progressively implement and use a configuration system to create some additional scene content on the planet.
+So, this is not directly part of the Video playback layer, but still, for reference, here it the YAML element I'm using on my side to request the creation of a simple quad at a specific location on the ground, and on which we will render the video stream:
+video_surface:
+type: VideoSurfaceBlueprint
+node: quads0
+reference_point: phantom_rp01
+position: Vec3d(0.0, 2.0, 0.0)
+ypr: Vec3d(0.0, 0.0, 0.0)
+anchor: bottom | center
+video_file: D:\Temp\Videos\Ghost_of_Tsushima_v1.mp4
+width: 3.0
+aspect: 16/9
+Enter fullscreen mode
+Exit fullscreen mode
+Next, we will use this VideoSurfaceBlueprint to construct an actual "video surface object" in this method:
+void VideoSurfaceBlueprint::construct_blueprint(Scene& scene) {
+// Retrieve the node to which this quad should be attached:
+auto& node = scene.get_node_by_id<QuadsNode>(_node);
+// Get the world position taking the position offset into account:
+auto wpos = calculate_world_position();
+auto& bsp = node.get_texture();
+BSPArea area = create_video_or_fallback_area(bsp);
+// Setup the Quad location:
+setup_quad_location(bsp, area);
+// Add the quad at that position:
+node.add_quad(wpos, _quadLoc, _persistent);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+In this method, the key step for us is the call to create_video_or_fallback_area(), which, in case the video file is found will lead to the call of this dedicated method:
+auto VideoSurfaceBlueprint::create_video_area(WGPUBSPTexture& bsp) -> BSPArea {
+logDEBUG("Loading video file: {}", _videoFile);
+auto player = VideoPlayer::create({.videoFile = _videoFile});
+auto width = player->get_width();
+auto height = player->get_height();
+logDEBUG("Creating target BSP area of size {}x{}", width, height);
+// We should keep the player as a referenced object in the engine:
+auto* eng = WGPUEngine::instance();
+eng->set_shared_object(get_id(), player.get());
+// auto img =
+//
+Image::make_checkerboard(16, 32, 16, RGBA8_WHITE,
+//
+RGBA8_DARKYELLOW);
+auto img = Image::make_random<RGBA8>(width, height);
+auto area = bsp.add_image(img);
+// area = bsp.add_area(width, height);
+// Assign the target texture and the origin point:
+Vec3u orig(area.rect.xmin, area.rect.ymin, area.layer);
+player->set_target_texture(bsp.get_texture(), orig);
+// Start the video playback:
+player->play();
+return area;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+As shown above, we will:
+First, create a VideoPlayer: auto player = VideoPlayer::create({.videoFile = _videoFile});
+Then we need to register the player in the engine to keep a valid reference on it as long as we need it.
+Then assign a render location to that player object, which is a fixed location on a given texture that we will later use a source to display texture data on the quad we created for this VideoSurface: player->set_target_texture(bsp.get_texture(), orig);
+And we immediately request the player to start the playback with player->play();.
+When we create the VideoPlayer object, first we create the dedicated FFMPEGVideoDecoder, and then we request the opening of the video file if it is already specified:
+VideoPlayer::VideoPlayer(const VideoPlayerDesc& desc) : _desc(desc) {
+logDEBUG("VideoPlayer initialized.");
+VideoDecoderDesc ddesc{};
+#if NV_USE_FFMPEG
+_decoder = nv::create<FFMPEGVideoDecoder>(ddesc);
+#endif
+// Check the decoder is valid:
+NVCHK(_decoder != nullptr, "VideoDecoder was not assigned.");
+if (!desc.videoFile.empty()) {
+open_file(desc.videoFile.c_str());
+}
+};
+Enter fullscreen mode
+Exit fullscreen mode
+The constructor for FFMPEGVideoDecoder is really not doing much: just initializing ffmpeg network support [//which we probably don't really need here anyway//]:
+FFMPEGVideoDecoder::FFMPEGVideoDecoder(const VideoDecoderDesc& desc)
+: VideoDecoder(desc) {
+// Initialize FFmpeg (call once globally, but safe to call multiple times)
+avformat_network_init();
+logDEBUG("FFMPEGVideoDecoder initialized");
+};
+Enter fullscreen mode
+Exit fullscreen mode
+The actual work happens a bit later in the VideoPlayer::open_file() method when we open the input on the decoder itself, and after that when we call the play() function:
+auto VideoPlayer::open_file(const char* filename) -> bool {
+if (_decoder == nullptr) {
+logERROR("VideoPlayer: No decoder, cannot open file.");
+return false;
+}
+if (!system_file_exists(filename)) {
+logERROR("VideoPlayer: video file '{}' doesn't exists.", filename);
+return false;
+}
+logDEBUG("Opening video file {}...", filename);
+if (!_decoder->open_input(filename)) {
+logERROR("VideoPlayer: decoder cannot open input.");
+return false;
+}
+_filename = filename;
+if (_desc.playOnOpen) {
+play();
+}
+return true;
+};
+Enter fullscreen mode
+Exit fullscreen mode
+FFMpeg decoder internals
+In the decoder open_input() method we will call the initialize_decoder() method:
+auto FFMPEGVideoDecoder::initialize_decoder(const char* filename) -> bool {
+// Open input file
+_formatCtx = avformat_alloc_context();
+if (!_formatCtx) {
+logERROR("Failed to allocate format context");
+return false;
+}
+I32 ret = avformat_open_input(&_formatCtx, filename, nullptr, nullptr);
+if (ret < 0) {
+logDEBUG("Failed to open input file: {}", err2str(ret));
+return false;
+}
+// Retrieve stream information
+ret = avformat_find_stream_info(_formatCtx, nullptr);
+if (ret < 0) {
+logDEBUG("Failed to find stream info: {}", err2str(ret));
+return false;
+}
+// Find video stream
+_videoStreamIdx =
+av_find_best_stream(_formatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+if (_videoStreamIdx < 0) {
+logDEBUG("No video stream found");
+return false;
+}
+AVStream* video_stream = _formatCtx->streams[_videoStreamIdx];
+const AVCodec* codec =
+avcodec_find_decoder(video_stream->codecpar->codec_id);
+if (codec == nullptr) {
+logDEBUG("Unsupported codec");
+return false;
+}
+// Calculate FPS
+if (video_stream->r_frame_rate.den != 0) {
+_fps = av_q2d(video_stream->r_frame_rate);
+} else if (video_stream->avg_frame_rate.den != 0) {
+_fps = av_q2d(video_stream->avg_frame_rate);
+} else {
+_fps = 25.0; // Default fallback
+}
+// Store frame dimensions
+_frameWidth = video_stream->codecpar->width;
+_frameHeight = video_stream->codecpar->height;
+// Try to setup hardware decoder first
+_isHWAccelerated = false;
+if (_desc.enableHardwareAcceleration && setup_hardware_decoder(codec)) {
+logDEBUG("Hardware acceleration enabled");
+_isHWAccelerated = true;
+} else {
+logDEBUG("Using software decoding");
+// Fallback to software decoder
+_codecCtx = avcodec_alloc_context3(codec);
+if (_codecCtx == nullptr) {
+logDEBUG("Failed to allocate codec context");
+return false;
+}
+}
+// Copy codec parameters
+ret = avcodec_parameters_to_context(_codecCtx, video_stream->codecpar);
+if (ret < 0) {
+logDEBUG("Failed to copy codec parameters: {}", err2str(ret));
+return false;
+}
+// Open codec
+ret = avcodec_open2(_codecCtx, codec, nullptr);
+if (ret < 0) {
+logDEBUG("Failed to open codec: {}", err2str(ret));
+return false;
+}
+return true;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This method is pretty large so I'm not going to cover it completely here and you should refer directly to the provided base code if you need to go over this step by step.
+Yet, I'd say that the key part for us here is when we do the setup for the hardware acceleration support, which is maybe something unusual or new for some of you (?):
+if (_desc.enableHardwareAcceleration && setup_hardware_decoder(codec)) {
+logDEBUG("Hardware acceleration enabled");
+_isHWAccelerated = true;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This method is where we will need to start setting up the DirectX context for FFmpeg:
+auto FFMPEGVideoDecoder::setup_hardware_decoder(const AVCodec* codec) -> bool {
+#ifdef DAWN_ENABLE_BACKEND_D3D12
+#if NV_FFMPEG_DX_VERSION == 11
+AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_D3D11VA;
+AVPixelFormat px_fmt = AV_PIX_FMT_D3D11;
+#else
+AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_D3D12VA;
+AVPixelFormat px_fmt = AV_PIX_FMT_D3D12;
+#endif
+AVBufferRef* hwDeviceCtx = av_hwdevice_ctx_alloc(hw_type);
+NVCHK(hwDeviceCtx != nullptr, "Cannot allocate HW Device context for {}.",
+av_hwdevice_get_type_name(hw_type));
+auto* hw_device_ctx = (AVHWDeviceContext*)hwDeviceCtx->data;
+// Set the custom device here:
+#if NV_FFMPEG_DX_VERSION == 11
+auto* d3d_ctx = (AVD3D11VADeviceContext*)hw_device_ctx->hwctx;
+d3d_ctx->device = DX11Engine::instance().device();
+#else
+auto* d3d_ctx = (AVD3D12VADeviceContext*)hw_device_ctx->hwctx;
+d3d_ctx->device = DX12Engine::instance().device();
+#endif
+NVCHK(d3d_ctx->device != nullptr,
+"Invalid D3D Device for FFMPEG hw context.");
+d3d_ctx->device->AddRef();
+#else
+#error "No implementation for FFMPEGVideoDecoder::setup_hardware_decoder yet."
+#endif
+// Initialize the context
+int ret = av_hwdevice_ctx_init(hwDeviceCtx);
+NVCHK(ret >= 0, "FFMPEGVideoDecoder: Cannot initialize HW Device context.");
+_hwDeviceCtx = hwDeviceCtx;
+_codecCtx = avcodec_alloc_context3(codec);
+if (_codecCtx != nullptr) {
+_codecCtx->hw_device_ctx = av_buffer_ref(_hwDeviceCtx);
+_hwPixelFormat = px_fmt;
+logDEBUG("Hardware decoder setup successful: {}",
+av_hwdevice_get_type_name(hw_type));
+return true;
+}
+logDEBUG("No suitable hardware acceleration found.");
+return false;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+=> I'm sorry this method is also a bit messy because I was experimenting also with a DirectX12 context on the FFmpeg side (but I didn't manage to get this working properly yet when then trying to retrieve the texture in the WGPU context [//which is essentially another DX12 device in fact//])
+Anyway:
+Here we start with allocating an ffmpeg buffer for the hardware device of the proper type (AV_HWDEVICE_TYPE_D3D11VA for us) with this line: AVBufferRef* hwDeviceCtx = av_hwdevice_ctx_alloc(hw_type);
+Next we assign the DX11 device to use on the ffmpeg side into this structure: d3d_ctx->device = DX11Engine::instance().device();
+And finally we initialize this hardware device struct: int ret = av_hwdevice_ctx_init(hwDeviceCtx);
+And thus, we end with a codec context with hardware acceleration that is now ready to start decoding video frames:
+_codecCtx = avcodec_alloc_context3(codec);
+if (_codecCtx != nullptr) {
+_codecCtx->hw_device_ctx = av_buffer_ref(_hwDeviceCtx);
+_hwPixelFormat = px_fmt;
+logDEBUG("Hardware decoder setup successful: {}",
+av_hwdevice_get_type_name(hw_type));
+return true;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+VideoPlayer play loop
+With the ffmpeg decoder ready the processing continues with the call to VideoPlayer::play():
+void VideoPlayer::play() {
+NVCHK(_decoder != nullptr, "Invalid decoder.");
+_isPlaying = true;
+_playbackStartTick = SystemTime::tick();
+_lastUpdateTick = -1;
+_playTime = 0.0;
+_currentFrameIndex = 0;
+logDEBUG("Started playing video {}", _filename);
+auto* eng = WGPUEngine::instance();
+_updateCb = eng->add_pre_render_func([this] { update(); });
+};
+Enter fullscreen mode
+Exit fullscreen mode
+The main idea in the function is simply to register a callback into the engine that will be called on each frame:
+void VideoPlayer::update() {
+if (!_isPlaying)
+return;
+auto curTick = SystemTime::tick();
+if (_lastUpdateTick == -1) {
+_lastUpdateTick = curTick;
+}
+auto elapsed = SystemTime::delta_s(_lastUpdateTick, curTick) * _videoSpeed;
+_lastUpdateTick = curTick;
+_playTime += elapsed;
+F64 videoFps = _decoder->get_fps();
+I32 expectedFrameIndex = static_cast<I32>(_playTime * videoFps);
+// Only decode if we need to advance to the next frame:
+if (expectedFrameIndex > _currentFrameIndex) {
+I32 delta = expectedFrameIndex - _currentFrameIndex;
+if (delta > 1) {
+logWARN("Jumping over {} video frames.", delta - 1);
+}
+if (_decoder->decode_next_frame()) {
+_currentFrameIndex = expectedFrameIndex;
+// logDEBUG("Current video frame: {}", _currentFrameIndex);
+// get the texture data:
+_decoder->get_current_frame(_texture, _origin);
+} else {
+// End of video reached
+logDEBUG("No additional frame, stopping playback.");
+stop();
+}
+}
+};
+Enter fullscreen mode
+Exit fullscreen mode
+In this update method we simply use the current execution time and the video FPS rate to figure out if we should request the next frame to the decoder with _decoder->decode_next_frame().
+And if the decoding is successfully, we immediately request the "copy" of that frame into our dedicated WGPU texture (into a subregion of that texture at least).
+Getting the current frame from DirectX
+The decode_next_frame() function is not that interesting to us: it will simply process a "stream of packets" until a new frame is completed, so let's move directly to get_current_frame() as this step requires some additional work.
+For reference, the first part of this method is this:
+if (_isHWAccelerated && hw_frame->format == AV_PIX_FMT_D3D11) {
+auto* d3d_texture = (ID3D11Texture2D*)hw_frame->data[0];
+I64 idx = (I64)(intptr_t)hw_frame->data[1];
+// logDEBUG("DX11 src tex: {}, layer: {}", (const void*)d3d_texture,
+// idx);
+if (_textureInterface == nullptr) {
+init_dx11_texture_interface(d3d_texture);
+}
+convert_nv12_to_rgba(d3d_texture, idx);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+And in fact, this is where things start to get a bit tricky as we have a few issues to handle:
+1. First, when performing the frame decoding, ffmpeg will produce textures with the format DXGI_FORMAT_NV12, which doesn't have much to do with RGBA unfortunately.
+2. Then the generated output texture will not be usable as shader resource directly because it has the D3D11_BIND_DECODER flag which means the texture is optimized for video decoder and this is not compatible with D3D11_BIND_SHADER_RESOURCE
+3. And of course, this texture doesn't have any shared flag (by default at least) so it's not possible to share it directly with another DirectX context.
+4. Ohh, and in fact this texture is actually a Texture2DArray with the DX11 backend here and the layer to use will change depending on the current frame being generated.
+Fixing the BIND_DECODER issue:
+To resolve the "BIND_DECODER" issue we need to copy the layer of interest from the input texture into an intermediate texture (still with the NV12 format) before we can perform any processing,
+So we create that texture once:
+auto& dx11 = DX11Engine::instance();
+auto* device = dx11.device();
+D3D11_TEXTURE2D_DESC desc;
+srcTex->GetDesc(&desc);
+// Create the intermediate nv12 texture:
+_nv12Texture = dx11.createTexture2D(
+desc.Width, desc.Height, D3D11_BIND_SHADER_RESOURCE, desc.Format);
+Enter fullscreen mode
+Exit fullscreen mode
+Then on each copy cycle we will get the source layer of interest copied in this nv12Texture (which by the way also handles the point 4 at the same time):
+auto& dx11 = DX11Engine::instance();
+auto* context = dx11.context();
+// Copy to our intermediate texture since the decoder output cannot be used
+// as shader resource. Copy specific array slice to the single-layer texture
+UINT srcSubresource = D3D11CalcSubresource(0,
+// mip level
+layerIdx, // array slice
+1);
+// mip levels
+UINT dstSubresource = 0;
+// Single layer, mip 0
+context->CopySubresourceRegion(_nv12Texture.Get(), dstSubresource, 0, 0,
+0, // Dest x, y, z
+srcTex, srcSubresource,
+nullptr // Copy entire subresource
+);
+Enter fullscreen mode
+Exit fullscreen mode
+Converting NV12 to RGBA:
+Next we need to convert from the NV12 format to RGBA, so we'll do that on the DirectX 11 side and we'll need another destination texture to store our conversion result which we called rgbaTexture, and while we are at it, we can also build this as a shared texture to be able to import it later in the WGPU context:
+// Get the desc of the source texture:
+D3D11_TEXTURE2D_DESC tdesc;
+srcTex->GetDesc(&tdesc);
+// We expect the format to be NV12:
+NVCHK(tdesc.Format == DXGI_FORMAT_NV12, "Unexpected source tex format: {}",
+tdesc.Format);
+// Now create a corresponding RGBA Teture that is shared:
+logDEBUG("FFMPEGVideoDecoder: Creating target RGBA Texture.");
+auto& dx11 = DX11Engine::instance();
+HANDLE sharedHandle{nullptr};
+_rgbaTexture = dx11.createReadOnlySharedTexture2D(
+&sharedHandle, tdesc.Width, tdesc.Height,
+D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE |
+D3D11_BIND_UNORDERED_ACCESS);
+Enter fullscreen mode
+Exit fullscreen mode
+Next we have to execute the compute shader that will convert the nv12 texture into rgba on each cycle:
+// Get output texture dimensions
+D3D11_TEXTURE2D_DESC desc;
+_rgbaTexture->GetDesc(&desc);
+// Set compute shader
+context->CSSetShader(_nv12ToRgbaProgram.computeShader, nullptr, 0);
+// Bind input texture arrays
+ID3D11ShaderResourceView* srvs[] = {_luminanceSRV.Get(), _chromaSRV.Get()};
+context->CSSetShaderResources(0, 2, srvs);
+// Bind output texture
+ID3D11UnorderedAccessView* uavs[] = {_rgbaUAV.Get()};
+context->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
+// Dispatch compute shader
+UINT groupsX = (desc.Width + 7) / 8;
+UINT groupsY = (desc.Height + 7) / 8;
+context->Dispatch(groupsX, groupsY, 1);
+Enter fullscreen mode
+Exit fullscreen mode
+Here we will be rendering on the RGBA Texture with "UnorderedAccess" (ie. the _rgbaUAV resource)
+But another interesting thing to notice here is on the shader resources we provide as input: _luminanceSRV and _chromaSRV:
+We have a single nv12Texture as input, but given this specific format it will be possible to create those 2 separated SRVs from it.
+Here is how we create the luminanceSRV:
+D3D11_SHADER_RESOURCE_VIEW_DESC luminancePlaneDesc{};
+luminancePlaneDesc.Format = DXGI_FORMAT_R8_UNORM;
+luminancePlaneDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+luminancePlaneDesc.Texture2D.MipLevels = 1;
+luminancePlaneDesc.Texture2D.MostDetailedMip = 0;
+HRESULT hr = device->CreateShaderResourceView(
+_nv12Texture.Get(), &luminancePlaneDesc, _luminanceSRV.GetAddressOf());
+NVCHK(SUCCEEDED(hr), "Failed to create luminance SRV");
+Enter fullscreen mode
+Exit fullscreen mode
+Note here that we use the R8_UNORM format for the view.
+And then here is the code used to create the chromaSRV:
+D3D11_SHADER_RESOURCE_VIEW_DESC chromaPlaneDesc{};
+chromaPlaneDesc.Format = DXGI_FORMAT_R8G8_UNORM;
+chromaPlaneDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+chromaPlaneDesc.Texture2D.MipLevels = 1;
+chromaPlaneDesc.Texture2D.MostDetailedMip = 0;
+hr = device->CreateShaderResourceView(_nv12Texture.Get(), &chromaPlaneDesc,
+_chromaSRV.GetAddressOf());
+NVCHK(SUCCEEDED(hr), "Failed to create chroma SRV");
+Enter fullscreen mode
+Exit fullscreen mode
+Note that the only difference here is that we request the R8G8_UNORM format for the view.
+And internally this all what is required for the DX11 driver to create the separated luminance/chroma views on the input NV12 texture.
+For additional infos on the NV12 format you could check the microsoft learn website which provides some explanations on the logic above:
+https://learn.microsoft.com/en-us/windows/win32/api/dxgiformat/ne-dxgiformat-dxgi_format
+NV12 conversion shader
+Now let's have a look at the NV12 to RGBA conversion shader itself:
+First, this shader declares the input/output resources that we will use:
+// Input texture arrays - Y plane and UV plane separated
+Texture2D<float> lumTexture : register(t0); // Y plane array (single channel)
+Texture2D<float2> chromaTexture : register(t1); // UV plane array (two channels)
+// Output RGBA texture
+RWTexture2D<float4> rgbaTexture : register(u0);
+Enter fullscreen mode
+Exit fullscreen mode
+=> So we have the luminance & chroma SRVs, and the writable rgba output texture.
+Next we have the core of the logic used to convert NV12 to RGB:
+// YUV to RGB conversion matrix (BT.709)
+// From Microsoft documentation for 8-bit YUV to RGB888
+static const float3x3 YUVtoRGBCoeffMatrix = {1.164383f, 1.164383f,
+1.164383f,
+0.000000f, -0.391762f, 2.017232f,
+1.596027f, -0.812968f, 0.000000f};
+float3 ConvertYUVtoRGB(float3 yuv) {
+// Subtract the offset values (16/255 for Y, 128/255 for UV)
+yuv -= float3(0.062745f, 0.501960f, 0.501960f);
+yuv = mul(yuv, YUVtoRGBCoeffMatrix);
+return saturate(yuv);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+When dealing with NV12 we essentially manipulate YUV triplets, it's just the Y value is provided for each pixel, while the UV values are provided less often/shared between groups of 4 pixels.
+But once we have the YUV value for a given pixel, we can easily convert it to RGB with this function.
+So then in the main function of our compute shader, we simply collect the proper Y and UV values for our current pixel (given by the id.xy coords):
+// Sample Y component at full resolution from the specified layer
+float Y = lumTexture.Load(uint3(id.xy, 0));
+// Sample UV components at half resolution from the specified layer
+uint2 uvCoord = uint2(id.x / 2, id.y / 2);
+float2 UV = chromaTexture.Load(uint3(uvCoord, 0));
+Enter fullscreen mode
+Exit fullscreen mode
+=> Here we only need to be carefull to devide the id.xy coords by 2 to get the UV part.
+And finally, we convert this YUV triplet to RGB, and we write the data at the proper texture pixel location:
+// Convert YUV to RGB
+float3 rgb = ConvertYUVtoRGB(float3(Y, UV.x, UV.y));
+// Output RGBA (with full alpha)
+// Note: we flip the image vertically here to match our nervland convention:
+// rgbaTexture[id.xy] = float4(rgb, 1.0f);
+rgbaTexture[uint2(id.x, outputSize.y - id.y - 1)] = float4(rgb, 1.0f);
+Enter fullscreen mode
+Exit fullscreen mode
+Copying RGBA texture from DX11 to WGPU:
+After the compute shader is executed we have the content we want in RGBA8 format in our DX11 shared rgbaTexture
+So, in the second part of the frame update logic we will perform this copy operation with this code:
+SharedTextureMemoryBeginAccessDescriptor beginDesc{};
+beginDesc.initialized = true;
+beginDesc.concurrentRead = false;
+beginDesc.fenceCount = 0;
+beginDesc.fences = nullptr;
+beginDesc.signaledValues = nullptr;
+if (!_sharedTexMem.BeginAccess(_textureInterface, &beginDesc)) {
+logERROR("Cannot begin access to shared texture.");
+}
+// eng->copy_texture(_textureInterface, texture, nullptr, &origin);
+_copyPass->execute();
+SharedTextureMemoryEndAccessState endDesc{};
+if (!_sharedTexMem.EndAccess(_textureInterface, &endDesc)) {
+logERROR("Cannot end access to shared texture.");
+}
+Enter fullscreen mode
+Exit fullscreen mode
+So, this is probably starting to feel like unusual code even if you are already used to the Dawn library.
+And to be honest, I'm not completely sure this is how it is intended to be used (as it is still pretty hard to find detailed information on this on the net for now), but at least this seems to we working for me 😉.
+The key point here is that we want to copy the DX11 rgbaTexture to another container texture in WGPU (which is the location we provided initially if you remember that part):
+// Assign the target texture and the origin point:
+Vec3u orig(area.rect.xmin, area.rect.ymin, area.layer);
+player->set_target_texture(bsp.get_texture(), orig);
+// Start the video playback:
+player->play();
+Enter fullscreen mode
+Exit fullscreen mode
+To access the DX11 texture from inside the WGPU context we use that _textureInterface object.
+But whenever we try to access that object on the WGPU side, we need to encapsulate that access with a pair of BeginAccess and EndAccess calls on the SharedTextureMemory object used to create that texture interface (I'm not quite sure why as I'm not using keyedMutex when created the DX11 shared texture, but it didn't work for me otherwise).
+And last thing to note on this code chunk is that to perform the actual copy operation I use a dedicated compute shader in its compute pass, but I don't think I need to cover this here as this is really a regular and simple WGSL shader copying the source RGBA8 pixels to a specific subregion of a writable storage texture.
+Creating Shared texture interface:
+But still, now let's have a look at the creation of the texture interface:
+// Open the DX11 texture in Dawn from the shared handle and return it as a
+// WebGPU texture.
+SharedTextureMemoryDXGISharedHandleDescriptor sharedHandleDesc{};
+sharedHandleDesc.handle = sharedHandle;
+SharedTextureMemoryDescriptor desc;
+desc.nextInChain = &sharedHandleDesc;
+auto* eng = WGPUEngine::instance();
+_sharedTexMem = eng->import_shared_texture_memory(&desc);
+// Handle is no longer needed once resources are created.
+::CloseHandle(sharedHandle);
+Enter fullscreen mode
+Exit fullscreen mode
+The first step is to create the SharedTextureMemory object using the DX11 texture sharedHandle
+Note that the import_shared_texture_memory method here is a direct call to the method with the same name on the WGPU device.
+TextureDescriptor texDesc{};
+texDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+texDesc.dimension = TextureDimension::e2D;
+texDesc.size = {tdesc.Width, tdesc.Height, 1};
+// Convert DXGI format to WebGPU format as needed
+texDesc.format = convert_dxgi_to_wgpu_format(DXGI_FORMAT_R8G8B8A8_UNORM);
+_textureInterface = _sharedTexMem.CreateTexture(&texDesc);
+Enter fullscreen mode
+Exit fullscreen mode
+Once we have the sharedTexMemory object we can create the texture interface from that memory region, which will give a plain old regular wgpu::Texture object representing our DX11 Texture inside WGPU 😎!
+And this is it guys 🥳! With all those elements put together we can then extract a stream of video frame from the source video file and get them fully imported into WebGPU with complete hardware acceleration 👍!
+Recap and conclusion:
+So now, just to recap, here is an overview of the workflow we used to copy those frames:
+First we started with a texture 2D array provided by FFMpeg and containing the just decoded frame we asked.
+We had to make a first copy of this, selecting only the layer of interest in the process, to produce a texture we could then use in our regular DX11 render or compute pipelines.
+Next we use a compute shader to convert from NV12 to RGBA format, writing to a shared DX11 texture as output.
+Next we generate an "interface" for that shared DX11 texture into the WGPU context.
+Finally we have a simple copy compute shader in WGPU to copy the texture data into another texture which I'm using as a texture atlas in my case.
+And here we are for this ffmpeg/webgpu integration tutorial! I hope you learnt something here!
+If you'd like to explore this topic further, remember to check out the resources I shared in the NervLand Adventures GitHub repository as I mentioned at the beginning of the video. And if you have any questions, don't hesitate to leave a comment below!
+See you next time 🤟👋!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+The Lone Engineer
+Follow
+I'm a software engineer, and I'm fascinated with 3D rendering advanced techniques. So I started building my own 3D engine "NervLand" based on WebGPU and I will report news on his project here 😉!
+Location
+Grasse, France
+Education
+Ecole Centrale Paris
+Work
+Senior Software Engineer
+Joined
+Apr 13, 2025
+More from The Lone Engineer
+TerrainView7: Full scale planet rendering in WebGPU + Emscripten, now with Precomputed Atmospheric Scattering support
+#webgpu
+#gamedev
+#webassembly
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

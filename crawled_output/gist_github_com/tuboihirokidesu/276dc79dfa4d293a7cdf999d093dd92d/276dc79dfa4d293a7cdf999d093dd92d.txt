@@ -1,0 +1,305 @@
+claude_code_活用法_0920.md · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+tuboihirokidesu/claude_code_活用法_0920.md
+Last active
+September 20, 2025 11:24
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tuboihirokidesu/276dc79dfa4d293a7cdf999d093dd92d.js&quot;&gt;&lt;/script&gt;
+Save tuboihirokidesu/276dc79dfa4d293a7cdf999d093dd92d to your computer and use it in GitHub Desktop.
+Code
+Revisions
+7
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/tuboihirokidesu/276dc79dfa4d293a7cdf999d093dd92d.js&quot;&gt;&lt;/script&gt;
+Save tuboihirokidesu/276dc79dfa4d293a7cdf999d093dd92d to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+claude_code_活用法_0920.md
+カスタムスラッシュコマンドによるPRワークフロー効率化
+カスタムスラッシュコマンドとは
+Claude Codeのカスタムスラッシュコマンドは、.claude/commands/ディレクトリにマークダウンファイルを配置することで、プロジェクト固有のワークフローを定義できる強力な機能です。
+PRワークフローの課題
+プルリクエスト（PR）作成は開発において頻繁に行われる作業ですが、以下のような課題があります。
+手動同期作業：ベースブランチとの同期を忘れ、意図しない差分が含まれる
+ノイズファイル：lock ファイルやビルド成果物がPRに含まれ、レビューが困難
+説明の冗長性：毎回似たような説明を手動で作成する時間的ロス
+ベースブランチ不一致：レビュアーと開発者で見ている差分が異なる
+既存実装の課題と改善アプローチ
+この改善は、以下の記事で紹介されているPRコマンドを参考にしています。
+参考元の記事
+https://zenn.dev/hacobu/articles/d4a194b95aacd5#2.-%2Fpr---%E3%83%97%E3%83%AB%E3%83%AA%E3%82%AF%E3%82%A8%E3%82%B9%E3%83%88%E3%81%AE%E8%87%AA%E5%8B%95%E4%BD%9C%E6%88%90
+しかし、この記事で紹介されているフローには以下の問題がありました。
+ベースブランチの指定が曖昧で、レビュアーと開発者で見ている差分が異なる可能性
+ノイズファイルの除外が不十分
+同期処理のエラーハンドリングが不完全
+これらの課題を解決するため、以下のような改善されたフローに変更しました。
+改善されたPRワークフロー
+flowchart TD
+Start([開発者が/prコマンド実行]) --> Sync[ベースブランチ自動同期<br/>git fetch + merge develop]
+Sync --> Diff[差分計算<br/>ノイズファイル除外]
+Diff --> Analysis[変更内容分析<br/>重要な修正を特定]
+Analysis --> Generate[PR説明自動生成<br/>簡潔で分かりやすい内容]
+Generate --> Create[PR作成<br/>develop基準で統一]
+Create --> End([完了])
+%% 各ステップの詳細情報
+Sync -.-> SyncDetail["・最新のdevelopと同期<br/>・コンフリクト時もエラー耐性<br/>・手動作業不要"]
+Diff -.-> DiffDetail["・lock ファイル除外<br/>・ビルド成果物除外<br/>・レビューに集中"]
+Generate -.-> GenDetail["・変更の要約<br/>・影響範囲の明記<br/>・テスト方針の記載"]
+Create -.-> CreateDetail["・ベースブランチ明示<br/>・レビュアーと差分一致<br/>・認識齟齬なし"]
+%% スタイリング
+classDef processBox fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+classDef startEnd fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+classDef detailBox fill:#fff3e0,stroke:#f57c00,stroke-width:1px,stroke-dasharray: 5 5
+class Start,End startEnd
+class Sync,Diff,Analysis,Generate,Create processBox
+class SyncDetail,DiffDetail,GenDetail,CreateDetail detailBox
+Loading
+主要改善点
+改善項目
+従来の課題
+解決策
+効果
+ベース統一
+差分計算とPR作成でブランチ不一致
+--base develop で明示指定
+レビュアーと開発者の認識完全一致
+ノイズ除外
+lock/dist ファイルでレビュー困難
+':!pattern' で自動除外
+本質的変更のみに集中
+自動同期
+手動同期忘れ・コンフリクト停止
+`
+補足: 例えばAブランチがdevelopにマージ済みで、Bブランチが古いdevelopから分岐している場合、従来方法ではBのPRにAの変更も混入してしまいます。
+技術的詳細
+# 1. 自動同期処理
+# リモートの最新情報を取得し、developブランチをマージ
+# || true でコンフリクト時もスクリプト継続
+git fetch origin && git merge --no-edit origin/develop || true
+# 2. 差分抽出
+# develop...HEAD (三点記法) でこのブランチ固有の変更のみ抽出
+# -M でファイル移動を検知、':!pattern' でノイズファイル除外
+git diff -M --no-color develop...HEAD -- \
+':!pnpm-lock.yaml' ':!dist/**' ':!build/**'
+# 3. PR作成
+# 差分計算と同じベースブランチを明示指定
+gh pr create --base develop --title "..." --body "..."
+コード全文
+---
+allowed-tools: Bash(gh:*), Bash(git:*)
+description: Generate PR description and automatically create pull request on GitHub (base=develop)
+---
+<!-- このコマンドは、差分計算とPR作成の両方で develop をベースとして統一し、本文とPR比較のズレを防ぎます。 -->
+## Context
+- Current git status: !`git status`
+- Sync base branch (develop): !`git fetch origin && git merge --no-edit origin/develop || true`
+<!-- ベースブランチ develop を最新化してから差分を計算します。 -->
+- Changes in this PR (rename-aware, noise excluded): !`git diff -M --no-color develop...HEAD -- ':!pnpm-lock.yaml' ':!package-lock.json' ':!yarn.lock' ':!dist/**' ':!build/**' ':!out/**'`
+<!-- 三点リーダ（develop...HEAD）で「自分のブランチ固有の差分」を抽出。生成物・ロックファイルは除外。 -->
+- Commits in this PR: !`git log --oneline develop..HEAD`
+<!-- develop に無いコミットのみを一覧化します。 -->
+- Current branch: !`git rev-parse --abbrev-ref HEAD`
+- PR template: @.github/pull_request_template.md
+<!-- PRテンプレの構造に沿って本文を生成します。全項目の必須入力ではありません（後述）。 -->
+## Your task
+Based on the provided option, perform one of the following actions.
+**Always** assume the PR’s base is `develop` and keep comparison & PR base consistent.
+<!-- オプションに応じて本文生成・PR作成/更新を行います。常に develop をベースに揃えます。 -->
+### Options
+- **No option or default**: Generate PR description and create pull request
+- **-p**: Push current branch and create pull request
+- **-u**: Update existing pull request description only
+### Default behavior (no option)
+1. Generate a **concise yet substantive** PR description in **Japanese**, strictly following the **structure** of `.github/pull_request_template.md`.
+- **Template policy**: You do **not** need to fill every field. For non-applicable items, keep them brief or leave them empty. Keep the volume lean, but the content **substantive** (clear rationale, impact scope, verification points).
+<!-- テンプレは構造を守りつつ、全項目必須ではありません。冗長さを避け、内容を濃くします。 -->
+2. Add **one Mermaid diagram** to visualize the key change (architecture, data flow, component relations, or affected process). Prefer a single focused diagram; avoid oversized diagrams.
+<!-- 図は1つに絞り、最も伝えるべき変更点を可視化します。大きすぎる図は避けます。 -->
+3. Execute:
+`gh pr create --draft --base develop --head "<current-branch>" --title "<generated-title>" --body "<generated-body>"`
+<!-- PRの宛先も develop に固定して本文と比較ベースを一致させます。 -->
+### With -p option
+1. Push current branch: `git push -u origin <current-branch>`
+<!-- 未pushのブランチでもPR作成できるようにします。 -->
+2. Generate the PR description as above (concise yet substantive; template fields not strictly required).
+3. Execute:
+`gh pr create --draft --base develop --head "<current-branch>" --title "<generated-title>" --body "<generated-body>"`
+### With -u option
+1. Regenerate the PR description (concise yet substantive; template fields not strictly required).
+2. Execute:
+`gh pr edit --body "<generated-body>"`
+<!-- 既存PRの本文だけを更新します（レビュー中の追記に便利）。 -->
+### Requirements
+1. **Base consistency**: Use **develop** for both diff/commit calculation and PR creation.
+<!-- 差分計算とPR宛先のベースを常に develop に揃えます。 -->
+2. **Language**: Write the PR title/body in Japanese; keep the title within ~50–72 characters and front-load the key point.
+<!-- タイトルは要点を前に、長すぎない範囲で。 -->
+3. **Specificity**: Include concrete implementation details, impact/risk, compatibility/migration notes, and known concerns—without being verbose.
+<!-- 具体性は高く、分量は控えめに。 -->
+4. **Verification steps**: Provide actionable steps for reproduce → verify → regression checks (commands, UI paths, and expected results).
+<!-- 再現・確認・回帰の3ステップを具体的に書きます。 -->
+5. **Mermaid diagram** (required):
+- Choose one type (flowchart/sequence/class/state/etc.).
+- Emphasize new/changed parts (annotations are fine).
+- Keep it compact (ideally ≤ 20–30 lines).
+<!-- 変更点が伝わる最小の図を心がけます。 -->
+### Notes (optional hardening)
+- Consider excluding additional noise (e.g., Storybook builds): add `':!storybook-static/**'` to the diff command.
+- For heavy renames/moves, `-M` is already enabled to stabilize rename detection.
+- If the repository sometimes targets other bases (e.g., `release/x.y`), introduce an override (e.g., `BASE_OVERRIDE`) and use it for both diff and `--base`.
+<!-- リリースブランチ宛てなど特殊な宛先がある場合は、上書き可能な仕組みを導入し、diff と PR の両方で同じベースを使ってください。 -->
+**Generate the PR description and create the pull request automatically (base=develop).**
+Hooksによる入力効率化
+この改善は、以下のXの投稿を参考にしています：
+https://x.com/mckaywrigley/status/1952466679239524624
+入力効率化の課題
+プロンプト入力時に以下のような課題があります。
+繰り返し指示：「日本語で出力して」「ultrathinkで出力して」「serena MCPで出力して」等の定型指示を毎回入力
+組み合わせ指示：複数の指示を同時に使いたい場合の冗長性
+Hooksによる解決策
+末尾オプション方式により、短い文字列で複雑な指示を自動展開できます。
+# 入力例
+"このコードを改善して -uj"
+# 自動展開後
+"このコードを改善して use the maximum amount of ultrathink... the output MUST be in Japanese"
+改善されたHooksワークフロー
+flowchart TD
+Input[ユーザー入力<br/>プロンプト + 末尾オプション] --> Detect[オプション検出<br/>-uj の抽出]
+Detect --> Parse[文字解析<br/>u と j に分解]
+Parse --> Expand[指示展開<br/>各文字を指示文に変換]
+Expand --> Merge[プロンプト結合<br/>元の内容 + 展開された指示]
+Merge --> Send[Claude Code送信<br/>拡張されたプロンプト]
+%% 詳細情報
+Detect -.-> DetectDetail["・正規表現で -[a-z]+ 検出<br/>・JSON形式でも安全に処理<br/>・複数オプション対応"]
+Expand -.-> ExpandDetail["・u → ultrathink指示<br/>・j → 日本語出力指示<br/>・v → 詳細説明指示"]
+%% スタイリング
+classDef processBox fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+classDef detailBox fill:#fff3e0,stroke:#f57c00,stroke-width:1px,stroke-dasharray: 5 5
+class Input,Detect,Parse,Expand,Merge,Send processBox
+class DetectDetail,ExpandDetail detailBox
+Loading
+Hooksの主要改善点
+改善項目
+従来の課題
+解決策
+効果
+指示簡略化
+長い定型指示を毎回手入力
+1文字オプションで自動展開
+入力時間を大幅短縮
+組み合わせ効率
+複数指示の重複入力
+-uj 等で複数指示を同時適用
+操作性向上・ミス防止
+記憶負荷軽減
+複雑な指示文の暗記が必要
+オプション文字のみ記憶
+認知負荷を大幅軽減
+補足: -u (ultrathink) + -j (日本語) の組み合わせなど、よく使う指示パターンを短縮できます。
+shellスクリプト全文
+#!/bin/bash
+# Hook to process trailing options for serena MCP and other features
+input=$(cat)
+# Check if there are options at the end of prompt
+if echo "$input" | grep -q '"prompt".*-[a-z]\+"'; then
+# Extract just the options part (e.g., "-uj" -> "uj")
+options=$(echo "$input" | grep -o '\-[a-z]\+"' | tail -1 | sed 's/-//' | sed 's/"//')
+# Process each character in the options
+for (( i=0; i<${#options}; i++ )); do
+opt="${options:$i:1}"
+case "$opt" in
+u) # Ultra思考モード - 最大限の思考深度で分析
+echo "use the maximum amount of ultrathink. Think deeply and systematically by questioning your initial assumptions, considering what you might be missing, exploring alternative perspectives, double-checking your logic and calculations, and identifying potential flaws in your reasoning. Take as much time as needed since thoroughness and accuracy are paramount."
+;;
+j) # Japanese - 日本語出力指定
+echo "the output MUST be in Japanese"
+;;
+v) # Verbose - 詳細説明モード
+echo "Be verbose and provide detailed explanations."
+;;
+s) # Serena MCP - セマンティック検索ツール使用
+if [ -f "CLAUDE.md" ]; then
+echo "Use serena MCP with token-efficient semantic tools. Reference CLAUDE.md and .serena/ memories for project-specific context, tech stack, and established conventions."
+else
+echo "Use serena MCP with token-efficient semantic tools for development."
+fi
+;;
+q) # Quick mode - 簡易分析モード
+echo "Use quick mode with 3-5 thoughts/steps. Best for simple bugs and minor features."
+;;
+d) # Deep mode - 深度分析モード
+echo "Use deep mode with 10-15 thoughts/steps. Best for complex systems and major design decisions."
+;;
+c) # Code focus - コード分析特化モード
+echo "Focus on code-focused analysis. Best for code review, refactoring, and performance optimization."
+;;
+t) # Todo creation - タスク作成モード
+echo "Create implementation todos for project management and task tracking."
+;;
+r) # Research mode - 調査モード
+echo "Include research phase using Context7 MCP for technology decisions and documentation lookup."
+;;
+# 新しいオプションはここに追加
+esac
+done
+fi
+その他のHooks活用例
+Hooksの別の活用例として、以下のような実装もあります：
+https://gist.github.com/ljw1004/34b58090c16ee6d5e6f13fce07463a31
+この実装では、Claude Codeが「You're right」のような反射的な同意を避け、より実質的な技術分析を提供するためのHookを実装しています。会話履歴を監視し、同意的な応答を検出した場合に、次回のプロンプトに分析的思考を促すシステムリマインダーを自動追加する仕組みです。
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

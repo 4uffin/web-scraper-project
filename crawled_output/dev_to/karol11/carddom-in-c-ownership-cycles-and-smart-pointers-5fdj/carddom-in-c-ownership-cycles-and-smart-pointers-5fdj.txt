@@ -1,0 +1,276 @@
+CardDOM in C++: Ownership, Cycles, and Smart Pointers - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Andrey S Kalmatskiy
+Posted on Sep 20
+CardDOM in C++: Ownership, Cycles, and Smart Pointers
+#programming
+#datastructures
+#cpp
+#rust
+This is the third article in DOM-handling series.
+If you haven't read the prior parts:
+Which Language Handles DOM-Like Models Best.
+Building a DOM in JavaScript: Ownership, X-Refs, and Copy Semantics
+you might want to start there for context.
+C++ offers no garbage collector or borrow checker, but its smart pointers can model ownership hierarchies - if you treat them like the sharp tools they are. The challenge: building a DOM-ish structure (Document → Card → CardItem) that supports cross-references, shared immutable resources, and topological deep copies without leaks or undefined behavior.
+Result: A working C++ implementation of the CardDOM in ~150 LOC that survives Valgrind, enforces immutability at compile time, and auto-expires weak references - though it demands constant vigilance against pointer misuse.
+Design Decisions
+Ownership and Reference Tracking
+shared_ptrs holding all nodes, with runtime checks preventing multiparenting or cycles.
+weak_ptrs for cross-links (connectors, buttons) to ensure automatic expiry on deletion:
+No manual unlinking required; expired weak_ptrs are safely handled with .lock().
+Parent pointers validated at runtime during add/remove to block self-nesting or duplicate parents.
+Handling / Avoidance of Shared Mutable State
+Const Style types enforce immutability at compile time, blocking direct mutation of shared resources.
+Copy-on-write via explicit clone(): Mutations require creating a mutable copy first.
+No shared mutable state in the graph; reassigned clones become const again post-mutation.
+Trade-Offs
+No unique_ptr for hierarchy roots: since all nodes of DOM-like structure can be targets of cross-references (weak-ptrs) this force shared_ptr everywhere, complicating single ownership.
+Two-phase deep copy: Custom traversal needed to resolve topology and rewire weak_ptrs correctly.
+Discipline required: Smart pointers prevent use-after-free but not leaks from cycles.
+Safety Guarantees
+From the Language/runtime
+Smart pointers automate deallocation and prevent use-after-free via reference counting.
+Const-correctness rejects mutable access to shared data at compile time.
+But it does not prevent having const and non-const pointers to the same objects. In should be enforced manually.
+Weak_ptr auto-expiry prevents dangling cross-references without explicit cleanup.
+From the Design
+Runtime exceptions on multiparenting/cycles maintain graph integrity during modifications.
+Stack reference protection: All params should be passed by value/reference to smart_ptrs; no raw pointer exposure.
+Code Size & Cognitive Overhead
+Size: ~150 LOC, focused on pointer management, assertions, and two-phase copy logic.
+Cognitive load: Every new DOM node must reimplement copy/add/drop-child logic.
+Usage
+//// Creation
+auto doc = make_shared<Document>();
+{
+auto style = make_shared<const Style>("Times", 16.5, 600);
+auto card = make_shared<Card>();
+auto hello = make_shared<TextItem>("Hello", style);
+auto button = make_shared<ButtonItem>("Click me", card);
+auto conn = make_shared<ConnectorItem>(hello, button);
+card->add_item(move(hello));
+card->add_item(move(button));
+card->add_item(move(conn));
+card->add_item(make_shared<GroupItem>());
+doc->add_item(move(card));
+}
+Enter fullscreen mode
+Exit fullscreen mode
+// Unshare-on-modification
+auto hello_text = dynamic_pointer_cast<TextItem>(doc->items[0]->items[0]);
+// Compile-time prevention of direct mutation:
+hello_text->style->size++; // ERROR
+// Explicit clone to mutate:
+auto new_style = hello_text->style->clone();
+new_style->size++;
+hello_text->style = new_style;
+// Stack references prevent objects from being deleted
+{
+auto hello_text = dynamic_pointer_cast<TextItem>(doc->items[0]->items[0]);
+doc->items[0]->remove_item(hello_text);
+// hello_text is still alive here
+assert(!dynamic_pointer_cast<ConnectorItem>(
+doc->items[0]->items[1])->from.expired());
+} // Actual deletion occurs here
+// Topologically correct copy
+auto new_doc = deep_copy(doc);
+assert(new_doc->items[0]->items[0] ==
+dynamic_pointer_cast<ConnectorItem>(
+new_doc->items[0]->items[1])->to.lock());
+assert(new_doc->items[0] ==
+dynamic_pointer_cast<ButtonItem>(
+new_doc->items[0]->items[0])->target_card.lock());
+Enter fullscreen mode
+Exit fullscreen mode
+// Runtime multiparenting prevention
+try {
+doc->add_item(new_doc->items[0]);
+} catch (std::runtime_error&) {
+std::cout << "multiparented!\n";
+}
+// Runtime cycle detection
+try {
+auto group = make_shared<GroupItem>();
+auto subgroup = make_shared<GroupItem>();
+group->add_item(subgroup);
+subgroup->add_item(group);
+} catch (std::runtime_error&) {
+std::cout << "loop\n";
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Evaluation Table
+Criterion
+Description
+Verdict
+Memory safety
+Avoids unsafe access patterns
+⚠️ Smart pointers block UAF; const prevents shared mutations, but raw pointer slips possible
+Leak prevention
+Avoids memory leaks
+⚠️ Reference counting + RAII handles most cases; cycles or forgotten drops need Valgrind
+Ownership clarity
+Are ownership relations clear and enforced?
+⚠️ Shared_ptr enables cross-refs but blurs single ownership; runtime checks enforce rules
+Copy semantics
+Are copy/clone operations predictable and correct?
+⚠️ Manual two-phase deep_copy preserves topology and rewires weak_ptrs
+Weaks handling
+Survives partial deletions and dangling refs?
+✔️ Weak_ptrs expire automatically; no manual cleanup, stack refs extend lifetime safely
+Runtime resilience
+Can DOM ops crash app?
+⚠️ Exceptions on violations (multiparent, cycles); survives partial deletes via RAII
+Code expressiveness
+Concise and maintainable?
+⚠️ Verbose pointer boilerplate offsets readable API; manual copy/loop logic adds overhead
+Ergonomic trade-offs
+Difficulty of enforcing invariants?
+❌ High; relies on developer discipline - no compile-time ownership beyond const
+Verdict
+C++ can model complex DOM-like graphs if:
+You standardize on shared_ptr for cross-referenced nodes,
+Leverage const for compile-time immutability,
+Implement two-phase deep_copy for topology-aware cloning,
+And cultivate pointer discipline with runtime guards and Valgrind.
+It's powerful but unforgiving - demanding vigilance.
+At 150 LOC, it proves modern C++ handles shared mutable structures robustly, though leaks and UB lurk for the unwary. Ref-counting languages like Rust offer similar foundations with panic-based safety nets, but neither category natively groks DOM topologies.
+Rust: Honorable Mention
+Rust's borrow checker shines for stack values but falls back to ref-counting for heap graphs, mirroring C++'s smart pointers:
+Box<t> = unique_ptr<t>
+Rc<t> = shared_ptr<const t>
+Rc<RefCell<t>> ≈ shared_ptr<t>
+Weak<RefCell<t>> ≈ weak_ptr<t>
+Differences between languages are centered around idea of how to handle object disposal while it's still referenced from stack:
+C++ risks UB (and almost always damages memory)
+Rust handles this situation in RefCell.drop() and if Rc is deleted while its inner RefCell is in a borrowed state, it panics.
+So for DOMs, Rust adds safety via panics but sacrifices resilience and clarity.
+The bigger revelation:
+Almost every modern app depends on DOM-like structures.
+Yet no GC-languages (JS) nor ref-counted languages (C++) is truly equipped to handle them.
+Next:
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Andrey S Kalmatskiy
+Follow
+Joined
+Aug 1, 2023
+More from Andrey S Kalmatskiy
+Building a DOM in JavaScript: Ownership, X-Refs, and Copy Semantics
+#javascript
+#programming
+#datastructures
+Which Language Handles DOM-Like Models Best?
+#programming
+#datastructures
+Argentum programming language
+#programming
+#language
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

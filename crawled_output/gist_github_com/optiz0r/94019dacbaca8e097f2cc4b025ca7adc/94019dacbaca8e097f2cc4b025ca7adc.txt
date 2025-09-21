@@ -1,0 +1,440 @@
+Caddy with Nomad + Consul · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+optiz0r/Caddyfile.tmpl
+Created
+April 29, 2021 07:35
+Show Gist options
+Download ZIP
+Star
+9
+(9)
+You must be signed in to star a gist
+Fork
+3
+(3)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/optiz0r/94019dacbaca8e097f2cc4b025ca7adc.js&quot;&gt;&lt;/script&gt;
+Save optiz0r/94019dacbaca8e097f2cc4b025ca7adc to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+9
+Forks
+3
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/optiz0r/94019dacbaca8e097f2cc4b025ca7adc.js&quot;&gt;&lt;/script&gt;
+Save optiz0r/94019dacbaca8e097f2cc4b025ca7adc to your computer and use it in GitHub Desktop.
+Download ZIP
+Caddy with Nomad + Consul
+Raw
+caddy.nomad.hcl
+variable "consul_domain" {
+type = string
+description = "Consul domain for the cluster this job runs in"
+}
+variable "base_domain" {
+type = string
+description = "Base domain for services hosted behind this proxy"
+}
+job "caddy" {
+datacenters = ["dc1"]
+type = "service"
+group "default" {
+count = 3
+restart {
+mode = "delay"
+delay = "10s"
+attempts = 3
+interval = "2m"
+}
+update {
+auto_revert = true
+}
+network {
+mode = "bridge"
+port "http" {
+static = 80
+to = 8080
+}
+port "https" {
+static = 443
+to = 8443
+}
+port "health" {
+to = 8081
+}
+}
+meta {
+connect_service_foo = 8000
+}
+service {
+name = "caddy"
+port = "http"
+check {
+address_mode = "alloc"
+name = "alive"
+type = "http"
+port = "health"
+path = "/health"
+interval = "10s"
+timeout = "2s"
+}
+connect {
+sidecar_service {
+proxy {
+upstreams {
+destination_name = "foo"
+# Unfortunately the meta port defined above cannot be interpolated here :(
+local_bind_port = 8000
+}
+}
+}
+}
+}
+vault {
+policies = ["caddy"]
+env = false
+change_mode = "noop"
+}
+task "caddy" {
+driver = "docker"
+config {
+image = "registry.example.com/caddy/caddy-consul:2.3.0-alpine"
+force_pull = true
+ports = ["http", "https"]
+mounts = [{
+type = "bind"
+source = "local/config"
+target = "/etc/caddy"
+}, {
+type = "bind"
+source = "/srv/nomad/caddy"
+target = "/data"
+}]
+}
+env {
+CONSUL_DOMAIN = var.consul_domain
+BASE_DOMAIN = var.base_domain
+}
+template {
+data = file("Caddyfile.tmpl")
+destination = "local/config/Caddyfile"
+change_mode = "signal"
+change_signal = "SIGHUP"
+}
+template {
+data = file("/etc/pki/tls/cert.crt")
+destination = "local/ca.crt"
+change_mode = "signal"
+change_signal = "SIGHUP"
+}
+template {
+destination = "secrets/consul.env"
+env = true
+data = <<EOT
+{{ with secret "consul/creds/caddy" -}}
+CONSUL_HTTP_TOKEN="{{ .Data.token }}"
+{{ end -}}
+EOT
+}
+template {
+destination = "secrets/caddy.env"
+env = true
+data = <<EOT
+{{ with secret "secret/apps/caddy/config" -}}
+CADDY_CLUSTERING_CONSUL_AESKEY={{ .Data.data.aes_key }}
+{{ end -}}
+{{ with secret "secret/apps/caddy/oidc" -}}
+OIDC_CLIENT_ID="{{ .Data.data.client_id }}"
+OIDC_CLIENT_SECRET="{{ .Data.data.client_secret }}"
+OIDC_RESIGNING_SECRET="{{ .Data.data.resigning_secret }}"
+{{ end -}}
+EOT
+}
+template {
+destination = "local/token-signing.crt"
+data = <<EOT
+{{ with secret "secret/apps/caddy/oidc" -}}
+{{ .Data.data.token_signing_pubkey }}
+{{ end -}}
+EOT
+}
+resources {
+cpu = 100
+memory = 128
+}
+}
+}
+}
+Raw
+Caddyfile.tmpl
+{{- range services -}}
+{{- if .Name | contains "sidecar" | not -}}
+{{- $groupedServices := (service .Name | byMeta "caddy_enable") -}}
+{{- $enabledServices := (index $groupedServices "true" ) -}}
+{{- range $enabledServices -}}
+{{- $vhost := index .ServiceMeta "caddy_vhost" -}}
+{{- scratch.MapSetX "vhosts" $vhost . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{
+http_port 8080
+https_port 8443
+storage "consul" {
+address "{{ env "attr.unique.hostname" }}:8500"
+tls_enabled true
+tls_insecure true
+prefix "caddytls"
+}
+acme_ca https://acme.service.{{ env "CONSUL_DOMAIN" }}:9000/acme/acme/directory
+acme_ca_root "/local/ca.crt"
+}
+caddy-test.{{ env "BASE_DOMAIN" }} {
+respond "Hello World!"
+}
+{{ range $vhost, $service := scratch.Get "vhosts" -}}
+{{ $require_auth := eq (or (index $service.ServiceMeta "caddy_oidc") "false") "true" }}
+{{ $vhost }} {
+route {
+{{- if $require_auth }}
+jwt {
+auth_url https://auth.infra.{{ env "BASE_DOMAIN" }}/auth/oauth2/generic
+{{- $auth_roles := index $service.ServiceMeta "caddy_require_groups" | split ","}}
+{{- if $auth_roles }}
+allow roles {{ range $auth_roles }}"{{ . }}"{{ end }}
+{{- else }}
+default allow
+{{- end }}
+}
+{{- end }}
+reverse_proxy * {
+{{- $connect := or (index .ServiceMeta "caddy_connect") "false" }}
+{{- if eq $connect "true" }}
+{{- $connect_port := or (index $service.ServiceMeta "caddy_connect_port") 8000 }}
+to "localhost:{{ env (printf "NOMAD_META_connect_service_%s" $service.Name) }}"
+{{- else }}
+{{- range service $service.Name }}
+{{- $scheme := or (index .ServiceMeta "caddy_scheme") "http" }}
+to "{{ $scheme }}://{{ .Address }}:{{ .Port }}"
+transport http {
+{{- if eq $scheme "https" }}
+tls_server_name "{{ .Name }}.service.{{ env "CONSUL_DOMAIN" }}"
+tls_trusted_ca_certs "/local/ca.crt"
+{{- end }}
+}
+{{- if $require_auth }}
+{{- $user_header := or (index $service.ServiceMeta "caddy_user_header") "X-Remote-User" }}
+header_up {{ $user_header }} {http.request.header.X-Token-User-Name}
+header_up -X-Token-Subject
+{{- end }}
+{{- end }}
+{{- end }}
+}
+}
+log {
+output stdout
+}
+}
+{{ end -}}
+# SSO
+https://auth.team.{{ env "BASE_DOMAIN" }} {
+route /auth* {
+auth_portal {
+cookie_domain "team.{{ env "BASE_DOMAIN" }}"
+backends {
+generic_oauth2_backend {
+method oauth2
+realm generic
+provider generic
+base_auth_url "https://adfs.example.com/adfs/oauth2/"
+metadata_url "https://adfs.example.com/adfs/.well-known/openid-configuration"
+client_id {$OIDC_CLIENT_ID}
+client_secret {$OIDC_CLIENT_SECRET}
+scopes openid
+}
+}
+jwt {
+token_name access_token
+token_secret {env.OIDC_RESIGNING_SECRET}
+}
+}
+}
+route /placeholder {
+# This placeholder will always be present in the config file, so holds the primary config
+# Other site blocks may come and go
+jwt {
+primary yes
+auth_url /auth/oauth2/generic
+trusted_tokens {
+static_secret {
+token_name access_token
+token_secret {env.OIDC_RESIGNING_SECRET}
+}
+}
+enable claim headers
+allow role any
+}
+respond "Nothing to see here, {http.request.header.X-Token-User-Name}!"
+}
+route * {
+# Avoid showing the user a blank page
+redir /auth/whoami 302
+}
+log {
+output stdout
+}
+}
+# Health check endpoint
+http://0.0.0.0:8081 {
+respond 200 /health
+}
+# Log all other traffic for debugging
+:8443 {
+respond 404
+log {
+output stdout
+}
+}
+Raw
+dev.vars
+consul_domain = "consul.dev.example.com"
+base_domain = "dev.example.com"
+Raw
+Dockerfile.caddy
+FROM caddy:2.3.0-builder AS builder
+RUN xcaddy build \
+--with github.com/pteich/caddy-tlsconsul \
+--with github.com/greenpau/caddy-auth-portal \
+--with github.com/greenpau/caddy-auth-jwt
+FROM caddy:2.3.0-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+# Embed Site certificates
+RUN env http_proxy='' https_proxy='' wget --no-check-certificate -O /usr/local/share/ca-certificates/site-root.crt https://example.com/ca-certs/site-root.crt && \
+update-ca-certificates
+# Override the entrypoint with a bash script which handles SIGHUP and triggers reload
+RUN apk add --no-cache tini
+COPY signal-handler.sh /
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/signal-handler.sh", "caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+Raw
+signal-handler.sh
+#!/bin/sh
+_reload() {
+echo "Caught SIGHUP signal, reloading Caddy"
+caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+_wait
+}
+_passthrough_trap() {
+sig=$1
+echo "Caught signal $1, passing to Caddy"
+kill -s $sig $child
+_wait
+}
+_setup_traps() {
+func=$1; shift
+for sig ; do
+trap "$func $sig" "$sig"
+done
+}
+_wait() {
+echo "Waiting for Caddy to exit, or to receive signal"
+wait "$child"
+}
+trap _reload HUP
+_setup_traps _passthrough_trap TERM QUIT INT
+echo "Starting Caddy in background";
+$@ &
+child=$!
+_wait
+Raw
+whoami.nomad.hcl
+job "whoami" {
+datacenters = ["dc1"]
+type = "service"
+group "default" {
+count = 1
+network {
+port "http" {
+to = 8080
+}
+}
+service {
+name = "whoami"
+port = "http"
+meta {
+caddy_enable = "true"
+caddy_vhosts = "whoami.dev.example.com"
+caddy_oidc = "true"
+}
+check {
+type = "http"
+port = "http"
+path = "/"
+interval = "30s"
+timeout = "2s"
+}
+}
+task "whoami" {
+driver = "docker"
+config {
+image = "containous/whoami:latest"
+args = ["--port", "8080"]
+ports = ["http"]
+}
+env {
+TZ = "Europe/London"
+}
+resources {
+cpu = 100 # MHz
+memory = 32 # MB
+}
+}
+}
+}
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

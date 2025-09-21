@@ -15,7 +15,7 @@ Dismiss alert
 Instantly share code, notes, and snippets.
 qnighy/rsc-memo.md
 Last active
-September 17, 2025 16:53
+September 20, 2025 14:56
 Show Gist options
 Download ZIP
 Star
@@ -38,7 +38,7 @@ Clone this repository at &lt;script src=&quot;https://gist.github.com/qnighy/1bc
 Save qnighy/1bc74830de8f0224e354b75c98477e45 to your computer and use it in GitHub Desktop.
 Code
 Revisions
-23
+25
 Stars
 5
 Embed
@@ -197,6 +197,16 @@ Reactの場合、以下の項は値である。
 <div /> などのDOM対応要素
 テキストノード
 DOM対応要素の子ノードを並べるために使われるリスト
+childrenのまやかし
+JSXでは children prop に特別な構文が与えられている。開きタグと閉じタグの間に記述したものは(必要に応じて配列に詰められ) children prop として渡される。
+ここで重要なのが、 一般のコンポーネントにおいて children propは特別ではないということだ。
+たとえば以下の2つのコードは、呼び出し側と被呼び出し側の間の規約が少し違うだけで、ほとんど同じものだ。
+// コード1
+<MyComponent><button>Click here!</button></MyComponent>
+// コード2
+<MyComponent inner={<button>Click here!</button>} />
+つまり、 children が渡されていることは、そのような引数が与えられるということだけで、親子関係は保証されないのである。
+もちろん、DOM対応要素の children に限って言えば、期待通りに親子関係を表す。
 値呼び・名前呼び・多段階計算
 評価戦略は色々あるが、ここではRSCと関係する分類を紹介したい。
 値呼び (call-by-value) または(弱)最左最内簡約は、多くのプログラミング言語で使われている戦略である。簡約規則に値しか入らないので計算上は扱いやすい。
@@ -216,6 +226,45 @@ RSCについて議論するにあたっては、各コンポーネントがも�
 評価中のエラー
 したがって、こうした副作用が含まれるコンポーネントの挙動には注意が必要になる。具体的には親となるclient componentよりも先に、子となるserver componentが評価されるため、古典的なReactの名前呼びに慣れていると予期しない結果になる可能性がある。
 次にパラメトリシティについて。これは、client component 内で ReactNode や ReactElement の内部構造をチェックするような処理を行っている場合に問題になる。たとえば cloneElement に入れてpropsを変更してから利用するようなケースでは、要素が展開済みの場合と未展開の場合で結果が変わってしまう可能性がある。
+RSC と Context
+RSC では現状 Context を利用できない。この理由について考察してみる。
+理由1. Contextは副作用だから
+前述のように、RSCではコンポーネントの評価順序が純粋な名前呼びではなくなるため、server componentの副作用をなるべく避けるのが望ましい。
+ところで、Contextは副作用の一種である。これはHaskellではReader monadと呼ばれるもので、立派な副作用である。
+とはいっても、この副作用は羃等・可換・安全(※)といった良い性質を持つので、副作用とは感じられにくいかもしれない。しかし、「どこで評価するか」に依存して結果が変わってしまうため、これは依然として副作用の一種と考える必要がある。
+※ Haskell的に言うと return () が (>>) に対して零元となる性質。一般的に通用する名称が不明なため、ここではHTTP semanticsに倣って「安全」と呼んでいる。
+このことから、server componentでContextが評価されると問題になるケースがあると考えられる。そして、実際に以下のようなケースで問題になりえる。
+// server.ts
+improt { useContext } from "react";
+import { MyContext } from "./context.ts";
+import { MyClientComponent } from "./client.ts";
+const MyServerComponent = () => {
+return <MyClientComponent><MyServerComponent2 /></MyClientComponent>;
+};
+const MyServerComponent2 = () => {
+const ctx = useContext(MyContext);
+return <div>Hello, {ctx.name}!</div>
+};
+// client.ts
+"use client";
+import { MyContext } from "./context.ts";
+export const MyClientComponent = ({ children }) => {
+return <MyContext.Provider value={{ name: "John" }}>{children}</MyContext.Provider>;
+};
+もしコンポーネントが旧来のReactのような順序で評価されると仮定すると(実際、server.tsがclient componentとして評価されるとそうなる)、 useContext は MyClientComponent が注入したコンテキストを参照することになる。
+しかし、server componentの仕組みを前提に考えると、 (server.ts が server component として評価されている場合) そのように動作することはまずありえない。
+このように、Reactの評価順序に対する従来の期待を裏切らない限り、server componentでContextを動作させることは難しいと考えられる。
+評価順序依存性を回避する方法
+Contextの振る舞いがコンポーネントの評価順序に依存してしまう問題を回避しつつserver componentにContextを導入する方法は1つある。
+それは、旧来のContextとは別に、server component専用のContextを用意することだ。
+これらのAPIを分離し、ユーザーにclient componentとserver componentの区別を明確に意識させれば、一応全体として整合するAPIにはなる。
+もちろん、これは実質的には、Contextを使うコードにその複雑性を押しつけているだけとも考えられる。
+理由2. Async Context の問題
+これは useContext に限らず React Hooks 全体の課題だが、 React Hooks を await より後で利用できるようにするのは難しい。
+従来、 client component はそもそもrender関数で await できない仕様だったのでこのあたりの困難はない。しかし、server componentではこの問題が顕在化する。
+問題の根本は、JavaScript内から見て、awaitの前後のコード実行を関連付ける仕組みが存在しないことにある。
+この問題については過去の記事でも触れている通り、 Node.js では Async Context という仕組みによって解決されている。しかし、これはNode.jsの独自のAPIであり、Reactフレームワークとして設計レベルで過度に依存することが許されるかは怪しい。
+また、別の手段として、awaitより後にuseすることはできないという形で解決する余地は考えられる。
 Raw
 rsc-rendering-process.png
 Raw

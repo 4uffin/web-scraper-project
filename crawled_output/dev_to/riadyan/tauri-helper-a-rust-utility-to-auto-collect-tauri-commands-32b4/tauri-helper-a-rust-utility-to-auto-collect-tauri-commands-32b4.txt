@@ -1,0 +1,263 @@
+tauri-helper: A Rust Utility to Auto-Collect Tauri Commands - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+RiadYan
+Posted on Sep 20
+tauri-helper: A Rust Utility to Auto-Collect Tauri Commands
+#programming
+#rust
+#tauri
+#productivity
+Introduction :
+If you have ever worked with Tauri, you probably already used the tauri::command macro but after a few commands you saw that you needed to write each function manually inside of the invoke_handler, that seemed a bit tedious but acceptable.
+However the more my project grew personally the harder it became to manage hundreds of commands; writing them, remembering you wrote them, even modifying the name of the function was annoying. After a few weeks I stumbled upon specta, a Rust crate that allowed me to pass on Struct as TS Types, and Functions with their right args, etc...
+BUT misery struck again and I saw that I had to rewrite all the names functions that I had inside of another invoke_handler, that could have been solved by just copy pasting but I had enough of all this boilerplate and of my code being hundreds of lines because of such a simple thing so I decided once and for all to write a small Rust crate,tauri-helper, that would help us, developers, write Rust code in Tauri quickly and without all these useless lines.
+The Problem I Encountoured
+While building
+tauri-helper, I ran into a bunch of Rust issues that made development a bit trickier:
+Macro limitations: Sadly, Rust macros can’t know the exact location of a function in a module or workspace. That meant if I wanted to pass functions around, I had to fully import the module, e.g., use some_module::*;. This made writing the collection macros more complicated than expected, even though it will be possible in the near future to do that without importing the whole module, it is still in nightly and I wanted to avoid that.
+Multiple workspaces: Collecting commands across several crates in a workspace was messy. Each crate had its own modules and paths, so I had to make the macros workspace-aware and handle cross-crate function discovery that noticed every change to a function or the creation of a function to be able to note it down.
+File structure and build.rs: To generate the command list automatically, I ended up writing generated files in a separate folder using build.rs. It worked, but I had to carefully manage paths and ensure everything stayed in sync when functions moved or were renamed.
+Each of these challenges required careful design and testing to make tauri-helper reliable and easy to use for others since well, it is the goal of this crate.
+Tauri-Helper Usage
+Once I solved the development issues, using the crate became way more straightforward and made tauri simpler to use :
+Installation
+Add tauri-helper to your Cargo.toml:
+[dependencies]
+tauri-helper = "0.1.4"
+Enter fullscreen mode
+Exit fullscreen mode
+If you want to use the WithLogging macro with tracing, enable the tracing feature:
+[dependencies]
+tauri-helper = { version = "0.1.4", features = ["tracing"] }
+Enter fullscreen mode
+Exit fullscreen mode
+Then add it to the [build-dependencies] :
+[build-dependencies]
+tauri-helper = "0.1.4"
+Enter fullscreen mode
+Exit fullscreen mode
+IMPORTANT
+Before using any command collection, you have to add this to the build.rs file.
+fn main() {
+tauri_helper::generate_command_file(tauri_helper::TauriHelperOptions::default());
+tauri_build::build();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+And then be sure your workspace is correct and has the current crate defined in your Cargo.toml such as this :
+[workspace]
+members = [
+".",
+"local-crates/some-commands1",
+"local-crates/some-commands2",
+"local-crates/some-commands3",
+]
+Enter fullscreen mode
+Exit fullscreen mode
+Don't forget to add . as a member or else the crate will not be able to get the commands from the default crate.
+Usage
+Command Collection
+Annotate your Tauri command functions with #[auto_collect_command] to automatically collect them:
+#[tauri::command]
+#[auto_collect_command]
+fn greet(name: String) -> String {
+format!("Hello, {}!", name)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Generate a tauri::generate_handler! invocation:
+tauri_collect_commands!();
+Enter fullscreen mode
+Exit fullscreen mode
+Generate a tauri_specta::collect_commands! invocation:
+specta_collect_commands!();
+Enter fullscreen mode
+Exit fullscreen mode
+Note
+If you do not want to have to annotate every command with #[auto_collect_command], you can do this in the build.rs.
+fn main() {
+tauri_helper::generate_command_file(tauri_helper::TauriHelperOptions::new(true));
+tauri_build::build();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This will tell the build script to get every tauri_command available in every member of the workspace.
+This is not recommended as it can lead to adding functions that are not meant to be exported.
+If your workspace contains multiple crates, you must export all functions in the root file (lib.rs) of each crate.
+Example
+In my_commands.rs:
+#[tauri::command]
+#[auto_collect_command]
+fn greet(name: String) -> String {
+format!("Hello, {}!", name)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+In lib.rs:
+pub mod my_commands;
+pub use my_commands::*;
+Enter fullscreen mode
+Exit fullscreen mode
+Note: This is required because the feature that enables full module path retrieval is still only available in the nightly version of Rust.
+Example
+Here’s a complete example of using tauri_helper in a Tauri application:
+#[tauri::command]
+#[auto_collect_command]
+fn greet(name: String) -> String {
+format!("Hello, {}!", name)
+}
+#[tauri::command]
+#[auto_collect_command]
+fn calculate_sum(a: i32, b: i32) -> i32 {
+a + b
+}
+fn main() {
+let builder: tauri_specta::Builder = tauri_specta::Builder::<tauri::Wry>::new()
+.commands(specta_collect_commands!());
+#[cfg(debug_assertions)]
+builder
+.export(
+Typescript::default().bigint(specta_typescript::BigIntExportBehavior::Number),
+"../src/bindings.ts",
+)
+.expect("should work");
+tauri::Builder::default()
+.invoke_handler(tauri_collect_commands!())
+.run(tauri::generate_context!())
+.expect("error while running tauri application");
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+Creating tauri-helper wasn’t as easy as expected honestly, especially for a first project, Rust macros, multi-crate workspaces, and build-time code generation all posed major issues during the development. But solving them resulted in a small, robust crate that simplifies at least a bit command collection in Tauri projects.
+If you’re building Tauri apps and tired of boilerplate, tauri-helper lets you write Rust code efficiently while keeping command registration automatic and organized and let you avoid this hellish thousands of lines lib.rs that is a nightmare to work with.
+Not because it is my crate but I honestly use it on EVERY new Tauri project I start, it's just that useful.
+A small side note for Rust devs: with Rust 1.90.0, cargo publish --workspace was introduced, this makes publishing multi-crate workspaces much easier, which simplify quite a lot the publishing of multi-crate workspaces and will make tauri-helper even more useful since you can now create as many crates as you want without the headache of publishing them. It’s not critical for using the crate, but it’s a nice quality-of-life improvement for developers managing multi-crate projects.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+RiadYan
+Follow
+Joined
+Sep 20, 2025
+Trending on DEV Community
+Hot
+Top 7 Featured DEV Posts of the Week
+#top7
+#discuss
+Orchestrating Real-World Agent Workflows with MCP
+#ai
+#beginners
+#tutorial
+#discuss
+AI Coding Is Boring — And What To Do About It
+#vibecoding
+#ai
+#coding
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

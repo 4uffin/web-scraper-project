@@ -1,0 +1,243 @@
+Odoo 17 domain filter does not behave consistently - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Odoo 17 domain filter does not behave consistently
+Ask Question
+Asked
+3 days ago
+Modified
+3 days ago
+Viewed
+28 times
+2
+Here's is output from Odoo shell
+>>> env['stock.quant'].search([('on_hand','=',True),('product_id','=',6800)])
+stock.quant(1189, 7017, 7914)
+>>> p=env['product.product'].browse(6800)
+>>> p
+product.product(6800,)
+>>> p.stock_quant_ids
+stock.quant(141, 1189, 1197, 7017, 7914)
+>>> p.stock_quant_ids.filtered_domain([('on_hand','=',True)])
+stock.quant()
+So here's is what I'm trying to do: I want to get all stock quants for a given product where on_hand == True
+When I search directly on the stock.quant model and filter by the product id, I get the expected result.
+The product model has a stock_quant_ids field with all its stock quants prefiltered by the given product (this recordset includes all records in 1. above). However, when I filter this result for on_hand == True, I get an empty recordset
+I expected the 1. and 2. to produce the same result, so I'm wondering why this. I would appreciate any insight to help me understand this behaviour?
+odooodoo-17
+Share
+Improve this question
+Follow
+asked Sep 17 at 18:10
+SeawornSeaworn
+58666 silver badges1414 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+If you look at Odoo's source code you'll see this
+class StockQuant(models.Model):
+on_hand = fields.Boolean('On Hand', store=False, search='_search_on_hand')
+Which means that the on_hand field is not stored in the database, but calculated
+My guess is that only search does the proper filtering in the database, but the other methods don't, so better stick with it.
+You can also do this (from my own Odoo instance)
+In [2]: p=env['product.product'].browse(6275)
+In [3]: p
+Out[3]: product.product(6275,)
+In [4]: p.stock_quant_ids
+Out[4]: stock.quant(11431, 14798, 16564, 126403, 133012, 166809)
+In [5]: p.stock_quant_ids.mapped('id')
+Out[5]: [11431, 14798, 16564, 126403, 133012, 166809]
+In [6]: env['stock.quant'].search([('id', 'in', p.stock_quant_ids.mapped('id')), ('on_hand', '=', True)])
+Out[6]: stock.quant(126403, 133012, 166809)
+Share
+Improve this answer
+Follow
+answered Sep 17 at 18:51
+paoloosepaoloose
+29033 silver badges1313 bronze badges
+1 Comment
+Add a comment
+Seaworn Seaworn Sep 17 at 19:58
+I'm aware it's a computed field, but you are probably right - it must have something to do with that. I have always thought the purpose of the search parameter is to allow the field to be searchable like a regular stored field so this is kind of surprising....maybe someone has a technical explanation for this behavior 2025-09-17T19:58:10.183Z+00:00
+0
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+odooodoo-17
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+1
+Odoo 8 domain filter on Many2one field
+0
+odoo domain search "id in ids"
+1
+Odoo API search criteria not fully recognised
+1
+Odoo many2one field related to one2many
+0
+How to store relational fields to the database?
+15
+Odoo 8: Many2many domain filter
+2
+Domain filter does not work in odoo xml file
+1
+How to create product variants from the product template attribute lines in Odoo?
+Hot Network Questions
+Is "allowed" a past participle or an adjective?
+What does ripe fig falling into the eater's mouth in Nahum 3:12 signify?
+Update docker service volume
+post hoc tests after running repeated measures ANOVA
+The unit normal field to an oriented manifold in Munkres “Analysis on Manifolds”
+When was God featured in The Simpsons?
+git says Bad key types '+ssh-rsa,ssh-dss' when trying to do git fetch on my MacBook. How do I fix?
+What happens when a creature with the See Invisibility spell is blinded?
+What is the probe like structure next to the static port on this cessna 172?
+How did "hospital" lose its first syllable in some languages?
+Infinite hyperbolic group contains infinite order elements
+keytheorems + tcolorbox: accessing tcbkeys in the optional argument of an already declared theorem
+What is this circuit box for
+Check whether a binary tree is symmetric
+What would be the impact of a being that is so hot it melts metal from 1km away. How far away would be habitable? (On Earth btw)
+Ever in an affirmative context?
+Why does temperature increase mass?
+Prospective new PI wants to chat with former PI who kicked me out. What to do?
+Was my travel companion unfairly denied entry to Aruba due to discrimination?
+How does energy abundance affect materials science?
+Can I ask to postpone publication after acceptance?
+What was so bad about what Kimmel said about Charlie Kirk?
+"Saying who or what did the action would be clearer": passive voice vs. active voice in a technical document/checklist?
+Submitted the same research article in two journals, now I'm scared
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

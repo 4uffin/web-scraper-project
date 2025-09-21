@@ -1,0 +1,208 @@
+Setup Yubikey passwordless authentication in OpenSuse Tumbleweed or Slowroll · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+pavinjosdev/yubikey_auth_suse.md
+Last active
+September 21, 2025 00:43
+Show Gist options
+Download ZIP
+Star
+4
+(4)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/pavinjosdev/04bb92a6c844fe2bd92ce2ac58aa77a4.js&quot;&gt;&lt;/script&gt;
+Save pavinjosdev/04bb92a6c844fe2bd92ce2ac58aa77a4 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+3
+Stars
+4
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/pavinjosdev/04bb92a6c844fe2bd92ce2ac58aa77a4.js&quot;&gt;&lt;/script&gt;
+Save pavinjosdev/04bb92a6c844fe2bd92ce2ac58aa77a4 to your computer and use it in GitHub Desktop.
+Download ZIP
+Setup Yubikey passwordless authentication in OpenSuse Tumbleweed or Slowroll
+Raw
+yubikey_auth_suse.md
+Install packages
+sudo zypper install yubikey-manager pam_u2f
+Insert Yubikey and test
+ykman info
+ykman fido info
+Configure FIDO2/U2F key for your account
+sudo mkdir -p /etc/Yubico
+echo `pamu2fcfg -N` | sudo tee -a /etc/Yubico/u2f_keys
+See man 1 pamu2fcfg for more details.
+Repeat the pamu2fcfg key generation process for other users such as root.
+Configure FIDO2/U2F key for passwordless authentication (new method)
+This would enable passwordless authentication for specific services using FIDO2 PIN and confirms user's presence.
+Perform this only as root, otherwise you may be locked out.
+Refer: man 5 pam.conf and man 8 pam-config for more details.
+Default pam config files can be found in /usr/lib/pam.d directory.
+nano /etc/pam.d/gdm-password
+#%PAM-1.0
+# GDM PAM standard configuration (with passwords)
+auth
+requisite
+pam_nologin.so
+auth
+sufficient
+pam_u2f.so
+authfile=/etc/Yubico/u2f_keys cue
+auth
+substack
+common-auth
+auth
+include
+postlogin-auth
+account
+substack
+common-account
+account
+include
+postlogin-account
+password substack
+common-password
+password include
+postlogin-password
+session
+required
+pam_loginuid.so
+session
+optional
+pam_keyinit.so force revoke
+session
+substack
+common-session
+session
+include
+postlogin-session
+nano /etc/pam.d/sudo
+#%PAM-1.0
+auth
+sufficient
+pam_u2f.so
+authfile=/etc/Yubico/u2f_keys cue
+auth
+include
+common-auth
+account
+include
+common-account
+password include
+common-password
+session
+optional
+pam_keyinit.so revoke
+session
+include
+common-session-nonlogin
+# session
+optional
+pam_xauth.so
+nano /etc/pam.d/sudo-i
+#%PAM-1.0
+auth
+sufficient
+pam_u2f.so
+authfile=/etc/Yubico/u2f_keys cue
+auth
+include
+common-auth
+account
+include
+common-account
+password include
+common-password
+session
+optional
+pam_keyinit.so force revoke
+session
+include
+common-session
+# session
+optional
+pam_xauth.so
+Verify configuration
+Open new terminal and test using sudo <cmd>
+Open new terminal and test using sudo -i
+Open new graphical tty and check lockscreen enable/disable
+Configure FIDO2/U2F key for passwordless authentication (old method)
+This would enable passwordless authentication using FIDO2 PIN and confirms user's presence.
+This is not recommended as it cuts pam-config out of the picture which can cause rpm scripts that call pam-config to return an error.
+This is especially problematic when using transaction-update (TU) to perform distribution upgrade, as TU would discard the whole update if even a single operation returns non-zero exit code.
+Perform this only as root, otherwise you may be locked out.
+Check if pam-config manages /etc/pam.d/common-auth by checking if it's a symlink:
+readlink /etc/pam.d/common-auth
+If it's a symlink, do:
+rm /etc/pam.d/common-auth
+Create file /etc/pam.d/common-auth with following contents:
+#%PAM-1.0
+auth
+required
+pam_env.so
+auth
+sufficient
+pam_u2f.so
+authfile=/etc/Yubico/u2f_keys cue
+auth
+optional
+pam_gnome_keyring.so
+auth
+required
+pam_unix.so
+try_first_pass
+Check /etc/pam.d/common-auth-pc to arrive at the aforementioned contents.
+See man 5 pam.conf for more details.
+Verify configuration
+Open new terminal and test using sudo <cmd>
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

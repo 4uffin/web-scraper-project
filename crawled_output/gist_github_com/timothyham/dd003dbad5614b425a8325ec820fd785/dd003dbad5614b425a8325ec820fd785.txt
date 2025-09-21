@@ -1,0 +1,364 @@
+A Short IPv6 Guide for Home IPv4 Admins · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+timothyham/ipv6guide.md
+Last active
+September 20, 2025 11:33
+Show Gist options
+Download ZIP
+Star
+482
+(482)
+You must be signed in to star a gist
+Fork
+29
+(29)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/timothyham/dd003dbad5614b425a8325ec820fd785.js&quot;&gt;&lt;/script&gt;
+Save timothyham/dd003dbad5614b425a8325ec820fd785 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+24
+Stars
+482
+Forks
+29
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/timothyham/dd003dbad5614b425a8325ec820fd785.js&quot;&gt;&lt;/script&gt;
+Save timothyham/dd003dbad5614b425a8325ec820fd785 to your computer and use it in GitHub Desktop.
+Download ZIP
+A Short IPv6 Guide for Home IPv4 Admins
+Raw
+ipv6guide.md
+A Short IPv6 Guide for Home IPv4 Admins
+This guide is for homelab admins who understand IPv4s well but find setting up IPv6 hard or annoying because things work differently. In some ways, managing an IPv6 network can be simpler than IPv4, one just needs to learn some new concepts and discard some old ones.
+Let’s begin.
+First of all, there are some concepts that one must unlearn from ipv4:
+Concept 1
+Don’t pick numbers. Because IPv4 space is small, we are used to managing them, thinking about them, memorizing them. So we pick numbers like 1, 10, 20, 101, etc. However, IPv6 address space is so big, it’s better to let the computers pick the numbers randomly from the large address space, and not limit yourself to small numbers. Use DNS, so you can remember names and not numbers. Therefore, never pick your own numbers! This is fundamental to IPv6, and going against this concept will make everything harder, so don’t do it.
+"IPV4 addresses are like diamonds, IPV6 addresses are like sand..."
+Concept 2
+IPv6 will have multiple addresses per interface. It can (and will) have dozens (for privacy) of addresses. This is normal. Fighting this will also make everything harder. Just accept the fact that a host will have multiple addresses.
+The above concepts are what makes IPv6 different from IPv4, so it’s better to let them go as soon as possible.
+Ok, now on to IPv6.
+Concept 3
+IPv6 addresses are 128 bits long. You have the first 64 bits as the routable part, called the prefix, and the last 64 bits as the interface identifier. Your ISP will give you the first 64 bits, and your host machine will have the last 64 bits. Furthermore, IPv6 subnets are always 64 bits or /64. This will make life much simpler for you as a network admin—no more thinking about subnet masks.
+The addresses are displayed as 8 groups of hexadecimals, like this: 1111:2222:3333:4444:aaaa:bbbb:cccc:dddd. The first 4 groups (1111:2222:3333:4444) is the prefix, and the last 4 groups is the machine or interface identifier (aaaa:bbbb:cccc:dddd). Some runs of zeros can be condensed as ::.
+There are some common prefixes to remember. Globally routable addresses start with a 2 or possibly 3, like 2xxx::. Link local start with fe80:: and ULA (Unique Local Address, similar to private addresses in IPv4) start with fdxx::. Memorize these. These are not any harder to remember than knowing 192.168.x.x and 10.x.x.x are private IPv4 addresses.
+Concept 4
+IPv6 uses Router Advertisement (RA), not DHCP. The difference is that whereas DHCP will give the asking client the exact IP address, while keeping track of a lot of state (like MAC address, lease time, etc etc), RA just advertises the prefix. When the client sees the RA, it will self-configure its own IPv6 address using the advertised prefix plus its own unique identifier. This is called Stateless Address Auto Configuration (SLAAC), and it removes the need for a stateful DHCPD server. For a given prefix, the interface will always pick the same identifier, (in fact, the eui-64 algorithm will pick the same identifier across multiple prefixes), so once a client picks an IPv6 address, you can assume it’s stable. A slightly different algorithm will pick a different identifier for different prefixes, but these will also be stable for each prefix.
+There exists stateful DHCPv6 servers which can hand out full IPv6 addresses just like IPv4 DHCP, but Android does not support these, and are not needed for a fully functional IPv6 setup. As tempting as it is, there is no need for an IPv6 DHCP server on your LAN.
+Concept 5
+Prefix Delegation. As seen from concept 4, routing is done by advertising the prefix. So how do I get this prefix from the ISP? You ask for it via prefix delegation (PD). With IPv4, when your router connects to your ISP, you get one public address for the WAN, and you use a picked private address like 192.168.0.0/24 for your LAN. With IPv6, since you want a globally routable address for hosts on your LAN also, you need to ask the ISP for a routable prefix.
+After your router connects to your ISP, the router can ask for prefix delegation, using DHCPv6. RFC suggests that the ISP should give you a /56 address space, giving you 255 routable subnets, but some (looking at you, Comcast) gives you only one /64 by default, which is just one routable subnet. Comcast can give you a /60, or 16 routable subnets, but you have to ask for it via config.
+As a side note, if you get a /56 PD, your prefix will be something like 1111:2222:3333:4400, where the zeros can be replaced by a hexadecimal number of your choosing, allowing you to have 256 subnets. A /60 prefix delegation is something like 1111:2222:3333:4440, where the zero can be replaced by one hexadecimal number, giving you 16 subnets.
+Once you have the prefix, your dhcpv6 client will assign that prefix+address to your LAN interface, and something like radvd can Route Advertise that prefix on that interface. Other hosts on the LAN can now automatically configure their own prefix+identifier IPv6 addresses.
+Concept 6
+ULA (unique local addresses). These are like private addresses from IPv4, but with a much larger address space. Remember Concept 1: don’t pick numbers. Use a website to randomly generate a ULA prefix. For company level LANs, this will allow multiple LANs to be merged in the future without conflict.
+Once you have a ULA, assign it to your LAN interface. Radvd will pick it up and advertise it to the rest of your LAN, giving all your hosts a second IPv6 address.
+You want to use these ULA for all your LAN communication. If you want to reach your printer or a media server, put their ULAs in the DNS and not the globally routable one. The reasons are that 1) for residential internet, the globally routable prefix can change and 2) if your ISP goes down for some reason, your LAN can function without disruption.
+Now that we’ve gone through the concepts, let’s setup the LAN.
+Configure your router to get IPv6 from your ISP. Most Linux distros will have instructions on setting up IPv6, RA, and PD on your Linux router.
+Configure your LAN with a ULA. Now your hosts will have a globally routable address and a local address.
+For servers on your LAN that you want to talk to, add their ULA to the LAN DNS. Heck, you could even add ULA to the global DNS, but if your internet goes out, that will stop working.
+For your externally visible servers, use dyndns type service, and update it with the globally routable address. Residential internet will rotate the prefix over time (the prefix is dynamic), so this is the same as running a server on a residential dynamic IPv4.
+For firewall, drop all inbound packets by default. For externally visible servers, you can match the last 64 bits only, so that changing prefixes don’t affect the firewall rules. For nftables, the syntax to match ssh and ping on ipv6 identifier is
+chain forward {
+type filter hook forward priority 0;
+policy drop;
+# allow forwarding of some incoming connections to ::aaaa:bbbb:cccc:dddd
+ip6 daddr & ::ffff:ffff:ffff:ffff == ::aaaa:bbbb:cccc:dddd tcp dport 22 accept
+ip6 daddr & ::ffff:ffff:ffff:ffff == ::aaaa:bbbb:cccc:dddd icmpv6 type {echo-request} accept
+ct state vmap { established : accept, related : accept, invalid : drop }
+}
+For some reason, people are mistakenly getting that ULA could be used for IoT devices. Let's think about this for a minute.
+If an IoT device must be disconnected from the internet entirely, in IPv4, it would get its own subnet away from your other hosts, without a route to the internet. In this use case, ULA only subnet would behave exactly the same way.
+However, for IoT devices that need the internet to function, for example a SmartTV or SmartFridge, having only a ULA means the device would make a request from its ULA to the router, the router would need to do NAT (substitute the device's ULA to its own routable address, and when the reply comes back, forward it back to the device; aka source nat) in order to forward reply packets back to the device. This adds an unnecessary NAT in the path! Might as well let it have a globally routable IPv6 address, and protect it by blocking incoming connections at the firewall, like all other devices on your LAN.
+Privacy. EUI-64 is to give incoming requests a stable address to reach by. On a properly configured IPV6 enabled device (laptops, phones) outgoing requests would go out via a temporary, randomly generated, "privacy" address that change over time. Remember Concept 2. After an hour or so of browsing, such clients will have dozens of temporary SLAAC addresses for privacy. This may not be true with SmartTV type devices.
+Copy link
+orgcontrib
+commented
+Jun 7, 2024
+At Concept 6, I think you meant to say "from IPv4", or am I wrong?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+timothyham
+commented
+Jun 7, 2024
+At Concept 6, I think you meant to say "from IPv4", or am I wrong?
+TY!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+86dd
+commented
+Jun 7, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+This is already pretty decent, but I still have some points of feedback:
+NEVER completely filter ICMPv6. It is very important for stuff like PMTUD so that connections don't suddenly break. I just let all ICMPv6 through, always. If you don't like that, here is an RFC on what MUST be let through: https://www.rfc-editor.org/rfc/rfc4890#section-4.3
+I'd themathesize on how NAT is not security, but that the statefulness of the firewall is (ct state { established, related })
+I'm willing to create a ruleset that tries to be as compliant to IPv6 as possible, but I gotta get going for now.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+timothyham
+commented
+Jun 7, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+This is already pretty decent, but I still have some points of feedback:
+NEVER completely filter ICMPv6. It is very important for stuff like PMTUD so that connections don't suddenly break. I just let all ICMPv6 through, always. If you don't like that, here is an RFC on what MUST be let through: https://www.rfc-editor.org/rfc/rfc4890#section-4.3
+Thanks for the comment.
+The RFC4890 section 4.3 you mention says
+"As discussed in Section 3.2, the risks from port scanning in an IPv6 network are much less severe, and it is not necessary to filter IPv6 Echo Request messages."
+And section 3.2 says (emphasis mine)
+"However, the very large address space of IPv6 makes probing a less
+effective weapon as compared with IPv4 provided that addresses are not allocated in an easily guessable fashion.
+This subject is explored in more depth in [SCAN-IMP]."
+And SCAN-IMP says
+"Second, in the case of statelessly autoconfiguring [1] hosts, the host part of the address will take a well-known format that includes the Ethernet vendor prefix and the "fffe" stuffing.
+For such hosts, if the Ethernet vendor is known, the search space may be reduced to
+24 bits (with a one probe per second scan then taking 194 days). Even where the exact vendor is not known, using a set of common vendor prefixes can reduce the search space.
+In addition, many nodes in a site network may be procured in batches, and thus have sequential or near sequential MAC addresses; if one node's autoconfigured address is known, scanning around that address may yield results for the attacker.
+Any form of sequential host addressing should be avoided if possible."
+I think a fair summary of all that is: "allow open pings because scanning ipv6 networks is not that effective because the address space is large, if the address assignment is not easily guessable".
+Most of my world visible servers are virtual machines with effectively sequential MAC addresses, making them trivial to scan for. I don't know exactly what that means for security, but since their address assignment violates the underlying assumption of making them available for ping responses, I choose to drop ping requests at the firewall.
+For a "short guide", having a conservative default seems reasonable.
+I'd themathesize on how NAT is not security, but that the statefulness of the firewall is
+I agree with this, but this document was not really about NAT and firewalls, and
+I tried to keep it "short" and on topic.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jwmccullen
+commented
+Jun 9, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+First, I applaud this write up. Well done. This information is much needed, especially as ISPs are having a really hard time properly supporting or explaining IPv6.
+The only thing I would add to the open protocol/port question is that wide brute force address scanning is not the biggest concern. The consideration that you need to keep in mind is scanning is often initiated by sites you visit either directly or indirectly. For those getting going and wrapping your head around networking concepts, download TCPView if you are on Windows or use the command "ss -utn" if you are Linux right after visiting a web site. You will then see all the sessions/conversations/streams that your browser opened. You will probably also notice how many different IPs you get from one website as it talks out to advertising, trackers and the like. These conversations live and die very quickly and are the basic concept of a stateful firewall. When something from the inside starts one of these sessions a firewall expects a reply from the destination server and opens up a temporary hole until that session is finished, which can happen very quickly.
+When you add that to the mix, as well as services that might be watching traffic along the way (VPNs, hosting networks, etc.), then your IP is not quite as random or obscure as one might think. That information can be fed to bots to do the grunt work of scanning for open ports.
+ISP frustration
+Most ISPs that I have seen would like you to use their modem/router. For them this is easy. They pass the IPv6 directly through to your LAN. They only really want to give you a single network "/64". Well, the problem with that is then you are completely relying on the ISP for your protection/privacy. That is assuming that they are not already mining your traffic in some way. That is also why they love to be your DNS. The information of every site you visit is valuable. For those that are not comfortable with that, things get difficult.
+You mentioned prefix delegation. That is where your router asks the ISP router for several networks so that you can use them internally. If you use more than one internally your router has to be smart enough to pull the "pool" of networks and route them accordingly. I would love to know how you did that with your ISP. I have not seen any ISP modems that support it, as they want to only provide you the one pass through network. The only solution I have seen is to put your modem in pass through mode which then essentially disables the ISP router functionality and passes it on to your router. Is that how you are using it?
+The only other method I have seen is to use the IPv6 version of NAT which is "prefix translation". That allows you to keep the internal ULAs, and then the router simply changes the ULA prefix to the Global prefix on the ISP facing side of the router. For those doing research, that is still a lot better than IPv4s Port Address Translation (PAT) form of NAT. Prefix translation is a one to one correlation of ports for every IP translated, thanks to the HUGE number of hosts in a given IPv6 network.
+Would you share your mileage on the subject and potential potholes you faced? Thanks.
+As you can tell I have been wrestling with this one for a while.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+cshilton
+commented
+Jun 9, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Regarding the assignment of addresses derived from mac addresses, those addresses that use :fffe:, it should be said that this style of self-assigned address assignment has been deprecated for a while. While I'm sure that there is still older code setting addresses this way, the new style, privacy enhanced addresses, is much better. Under privacy enhanced addresses your device will pick an IPv6 address within the SLAAC prefix and hold it for set period of time. These privacy enhanced addresses time out and get replaced according to parameters you setup in your SLAAC server. Addresses that have timed out are held so long as there are active connections tied to the address. Once the a new address is cut, your device will not longer initiate connections from the old address. The gains are obvious, web servers can't tell that you are browsing from a Macintosh for example.
+I've been doing IPv6 for a while. My standard on my servers is to use SLAAC to get the initial address and routing parameters, and then to use static number assignment for interface aliases, against the advice of this article, but only for things that provide services. In practice this amounts to what the Apache webserver used to call IP based virtual hosting. This can be handy from a firewalling perspective: E.g. host your webservers in <prefix>::1dd:<assigned_number> -- (hhhh:iiii:jjjj:kkkk:0:0:1dd:<assigned_number>. Now you can have one firewall rule: pass in https traffic to <prefix>::1dd:0/112. Thus granting permission to use https servers is easy. From a security perspective, you probably don't want to use
+1dd, hex for 443, here since that's an obvious scanning point for https servers but other than that it works.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+86dd
+commented
+Jun 10, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+For a "short guide", having a conservative default seems reasonable.
+Your ruleset has policy drop. So ICMPv6 PMTUD is not let through, thus breaking connections. Consider adding the packet types or just change it to let all ICMPv6 through. I can write examples. Also, blocking echo-request but letting port 22 open lets people still discover hosts. Sequential addressing is very unlikely, but if you do it sequential addressing it often has a reason and you might just point a domain to that. When someone knows the IPv6 address anyway, letting through ICMPv6 wont change anything. Also, routers may respond with ICMPv6 no route to host anyway, letting people know there is no host on this addr. PMTUD and ICMPv6 is very important for IPv6, so I'd also themathesize that people should never blindly drop it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+l8gravely
+commented
+Jun 10, 2024
+So how do VLANs on the home route interact with IPv6 and subnets?
+Because I have my IoT VLAN which is allowed to access the internet, but not other internal hosts.
+And maybe some simple diagrams and common examples.
+For example, if I run a minecraft server at home, what do I need to do to have it show up as both IPv4 and IPv6 for external people?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+0x3333
+commented
+Jun 10, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+radvd = Router Advertisement Daemon
+Router Advertisement Daemon is an open-source software product that implements link-local advertisements of IPv6 router addresses and IPv6 routing prefixes using the Neighbor Discovery Protocol(NDP) as specified in RFC 2461.
+Source: https://en.wikipedia.org/wiki/Radvd
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+0x3333
+commented
+Jun 10, 2024
+In Concept 6 it says:
+...This adds an unnecessary NAT in the path!...
+To the best of my knowledge, IPv6 doesn't have NAT, what do you mean by that?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+86dd
+commented
+Jun 11, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+In Concept 6 it says:
+...This adds an unnecessary NAT in the path!...
+To the best of my knowledge, IPv6 doesn't have NAT, what do you mean by that?
+NAT in this case has nothing to do with protocol version, it's concept can also be done with IPv6. You can create a table named ip6 nat in nftables and do your NAT like on IPv4. However, this should not be done unless absolutely necessary.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Michagogo
+commented
+Jun 17, 2024
+For your externally visible servers, use dyndns type service, and update it with the globally routable address. Residential internet will rotate the prefix over time (the prefix is dynamic), so this is the same as running a server on a residential dynamic IPv4.
+The one difference is that now that has to be set up on the device/server itself, or at least on a per-device basis with a mechanism that’s able to discover the address of the target device (or have a fixed suffix that it knows how to append to the network address), as opposed to IPv4 (with port forwarding) where one device (either the router, or any one host) could do it on behalf of the whole network.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+timothyham
+commented
+Jun 17, 2024
+For your externally visible servers, use dyndns type service, and update it with the globally routable address. Residential internet will rotate the prefix over time (the prefix is dynamic), so this is the same as running a server on a residential dynamic IPv4.
+The one difference is that now that has to be set up on the device/server itself, or at least on a per-device basis with a mechanism that’s able to discover the address of the target device (or have a fixed suffix that it knows how to append to the network address), as opposed to IPv4 (with port forwarding) where one device (either the router, or any one host) could do it on behalf of the whole network.
+You could still have your router update dns records for all the servers when it detects a prefix change, as long as the servers are using eui-64.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+timothyham
+commented
+Jun 17, 2024
+https://blog.apnic.net/2022/06/10/iot-devices-endanger-ipv6-privacy/ https://dl.acm.org/doi/10.1145/3544912.3544915
+I trust my ISP to at least rotate the prefix for me, but how can I rotate the suffix, if a device in LAN is not cooperative, because it is IoT spyware like a smart TV ignoring privacy extensions and uses legacy EUI-64?
+IPv6 is far from ready unless I can assign any device legacy DHCP style 100% randomized suffixes. I seriously don't want to deal with this and rather NAT to IPv4 if I was forcibly IPv6 terminated to WAN.
+I would think that your SmartTV is hitting a fixed list of tracking websites, with a unique token in the payload, regardless of whether your ISP is rotating IPs or not. I don't think IPv6, even with privacy extension, is going to protect your privacy there.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+lpar
+commented
+Jun 17, 2024
+I'd be inclined to put in a note that now is a good time to start using Zeroconf rather than trying to memorize ULA addresses. (Microsoft were the last holdout, and apparently Windows 10 now supports it.)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+pedrompcaetano
+commented
+Jun 18, 2024
+This has some nicely compiled information about whether filtering icmp or not:
+http://shouldiblockicmp.com/
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+michaelbeaumont
+commented
+Aug 27, 2024
+This seems like a good place to mention RFC4864 - Local Network Protection for IPv6 which goes into detail on why NAT isn't necessary in the context of security.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+myokeeh
+commented
+Dec 30, 2024
+I just found out about ULA (Unique Local Address), but disappointed that I can't set it up on my Unifi network via the UI. Using a UXG-Lite.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+xaviershay
+commented
+Jan 12, 2025
+thank you so much for writing this, best intro I've found. I'm still a bit confused about what is/isn't possible with my current AmpliFi router (i.e. do I need to replace it), that's my next research project.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

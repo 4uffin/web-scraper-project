@@ -1,0 +1,402 @@
+Part-67: 🌍 Mastering Google Cloud Global Load Balancers: Regional MIG + Global HTTP Demo - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Latchu@DevOps
+Posted on Sep 20
+Part-67: 🌍 Mastering Google Cloud Global Load Balancers: Regional MIG + Global HTTP Demo
+#googlecloud
+#devops
+#cloud
+#learning
+Google Cloud - Regional Managed Instance Groups
+Step-01: Introduction
+i. Creatre VPC: vpc3-custom
+ii. Create Firewall Ingress Rules
+Allow ICMP
+Allow SSH 22
+Allow all ip, all ports between VM instances in a VPC network
+Allows traffic from the Google Cloud health checking systems (130.211.0.0/22 and 35.191.0.0/16)
+iii. Create two subnets in two regions
+us-central1-subnet
+us-east1-subnet
+iv. Create Instance Template in us-central1, us-east1 regions
+v. Create Global Health check (applicable for both us-east1 and us central1 regions)
+vi. Create Managed Instance Groups in us-central1, us-east1 regions
+Create Managed Instance Group (MIG)
+Create Named port for MIG
+Step-02: Create VPC Network
+# Set Project
+gcloud config set project PROJECT_ID
+gcloud config set project gcpdemos
+# Create VPC Network
+gcloud compute networks create vpc3-custom --subnet-mode=custom --bgp-routing-mode=global
+Enter fullscreen mode
+Exit fullscreen mode
+Step-03: Create VPC Firewall Rules
+# Firewall Rule-1: Allows ICMP connections from any source to any instance on the network
+gcloud compute firewall-rules create vpc3-custom-allow-icmp \
+--network=vpc3-custom \
+--description=Allows\ ICMP\ connections\ from\ any\ source\ to\ any\ instance\ on\ the\ network \
+--direction=INGRESS \
+--priority=65534 \
+--source-ranges=0.0.0.0/0 \
+--action=ALLOW \
+--rules=icmp
+# Firewall Rule-2: Allows TCP connections from any source to any instance on the network using port 22.
+gcloud compute firewall-rules create vpc3-custom-allow-ssh \
+--network=vpc3-custom \
+--description=Allows\ TCP\ connections\ from\ any\ source\ to\ any\ instance\ on\ the\ network\ using\ port\ 22. \
+--direction=INGRESS \
+--priority=65534 \
+--source-ranges=0.0.0.0/0 \
+--action=ALLOW \
+--rules=tcp:22
+# (OPTIONAL) Firewall Rule-3: Allows connection from any source to any instance on the network using custom protocols
+gcloud compute firewall-rules create vpc3-custom-allow-custom \
+--network=vpc3-custom \
+--description=Allows\ connection\ from\ any\ source\ to\ any\ instance\ on\ the\ network\ using\ custom\ protocols. \
+--direction=INGRESS \
+--priority=65534 \
+--source-ranges=10.128.0.0/9 \
+--action=ALLOW \
+--rules=all
+# Firewall Rule-4: Ingress rule that allows traffic from the Google Cloud health checking systems (130.211.0.0/22 and 35.191.0.0/16).
+gcloud compute firewall-rules create vpc3-custom-allow-health-check \
+--network=vpc3-custom \
+--description=Allows\ traffic\ from\ Google\ Cloud\ health\ checking\ systems \
+--direction=ingress \
+--source-ranges=130.211.0.0/22,35.191.0.0/16 \
+--action=allow \
+--rules=tcp:80
+Enter fullscreen mode
+Exit fullscreen mode
+Step-04: Create Subnets
+# Subnet1: Create Subnet in us-central1 region
+gcloud compute networks subnets create us-central1-subnet \
+--description=us-central1-subnet \
+--range=10.135.0.0/20 \
+--stack-type=IPV4_ONLY \
+--network=vpc3-custom \
+--region=us-central1
+# Subnet2: Create Subnet in us-east1 region
+gcloud compute networks subnets create us-east1-subnet \
+--description=us-east1-subnet \
+--range=10.145.0.0/20 \
+--stack-type=IPV4_ONLY \
+--network=vpc3-custom \
+--region=us-east1
+Enter fullscreen mode
+Exit fullscreen mode
+Step-05: Create Health Check - Global
+# Create health check - global
+gcloud compute health-checks create http global-http-health-check --port 80
+Enter fullscreen mode
+Exit fullscreen mode
+Step-06: Review Startup Script
+#!/bin/bash
+sudo apt install -y telnet
+sudo apt install -y nginx
+sudo systemctl enable nginx
+sudo chmod -R 755 /var/www/html
+HOSTNAME=$(hostname)
+sudo echo "<!DOCTYPE html> <html> <body style='background-color:rgb(250, 210, 210);'> <h1>Welcome to Latchu@DevOps - WebVM App1 </h1> <p><strong>VM Hostname:</strong> $HOSTNAME</p> <p><strong>VM IP Address:</strong> $(hostname -I)</p> <p><strong>Application Version:</strong> V1</p> <p>Google Cloud Platform - Demos</p> </body></html>" | sudo tee /var/www/html/index.html
+Enter fullscreen mode
+Exit fullscreen mode
+Make ensure this nginx-webserver.sh file should be available in GCloud Shell
+Step-07: us-central1: Create Instance Template and Managed Instance Group
+Important Note:
+i. Upload nginx-webserver.sh to Google Cloud shell if running gcloud commands on cloud shell
+ii. Ensure nginx-webserver.sh is present in the current directory where you are running this gcloud command
+Create Instance Template
+Create Managed Instance Group
+i. Create Managed Instance Group (MIG)
+ii. Create Named port for MIG
+# 1. us-central1: Create Instance Template
+gcloud compute instance-templates create it-lbdemo-us-central1 \
+--region=us-central1 \
+--network=vpc3-custom \
+--subnet=us-central1-subnet \
+--machine-type=e2-micro \
+--metadata-from-file=startup-script=nginx-webserver.sh
+# 2. Create the managed instance group and select the instance template.
+gcloud compute instance-groups managed create mig1-us-central1 \
+--template=it-lbdemo-us-central1 \
+--size=2 \
+--zones=us-central1-b,us-central1-c \
+--health-check=global-http-health-check
+# 3. Add a named port to the instance group
+gcloud compute instance-groups set-named-ports mig1-us-central1 \
+--named-ports webserver80:80 \
+--region us-central1
+Enter fullscreen mode
+Exit fullscreen mode
+Step-04: us-east1: Create Instance Template and Managed Instance Group
+Create Instance Template
+Create Managed Instance Group
+i. Create Managed Instance Group (MIG)
+ii. Create Named port for MIG
+# 1. us-east1: Create Instance Template
+gcloud compute instance-templates create it-lbdemo-us-east1 \
+--region=us-east1 \
+--network=vpc3-custom \
+--subnet=us-east1-subnet \
+--machine-type=e2-micro \
+--metadata-from-file=startup-script=nginx-webserver.sh
+# 2. us-east1: Create the managed instance group and select the instance template.
+gcloud compute instance-groups managed create mig2-us-east1 \
+--template=it-lbdemo-us-east1 \
+--size=2 \
+--zones=us-east1-c,us-east1-d \
+--health-check=global-http-health-check
+# 3. us-east1: Add a named port to the instance group
+gcloud compute instance-groups set-named-ports mig2-us-east1 \
+--named-ports webserver80:80 \
+--region us-east1
+Enter fullscreen mode
+Exit fullscreen mode
+Step-05: Verify the following resources
+VPC
+Subnets
+Firewalls
+Health Checks
+Instance Templates
+Managed Instance Groups
+Cloud Load Balancing - Application Load Balancer (HTTP/S)
+Application Load Balancer (HTTP/S)
+Proxy-based Layer 7 load balancers
+Proxy-based means - Client traffic terminated on Load Balancer and new Connection created from load balancer to backends
+Provides - content-based routing and Application-aware health checks
+External & Internal
+Global - support backends in multiple regions
+Regional - support backends in a single region only
+Enter fullscreen mode
+Exit fullscreen mode
+Accessibility
+External: Accessible via internet
+Internal: Accessible to systems in VPC or systems connected to VPC
+Enter fullscreen mode
+Exit fullscreen mode
+Ideal for web applications, APIs and microservices
+Global External Application Load balancer HTTP
+Implement a Google Cloud - Global External Application Load Balancer HTTP
+Step-01: Introduction
+Pre-requisite-1: Create Instance Templates, Create Managed Instance Groups as we created in first stage
+Create Global Application Load Balancer - HTTP
+Step-02: Create Global HTTP Load Balancer
+Application Load Balancer (HTTP/S)
+Go to Network Services -> Load Balancing -> CREATE LOAD BALANCER
+Select Application Load Balancer (HTTP/S): START CONFIGURATION
+Internet facing or internal only: From Internet to my VMs or serverless services
+Global or Regional: Global external Application Load Balancer
+Click on CONTINUE
+Load Balancer name: global-lb-external-http
+Frontend Configuration
+Click on ADD FRONTEND IP AND PORT
+Name: frontend-http
+Description: frontend-http
+Protocol: HTTP
+IP Version: IPv4
+IP Address: global-lb-ip1 CREATE NEW EXTERNAL STATCI IP
+Port: 80
+Click on DONE
+Backend Configuration
+CLick on CREATE A BACKEND SERVICE
+Name: mybackend-svc1
+Description: mybackend-svc1
+Backend type: Instance Group
+Protocol: HTTP
+Named Port: webserver80 (AUTO-POPULATED WHEN BACKEND IS SELECTED AS mig1-lbdemo)
+Timeout: 30
+BACKENDS
+Instance Group: mig1-us-central1
+Port Numbers: 80
+REST ALL LEAVE TO DEFAULTS
+Click on DONE
+Instance Group: mig1-us-east1
+Port Numbers: 80
+REST ALL LEAVE TO DEFAULTS
+Click on DONE
+Enter fullscreen mode
+Exit fullscreen mode
+Disable Cloud CDN
+Health Check: http-health-check
+Security:
+Cloud Armor backend security policy: NONE
+Enter fullscreen mode
+Exit fullscreen mode
+Click on CREATE
+Routing Rules
+Mode: Simple host and path rule
+REST ALL LEAVE TO DEFAULTS
+Review and Finalize
+Review all settings
+Click on CREATE
+Step-03: Verify Load Balancer
+Go to Network Services -> Load Balancing -> global-lb-external-http
+Review the Tabs
+LOAD BALANCERS
+BACKENDS
+FRONTENDS
+Enter fullscreen mode
+Exit fullscreen mode
+Step-04: Access Application using LB IP on browser
+Important Note: WAIT FOR 3 to 5 Minutes before Load Balancer is fully operational
+# Access Application
+http://LB-IP
+Enter fullscreen mode
+Exit fullscreen mode
+Step-05: Test multi-region functionality (Send traffic to region closest to client)
+To simulate a user in a different geography, you can connect to one of your virtual machine instances in a different region, and then run a curl command from that instance to see the request go to an instance in the region closest to it.
+# Set Project
+gcloud config set project PROJECT_ID
+gcloud config set project gcpdemos
+# Region: us-central1
+gcloud compute ssh --zone "us-central1-c" "mig1-us-central1-xq12"
+curl http://LB-IP
+curl http://34.36.49.82/
+# Region: us-east1
+gcloud compute ssh --zone "us-east1-d" "mig2-us-east1-693l"
+curl http://LB-IP
+curl http://34.36.49.82/
+Enter fullscreen mode
+Exit fullscreen mode
+Step-06: Delete Load Balancer
+Delete the Load balancer created as part of this demo.
+Don't delete Backend services as we need to use in upcoming demo
+🌟 Thanks for reading! If this post added value, a like ❤️, follow, or share would encourage me to keep creating more content.
+— Latchu | Senior DevOps & Cloud Engineer
+☁️ AWS | GCP | ☸️ Kubernetes | 🔐 Security | ⚡ Automation
+📌 Sharing hands-on guides, best practices & real-world cloud solutions
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Latchu@DevOps
+Follow
+Infra. Automation. Impact
+Location
+Chennai, India
+Work
+Senior DevOps and Cloud Architect at 6thforce Solutions
+Joined
+Apr 10, 2025
+More from Latchu@DevOps
+Part-71: Implement a Global External Network Load balancer with SSL Proxy in GCP Cloud
+#googlecloud
+#cloud
+#learning
+#devops
+Part-70: Implement a Global External Network Load balancer with TCP Proxy in GCP Cloud
+#googlecloud
+#devops
+#cloud
+#learning
+Part-69: Global External Load balancer with HTTPS Google Managed SSL in GCP Cloud
+#googlecloud
+#learning
+#devops
+#cloud
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,273 @@
+implementation - Returning ENOSPC in write() operation in a FUSE filesystem - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Returning ENOSPC in write() operation in a FUSE filesystem
+Ask Question
+Asked
+3 days ago
+Modified
+3 days ago
+Viewed
+19 times
+0
+While implementing a simple filesystem for FUSE, I have arrived to the write() operation:
+/** Write data to an open file
+*
+* Write should return exactly the number of bytes requested
+* except on error.
+An exception to this is when the 'direct_io'
+* mount option is specified (see read operation).
+*
+* Changed in version 2.2
+*/
+int (*write) (const char *, const char *, size_t, off_t,
+struct fuse_file_info *);
+The implemented operation works properly, except for the error received in the client application using the mounted filesystem when there is not enough space to write all data. The application (simple cp command) is getting EIO:
+$ cp ../LOGO ../a/
+cp: error copying '../LOGO' to '../a/LOGO': Input/output error
+which is apparently coming from copy_file_range() as shown in this log fragment from strace:
+copy_file_range(4, NULL, 5, NULL, 9223372035781033984, 0) = 488
+copy_file_range(4, NULL, 5, NULL, 9223372035781033984, 0) = -1 EIO (Input/output error)
+The callback write() for FUSE is returning only an int with the amount of data written. So, my question is: how can returning a proper error (which would be ENOSPC - "No space left on device") be implemented for such case?
+(Most likely, this should be something allowing to pass a proper errno to FUSE - but in case of write(), which is returning only size of written data, there seem to be no direct way to do this.)
+filesystemsimplementationfuse
+Share
+Improve this question
+Follow
+asked Sep 17 at 16:28
+t-wt-w
+4155 bronze badges
+3
+1
+Have you tried returning -ENOSPC?
+tkausl
+–
+tkausl
+2025-09-17 16:35:38 +00:00
+Commented
+Sep 17 at 16:35
+1
+The problem is, as I wrote in my question, that the write() callback does not return an error code, but written data size(!) Thats what many functions do, return a positive value for success or a negative error code. Also, the comment never said that it can't return an error code. It only specifies that, on success, it must (write and) return the exact number of bytes requested, its not allowed to write less, "except on error". It unfortunately doesn't specify what to return on error, hence I assumed returning an error code would work.
+tkausl
+–
+tkausl
+2025-09-17 16:53:20 +00:00
+Commented
+Sep 17 at 16:53
+Yes, you are correct. Thank you. It does work with negated errno.
+t-w
+–
+t-w
+2025-09-17 16:57:02 +00:00
+Commented
+Sep 17 at 16:57
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1
+Per the libfuse documentation for the callback functions,
+Most of these should work very similarly to the well known UNIX file system operations. A major exception is that instead of returning an error in 'errno', the operation should return the negated error value (-errno) directly.
+Thus, if you want your write() callback to indicate ENOSPC as the nature of an error, then it should do so by returning -ENOSPC.
+Share
+Improve this answer
+Follow
+answered Sep 17 at 16:38
+John BollingerJohn Bollinger
+188k1111 gold badges100100 silver badges197197 bronze badges
+3 Comments
+Add a comment
+t-w t-w Sep 17 at 16:55
+Yes, it works. It was a bit confusing that 2 different types of data can be returned (error code or data size). This actually makes it clear why the errno has to be negated (so that it does not "collide" with data sizes). Thanks! 2025-09-17T16:55:01.05Z+00:00
+0
+Reply
+Copy link
+John Bollinger John Bollinger Sep 17 at 17:06
+You're welcome.
+FWIW, the standard UNIX I/O functions such as write() also return two different kinds of data, in much the same way.
+The difference to libfuse is that the standard functions report an error by setting errno and returning -1, whereas FUSE expects error numbers to be conveyed directly in (negative) return values.
+write() returning -1 does not mean that -1 bytes were written. None of the functions involved, FUSE or native, have any negative return values that convey success. 2025-09-17T17:06:07.787Z+00:00
+0
+Reply
+Copy link
+t-w t-w Sep 17 at 17:35
+That is clear of course. The -1 is however a standard (POSIX and whatever else) while the errno are (or, at least, can be) OS-specific. What in an extreme case could collide with data sizes in FUSE on an OS where a funky designer would make negative numbers as errno... That is why returning the code did not seem to me initially the right way (but, of course, I assumed that too fast...). Thanks again for help. 2025-09-17T17:35:39.153Z+00:00
+0
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+filesystemsimplementationfuse
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+1
+Fuse- Implementing Write operation
+15
+In Memory FUSE filesystem
+3
+Fuse Filesystem Problem
+2
+Support write operation in FUSE filesystem using FUSE-J
+4
+df-statfs in FUSE filesystem
+1
+Fuse Filesystem to communicate with FTP
+0
+creating a new filesystem call for FUSE filesystem
+0
+Writing empty file doesn't write file, writing too large file writes empty file
+Hot Network Questions
+Historic mistake in sign of KdV equation
+Can I use Heroic Inspiration on a natural 1 on an Attack roll?
+Buffering line vectors that only buffer along the length of the line in QGIS
+Swapping honey for sugar in whole wheat bread recipe
+Why is my battery being zapped?
+How does boss dialogue change if fought at max level?
+Trilogy set on a very unusual human colony. According to the law, only a certain quota of scientists (perhaps 50) are allowed to live on the planet
+How to remove BitLocker encryption for a volume that does not have a drive-letter
+Do the Matrix movies take place in our present or our future?
+Interpretation of slope coefficient when a variable appears in multiple powers
+In Much Ado About Nothing, why aren't the lines: "...live in THINE heart ... buried in THINE eyes"? (V.2.102-3)
+Trying to understand the fundamental behavior of parallel connections
+A man you don't meet every day
+Two definitions of regularity for ultrafilters
+How to add more drives to a sambashare and also best arrangement for multiple drives of different sizes in a RAID setup
+Toilet seat positioning on thunder box
+What happens when a creature with the See Invisibility spell is blinded?
+What does ripe fig falling into the eater's mouth in Nahum 3:12 signify?
+How to justify a mass hierarchal administrative demotion without causing a coup/civil war
+How to completely disable Google Chrome page translate function?
+Does an NSCF job modify the SCF folder in QE?
+Submitted the same research article in two journals, now I'm scared
+Is the carry-on maximum weight limit applied at check-in or at boarding?
+I need a reason for artillery to still be used despite suboptimal conditions and terrain
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

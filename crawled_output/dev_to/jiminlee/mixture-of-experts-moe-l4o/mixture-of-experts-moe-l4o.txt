@@ -1,0 +1,252 @@
+Understanding Mixture of Experts (MoE) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Jimin Lee
+Posted on Sep 20
+Understanding Mixture of Experts (MoE)
+#llm
+#machinelearning
+#nlp
+#moe
+LLM (8 Part Series)
+1
+(1/3) LLM: How LLMs Became the Bedrock of Modern AI
+2
+(2/3) LLM: Data, Transformers, and Relentless Compute
+...
+4 more parts...
+3
+(3/3) LLM: In-Context Learning, Hype, and the Road Ahead
+4
+From Word Predictor to Thinking Partner: The Rise of Thinking Models
+5
+Understanding Mixture of Experts (MoE)
+6
+From Full Fine-Tuning to LoRA
+7
+RAG Explained
+8
+Understanding Context Window Size in LLMs
+What Is Mixture of Experts (MoE)?
+Imagine you’re on a trip with friends. When dinner time rolls around, the group asks, “So, what should we eat?” One friend is great at finding restaurants, another is the human GPS, and someone else always volunteers to split the bill. Depending on the situation, the right person steps in. (Granted, in real life, it’s usually just one poor soul stuck doing everything.)
+That’s the core idea behind Mixture of Experts (MoE). Instead of one massive model trying to handle every task, you keep a roster of experts and call the right ones when needed.
+TL;DR
+MoE = Mixture of Experts: One big model split into many specialists, only a few activated per input.
+Why it matters: Cuts training cost, speeds up inference, and avoids wasted compute.
+How it works: A Gate routes inputs to top-k experts (e.g., 2 of 64).
+Challenges: Load balancing, dead experts, and distributed GPU overhead.
+In the wild: Powering models like Switch Transformer, GLaM, Mixtral, and likely Gemini/GPT-4.
+Why MoE Showed Up in the First Place
+As soon as ChatGPT exploded in popularity, the race to build bigger and bigger models took off. GPT-3’s 175 billion parameters grabbed headlines, so Google countered with Switch Transformer (1.6 trillion parameters) and GLaM (1.2 trillion).
+But there was a catch, actually, three big ones:
+Training costs went nuclear: Training trillions of parameters takes insane infrastructure. The electricity bill alone is nightmare fuel.
+Inference slowed down: Bigger models = slower responses. If your chatbot takes 30 seconds to answer, it’s not really usable.
+Wasted compute: Not every input needs the full firepower. A simple “What’s 1+1?” doesn’t require trillions of parameters crunching in the background.
+MoE was the response: “Let’s only call the experts we need, when we need them.”
+How MoE Works: Experts + Gate
+At the heart of MoE are two parts:
+Experts: Multiple small neural networks, each with its own specialty. One might be great at math, another at translation, another at creative writing.
+Gate: The decision-maker. Given an input, it figures out which experts should handle it. For example: “This looks like a math problem - let’s send it to Expert A and B.” Or “This is a translation task Expert C and D, you’re up.”
+Think of the Gate as a call center routing system: if you’re asking about billing, you get the billing agent; if it’s roaming, you get the roaming specialist.
+Training MoE: Teaching the Gate to Choose Wisely
+MoE isn’t just a plug-and-play stack of neural networks. The tricky part is training the Gate so it knows which experts to pick, when, and how often.
+1. The Gate’s job: pick the lineup
+The Gate scores all the experts for each input (often using softmax to get probabilities), then selects the top few—say, Top-2 out of 64 experts.
+It’s like a coach choosing a starting lineup: “This game needs offense - A and B, you’re in. Defense next match? C and D.”
+2. Sparse activation: efficiency boost
+Here’s the magic; only a small number of experts actually run per input. So even if you have 64 experts, just 2 might activate. That slashes compute costs and memory use.
+But there’s a catch during training. Since only the chosen experts get their parameters updated, the others just sit idle, which can hurt overall model performance. To address this, training often includes auxiliary mechanisms that let even the unused experts learn a little bit, so they don’t fall behind.
+3. Load balancing: avoiding “favorite child” syndrome
+Without checks, the Gate might always pick the same couple of experts. To prevent this, researchers add a *Load Balancing Loss, encouraging the Gate to distribute work more evenly.
+It’s like a teacher making sure every student gets a turn at presenting - not just the star students.
+4. Dead experts problem
+Experts that rarely get chosen stop learning and become “dead experts.” To fix this, models sometimes inject random routing or guarantee each expert gets occasional updates.
+5. Routing strategies
+Different routing tricks exist:
+Top-k: Choose the top few experts (standard approach).
+Noisy Top-k: Add noise so new experts occasionally get picked.
+Hash-based: Map inputs directly to experts via hashing (used in Google’s GShard).
+Switch Routing: Pick only one expert (used in Switch Transformer).
+6. Distributed training headaches
+With dozens of experts, you’ll often spread them across GPUs. But when the Gate picks an expert on another GPU, data has to travel across machines, adding network overhead. Current research focuses on smart GPU placement, communication-efficient algorithms, and locality-aware routing.
+Real-World MoE Models
+Some well-known MoE implementations:
+Google Switch Transformer (2021): 1.6T parameters, but only a small subset activated per inference.
+GLaM (Google, 2021): 1.2T parameters, but used only ~5% of them during inference—efficiency and performance in one package.
+DeepMind GShard: Showed that truly massive distributed training with MoE was feasible.
+Mixtral 8x7B (Mistral, 2023): MoE model beating LLaMA-70B on benchmarks, while running ~6x faster at inference.
+Gemini, GPT-4: Details aren’t public, but it’s widely believed both use MoE internally.
+Beyond LLMs: MoE in Other Fields
+Though LLMs made MoE trendy again, the idea isn’t new and it’s not limited to language models. MoE has been applied across AI:
+Computer Vision: Different experts for cats vs. cars vs. buildings.
+Speech Recognition: Dialects, accents, and noisy environments each get their own experts.
+Recommendation Systems: “Movie preference expert,” “shopping preference expert,” etc.
+Multi-Task Learning: A single model handling translation, summarization, and Q&A by routing to task-specific experts.
+MoE is really a general recipe for scaling models efficiently, not just an LLM trick.
+MoE’s Upsides
+Efficiency: Keep massive capacity, but only activate a few experts per input.
+Specialization: Each expert can become highly tuned for certain tasks.
+Scalability: You can scale parameters sky-high without proportional inference costs.
+MoE’s Downsides
+Implementation complexity: Way more complicated than a plain Transformer.
+Imbalanced experts: Risk of some experts hogging all the work.
+Inference overhead: If experts live on different servers, network latency can cancel out efficiency gains.
+Wrapping Up
+Mixture of Experts isn’t just about making models bigger. It’s about making them big and efficient. Picture a giant team of specialists, with only the right few called into action for each problem.
+As LLMs keep scaling, MoE will only grow more important. Yes, there are open challenges; dead experts, load balancing, distributed inference. But given how heavily companies like Google and OpenAI are leaning on it, MoE is clearly here to stay.
+LLM (8 Part Series)
+1
+(1/3) LLM: How LLMs Became the Bedrock of Modern AI
+2
+(2/3) LLM: Data, Transformers, and Relentless Compute
+...
+4 more parts...
+3
+(3/3) LLM: In-Context Learning, Hype, and the Road Ahead
+4
+From Word Predictor to Thinking Partner: The Rise of Thinking Models
+5
+Understanding Mixture of Experts (MoE)
+6
+From Full Fine-Tuning to LoRA
+7
+RAG Explained
+8
+Understanding Context Window Size in LLMs
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Jimin Lee
+Follow
+My name is Jimin.
+Joined
+Sep 13, 2025
+More from Jimin Lee
+RAG Explained
+#llm
+#machinelearning
+#rag
+From Full Fine-Tuning to LoRA
+#llm
+#machinelearning
+#lora
+#nlp
+From Word Predictor to Thinking Partner: The Rise of Thinking Models
+#ai
+#llm
+#machinelearning
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

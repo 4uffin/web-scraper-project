@@ -1,0 +1,355 @@
+android - How to send tcp packets to internet - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to send tcp packets to internet [closed]
+Ask Question
+Asked
+3 days ago
+Modified
+3 days ago
+Viewed
+77 times
+Part of Mobile Development Collective
+0
+Closed. This question needs debugging details. It is not currently accepting answers.
+Edit the question to include desired behavior, a specific problem or error, and the shortest code necessary to reproduce the problem. This will help others answer the question.
+Closed 2 days ago.
+Improve this question
+I am running a local proxy via Netty on Android. Through Nekobox, the requests are routed to the proxy, and then I forward them to the server. On the server, they are supposed to be sent to the Internet, but no matter what I try, I just get timeouts.
+The server is written in kotlin.
+On the server, I receive information like this:
+server address
+port
+payload
+The payload looks like this:
+GET / HTTP/1.1
+Host: cp.cloudflare.com
+User-Agent: Go-http-client/1.1
+Accept-Encoding: gzip
+I tried forming requests using OkHttp and Java Sockets, and in all cases I just get timeouts.
+How i can forward requests to internet?
+Server function to forward packets with OkHttp:
+suspend fun forwardRequest(
+destAddr: String,
+destPort: Int,
+payload: String
+): ByteArray? {
+val logging = HttpLoggingInterceptor().apply {
+setLevel(HttpLoggingInterceptor.Level.BODY)
+}
+val client = OkHttpClient.Builder()
+.addInterceptor(logging)
+.build()
+val url = if (destPort == 80) "http://$destAddr" else "http://$destAddr:$destPort"
+val firstLine = payload.lines().first()
+val method = firstLine.split(" ")[0]
+val path = firstLine.split(" ")[1]
+val requestBuilder = Request.Builder()
+.url("$url$path")
+payload.lines().drop(1).forEach { line ->
+if (line.contains(":")) {
+val (key, value) = line.split(":", limit = 2).map { it.trim() }
+requestBuilder.addHeader(key, value)
+}
+}
+val request = when (method) {
+"GET" -> requestBuilder.get().build()
+else -> throw IllegalArgumentException("Unsupported method: $method")
+}
+try {
+client.newCall(request).execute().use { response ->
+return response.body.bytes()
+}
+} catch (e: SocketTimeoutException){
+println(e.printStackTrace())
+}
+return null
+}
+Logs:
+Sept 17, 2025 10:02:01 PM okhttp3.internal.platform.Platform log
+INFO: --> GET http://cp.cloudflare.com/
+Sept 17, 2025 10:02:01 PM okhttp3.internal.platform.Platform log
+INFO: Host: cp.cloudflare.com
+Sept 17, 2025 10:02:01 PM okhttp3.internal.platform.Platform log
+INFO: User-Agent: Go-http-client/1.1
+Sept 17, 2025 10:02:01 PM okhttp3.internal.platform.Platform log
+INFO: Accept-Encoding: gzip
+Sept 17, 2025 10:02:01 PM okhttp3.internal.platform.Platform log
+INFO: --> END GET
+Sept 17, 2025 10:02:11 PM okhttp3.internal.platform.Platform log
+INFO: <-- HTTP FAILED: java.net.SocketTimeoutException: timeout
+java.net.SocketTimeoutException: timeout
+at okio.internal.SocketAsyncTimeout.newTimeoutException(-JavaIo.kt:30)
+at okio.AsyncTimeout.access$newTimeoutException(AsyncTimeout.kt:186)
+at okio.AsyncTimeout$source$1.read(AsyncTimeout.kt:390)
+at okio.RealBufferedSource.indexOf(RealBufferedSource.kt:457)
+at okio.RealBufferedSource.readUtf8LineStrict(RealBufferedSource.kt:350)
+at okhttp3.internal.http1.HeadersReader.readLine(HeadersReader.kt:31)
+at okhttp3.internal.http1.Http1ExchangeCodec.readResponseHeaders(Http1ExchangeCodec.kt:197)
+at okhttp3.internal.connection.Exchange.readResponseHeaders(Exchange.kt:114)
+at okhttp3.internal.http.CallServerInterceptor.intercept(CallServerInterceptor.kt:98)
+at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:126)
+at okhttp3.internal.connection.ConnectInterceptor.intercept(ConnectInterceptor.kt:34)
+at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:126)
+at okhttp3.internal.cache.CacheInterceptor.intercept(CacheInterceptor.kt:101)
+at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:126)
+at okhttp3.internal.http.BridgeInterceptor.intercept(BridgeInterceptor.kt:85)
+at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:126)
+at okhttp3.internal.http.RetryAndFollowUpInterceptor.intercept(RetryAndFollowUpInterceptor.kt:74)
+at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:126)
+at okhttp3.logging.HttpLoggingInterceptor.intercept(HttpLoggingInterceptor.kt:248)
+at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:126)
+at okhttp3.internal.connection.RealCall.getResponseWithInterceptorChain$okhttp(RealCall.kt:208)
+at okhttp3.internal.connection.RealCall.execute(RealCall.kt:160)
+at com.masunya.ApplicationKt.forwardRequest(Application.kt:186)
+at com.masunya.ApplicationKt$main$1$1.invokeSuspend(Application.kt:198)
+at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith$$$capture(ContinuationImpl.kt:34)
+at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt)
+at --- Async.Stack.Trace --- (captured by IntelliJ IDEA debugger)
+at kotlinx.coroutines.debug.internal.DebugProbesImpl$CoroutineOwner.<init>(DebugProbesImpl.kt:531)
+at kotlinx.coroutines.debug.internal.DebugProbesImpl.createOwner(DebugProbesImpl.kt:510)
+at kotlinx.coroutines.debug.internal.DebugProbesImpl.probeCoroutineCreated$kotlinx_coroutines_core(DebugProbesImpl.kt:497)
+at kotlin.coroutines.jvm.internal.DebugProbesKt.probeCoroutineCreated(DebugProbes.kt:7)
+at kotlin.coroutines.intrinsics.IntrinsicsKt__IntrinsicsJvmKt.createCoroutineUnintercepted(IntrinsicsJvm.kt:161)
+at kotlinx.coroutines.intrinsics.CancellableKt.startCoroutineCancellable(Cancellable.kt:26)
+at kotlinx.coroutines.CoroutineStart.invoke(CoroutineStart.kt:358)
+at kotlinx.coroutines.AbstractCoroutine.start(AbstractCoroutine.kt:134)
+at kotlinx.coroutines.BuildersKt__Builders_commonKt.launch(Builders.common.kt:53)
+at kotlinx.coroutines.BuildersKt.launch(Unknown Source)
+at kotlinx.coroutines.BuildersKt__Builders_commonKt.launch$default(Builders.common.kt:44)
+at kotlinx.coroutines.BuildersKt.launch$default(Unknown Source)
+at com.masunya.ApplicationKt$main$1.invokeSuspend(Application.kt:197)
+at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith$$$capture(ContinuationImpl.kt:34)
+at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt)
+at --- Async.Stack.Trace --- (captured by IntelliJ IDEA debugger)
+at kotlinx.coroutines.debug.internal.DebugProbesImpl$CoroutineOwner.<init>(DebugProbesImpl.kt:531)
+at kotlinx.coroutines.debug.internal.DebugProbesImpl.createOwner(DebugProbesImpl.kt:510)
+at kotlinx.coroutines.debug.internal.DebugProbesImpl.probeCoroutineCreated$kotlinx_coroutines_core(DebugProbesImpl.kt:497)
+at kotlin.coroutines.jvm.internal.DebugProbesKt.probeCoroutineCreated(DebugProbes.kt:7)
+at kotlin.coroutines.intrinsics.IntrinsicsKt__IntrinsicsJvmKt.createCoroutineUnintercepted(IntrinsicsJvm.kt:161)
+at kotlinx.coroutines.intrinsics.CancellableKt.startCoroutineCancellable(Cancellable.kt:26)
+at kotlinx.coroutines.CoroutineStart.invoke(CoroutineStart.kt:358)
+at kotlinx.coroutines.AbstractCoroutine.start(AbstractCoroutine.kt:134)
+at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+at com.masunya.ApplicationKt.main(Application.kt:195)
+at com.masunya.ApplicationKt.main(Application.kt)
+Caused by: java.net.SocketException: Socket closed
+at java.base/sun.nio.ch.NioSocketImpl.endRead(NioSocketImpl.java:243)
+at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:323)
+at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:346)
+at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:796)
+at java.base/java.net.Socket$SocketInputStream.read(Socket.java:1099)
+at okio.InputStreamSource.read(JvmOkio.kt:94)
+at okio.AsyncTimeout$source$1.read(AsyncTimeout.kt:153)
+... 54 more
+androidkotlintcpproxy
+Share
+Improve this question
+Follow
+edited Sep 17 at 19:06
+user31511979user31511979
+asked Sep 17 at 16:40
+user31511979user31511979
+111 bronze badge
+New contributor
+user31511979 is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+3
+2
+If the difficulty is between your server and the destination URL (cp.cloudflare.com), you should include your server code. Without that it is difficult or impossible for anyone to determine the problem.
+JDM
+–
+JDM
+2025-09-17 16:50:01 +00:00
+Commented
+Sep 17 at 16:50
+I added code and logs, but you can share any idea how it can be implemented in theory
+user31511979
+–
+user31511979
+2025-09-17 19:08:27 +00:00
+Commented
+Sep 17 at 19:08
+FYI: hitting the url (from logs) with curl shows a 204 NO CONTENT response - how does your client handle that given that it is an empty response?
+Computable
+–
+Computable
+2025-09-17 19:23:05 +00:00
+Commented
+Sep 17 at 19:23
+Add a comment
+|
+Related questions
+4373
+How can I close/hide the Android soft keyboard programmatically?
+3567
+Why is the Android emulator so slow? How can we speed up the Android emulator?
+2876
+How can I save an activity state using the save instance state?
+Related questions
+4373
+How can I close/hide the Android soft keyboard programmatically?
+3567
+Why is the Android emulator so slow? How can we speed up the Android emulator?
+2876
+How can I save an activity state using the save instance state?
+2748
+How can I fix 'android.os.NetworkOnMainThreadException'?
+3180
+How to stop EditText from gaining focus when an activity starts in Android?
+2338
+How do I center text horizontally and vertically in a TextView?
+2092
+How to lazy load images in ListView in Android
+1974
+How to get screen dimensions as pixels in Android
+883
+How to check if a "lateinit" variable has been initialized?
+Load 6 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+androidkotlintcpproxy
+See similar questions with these tags.
+Mobile Development
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Weep holes or other? Should they be filled?
+How to completely disable Google Chrome page translate function?
+I need a reason for artillery to still be used despite suboptimal conditions and terrain
+Strongly-typed CUDA device memory
+Is there a way to name 1,4-dimethylcyclohexan-1-ol in a way that indicates the methyl groups must be cis?
+Can we reach a stage where there are 105 piles with 1 tile in each pile?
+"Saying who or what did the action would be clearer": passive voice vs. active voice in a technical document/checklist?
+How to scale down a TikZ/PGFPlots figure with matching font size and good PNG quality
+Making `apt-get` read answers from stdin on graphical Ubuntu
+Implementation of a kd-tree header-only library
+Toilet seat positioning on thunder box
+Prospective new PI wants to chat with former PI who kicked me out. What to do?
+Scifi story set in a spaceship around a weird star
+Is "allowed" a past participle or an adjective?
+How to justify a mass hierarchal administrative demotion without causing a coup/civil war
+In Much Ado About Nothing, why aren't the lines: "...live in THINE heart ... buried in THINE eyes"? (V.2.102-3)
+Upright double quotes with minted
+What's that 90s short-story? A magazine guess-how-many-objects-fit contest, a computer calculation bug, and prize money delivered as gold
+post hoc tests after running repeated measures ANOVA
+Short story. Couple transfer the consciousness of their dead daughter into the brain of an ape
+Validity of assuming the integral of a vanishing integrand over an infinitely large surface is equal to zero
+A logic grid puzzle that is tougher than it looks.
+Was my travel companion unfairly denied entry to Aruba due to discrimination?
+Does every ultrafilter on real numbers contain a meager set?
+more hot questions
+lang-kotlin
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

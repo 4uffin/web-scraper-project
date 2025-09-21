@@ -1,0 +1,307 @@
+AuthyToOtherAuthenticator.md · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+Ingramz/AuthyToOtherAuthenticator.md
+Last active
+May 14, 2025 18:37
+Show Gist options
+Download ZIP
+Star
+52
+(52)
+You must be signed in to star a gist
+Fork
+12
+(12)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Ingramz/14a9c39f8c306a2d43b4.js&quot;&gt;&lt;/script&gt;
+Save Ingramz/14a9c39f8c306a2d43b4 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+9
+Stars
+52
+Forks
+12
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Ingramz/14a9c39f8c306a2d43b4.js&quot;&gt;&lt;/script&gt;
+Save Ingramz/14a9c39f8c306a2d43b4 to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+AuthyToOtherAuthenticator.md
+Generating Authy passwords on other authenticators
+Update 04.04.2020: Please take a look at many of the forks of this gist or comments, where people have updated or improved upon the code. I have not needed this in a long time, which is why the original document has not been updated and the code probably does not work. Stay secure and only copy and paste code that you trust.
+There is an increasing count of applications which use Authy for two-factor authentication. However many users who aren't using Authy, have their own authenticator setup up already and do not wish to use two applications for generating passwords.
+Since I use 1Password for all of my password storing/generating needs, I was looking for a solution to use Authy passwords on that. I couldn't find any completely working solutions, however I stumbled upon a gist by Brian Hartvigsen. His post had a neat code with it to generate QR codes (beware, through Google) for you to use on your favorite authenticator.
+His method is to extract the secret keys using Authy's Google Chrome app via Developer Tools. If this was not possible, I guess people would be reverse engineering the Android app or something like that. But when I tried that code, nothing appeared on the screen. My guess is that Brian used the code to extract the keys that weren't necessarily tied to Authy.
+I had to adapt the code a little and you can see the result below, but here's what I discovered about Authy's method:
+They use the exact same algorithm to generate passwords as Google Authenticator and similar (TOTP)
+The passwords are one digit longer - 7 digits (usually they're 6, with exceptions), but if you've looked at one of the Authy generated passwords already, you probably noticed it too
+The password validity period is 10 seconds (instead of usual 30). Authy shows 20 seconds, but that means a slightly different thing. Don't substitute this period longer in your Authenticator.
+Authy's secret keys are in hex already, so they need to be turned back to base32 for working QR codes
+So as long as you have an authenticator which can do longer passwords than 6 characters and do custom time periods, then congratulations, you can use the following method. If you are not sure, scan this code with your authenticator to test. Don't forget to delete it afterwards. The code should have 7 digits and should change every 10 seconds.
+Known to work:
+1Password for OS X
+1Password for iOS
+Google Authenticator
+Known not to work:
+1Password for Windows (doesn't support other digit counts and timeouts yet)
+Authy for iOS (doesn't support other timeouts than 30s, the irony!)
+Ok, that's nice, but I want to get rid of Authy now
+This method has only one gotcha - if you want add a new service that relies on Authy, you will need to run Authy again. I am assuming you know how to use Authy and have some services added already. You can probably get rid of Authy on your phone and log in to Authy on your Chrome app using SMS or keep it permanently disabled under your extensions once you have logged in. In that case set a master password for Authy, stay secure.
+Install Authy from Chrome Web Store
+Open Authy and log in, so you can see the codes being generated for you
+Go to Extensions page in your browser (chrome://extensions/ or Menu -> More tools -> Extensions)
+Tick developer mode in top right corner
+Find Authy from the list and then click on main.html
+Chrome developer tools with Console selected should open. If it didn't, go to Console tab.
+Paste following and press enter:
+/* base32 */
+/*
+Copyright (c) 2011, Chris Umbel
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+var charTable = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function quintetCount(buff) {
+var quintets = Math.floor(buff.length / 5);
+return buff.length % 5 == 0 ? quintets: quintets + 1;
+}
+encode = function(plain) {
+var i = 0;
+var j = 0;
+var shiftIndex = 0;
+var digit = 0;
+var encoded = new Array(quintetCount(plain) * 8);
+/* byte by byte isn't as pretty as quintet by quintet but tests a bit
+faster. will have to revisit. */
+while(i < plain.length) {
+var current = plain[i];
+if(shiftIndex > 3) {
+digit = current & (0xff >> shiftIndex);
+shiftIndex = (shiftIndex + 5) % 8;
+digit = (digit << shiftIndex) | ((i + 1 < plain.length) ?
+plain[i + 1] : 0) >> (8 - shiftIndex);
+i++;
+} else {
+digit = (current >> (8 - (shiftIndex + 5))) & 0x1f;
+shiftIndex = (shiftIndex + 5) % 8;
+if(shiftIndex == 0) i++;
+}
+encoded[j] = charTable.charAt(digit);
+j++;
+}
+return encoded.join('');
+};
+/* base32 end */
+function hexToInt(str) {
+var result = [];
+for (var i = 0; i < str.length; i += 2) {
+result.push(parseInt(str.substr(i, 2), 16));
+}
+return result;
+}
+function hexToB32(str) {
+return encode(hexToInt(str));
+}
+window.open('data:text/html;charset=utf-8,' + encodeURIComponent('<!DOCTYPE html>'+ '<html lang="en">'+ '<head><title>Embedded Window</title></head>'+ '<body>' +
+jQuery(require("models/apps/app_manager").get().getDecryptedApps()).map(function (ndx, elem) {
+if (!elem.secretSeed) { return }
+var name = elem.name || elem.originalName
+return "<h1><img src='" +
+require('models/assets/asset_manager').get().assetAccounts[elem.assetsGroup].menuItemUrl +
+"'>" + name + "</h1><h2>" + hexToB32(elem.secretSeed) + "</h2>" +
+"<img src='https://www.google.com/chart?chs=200x200&chld=M|0&cht=qr&chl=otpauth://totp/" + encodeURI(name) + "%3Fsecret%3D" + hexToB32(elem.secretSeed) + "%26digits%3D7%26period%3D10'/>"
+}).toArray().join("<br>")
++ '</body>'+ '</html>' ) );
+A page should open with QR codes for all of your entries, scan them in!
+Close opened window and developer tools.
+Disable Authy app on Chrome or remove it
+Disable Developer mode
+Resources used for getting correct codes
+Brian's gist
+JavaScript implementation of base32 encoding by Chris Umbel, et al.
+Google Authenticator URI format
+Other notes
+I am not responsible for your actions.
+I am sure someone has already discovered everything I wrote before, but I couldn't find anything written about it in detail, I didn't invent anything new here
+The code is a horrible hack, it works for what it does and that's the important bit, improvements are welcome
+If anyone from Authy reads this - security shouldn't rely on obfuscation or hiding of any sort and should take advantage of freedom of choice where possible. I love the idea of the keys being tied to ones phone number and making this system easy to use for everyone, but please make these URI-s exportable to other applications if users wish to do so - it's possible as demonstrated above and you probably know it. Transparency is what makes this system secure. If you don't wish to do that, then please don't break this method of acquiring keys.
+Copy link
+Miladiir
+commented
+May 5, 2017
+Hey, thanks for this.
+However I have a slight problem. I am getting Uncaught ReferenceError: jQuery is not defined at <anonymous>:75:1 when following your guide. Any idea why?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+akurtz
+commented
+May 25, 2017
+I had the same problem, @Miladiir.
+This code hasn't been updated in 18 months, probably broke when Authy released a new version.
+Rather than debug it, I just used a simple snippet for a console URI dump that I found here: https://gist.github.com/tresni/83b9181588c7393f6853#gistcomment-2024680
+That worked perfectly for getting the secrets into 1Password's TOTP fields.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Ingramz
+commented
+May 25, 2017
+Gist is really bad at e-mail notifications, like not doing them at all. I'm sorry for any inconvenience if that code does not work anymore.
+I suggest following @akurtz link for now, I will update the document eventually. I'm just glad that it worked for a while and some people found it useful.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+pequet
+commented
+Jun 23, 2017
+hello. unfortunately i believe this stopped working again, and i am not able to find an old version of the chrome extension. the decryptedSeed come out as undefined for me, if i do console(i) i see the object with the secretSeed but not the decryptedSeed. i believe something changed in the very last version.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ghost
+commented
+Jul 19, 2017
+•
+edited by ghost
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Using @akurtz gist, I was able to also get the Authy specific TOTP extracted as well. This requires the hexToB32 function is available, so copy paste the code before the window.open and then use the following:
+appManager.getModel().forEach(function(i){
+if(i.markedForDeletion === false){
+console.log('otpauth://totp/'+encodeURIComponent(i.name)+'?secret='+i.decryptedSeed+'&issuer='+i.accountType);
+} else {
+console.log('otpauth://totp/'+encodeURIComponent(i.name)+'?secret='+hexToB32(i.secretSeed)+'&issuer='+i.accountType+'&digits=8&period=10');
+}
+});
+Remember that you omit the first digit for 8 digit OTPs.
+I tested this with the latest version of the extension 2.3.0 and it worked fine.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+XP1
+commented
+Jul 27, 2017
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@Soliah, thanks. It works. However, I prefer pushing the URIs to separate arrays and then later joining the lines as one whole string. That way, you can just copy("..."); the whole thing to clipboard without DevTools abbreviating the URIs.
+var result = [
+"6 digits:",
+sixDigitUris.join("\r\n"),
+"",
+"8 digits:",
+eightDigitUris.join("\r\n")
+].join("\r\n");
+console.log(result);
+copy(result);
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+XP1
+commented
+Aug 8, 2017
+WinAuth 3.6.0, since commit cf84f2a, now works with Authy seeds! See winauth/winauth#415 and winauth/winauth#525.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Psojed
+commented
+Apr 4, 2020
+Since I stumbled several times upon this page and the code here didn't work, I'm posting here to point others in the right direction: https://gist.github.com/gboudreau/94bb0c11a6209c82418d01a59d958c93
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+Ingramz
+commented
+Apr 4, 2020
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Sweet, they have implemented email notifications. Thanks for pointing out the fork, I'm grateful that people have taken matters into their own hands.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+adrian-e
+commented
+Feb 27, 2024
+hello. unfortunately i believe this stopped working again, and i am not able to find an old version of the chrome extension. the decryptedSeed come out as undefined for me, if i do console(i) i see the object with the secretSeed but not the decryptedSeed. i believe something changed in the very last version.
+This happened to me with an older version too. The thing was I had uninstalled the latest version and installed an old one. After that I did not enter the backup key so the decryptedSeed was not showing. After entering the backup key and being able to see 2FA codes in the app, I could also see them in the console. Hope this helps someone.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

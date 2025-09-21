@@ -1,0 +1,270 @@
+We Architected CockroachDB the Wrong Way (And It Works - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Om Narayan
+Posted on Sep 20
+• Originally published at devicelab.hashnode.dev
+We Architected CockroachDB the Wrong Way (And It Works
+#database
+#cockroachdb
+#architecture
+#devops
+Disclaimer: This is likely a bad idea. We're probably missing something obvious. Smarter engineers would find a better solution. But here we are.
+When we started evaluating CockroachDB for DeviceLab, we had high hopes. The promise of a distributed SQL database that could scale horizontally while maintaining consistency seemed perfect for our SaaS platform. After all, who doesn't want the scalability of NoSQL with the familiarity of PostgreSQL?
+But then reality hit us like a poorly configured database timeout.
+The Journey Into Madness 🤯
+Our first attempt was with CockroachDB's cloud offering. Simple queries were taking over 2 seconds. Table creation? Nearly 2 minutes. We raised a support ticket, hoping for some magical configuration fix. Instead, we got two responses that made us question everything:
+First, they suggested deleting our entire cluster and starting fresh
+When that didn't work, they essentially told us that performance issues weren't really issues unless something was completely "broken"
+We thought maybe we were doing something wrong, so we decided to run our own tests. That's when things got weird.
+We spun up CockroachDB on Google Cloud (GCE) and ran the same queries (under load testing):
+GCE cluster: 200 milliseconds ✅
+Single-node on tiny VM (2 vCPUs, 2GB RAM): 20 milliseconds 🚀
+How was a resource-constrained single node outperforming a properly provisioned cluster by an order of magnitude?
+When Physics Stopped Making Sense 🌌
+The real head-scratcher came when we tested cross-region connectivity. We had application servers on AWS and a database cluster on GCE. Logic would suggest that keeping everything within the same cloud provider and region would be faster, right?
+Wrong. (under load testing)
+AWS → GCE (cross-cloud): 124ms ⚡
+GCE → GCE (same region): 2.65 seconds 🐌
+Enter fullscreen mode
+Exit fullscreen mode
+Yes, you read that correctly. Cross-cloud communication was literally 20 times faster than same-region communication within GCE.
+At this point, we started questioning our understanding of basic networking. Maybe we were measuring wrong? Maybe we had misconfigured something fundamental? We ran the tests again. And again. The results were consistent.
+The Multi-Node Penalty 📊
+As we dug deeper, we discovered something that should have been obvious in hindsight: CockroachDB's distributed nature comes with a cost.
+Every write needs consensus from the majority of nodes
+Every query might need to hop between nodes to find the leaseholder for the data
+The more nodes we added, the slower things got
+This makes sense for CockroachDB's intended use case - globally distributed applications where surviving region failures is more important than raw speed. But for our use case, where most customers are regional and latency matters more than multi-region survival, we were paying a heavy price for benefits we didn't need.
+The Lazy Solution 💡
+Now, a competent engineering team would have taken this learning and designed a proper architecture. They might have:
+Implemented intelligent query routing
+Used read replicas
+Maybe even questioned whether CockroachDB was the right choice at all
+We are not that team.
+Instead, we looked at:
+Our application servers: 150MB RAM, <10% CPU usage
+Our database nodes: Needing dedicated instances
+And we had a terrible, horrible, no-good idea.
+What if we just... put them together?
+The Setup Nobody Should Copy ⚠️
+So that's what we did. Each of our instances now runs:
+Our application server
+A CockroachDB node
+The application connects to localhost:26257. That's it. That's our entire database architecture.
+# Our "architecture" in a nutshell
+instance:
+- app_server: ✅
+- cockroachdb_node: ✅
+- connection: localhost:26257
+- complexity: none
+- best_practices: ignored
+Enter fullscreen mode
+Exit fullscreen mode
+We know this violates every principle of proper system design:
+Separation of concerns? Thrown out the window
+Independent scaling? Not possible
+Maintenance windows? They affect everything
+Any architect looking at our setup would immediately fail us in a design review.
+But here's the embarrassing truth: it works better than our "proper" setup did.
+How It Actually Works
+When our application makes a query, one of three things happens:
+Data is local → Sub-millisecond response (no network hop)
+Data is on another node → Local CockroachDB forwards it (one network hop)
+Compare this to the traditional setup:
+App Server → Load Balancer → Random CockroachDB Node → Actual Leaseholder
+Enter fullscreen mode
+Exit fullscreen mode
+Potentially two network hops.
+Result: We eliminated an entire network round trip from every database query.
+Why This Is Still a Bad Idea 🚨
+Let me be clear: this is probably wrong. We're almost certainly creating problems we haven't discovered yet. Real engineers separate application and database tiers for good reasons that we're too lazy or ignorant to fully appreciate.
+Potential Issues We're Ignoring:
+Resource competition: What happens during a CockroachDB compaction? Or during a backup?
+Our solution if problems arise: Just throw more RAM at it. Hardware is cheap. Thinking is expensive.
+Wasted distributed query capabilities: The query optimizer assumes all nodes are equally accessible
+We're using a Ferrari to do grocery runs
+The Economics of Incompetence 💰
+The economics actually make more sense than they first appear:
+Traditional Setup Scaling:
+Figure out which tier needs scaling (app or database?)
+Coordinate the changes
+Rebalance your load
+Debug why connection pooling is suddenly acting weird
+Our Setup Scaling:
+Add another instance
+That's it
+// Our scaling strategy
+if (needMoreCapacity) {
+addInstance();
+// Gets both app server AND database node
+}
+// Done. Go home. Sleep well.
+Enter fullscreen mode
+Exit fullscreen mode
+The real kicker? Our single app server can handle 10,000 requests per second. So when we add instances, we're really adding them for database distribution, not application capacity. But we get both anyway.
+What We Should Have Done 🤔
+Looking back, we probably should have:
+Used PostgreSQL with streaming replication - Simpler, faster, more appropriate
+Hired someone who actually understands distributed systems - To configure CockroachDB properly
+Stuck with the cloud offering - And figured out what we were doing wrong
+But we didn't. We took the lazy path, combining things that shouldn't be combined, ignoring best practices that smarter people developed for good reasons.
+The worst part? It's been running in production for months without issues.
+P99 latency is better than ever
+Customers are happy
+Ops burden is minimal
+We keep waiting for it to blow up spectacularly, to teach us the lesson we deserve for our architectural sins. But it keeps working.
+Conclusion 🎯
+I'm not advocating for this approach. Please don't read this and think "those DeviceLab folks are onto something." We're not. We're just lazy engineers who found a local maximum that works for our very specific, probably unusual case.
+If you meet ALL these criteria:
+✅ Your application is tiny
+✅ Your workload is read-heavy
+✅ You're allergic to operational complexity
+✅ You're willing to accept that you're probably doing it wrong
+Then maybe our terrible setup might work for you too.
+But probably not. You should probably do it properly. Unlike us.
+P.S. - If you know why this is going to blow up in our faces, please tell us in the comments. We're genuinely curious about what we're missing. There has to be something, right? 🤷
+If you're looking for a solution where questionable architecture decisions can't compromise your data, check out DeviceLab - we built a zero-trust distributed device lab platform. We don't promise not to look at your data; we architecturally can't. Everything runs on your devices, connected peer-to-peer. Your tests, your data, your security. Unlike our database setup, we actually thought this one through.
+AI was used to help structure this post
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Om Narayan
+Follow
+Co-founder at RobusTest
+Location
+Hyderabad India
+Joined
+Sep 14, 2025
+Trending on DEV Community
+Hot
+From GitHub to LinkedIn: Expanding Your Developer Brand Beyond Code
+#github
+#webdev
+#devops
+#discuss
+Automate GitHub Security Reviews with Glama’s AI Automation and MCP Servers
+#ai
+#beginners
+#tutorial
+#discuss
+Orchestrating Real-World Agent Workflows with MCP
+#ai
+#beginners
+#tutorial
+#discuss
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,315 @@
+amazon web services - AssumeRoleWithWebIdentity - Call AWS DynamoDB from firebase function using IdentityToken - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+AssumeRoleWithWebIdentity - Call AWS DynamoDB from firebase function using IdentityToken
+Ask Question
+Asked
+3 days ago
+Modified
+2 days ago
+Viewed
+43 times
+Part of
+AWS and Google Cloud Collectives
+-1
+I am getting this error when calling AssumeRoleWithWebIdentityCommand from a firebase function.
+Error: {
+Type: 'Sender',
+Code: 'InvalidIdentityToken',
+Message: 'Incorrect token audience',
+}
+I have configured a Service account, assigned it to the firebase function, and am attempting to assume the aws role like so.
+const config = {
+policyName: "Firebase-Access-Dynamo",
+roleArn: "arn:aws:iam::---aws_account_id--:role/Firebase-Role",
+projectID: "---gcp_project_id----",
+serviceAccountName: "aws-bridge",
+};
+async function getGoogleIdToken() {
+const idc = await new GoogleAuth().getIdTokenClient(config.policyName);
+const { Authorization } = await idc.getRequestHeaders();
+return Authorization.replace(/^Bearer\s+/i, "");
+}
+exports.beforeusercreate = beforeUserCreated(
+{
+serviceAccount: `${config.serviceAccountName}@${config.projectID}.iam.gserviceaccount.com`,
+},
+async () => {
+const sts = new STSClient({ region: "us-east-1" });
+const { Credentials } = await sts.send(
+new AssumeRoleWithWebIdentityCommand({
+RoleArn: config.roleArn,
+RoleSessionName: `gcp-${Date.now()}`,
+WebIdentityToken: await getGoogleIdToken(),
+})
+);
+if (!Credentials) {
+throw new Error("no credential");
+}
+....
+}
+);
+In terraform I have configured the google service account like so:
+resource "google_service_account" "aws_bridge" {
+account_id
+= "aws-bridge"
+display_name = "AWS Bridge (Firebase v2)"
+}
+#...some more stuff
+locals {
+gcp_trust_policy = "Firebase-Access-Dynamo"
+}
+resource "aws_iam_openid_connect_provider" "google" {
+url
+= "https://accounts.google.com"
+client_id_list
+= [local.gcp_trust_policy]
+}
+resource "aws_iam_role" "firebase_access" {
+name = "Firebase-Role"
+assume_role_policy = jsonencode({
+Version = "2012-10-17",
+Statement = [{
+Effect
+= "Allow",
+Principal = { Federated = "accounts.google.com" },
+Action
+= "sts:AssumeRoleWithWebIdentity",
+Condition = {
+StringEquals = {
+"accounts.google.com:aud": google_service_account.aws_bridge.unique_id,
+"accounts.google.com:sub": google_service_account.aws_bridge.unique_id,
+"accounts.google.com:oaud": local.gcp_trust_policy
+}
+}
+}]
+})
+}
+resource "aws_iam_role_policy" "dynamo_access" {
+name = local.gcp_trust_policy
+role = aws_iam_role.firebase_access.id
+policy = jsonencode({
+Version = "2012-10-17",
+Statement = [{
+Effect = "Allow",
+Action = [
+"dynamodb:GetItem",
+"dynamodb:PutItem",
+"dynamodb:UpdateItem",
+"dynamodb:Query"
+],
+Resource = [
+aws_dynamodb_table.architect.arn,
+"${aws_dynamodb_table.architect.arn}/index/*"
+]
+}]
+})
+}
+I have a lot of other terraform modules, I extracted the ones that I think pertain to my question. I'm hoping it's something obvious.
+I have tried some suggestions from ChatGPT that haven't helped. Finding examples for this subject is difficult.
+amazon-web-servicesfirebasegoogle-cloud-platformterraformsingle-sign-on
+Share
+Improve this question
+Follow
+edited 2 days ago
+halfer
+20.1k1919 gold badges110110 silver badges207207 bronze badges
+asked Sep 17 at 17:53
+Magnus ReevesMagnus Reeves
+122 bronze badges
+Add a comment
+|
+Related questions
+471
+Can an AWS Lambda function call another
+510
+No Firebase App '[DEFAULT]' has been created - call Firebase.initializeApp() in Flutter and Firebase
+485
+How to get an AWS EC2 instance ID from within that EC2 instance?
+Related questions
+471
+Can an AWS Lambda function call another
+510
+No Firebase App '[DEFAULT]' has been created - call Firebase.initializeApp() in Flutter and Firebase
+485
+How to get an AWS EC2 instance ID from within that EC2 instance?
+518
+How to pass a querystring or route parameter to AWS Lambda from Amazon API Gateway
+232
+How do I structure Cloud Functions for Firebase to deploy multiple functions from multiple files?
+366
+AWS S3: The bucket you are attempting to access must be addressed using the specified endpoint
+256
+Downloading folders from aws s3, cp or sync?
+Load 4 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+amazon-web-servicesfirebasegoogle-cloud-platformterraformsingle-sign-on
+See similar questions with these tags.
+AWS
+Collective
+See more
+Google Cloud
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+How to remove BitLocker encryption for a volume that does not have a drive-letter
+Maximizing profit given a PMF
+How to block an entire page with uBlock Origin?
+How does boss dialogue change if fought at max level?
+keytheorems + tcolorbox: accessing tcbkeys in the optional argument of an already declared theorem
+"Saying who or what did the action would be clearer": passive voice vs. active voice in a technical document/checklist?
+Trilogy set on a very unusual human colony. According to the law, only a certain quota of scientists (perhaps 50) are allowed to live on the planet
+What species of plum is this? (France, mid-September)
+Linear rheostat - where lies a trick of a sliding contact with isolated wire?
+Is there a substance that passes through gasses, but reacts violently (explosive) when confronted with solid matter?
+Scifi story set in a spaceship around a weird star
+I need a reason for artillery to still be used despite suboptimal conditions and terrain
+How to completely disable Google Chrome page translate function?
+Update docker service volume
+How does energy abundance affect materials science?
+What was so bad about what Kimmel said about Charlie Kirk?
+Is the carry-on maximum weight limit applied at check-in or at boarding?
+Swapping honey for sugar in whole wheat bread recipe
+Strongly-typed CUDA device memory
+Why is my battery being zapped?
+Infinite hyperbolic group contains infinite order elements
+In Much Ado About Nothing, why aren't the lines: "...live in THINE heart ... buried in THINE eyes"? (V.2.102-3)
+What was the first video game to feature a fake credits sequence?
+What's that 90s short-story? A magazine guess-how-many-objects-fit contest, a computer calculation bug, and prize money delivered as gold
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

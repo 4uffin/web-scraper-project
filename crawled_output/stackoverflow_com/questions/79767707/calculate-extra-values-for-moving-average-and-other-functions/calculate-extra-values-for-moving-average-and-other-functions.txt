@@ -1,0 +1,596 @@
+r - Calculate extra values for moving average (and other functions) - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Calculate extra values for moving average (and other functions)
+Ask Question
+Asked
+3 days ago
+Modified
+3 days ago
+Viewed
+101 times
+Part of R Language Collective
+4
+Suppose I have the following dataset:
+library(dplyr)
+library(zoo)
+df <- data.frame(date = seq.Date(from = "2025-01-01", to = "2025-01-10"),
+value = 1:10)
+df
+#>
+date value
+#> 1
+2025-01-01
+1
+#> 2
+2025-01-02
+2
+#> 3
+2025-01-03
+3
+#> 4
+2025-01-04
+4
+#> 5
+2025-01-05
+5
+#> 6
+2025-01-06
+6
+#> 7
+2025-01-07
+7
+#> 8
+2025-01-08
+8
+#> 9
+2025-01-09
+9
+#> 10 2025-01-10
+10
+When I calculate the simple moving average for, let's say, the last 5 observations, this is what I get:
+df |>
+mutate(value_roll = rollapply(value, width = 5, FUN = mean, fill = NA, align = "right"))
+#>
+date value value_roll
+#> 1
+2025-01-01
+1
+NA
+#> 2
+2025-01-02
+2
+NA
+#> 3
+2025-01-03
+3
+NA
+#> 4
+2025-01-04
+4
+NA
+#> 5
+2025-01-05
+5
+3
+#> 6
+2025-01-06
+6
+4
+#> 7
+2025-01-07
+7
+5
+#> 8
+2025-01-08
+8
+6
+#> 9
+2025-01-09
+9
+7
+#> 10 2025-01-10
+10
+8
+As expected, the first 4 values are NA. However, for a simple moving average of order k, I'd like that the first k-1 values were the first simple moving average of order j-1, k = 1, ..., k-1. For example,
+#>
+date value
+value_roll
+#> 1
+2025-01-01
+1
+1
+#> 2
+2025-01-02
+2
+1.5
+#> 3
+2025-01-03
+3
+2
+#> 4
+2025-01-04
+4
+2.5
+#> 5
+2025-01-05
+5
+3
+#> 6
+2025-01-06
+6
+4
+#> 7
+2025-01-07
+7
+5
+#> 8
+2025-01-08
+8
+6
+#> 9
+2025-01-09
+9
+7
+#> 10 2025-01-10
+10
+8
+Also, I want to be able to inform other functions for the argument FUN in the rollapply function, such as sum (i.e., the sum of the last k values) and sd (i.e., the standard deviation of the last k values), but in the same fashion as the moving average.
+Is there a simple way to do it in R? I bet there is, but I couldn't come with any simple idea. They are all too complex for my taste.
+rdplyrmoving-average
+Share
+Improve this question
+Follow
+asked Sep 17 at 18:47
+Marcus NunesMarcus Nunes
+90311 gold badge1919 silver badges3636 bronze badges
+1
+2
+rollapply from {zoo} has a partial-argument, did you read the docs? This might be appropriate here. Most other rolling apply functions from several packages have similar arguments. Side note: df masks F Distribution density function from {stats}. xyzzy, X, ts123, ... might be more appropriate names.
+Friede
+–
+Friede
+2025-09-17 18:52:39 +00:00
+Commented
+Sep 17 at 18:52
+Add a comment
+|
+3 Answers
+3
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+6
+From help(zoo::rollapply):
+partial
+logical or numeric. If FALSE (default) then FUN is only applied when all indexes of the rolling window are within the observed time range. If TRUE, then the subset of indexes that are in range are passed to FUN. A numeric argument to partial can be used to determin the minimal window size for partial computations. See below for more details.
+e.g.
+data.frame(date = seq.Date(from='2025-01-01', to='2025-01-10'), value = 1:10) |>
+transform(value_roll = zoo::rollapply(
+value, width=5, FUN=mean, fill=NA, align='right', partial=TRUE))
+gives
+date value value_roll
+1
+2025-01-01
+1
+1.0
+2
+2025-01-02
+2
+1.5
+3
+2025-01-03
+3
+2.0
+4
+2025-01-04
+4
+2.5
+5
+2025-01-05
+5
+3.0
+6
+2025-01-06
+6
+4.0
+7
+2025-01-07
+7
+5.0
+8
+2025-01-08
+8
+6.0
+9
+2025-01-09
+9
+7.0
+10 2025-01-10
+10
+8.0
+Note
+Edit to add session info, see comments below this answer.
+> sessionInfo()
+R version 4.5.0 (2025-04-11)
+Platform: aarch64-apple-darwin20
+Running under: macOS Sequoia 15.2
+Matrix products: default
+BLAS:
+/System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib
+LAPACK: /Library/Frameworks/R.framework/Versions/4.5-arm64/Resources/lib/libRlapack.dylib;
+LAPACK version 3.12.1
+locale:
+[1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+time zone: Europe/Berlin
+tzcode source: internal
+attached base packages:
+[1] stats
+graphics
+grDevices utils
+datasets
+methods
+base
+loaded via a namespace (and not attached):
+[1] zoo_1.8-14
+compiler_4.5.0 tools_4.5.0
+grid_4.5.0
+lattice_0.22-6
+Share
+Improve this answer
+Follow
+edited Sep 17 at 20:17
+answered Sep 17 at 19:02
+FriedeFriede
+11.3k22 gold badges1414 silver badges3232 bronze badges
+4 Comments
+Add a comment
+Jon Spring Jon Spring Sep 17 at 19:21
+Weird, I need as.Date() around the dates, and a by/length.out term to make seq.Date work... 2025-09-17T19:21:39.813Z+00:00
+0
+Reply
+Copy link
+M-- M-- Sep 17 at 19:42
+It works for me on R 4.5.0; here's a reprex i.sstatic.net/Vj5IGUth.png :/ 2025-09-17T19:42:02.243Z+00:00
+1
+Reply
+Copy link
+Friede Friede Sep 17 at 20:15
+I added session info. I recall having faced a similar issue in the past, though I don’t remember the specifics or where it occurred. I’ll circle back to this once I encounter it again. 2025-09-17T20:15:28.543Z+00:00
+0
+Reply
+Copy link
+Jon Spring Jon Spring Sep 17 at 21:13
+Looks like seq.Date had some updates with 4.5.0, which I'm not using yet. Thanks! cran.r-project.org/doc/manuals/r-release/NEWS.html 2025-09-17T21:13:32.697Z+00:00
+1
+Copy link
+3
+You can create a "sub-frame" with slider::slide_dfr() with all your windowed calculations; mutate(), when called without a name, unnests it to columns:
+tibble::tibble(date = seq.Date(from = "2025-01-01", to = "2025-01-10"), value = 1:10) |>
+dplyr::mutate(
+slider::slide_dfr(
+value,
+.f = \(x) data.frame(mean_roll = mean(x), sum_roll = sum(x), sd_roll = sd(x)),
+.before = 4
+)
+)
+#> # A tibble: 10 × 5
+#>
+date
+value mean_roll sum_roll sd_roll
+#>
+<date>
+<int>
+<dbl>
+<int>
+<dbl>
+#>
+1 2025-01-01
+1
+1
+1
+NA
+#>
+2 2025-01-02
+2
+1.5
+3
+0.707
+#>
+3 2025-01-03
+3
+2
+6
+1
+#>
+4 2025-01-04
+4
+2.5
+10
+1.29
+#>
+5 2025-01-05
+5
+3
+15
+1.58
+#>
+6 2025-01-06
+6
+4
+20
+1.58
+#>
+7 2025-01-07
+7
+5
+25
+1.58
+#>
+8 2025-01-08
+8
+6
+30
+1.58
+#>
+9 2025-01-09
+9
+7
+35
+1.58
+#> 10 2025-01-10
+10
+8
+40
+1.58
+Share
+Improve this answer
+Follow
+answered Sep 17 at 19:50
+marguslmargusl
+20.1k33 gold badges2323 silver badges3333 bronze badges
+Comments
+Add a comment
+3
+You can define a customized moving average function mva
+using cumsum + stats::filter
+mva <- \(v, n = 5) c(
+cumsum(v[1:(n - 1)]) / seq.int(n - 1),
+na.omit(stats::filter(v, rep(1 / n, n), sides = 1))
+)
+or using embed + rowMeans
+mva <- \(v, n = 5) c(
+rowMeans(embed(c(rep(NA, n - 1), v), n), na.rm = TRUE)
+)
+Then, you can run mva like below
+df %>%
+mutate(value_roll = mva(value))
+and you will obtain
+1
+2025-01-01
+1
+1.0
+2
+2025-01-02
+2
+1.5
+3
+2025-01-03
+3
+2.0
+4
+2025-01-04
+4
+2.5
+5
+2025-01-05
+5
+3.0
+6
+2025-01-06
+6
+4.0
+7
+2025-01-07
+7
+5.0
+8
+2025-01-08
+8
+6.0
+9
+2025-01-09
+9
+7.0
+10 2025-01-10
+10
+8.0
+Share
+Improve this answer
+Follow
+answered Sep 17 at 20:00
+ThomasIsCodingThomasIsCoding
+106k99 gold badges3737 silver badges108108 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+rdplyrmoving-average
+See similar questions with these tags.
+R Language
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+1157
+Grouping functions (tapply, by, aggregate) and the *apply family
+254
+Calculating moving average
+311
+Moving average or running mean
+0
+How can I calculate a weighted moving average concentration for each chemical over years at a particular location?
+191
+How to calculate moving average without keeping the count and data-total?
+49
+Rolling mean (moving average) by group/id with dplyr
+3
+How to calculate the average slope within a moving window in R
+0
+Computing moving average in SAS
+3
+Grouped moving average in r
+Hot Network Questions
+How to end mob silencing? Targeted Canceling? Negative Votes require Feedback suggestion
+Implementation of a kd-tree header-only library
+Tooth cavities in 4 year old kid
+Does modern physics hold "force" to be a syntactic construct, not a "thing"?
+Is "allowed" a past participle or an adjective?
+Can I make CC-BY-NC-ND documents searchable?
+Check whether a binary tree is symmetric
+Is there a substance that passes through gasses, but reacts violently (explosive) when confronted with solid matter?
+Scifi story set in a spaceship around a weird star
+How to scale down a TikZ/PGFPlots figure with matching font size and good PNG quality
+"Saying who or what did the action would be clearer": passive voice vs. active voice in a technical document/checklist?
+How does energy abundance affect materials science?
+Why is my battery being zapped?
+How does boss dialogue change if fought at max level?
+Difficult triple stops in Grand Caprice (Erlkönig) for Violin Solo Op. 26: measure 9
+Is the carry-on maximum weight limit applied at check-in or at boarding?
+New larger artificial satellite created from natural gravity and existing space debris
+Differences, distributions, and definitions
+PCIe to SGMII/RGMII for Automotive Ethernet card
+Interpretation of slope coefficient when a variable appears in multiple powers
+A man you don't meet every day
+What was so bad about what Kimmel said about Charlie Kirk?
+Two definitions of regularity for ultrafilters
+Do the Matrix movies take place in our present or our future?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-r
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

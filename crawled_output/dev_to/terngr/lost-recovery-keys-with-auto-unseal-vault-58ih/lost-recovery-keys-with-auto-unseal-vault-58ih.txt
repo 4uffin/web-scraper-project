@@ -80,7 +80,7 @@ Lost Recovery Keys with Auto Unseal – Vault
 #vault
 #recoverykey
 #wrapping
-เป็นหนึ่งจากหลายๆ เคสที่ถูก Raise มาถึงเราในสัปดาห์นี้ และน่าจะเป็นเคสที่สนุกสุดด้วยเพราะผู้เขียนยอมอดกินเนื้อย่างคืนวันศุกร์เพื่อมาแก้เคสนี้
+เป็นหนึ่งจากหลายๆ เคสที่ถูก Raise มาถึงเราในสัปดาห์นี้ และน่าจะเป็นเคสที่สนุกสุดด้วยเพราะผู้เขียนยอมอดกินเนื้อย่างคืนวันศุกร์เพื่อมาแก้เคสนี้ ＃เคสที่ดีมักจะมาเย็นวันศุกร์ ตอนที่กำลังจะกลับบ้าน
 ด้วยตัว HashiCorp Vault ทางทฤษฏี เคสนี้ควรจะถูกแก้ได้ แต่พอไปดูเครื่องมืออาจจะยังไม่ครอบคลุม (หรือจะมองอีกมุม ว่าเพื่อความปลอดภัยและความชัดเจนในมุมการใช้งานของ Product เองก็ได้ครับ) ในที่นี้ wrapped key ที่ต้องการมีพร้อม ขาดแค่เครื่องมือ ซึ่งเราสร้างเพิ่มขึ้นมา
 Introduction
 Vault provides centralized, well-audited privileged access and secret management for mission-critical data whether you deploy systems on-premises, in the cloud, or in a hybrid environment.
@@ -98,17 +98,18 @@ Problem
 ในระบบ มีการรัน Vault แบบ Auto unseal ไว้แล้ว เช่นใช้ AWS KMS ช่วย
 ฉะนั้นสถานะปัจจุบัน จึงเป็น unseal (Sealed = false) หรือพร้อมใช้งานนั่นเอง
 แต่ Recovery key หายไป ทำให้ไม่สามารถสร้าง root token ใหม่ และ ไม่สามารถ Save/Restore snapshot
-ตอนที่สร้าง root token ใหม่ เราตรวจสอบได้ว่าตอนนี้เป็น unseal mode ปกติ (ใช้ Unseal key) หรือเป็น Auto unseal (ใช้ Recovery key) โดยดูจากรูป vault status แสดง Recovery Seal Type ก็คือเป็น Recovery key นั่นเอง
+เมื่อพยายามสร้าง root token ใหม่ จะถามหา Recovery key portions ซึ่งติดปัญหาสูญหาย/มีไม่ครบ
+เราตรวจสอบได้ว่าตอนนี้เป็น unseal mode ปกติ (ใช้ Unseal key) หรือเป็น Auto unseal (ใช้ Recovery key) โดยดูจากรูป vault status แสดง Recovery Seal Type ก็คือเป็น Auto unseal นั่นเอง
 Investigation
 หลักของการทำ Shamir's secret sharing (SSS) เริ่มจากเรามี　Secret ที่ต้องการปกป้องกันก่อน
-ในที่นี้ก็คือ มี Recovery key แล้วจึงสร้าง Recovery key portion ตามมา เพื่อที่ตอนใช้งานเราจะนำแต่ละ Recovery key portion ทั้งหมดหรือบางส่วน มาประกอบเป็น Recovery key เพื่อได้รับ Authorization จาก Vault operator ให้สร้าง Root token, rekey, etc ได้นั่นเอง ทั้งนี้ Recovery key จะยังใช้ Unseal ไม่ได้(เพราะการ Unseal ต้องใช้ Trusted device /service เช่น AWS KMS โดยท่าที่แนะนำคือเรานำเข้าคีย์เอง เพื่อให้มีสำรองไว้กรณี service ใช้งานไม่ได้ ก็จะนำเข้าคีย์เข้าไปใหม่ได้)
+ในที่นี้ก็คือ มี Recovery key แล้วจึงสร้าง Recovery key portion ตามมา เพื่อที่ตอนใช้งานเราจะนำแต่ละ Recovery key portion ทั้งหมดหรือบางส่วน มาประกอบเป็น Recovery key เพื่อได้รับ Authorization จาก Vault operator ให้สร้าง Root token, rekey, etc ได้นั่นเอง ทั้งนี้ Recovery key จะยังใช้ Unseal ไม่ได้(เพราะการ Unseal ต้องใช้ Trusted device /service เช่น AWS KMS โดยท่าที่แนะนำคือเรานำเข้าคีย์เอง เพื่อให้มีสำรองไว้กรณี service ใช้งานไม่ได้ ก็จะนำเข้าคีย์เดิมเข้าไปใหม่ได้)
 จากข้อมูลใน Vault's Document จำเป็นต้องใช้ Recovery key portion และเราทราบว่าสามารถสร้าง Recovery key portion ได้ใหม่จาก Recovery key โดย Recovery key portion ที่สร้างใหม่นี้ อาจไม่ซ้ำกันในแต่ละครั้งก็ได้ แต่เมื่อรวม portion ในจำนวนที่กำหนดแล้วจะได้ Recovery key ฉะนั้นเราต้องหา Recovery key, เช็ค Storage Path ได้จาก Configuration file และเช็คไฟล์ข้างใน พบ _recovery-key
 ก่อนหน้าที่เราจะเช็คไฟล์ มีการตรวจสิทธิ์ของ aws_kms_key ที่ใช้ พบว่าสามารถทำ Encryption, Decryption, DescribeKey ได้ ซึ่งสิทธิ์พวกนี้เพียงพอต่อการทำ Auto unseal แต่จะถูกใช้กับ Recovery key ด้วยไหม
 เรายังรู้อีกว่า HashiCorp มี go library ที่สามารถ Wrap (Encrypt/Decrypt secret) ด้วย aws_kms_key ได้
 ซึ่งการเรียกใช้ wrapper.Decrypt นี้ ต้องมี AWSKMS_WRAPPER_KEY_ID ซึ่งเรามีอยู่แล้ว จะอยู่ใน vault configuration file เป็นคีย์ที่ใช้ทำ Auto unseal นั่นเอง
 ส่วนสิ่งที่เราจะ Decrypt ก็คือไฟล์ที่อยู่ใน storage นั่นเอง
 /opt/vault/core/_recovery-key
-จากไฟล์ _recovery-key เราใช้ jq ดึงเฉพาะ .Value และ Encode ด้วย Basd64
+จากไฟล์ _recovery-key เราใช้ jq ดึงเฉพาะ .Value และ Encode ด้วย Base64
 sudo cat /opt/vault/core/_recovery-key
 | jq -r .Value | base64 -d > key.enc
 จากนั้น go run โดยใส่ parameter ค่าที่ได้จาก _recovery-key, ระบุจำนวน shares และ threshold เพื่อใช้ในการสร้าง portions ของ SSS โดยแต่ละครั้งอาจได้ SSS portion ต่างกัน และยังต้องระบุ AWSKMS_WRAPPER_KEY_ID เพื่อใช้ decrypt
@@ -120,8 +121,8 @@ vault operator rekey \
 -init \
 -key-shares=5 \
 -key-threshold=3
-ทั้งนี้ หากใช้ Recovery Key portion ที่มาจาก SSS คนละชุดกัน จะใช้รวมกันสร้าง Recovery Key ไม่ได้
-เราลองมาสร้าง root token ใหม่ แต่ใช้ Recovery Key portion เก่า (ก่อน rekey)
+ทั้งนี้ หากใช้ Recovery Key portion ชุดใหม่ แต่มาจากการทำ SSS ต่างชุดกัน จะใช้รวมกันสร้าง Recovery Key ไม่ได้
+เราลองมาสร้าง root token ใหม่ แต่ใช้ Recovery Key portion ชุดเก่า (ก่อน rekey)
 sukkarin@ubuntu:~$ vault operator generate-root -init
 A One-Time-Password has been generated for you and is shown in the OTP field.
 You will need this value to decode the resulting root token, so keep it safe.
@@ -139,16 +140,16 @@ OTP Length
 28
 Enter fullscreen mode
 Exit fullscreen mode
-พบว่า rekey สำเร็จ เพราะ Recovery Key portion เก่า เมื่อประกอบร่างกันแล้วไม่ตรง
-ทดสอบใช้ Recovery Key ตัวใหม่ สร้าง root token จะได้ Encoded Token มา
+พบว่าการ rekey สำเร็จ เพราะ Recovery Key portion ชุดเก่า เมื่อประกอบร่างกันแล้วไม่ตรง
+ทดสอบใช้ Recovery Key ชุดใหม่ สร้าง root token จะได้ Encoded Token มา
 นำ Encoded Token ไป Decode ด้วย NONCE_OTP ที่ได้ตอน init กระบวนการ generate-root
 ทดสอบ new root token login successfully
 เสร็จจากเคสแล้วลองหาข้อมูลเพิ่ม ในมุมที่เราเห็น Solution แล้ว พบว่าการลงลึกๆยังคงขาดแคลน ขอฝากไว้ต่อยอดการ Integrate กับ Kubernetes Secrets ด้วยครับ
 ตอนที่ทำ wrapper.Decrypt แนะนำเรียกใช้จาก Library เพราะบรรทัดเดียว สะดวกและเห็นผลกระทบสิ่งที่ทำอยู่ได้ชัดเจน
 หากไม่อยากเขียนเอง มี Community แชร์โค้ดไว้ สำหรับ go run (as your own risk ควรตรวจสอบโค้ดก่อนรัน) และไม่แนะนำให้รัน Binary โดยตรง
 Conclusion & Future plan
-ด้วยหลักการของ Shamir's secret sharing (SSS) ถ้าเรามี Secret เราสามารถสร้าง (SSS) ใหม่ได้หลายชุด ทำให้เราสามารถใช้งาน Vault Operator ที่ Require Recovery Key portion ได้นั่นเอง
-ใน Community มีการพูดถึงประเด็นต้องการให้ Recovery Key สามารถ Unseal ได้ด้วย แต่ในเมื่อปัจจุบันยังไม่เปิดให้ทำได้ จึงแนะนำให้ใช้ Bring your own key เพื่อจะได้มี Key สำรองใช้งานเป็น Auto unseal ได้ กรณีตัว Auto unseal หลักเกิดปัญหา
+ด้วยหลักการของ Shamir's secret sharing (SSS) ถ้าเรามี Secret เราสามารถสร้าง SSS ใหม่ได้หลายชุด ทำให้เราสามารถใช้งาน Vault Operator ที่ Require Recovery Key portion ได้นั่นเอง
+ใน Community มีการพูดถึงประเด็นต้องการให้ Recovery Key สามารถ Unseal ได้ด้วย แต่ในเมื่อปัจจุบันยังไม่เปิดให้ทำได้ จึงแนะนำให้ใช้ Bring your own key เพื่อจะได้มี Key ถูกเก็บสำรองไว้ใช้ทำ Auto unseal ได้ กรณีตัว Auto unseal หลักเกิดปัญหา
 Top comments (0)
 Subscribe
 Personal

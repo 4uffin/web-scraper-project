@@ -1,0 +1,249 @@
+🚀 Speed Up Your Images: Complete Guide to Cloudflare CDN + Amazon S3 - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Sushil Subedi
+Posted on Sep 20
+🚀 Speed Up Your Images: Complete Guide to Cloudflare CDN + Amazon S3
+#aws
+#webdev
+#cdn
+#programming
+So here's the thing, I had this Rails app where images were taking forever to load. Users were bouncing, my AWS bill was getting expensive, and I was serving the same dog photos from S3 over and over again to users all around the world.
+After some research, I discovered that putting Cloudflare in front of my S3 bucket was basically free performance magic. Here's exactly how I did it, including the gotchas I ran into.
+Why This Actually Works
+Before I get into the how-to, let me quickly explain why this setup is so effective:
+When you serve images directly from S3, every single request hits your bucket. A user in Tokyo requesting an image from your US-East bucket? That's a long round trip. A user refreshing the page? Another S3 request and another charge on your AWS bill.
+With Cloudflare in front, images get cached at edge locations worldwide. That Tokyo user gets the image from Cloudflare's Tokyo datacenter instead of Virginia. Plus, once an image is cached, you're not paying S3 bandwidth costs for repeated requests.
+What You'll Need
+An AWS account with an S3 bucket (or willingness to create one)
+A domain on Cloudflare (free tier works fine)
+About 30 minutes
+Let me walk you through each step.
+Step 1: Setting Up Your S3 Bucket
+First, create a new S3 bucket or use an existing one. I called mine my-app-images-2024 but you can name it whatever makes sense.
+The tricky part: you need to turn off Block All Public Access.
+Here's what the setting looks like:
+Choose your region based on where most of your users are, or just pick the one closest to you.
+Step 2: The Bucket Policy (This Part Caught Me Off Guard)
+You need to add a bucket policy to actually make the images readable. This is the JSON you need to paste in (replace my-images-bucket with your actual bucket name):
+{
+"Version": "2012-10-17",
+"Statement": [
+{
+"Sid": "AllowPublicRead",
+"Effect": "Allow",
+"Principal": "*",
+"Action": ["s3:GetObject"],
+"Resource": ["arn:aws:s3:::my-images-bucket/*"]
+}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Go to your bucket → Permissions → Bucket Policy, paste this in, and save.
+After this, you should be able to access any image in your bucket directly:
+After this, you should be able to access any image in your bucket directly:
+https://my-images-bucket.s3.amazonaws.com/path/to/image.jpg
+Enter fullscreen mode
+Exit fullscreen mode
+Note: Test this before moving on - upload a test image and try accessing it via the URL.
+Step 3: Cloudflare CNAME Setup
+Now for the good stuff. In your Cloudflare dashboard:
+Go to DNS
+Add a CNAME record
+Set the name to something like images or cdn
+Point it to your S3 bucket: my-images-bucket.s3.amazonaws.com
+Make sure the cloud is orange (proxied through Cloudflare) 🟠
+Now your images are accessible at https://images.yourdomain.com/path/to/image.jpg instead of the ugly raw S3 URL.
+Step 4: Caching Rules (Where the Magic Happens)
+This is where you actually get the performance benefits. Without proper caching rules, Cloudflare might not cache your images aggressively.
+Go to Rules → Cache Rules and create a new Cache rule:
+Select Cache everything Template
+Edge Cache TTL: 1 month (images don't change often)
+Browser Cache TTL: 7 days
+URL pattern: images.yourdomain.com/*
+I initially set this to cache for just a few hours, but realized that was stupid - images rarely change, so why not cache them for a month?
+Step 5: Cloud Connector: The Secret Sauce (Don't Skip This!)
+Okay, I need to be honest - I initially thought Cloud Connector was just extra fluff, but it's actually really important. It handles the technical details that make S3 work properly with Cloudflare.
+Here's what Cloud Connector does automatically:
+Fixes the Host header - S3 is picky about headers, and this makes sure they match what your bucket expects
+Routes traffic correctly - Makes sure requests actually reach your bucket
+What it doesn't do (you still need cache rules):
+Cache behavior - you still need to set up those cache rules we talked about earlier
+The good news? You get 10 free connectors even on Cloudflare's free plan, which is way more than you'll need.
+Go to Rule → Cloud Connector and click Create Cloud Connector:
+Select AWS S3 since that's what we're using:
+Now enter your bucket information. This is where you need to be precise:
+Important: For the hostname pattern, use a wildcard like images.yourdomain.com/* since you'll be serving different images from various paths:
+This wildcard setup ensures that whether someone requests images.yourdomain.com/user-avatars/123.jpg or images.yourdomain.com/blog-posts/hero-image.png, the connector knows exactly which bucket to route to.
+Pro tip: Double-check that your bucket name matches exactly what you put in the connector. I spent 20 minutes debugging why my images weren't loading, only to realize I had a typo in the bucket name. 🤦‍♂️
+Step 6: Rails Helper (If You're Using Rails)
+Here's the Rails helper I wrote to make this work seamlessly with ActiveStorage:
+Instead, we build URLs using the blob key and point them to our Cloudflare domain.
+Here’s a helper module:
+module ApplicationHelper
+include Pagy::Frontend
+def cdn_image_url(attachment_or_blob, **opts)
+blob = attachment_or_blob.is_a?(ActiveStorage::Blob) ? attachment_or_blob : attachment_or_blob&.blob
+return unless blob
+base = ENV['CDN_CLOUDFLARE_URL'].presence ||
+Rails.application.routes.url_helpers.rails_blob_url(blob, only_path: false)
+url = "#{base.chomp('/')}/#{blob.key.delete_prefix('/')}"
+return url if opts.blank?
+params = opts.slice(:width, :height, :quality, :format).map { |k, v| "#{k.to_s[0]}=#{v}" }
+"#{url}?#{params.join('&')}"
+end
+end
+Enter fullscreen mode
+Exit fullscreen mode
+Then in your views:
+<%= image_tag cdn_image_url(user.avatar, width: 300, quality: 80, format: :webp) %>
+Enter fullscreen mode
+Exit fullscreen mode
+I set the CDN_CLOUDFLARE_URL in my environment variables, so I can easily switch between development (direct S3) and production (Cloudflare CDN).
+What I Learned the Hard Way
+Cache headers matter. Initially, my images weren't being cached properly because I didn't set up the cache rules correctly.
+The first request is still slow. That's expected - Cloudflare has to fetch from S3 the first time. After that, it's lightning fast.
+ActiveStorage signed URLs don't work. If you're using Rails, you can't just use the built-in signed URLs because they have query parameters that mess with caching. That's why I built the custom helper.
+Test with curl. This command helped me debug caching issues:
+curl -I https://images.yourdomain.com/some-image.jpg
+Enter fullscreen mode
+Exit fullscreen mode
+Look for cf-cache-status: HIT in the response headers.
+Worth the Effort !?
+Absolutely. This took me about 2-3 hours to set up (including debugging time), and the performance improvement was immediate and dramatic. Plus, it's basically free - Cloudflare's free tier handles this just fine for most applications.
+If you're serving images directly from S3, you should definitely do this. Your users will thank you, and your AWS bill will too.
+Got questions about the setup? Hit me up in the comments. I probably ran into the same issue when I was figuring this out!
+References:
+https://developers.cloudflare.com/rules/cloud-connector/
+https://hiddify.com/manager/domain-worker-cdn-and-tunneling/How-to-use-Cloudflare-CDN/#site-or-domain-service
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Sushil Subedi
+Follow
+Learning and sharing
+Location
+Nepal
+Education
+Maharshi Dayanand University
+Work
+Full Stack Developer at U & J Enterprise
+Joined
+Jan 29, 2020
+More from Sushil Subedi
+Create Gitlab PR Template
+#git
+#webdev
+#productivity
+#beginners
+How to rename files so that git can detect it.
+#javascript
+#git
+#webdev
+#codenewbie
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
