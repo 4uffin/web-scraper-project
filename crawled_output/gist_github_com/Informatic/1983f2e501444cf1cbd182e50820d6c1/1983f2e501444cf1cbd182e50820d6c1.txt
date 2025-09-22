@@ -1,0 +1,559 @@
+openlgtv webOS hacking notes · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+Informatic/README.md
+Last active
+September 22, 2025 00:26
+Show Gist options
+Download ZIP
+Star
+90
+(90)
+You must be signed in to star a gist
+Fork
+12
+(12)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Informatic/1983f2e501444cf1cbd182e50820d6c1.js&quot;&gt;&lt;/script&gt;
+Save Informatic/1983f2e501444cf1cbd182e50820d6c1 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+69
+Stars
+89
+Forks
+12
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/Informatic/1983f2e501444cf1cbd182e50820d6c1.js&quot;&gt;&lt;/script&gt;
+Save Informatic/1983f2e501444cf1cbd182e50820d6c1 to your computer and use it in GitHub Desktop.
+Download ZIP
+openlgtv webOS hacking notes
+Raw
+README.md
+This is just a dump of some interesting undocumented features of webOS (3.8 specifically, on early 2018 4k LG TV) and other development-related tips.
+Homebrew app ideas
+OpenVPN frontend (OpenVPN itself is easily buildable and runs on webOS TVs: https://discord.com/channels/407937994037919756/835489130967859251/906943542457401395)
+App autostart manager - dynamically update arbitrary app config and register it as input (see Registering an app as an input)
+webos-vncserver frontend with autostart option
+Package hyperiond into Piccap directly
+Quick Screenshot (expose HTTP port that just returns PNG of current screen contents)
+Custom IR remote codes editor/updater/blaster
+Input auto-switcher with fallback display, display auto power on/off on input
+Receiving DIAL/SSDP
+Any installed application can receive DIAL start requests by adding "dialAppName": "NAME" in its appInfo.json.
+YouTube and Netflix apps have some special handling, but they still can be overriden by an unofficial app.
+IMPORTANT: official YouTube app has "dialAppName": "youtube". Installed apps are (or rather seem to be) ordered lexicographically based on their IDs - when multiple apps declare the same dialAppName the last one will be the one triggered via DIAL. (com.youtube.adfree < youtube.leanback.v4 < youtube.leanforward)
+TV Input embedding
+Web apps can embed connected inputs surface in their DOM:
+<video autoplay style="width:50%;height:50%">
+<source type="service/webos-external" src="ext://hdmi:1"></source>
+</video>
+Supported sources: ext://hdmi:1, ext://hdmi:2, ext://hdmi:3, ext://hdmi:4, ext://comp:1, ext://av:1, ext://av:2.
+Additionally TV stream can be embedded with src="tv://" and type="service/webos-broadcast"
+Seems like only a single external input can be displayed at the same time. (at least on my TV, equivalent to multiview limitations)
+Registering an app as an input (can be used to autostart an app)
+Following needs to be added to appinfo.json:
+"supportGIP": true
+largeIcon needs to be set (otherwise eim just crashes)
+When starting up an app following call needs to be executed to register it:
+webOS.service.request("luna://com.webos.service.eim", {
+method: "addDevice",
+parameters: {
+"appId": "org.webosbrew.hbchannel", // your application ID, required
+"pigImage": "", // required, preview image rendered in "All inputs", relative to main application directory, can be just an empty string
+"mvpdIcon": "", // required on webOS <3.x
+"type": "MVPD_IP", // optional, no idea (can be MVPD_IP or MVPD_RF)
+"showPopup": true, // optional, shows a toast with info that default input has been changed to label
+"label": "application name", // optional, used in toast message only
+"description": "testing", // optional, description rendered in "All inputs"
+},
+onSuccess: function (res) { console.info('success:',res); },
+onFailure: function (res) { console.info('failure:', res); }
+});
+luna://com.webos.service.eim/deleteDevice {"appId":"..."} call can be used to unregister an app.
+This also works over luna-send-pub for any app, as long as its appinfo.json is properly set up, in case anyone wants to debug this manually. (source app ID is not verified)
+Userscripts in apps
+Userscript present in webOSUserScripts/userScript.js will be loaded as a userscript in app webviews / frames. (including frames in origins outside of app root)
+Example app: https://github.com/FriedChickenButt/youtube-webos
+WebAppMgr User-Agent change
+Add the following to appinfo.json:
+{
+"vendorExtension": {
+"userAgent":"$browserName$/$browserVersion$ ($platformName$-$platformVersion$), _TV_$chipSetName$/$firmwareVersion$ (LG, $modelName$, $networkMode$)"
+},
+"trustLevel": "netcast"
+}
+Note: No idea what trustLevel actually means - it seems to somewhat change supported web APIs and makes window.PalmServiceBridge unavailable. (launch params are in window.launchParams)
+WebAppMgr - Disabling CORS enforcement
+In order to disable CORS enforcement use:
+{
+"vendorExtension": {
+"allowCrossDomain": true
+},
+"trustLevel": "netcast"
+}
+Invisible apps
+Apps with "visible": false can be launched and have their services accessed, but they don't show up on main screen.
+Note: LG Content Store is periodically queried for software updates of all installed applications (including homebrew/developer and system apps, app ids and versions are transmitted)
+Multiview app
+At least on my TV multiview doesn't seem to be officially supported anywhere in the UI.
+Yet still - it can be launched via telnet when rooted: /usr/bin/com.webos.app.multiview.
+This can possibly be wrapped in a proper app.
+State monitoring
+# Suspend / resume
+luna-send -i 'luna://com.webos.service.tvpower/power/getPowerState' '{"subscribe":true}'
+# Currently running application
+luna-send -i 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}'
+Injecting mitmproxy CA
+Note: see Filesystem overlays below, /usr/share/ca-certificates/sdp + /etc/ssl/certs
+mkdir -p /tmp/overlayfs/upper /tmp/overlayfs/work && mount -t overlay -o lowerdir=/etc/ssl/,upperdir=/tmp/overlayfs/upper/,workdir=/tmp/overlayfs/work/ overlay-ssl /etc/ssl/
+cd /etc/ssl/certs
+curl http://mitm.it/cert/pem > mitmproxy.crt
+ln -s mitmproxy.crt $(openssl x509 -in /etc/ssl/certs/mitmproxy.crt -subject_hash_old -noout).0
+cat mitmproxy.crt >> trusted_cas.crt
+cat mitmproxy.crt >> ca-certificates.crt
+# Also TODO: /usr/share/ca-certificates/sdp
+Extra note: TVs have their own (Multiple) Client Keys (and certificates), that are used for mutual TLS authentication by some remote services. They are stored securely, and there's no way to Read them.
+Disable "Wedge" / "My Content" / promotion bar on home screen
+luna-send -n 1 -f luna://com.webos.service.config/setConfigs '{"configs":{"com.webos.service.favoriteservice.enableWedge": false}}'`
+(note: this only persists, if *.lgtvsdp.com traffic is blocked)
+Increase pmlogd logging
+By default pmlogdaemon logs only topics listed in /etc/PmLogDaemon/whitelist.txt. To enable all logging use:
+luna-send -n 1 -f 'luna://com.webos.pmlogd/setdevlogstatus' '{"recordDevLogs":false}'
+luna-send -n 1 -f 'luna://com.webos.pmlogd/getdevlogstatus' '{}'
+# After enabling all devlogs specific contexts can be adjusted using PmLogCtl
+PmLogCtl set '*' 'debug'
+# Newer webOS:
+luna-send -n 1 -f luna://com.webos.service.config/setConfigs '{"configs": {"system.collectDevLogs": true}}'
+luna-send -n 1 -f luna://com.webos.service.config/getConfigs '{"configNames":["system.collectDevLogs"]}'
+(note: you most probably want to disable rdxd first, as per rootmytv immutable mounts...)
+(also: i got a tip this doesn't work anymore on newer webos/pmlogd versions)
+Luna Service Bus debugging
+# Log traffic
+ls-monitor
+# List connected clients
+ls-monitor -l
+# Inspect supported requests
+ls-monitor -i com.webos.service...
+# Some requests schemas are present in /etc/palm/schemas
+Magic Remote IR blaster
+luna-send -a 'important-dunno-why-lol' -n 1 -f 'luna://com.webos.service.mrcu/ir/pushIrCodes' '{ "irCodes": "0xaa 0x00 0x00 0x00 0x0c 0x94 0x00 0x00 0x58 0x0f 0x02 0x00 0xa2 0x00 0x07 0x81 0x13 0x03 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x13 0x03 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x1a 0x04 0x1a 0x04 0x1a 0x04 0x1a 0x04 0x1a 0x04 0x1a 0x04 0x07 0x81 0x13 0x03 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x13 0x03 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x1a 0x04 0x1a 0x04 0x1a 0x04 0x1a 0x04 0x1a 0x04 0x1a 0x07 0x07 0x81 0x2d 0x07 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 0x07 0x81 0x2d 0x07 0x07 0x81 0x13 0x03 ", "irCodeCount": 174 }'
+todo: research what's the actual encoding scheme
+When enabling magic remote IR control of appliances LG's services are accessed to download new keycodes. These are then stored in /mnt/lg/user/irdbmanager (oss_audio_append_db.txt and setting/oss_setting_info_audio.txt). Some default codes are also present in /usr/share/irdbmanager.
+Nice potentially hackable apps
+My starter (triggered by pressing clock on home screen) → /usr/palm/applications/com.webos.app.mystarter/qml/main.qml
+Screensaver (fireworks) → /usr/palm/applications/com.webos.app.screensaver/qml/main.qml
+Home screen layout → seems like all .qml files are bundled in surface-manager-starfish (managed to extract it without filenames with binwalk - someone needs to make some qt resources unpacker) - but it also accepts an env variable with custom .qml startup file.
+Custom Magic Remote cursors
+Cursors are rendered by surface-manager-starfish (surface-manager upstart service), and are loaded from /usr/share/im.
+cursorTypeAszMstN.png is the default "idle" medium-sized cursor. S/M/L in that filename is cursor size. /usr/share/im needs to be mounted/overlaid early on in the boot process (needs testing), or surface-manager needs to be manually restarted after applying the patch. Stays on between suspends when Quick Start+ is enabled. Filesystem overlay like below can be used.
+Filesystem overlays
+Use https://gist.github.com/Informatic/db387d512bf4ae5512d9f644c4d219d2
+Download and install an ipk in (root) shell
+curl -L https://github.com/mariotaku/moonlight-tv/releases/download/v0.6.0/com.limelight.webos_0.6.0_arm.ipk -o /media/internal/downloads/app.ipk && \
+luna-send -i -f luna://com.webos.appInstallService/dev/install '{"id":"com.limelight.webos","ipkUrl":"/media/internal/downloads/app.ipk","subscribe":true}'
+App launch via shell
+luna-send -n 1 -f luna://com.webos.service.applicationManager/launch '{"id":"com.webos.app.screensaver"}'
+Screenshot
+luna-send -n 1 -f 'luna://com.webos.service.tv.capture/executeOneShot' '{"path":"/tmp/capture.png","method":"DISPLAY","format":"PNG"}'
+# Supported formats: BMP, JPG, PNG, RGB, RGBA, YUV422
+# Supported methods: SCREEN/DISPLAY (alias?), SCREEN_WITH_SOURCE_VIDEO, VIDEO, GRAPHIC, SOURCE/SCALER (alias?)
+# Note: com.webos.service.tv.capture above has been renamed to com.webos.service.capture on some devices, call signature is the same.
+(Note: this is also available over SSAP as: ssap://tv/executeOneShot - returns imageUri attribute with HTTP link)
+Factory mode / instart / instop...
+Don't fuck with this. You WILL most probably brick your TV.
+# -> binwalk -e /usr/bin/surface-manager-starfish && grep -Ri factory *.extracted
+luna-send -n 1 -f luna://com.webos.service.applicationManager/launch '{"id":"com.webos.app.factorywin","params":{"id":"executeFactory","irKey":"inStart"}}'
+# Alternative irKeys: powerOnly, inStart, ezAdjust, inStop, pCheck, sCheck, tilt
+# ezAdjust is service menu 1
+# inStart is service menu 2
+# inStop is factory reset (?)
+# pCheck will override some picture settings for lcd testing
+# sCheck will boost sound to test audio
+# tilt opens white screen that does nothing and locks remote buttons, goes away after a reboot
+# Also, rather obviously, this can be triggered over SSAP as well... :)
+# -> /usr/palm/applications/com.webos.app.factorywin
+# Password: 0413
+# Bang & Olufsen password: 1925
+# "USB Log" (?) password: 1126
+"Host Diagnostics" view
+Go to settings → Programmes → Hover "Programme Tuning & Settings" and press "1" button five times.
+Disable 15 minute no-signal auto power off
+luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings '{"settings":{"autoOff15Min":"off"},"category":"time"}'
+Accessing devmode SSH without full webOS SDK
+tv=10.11.12.13
+# 1. Enable devmode
+# 2. Enable keyserver
+# 3. Download key and decrypt using Passphrase displayed on a screen
+openssl rsa -in <(curl http://$tv:9991/webos_rsa) > webos_rsa && chmod 600 webos_rsa
+# 4. just ssh
+ssh prisoner@$tv -i webos_rsa -p 9922 bash -i
+Tip: @webosose/ares-cli NPM package is sufficient to play with webOS TV development. (ares-package, ares-install, ares-launch...) A quick tip on how to configure everything is available here: FriedChickenButt/youtube-webos#13 (comment)
+Using sshd after deploying RootMyTV
+Note: dropbear sshd is now bundled by default with Homebrew Channel app. If you've rooted Your TV using https://rootmy.tv you may already have it, you just need to enable it in Homebrew Channel Settings view.
+Run this manually in telnet session:
+mkdir -p /var/run/sshd && /media/cryptofs/apps/usr/palm/services/com.palmdts.devmode.service/binaries-armv71/opt/openssh/sbin/sshd -o StrictModes=no -f /media/cryptofs/apps/usr/palm/services/com.palmdts.devmode.service/binaries-armv71/opt/openssh/etc/ssh/sshd_config -h /var/lib/devmode/sshd/ssh_host_rsa_key -o PasswordAuthentication=yes -o PermitRootLogin=yes -o PermitUserEnvironment=yes -o AuthorizedKeysFile=/media/developer/.ssh/authorized_keys -D -p 9922
+Afterwards, SDK needs to be reconfigured to use root username:
+ares-setup-device -m DEVICE -i "username=root"
+SSH public key can be added to: /media/developer/.ssh/authorized_keys
+Inspector for development apps is present on: http://TV_IP:9998
+Running native app in jailer
+jailer -d -t native_devmode -p /media/developer/apps/usr/palm/applications/com.limelight.webos/ -i com.limelight.webos $(which id)
+Controlling screen backlight
+luna-send -n 1 "luna://com.webos.service.tvpower/power/turnOnScreen" '{}'
+luna-send -n 1 "luna://com.webos.service.tvpower/power/turnOffScreen" '{}'
+luna-send -n 1 'luna://com.webos.settingsservice/setSystemSettings' '{"category":"picture","settings":{"energySaving":"screen_off"}}'
+luna-send-pub -f -n 1 luna://com.webos.service.applicationManager/launch '{"id":"com.webos.app.tvhotkey","params":{"activateType":"energy-saving-mode"}}'
+Load earlier comments...
+Copy link
+kopiro
+commented
+May 6, 2022
+Hey @Informatic , any way to add cursors? I see they're in /usr/share/im, but I would rather add than replace it
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+zipperhead46237
+commented
+May 18, 2022
+Any way to replace the existing screen saver images?
+Any way to just turn off the screensaver?
+or even change the timeout to a longer period before it comes on?
+I use streaming apps that have their very own screensavers built in and they are much more pleasant the the LG screensaver.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+zipperhead46237
+commented
+May 18, 2022
+I would love to be able to send a command to turn off or disable the screensaver.
+and then be able to re-enable after being finished using streaming apps.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tuxuser
+commented
+May 30, 2022
+To fetch some system infos:
+luna-send -f -n 1 'luna://com.webos.service.systemservice/osInfo/query' '{"parameters":["webos_manufacturing_version", "webos_release", "webos_build_datetime"]}'
+Response:
+{
+"webos_release": "4.4.0",
+"webos_build_datetime": "20211230050539",
+"webos_manufacturing_version": "05.40.26",
+"returnValue": true
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+oliv615
+commented
+Dec 28, 2022
+TV stream can be embedded with src="tv://"
+How to choose the channel to play?
+Thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+hanovof0811
+commented
+Mar 4, 2023
+Help Injecting mitmproxy CA
+I got this error:
+root@LGwebOSTV:/etc/ssl/certs# ln -s mitmproxy.crt $(openssl x509 -in /etc/ssl/c
+erts/mitmproxy.crt -subject_hash_old -noout).0
+unable to load certificate
+2532467920:error:0906D06C:PEM routines:PEM_read_bio:no start line:pem_lib.c:707:Expecting: TRUSTED CERTIFICATE
+Anyone have solusion? Thanks.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jonferreira
+commented
+Aug 26, 2023
+Hey.
+Any way to enable USB Log?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mcpgza
+commented
+May 25, 2024
+I'm getting "new software update is available for your tv. Use your tv remote to select" on every turn on, it it possibe to get rid of this message somehow?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+jampez77
+commented
+Aug 7, 2024
+Has anyone managed to ever get Picture-in-picture of multiview working using luna? I see it's mentioned above but with no details
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+S-trace
+commented
+Aug 14, 2024
+I'm getting "new software update is available for your tv. Use your tv remote to select" on every turn on, it it possibe to get rid of this message somehow?
+Block the following domains on your router or DNS resolver:
+snu.lge.com
+su.lge.com
+su-ssl.lge.com
+snu-ssl.lge.com
+snu-dev.lge.com
+su-dev.lge.com
+nsu.lge.com
+It seems you can do nothing inside your TV to prevent this popup, because the update check is already performed when the Homebrew Channel starts and overrides hosts file.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mcpgza
+commented
+Aug 14, 2024
+It seems you can do nothing inside your TV to prevent this popup, because the update check is already performed when the Homebrew Channel starts and overrides hosts file.
+After I deleted the content of /mnt/lg/cmn_data/swupdate, the popup didn't not show again.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+S-trace
+commented
+Aug 14, 2024
+After I deleted the content of /mnt/lg/cmn_data/swupdate, the popup didn't not show again.
+My HE_DTV_W22P_AFADATAA does not have this path
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Aug 19, 2024
+Custom Magic Remote cursors is actually good idea (or maybe bad idea?). I think it requires root to change the cursor or something...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+llbranco
+commented
+Sep 29, 2024
+Using luna-send to create a pop-up message with buttons to download from 2 sources and save to a custom folder.
+You can do that:
+luna-send -n 1 -f -a com.webos.service.secondscreen.gateway luna://com.webos.notification/createAlert '{
+"message":"PPLGPwn djavuln<br/><br/>Please Select your HEN",
+"buttons":[
+{"label":"GoldHen", "focus":true, "onclick":"luna://com.webos.service.downloadmanager/download", "params":{"target":"https://github.com/llbranco/PPLGPwn/raw/main/install.sh", "targetDir":"/media/internal/downloads/PPLGwn", "targetFilename":"goldhen.sh"}},
+{"label":"PS4Hen-VTX", "focus":false, "onclick":"luna://com.webos.service.downloadmanager/download", "params":{"target":"https://github.com/llbranco/PPLGPwn/raw/main/install_vtx.sh", "targetDir":"/media/internal/downloads/PPLGwn", "targetFilename":"vtx.sh"}}
+]}'
+I don't know why, but you can't download directly to the USB drive "/tmp/usb/sda/sda1/".
+If you use curl or wget instead, you can actually do it.
+I still haven't figured out how to run shell commands or shell scripts using luna-send.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Oct 25, 2024
+Are you talking about popup messages? Because i need the app to customize cursor just like on Windows.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+llbranco
+commented
+Oct 27, 2024
+Are you talking about popup messages? Because i need the app to customize cursor just like on Windows.
+yeah, pop up messages, with buttons
+there is a way to use variables inside buttons, with buttons dynamically expandable
+as you can see here:
+https://github.com/llbranco/PPLGPwn/blob/main/tests/dynamically_expandable_multiple_options.txt
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 11, 2024
+good but is there a app, which changes cursor to custom cursors including beanbird?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 11, 2024
+it's like the windows one
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+llbranco
+commented
+Nov 13, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+no, it just show messages with custom buttons
+like this:
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 15, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+btw i already see that on discord. Is there an app which converts the folder to .IPK? (i already know it's webOS CLI but when i try to install, don't work.). And also, is there IPK library? (similar to webosbrew.org one)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 15, 2024
+oh did not expect that, so you are the owner of the playstation jailbreaking thing?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+llbranco
+commented
+Nov 15, 2024
+oh did not expect that, so you are the owner of the playstation jailbreaking thing?
+yep, contributor to the first project, and owner of the most famous PPLGPwn fork.
+btw i already see that on discord. Is there an app which converts the folder to ,IPK? (i already know it's webOS CLI but when i try to install, don't work.). And also, is there IPK library? (similar to webosbrew.org one)
+it was me on openlgtv discord channel...
+convert folder to ipk? you mean https://dropbox.inf.re/webos-app-stub/ ?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 18, 2024
+nope but i tried it back on around june but i need the better one like which requires appinfo.json and assets and other one to convert
+.ipk file
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 18, 2024
+Is there any idea to change cursor?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 20, 2024
+pls reply
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 20, 2024
+lol
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 20, 2024
+Ídg
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+llbranco
+commented
+Nov 21, 2024
+idk, sorry...
+it can be a png (but it can be risky to change)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Nov 21, 2024
+I wish i had BeanBird Cursor, but sadly i only have default cursors.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+itsRealM12C
+commented
+Feb 7, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+But if i currently screen mirror my devices screen, the cursor will be black and white color. But, if i use YouTube instead, the cursor will be pink. customCursor.png sometimes will replace with the new one. Retroarch app is hiding the system cursor, shows the cursor image, pretending to be custom cursor.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

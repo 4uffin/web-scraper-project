@@ -1,0 +1,384 @@
+MongoDB Search Index Internals with Luke (Lucene Toolbox GUI tool) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Franck Pachot
+Posted on Sep 21
+MongoDB Search Index Internals with Luke (Lucene Toolbox GUI tool)
+#mongodb
+#text
+#search
+#lucene
+Lucene search indexes in MongoDB (2 Part Series)
+1
+Text Search with MongoDB (BM25 TF-IDF) and PostgreSQL
+2
+MongoDB Search Index Internals with Luke (Lucene Toolbox GUI tool)
+Previously, I demonstrated MongoDB text search scoring with a simple example, creating a dynamic index without specifying fields explicitly. You might be curious about what data is actually stored in such an index. Let's delve into the specifics. Unlike regular MongoDB collections and indexes, which use WiredTiger for storage, search indexes leverage Lucene technology. We can inspect these indexes using Luke, the Lucene Toolbox GUI tool.
+Set up a lab
+I started an Atlas local deployment to get a container for my lab:
+# download Atlas CLI if you don't have it. Here it is for my Mac:
+wget https://www.mongodb.com/try/download/atlascli
+unzip mongodb-atlas-cli_1.43.0_macos_arm64.zip
+# start a container
+bin/atlas deployments setup
+atlas --type local --port 27017 --force
+Enter fullscreen mode
+Exit fullscreen mode
+Sample data
+I connected with mongosh and created a collection, and a search index, like in previous post:
+mongosh --eval '
+db.articles.deleteMany({});
+db.articles.insertMany([
+{ description : "🍏 🍌 🍊" },
+// short, 1 🍏
+{ description : "🍎 🍌 🍊" },
+// short, 1 🍎
+{ description : "🍎 🍌 🍊 🍎" },
+// larger, 2 🍎
+{ description : "🍎 🍌 🍊 🍊 🍊" },
+// larger, 1 🍎
+{ description : "🍎 🍌 🍊 🌴 🫐 🍈 🍇 🌰" },
+// large, 1 🍎
+{ description : "🍎 🍎 🍎 🍎 🍎 🍎" },
+// large, 6 🍎
+{ description : "🍎 🍌" },
+// very short, 1 🍎
+{ description : "🍌 🍊 🌴 🫐 🍈 🍇 🌰 🍎" },
+// large, 1 🍎
+{ description : "🍎 🍎 🍌 🍌 🍌" },
+// shorter, 2 🍎
+]);
+db.articles.createSearchIndex("default",
+{ mappings: { dynamic: true } }
+);
+'
+Enter fullscreen mode
+Exit fullscreen mode
+Get Lucene indexes
+While MongoDB collections and secondary indexes are stored by the WiredTiger storage engine (by default in /data/db directory), the text search indexes use Lucene in a mongot process (with files stored by default in /data/mongot). I copied it to my laptop:
+docker cp atlas:/data/mongot ./mongot_copy
+cd mongot_copy
+Enter fullscreen mode
+Exit fullscreen mode
+One file is easy to read, as it is in JSON format, and it is the metadata listing the search indexes, with their MongoDB configuration:
+cat configJournal.json | jq
+{
+"version": 1,
+"stagedIndexes": [],
+"indexes": [
+{
+"index": {
+"indexID": "68d0588abf7ab96dd26277b1",
+"name": "default",
+"database": "test",
+"lastObservedCollectionName": "articles",
+"collectionUUID": "a18b587d-a380-4067-95aa-d0e9d4871b64",
+"numPartitions": 1,
+"mappings": {
+"dynamic": true,
+"fields": {}
+},
+"indexFeatureVersion": 4
+},
+"analyzers": [],
+"generation": {
+"userVersion": 0,
+"formatVersion": 6
+}
+}
+],
+"deletedIndexes": [],
+"stagedVectorIndexes": [],
+"vectorIndexes": [],
+"deletedVectorIndexes": []
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The directory where Lucene files are stored has the IndexID in their names:
+ls 68d0588abf7ab96dd26277b1*
+_0.cfe _0.cfs _0.si
+_1.cfe _1.cfs _1.si
+_2.cfe _2.cfs _2.si
+_3.cfe _3.cfs _3.si
+_4.cfe _4.cfs _4.si
+_5.cfe _5.cfs _5.si
+_6.cfe _6.cfs _6.si
+segments_2
+write.lock
+Enter fullscreen mode
+Exit fullscreen mode
+In a Lucene index, each .cfs/.cfe/.si set represents one immutable segment containing a snapshot of indexed data (with .cfs holding the actual data, .cfe its table of contents, and .si the segment’s metadata), and the segments_2 file is the global manifest that tracks all active segments so Lucene can search across them as one index.
+Install and use Luke
+I installed the Lucene binaries and started Luke:
+wget https://dlcdn.apache.org/lucene/java/9.12.2/lucene-9.12.2.tgz
+tar -zxvf lucene-9.12.2.tgz
+lucene-9.12.2/bin/luke.sh
+Enter fullscreen mode
+Exit fullscreen mode
+This starts the GUI asking for the index directory:
+The "Overview" tab shows lots of information:
+The field names are prefixed with the type. My description field was indexed as a string and named $type:string/description. There are 9 documents and 9 different terms:
+The Lucene index keeps the overall frequency in order to apply Inverse Document Frequency (IDF). Here, 🍎 is present in 8 documents and 🍏 in one.
+The "Document" tab lets us browse the documents and see what is indexed. For example, 🍏 is present in one document with { description: "🍏 🍌 🍊" }:
+The flags IdfpoN-S mean that it is a fully indexed text field with docs, frequencies, positions, and offsets, with norms and stored values
+The "Search" tab allows to run queries. For example, { $search: { text: { query: ["🍎", "🍏"], path: "description" }, index: "default" } } from my previous post is:
+This is exactly what I got from MongoDB:
+db.articles.aggregate([
+{ $search: { text: { query: ["🍎", "🍏"], path: "description" }, index: "default" } },
+{ $project: { _id: 0, score: { $meta: "searchScore" }, description: 1 } },
+{ $sort: { score: -1 } }
+]).forEach( i=> print(i.score.toFixed(3).padStart(5, " "),i.description) )
+1.024 🍏 🍌 🍊
+0.132 🍎 🍎 🍎 🍎 🍎 🍎
+0.107 🍎 🍌 🍊 🍎
+0.101 🍎 🍎 🍌 🍌 🍌
+0.097 🍎 🍌
+0.088 🍎 🍌 🍊
+0.073 🍎 🍌 🍊 🍊 🍊
+0.059 🍎 🍌 🍊 🌴 🫐 🍈 🍇 🌰
+0.059 🍌 🍊 🌴 🫐 🍈 🍇 🌰 🍎
+Enter fullscreen mode
+Exit fullscreen mode
+If you double-click on a document in the result, you can get the explanation of the score:
+For example, the score of 🍏 🍌 🍊 is explained by:
+1.0242119 sum of:
+1.0242119 weight($type:string/description:🍏 in 0) [BM25Similarity], result of:
+1.0242119 score(freq=1.0), computed as boost * idf * tf from:
+1.89712 idf, computed as log(1 + (N - n + 0.5) / (n + 0.5)) from:
+1 n, number of documents containing term
+9 N, total number of documents with field
+0.5398773 tf, computed as freq / (freq + k1 * (1 - b + b * dl / avgdl)) from:
+1.0 freq, occurrences of term within document
+1.2 k1, term saturation parameter
+0.75 b, length normalization parameter
+3.0 dl, length of field
+4.888889 avgdl, average length of field
+Enter fullscreen mode
+Exit fullscreen mode
+The BM25 core formula is score = boost × idf × tf
+IDF (Inverse Document Frequency) is idf = log(1 + (N - n + 0.5) / (n + 0.5)) where n is the number of documents containing 🍏 , so 1, and N is the total documents in the index for this field, so 9
+TF (Term Frequency normalization) is tf = freq / ( freq + k1 × (1 - b + b × (dl / avgdl)) ) where freq is the term occurrences in this doc’s field, so 1, k1 is the term saturation parameter, which defaults to 1.2 in Lucene, b is the length normalization, which defaults to 0.75 in Lucene, dl is the document length, which is 3 tokens here, and avgdl is the average document length for this field in the segment, here 4.888889
+Daily usage in MongoDB search also allows boosting via the query, which multiplies into the BM25 scoring formula (boost).
+The "Analysis" tab helps explain how strings are tokenized and processed. For example, the standard analyzer explicitly recognized emojis:
+Finally, I inserted 500 documents with other fruits, like in the previous post, and the collection-wide term frequency has been updated:
+The scores reflect the change:
+The explanation of the new rank for 🍏 🍌 🍊 is:
+3.2850468 sum of:
+3.2850468 weight($type:string/description:🍏 in 205) [BM25Similarity], result of:
+3.2850468 score(freq=1.0), computed as boost * idf * tf from:
+5.8289456 idf, computed as log(1 + (N - n + 0.5) / (n + 0.5)) from:
+1 n, number of documents containing term
+509 N, total number of documents with field
+0.5635748 tf, computed as freq / (freq + k1 * (1 - b + b * dl / avgdl)) from:
+1.0 freq, occurrences of term within document
+1.2 k1, term saturation parameter
+0.75 b, length normalization parameter
+3.0 dl, length of field
+5.691552 avgdl, average length of field
+Enter fullscreen mode
+Exit fullscreen mode
+After adding 500 documents without 🍏, BM25 recalculates IDF for 🍏 with a much larger N, making it appear far rarer in the corpus, so its score contribution more than triples.
+Notice that when I queried for 🍎🍏, no documents contained both terms, so the scoring explanation included only one weight. If I modify the query to include 🍎🍏🍊, the document 🍏 🍌 🍊 scores highest, as it combines the weights for both matching terms, 🍏 and 🍊:
+4.3254924 sum of:
+3.2850468 weight($type:string/description:🍏 in 205) [BM25Similarity], result of:
+3.2850468 score(freq=1.0), computed as boost * idf * tf from:
+5.8289456 idf, computed as log(1 + (N - n + 0.5) / (n + 0.5)) from:
+1 n, number of documents containing term
+509 N, total number of documents with field
+0.5635748 tf, computed as freq / (freq + k1 * (1 - b + b * dl / avgdl)) from:
+1.0 freq, occurrences of term within document
+1.2 k1, term saturation parameter
+0.75 b, length normalization parameter
+3.0 dl, length of field
+5.691552 avgdl, average length of field
+1.0404456 weight($type:string/description:🍊 in 205) [BM25Similarity], result of:
+1.0404456 score(freq=1.0), computed as boost * idf * tf from:
+1.8461535 idf, computed as log(1 + (N - n + 0.5) / (n + 0.5)) from:
+80 n, number of documents containing term
+509 N, total number of documents with field
+0.5635748 tf, computed as freq / (freq + k1 * (1 - b + b * dl / avgdl)) from:
+1.0 freq, occurrences of term within document
+1.2 k1, term saturation parameter
+0.75 b, length normalization parameter
+3.0 dl, length of field
+5.691552 avgdl, average length of field
+Enter fullscreen mode
+Exit fullscreen mode
+Here is the same query in MongoDB:
+db.articles.aggregate([
+{ $search: { text: { query: ["🍏", "🍊"], path: "description" }, index: "default" } },
+{ $project: { _id: 0, score: { $meta: "searchScore" }, description: 1 } },
+{ $sort: { score: -1 } },
+{ $limit: 15
+}
+]).forEach( i=> print(i.score.toFixed(3).padStart(5, " "),i.description) )
+4.325 🍏 🍌 🍊
+1.354 🍎 🍌 🍊 🍊 🍊
+1.259 🫐 🍊 🥑 🍊
+1.137 🥥 🍊 🍊 🍅 🍈 🍈
+1.137 🍍 🍓 🍊 🍊 🥑 🍉
+1.137 🥥 🍆 🍊 🍊 🍍 🍉
+1.084 🍊 🍑 🍊 🥥 🍌 🍍 🫐
+1.084 🍊 🫐 🥝 🍋 🥑 🍇 🍊
+1.084 🥭 🍍 🥑 🍋 🍈 🍊 🍊
+1.040 🍊 🫐 🥭
+1.040 🍊 🍉 🍍
+1.040 🍎 🍌 🍊
+1.040 🍊 🍋 🍋
+1.040 🍐 🍌 🍊
+1.036 🍐 🥥 🍍 🍈 🍐 🍊 🍆 🍊
+Enter fullscreen mode
+Exit fullscreen mode
+While the scores may feel intuitively correct when you look at the data, it's important to remember there's no magic — everything is based on well‑known mathematics and formulas. Lucene’s scoring algorithms are used in many systems, including Elasticsearch, Apache Solr, and the search indexes built into MongoDB.
+Conclusion
+MongoDB search indexes are designed to work optimally out of the box. In my earlier post, I relied entirely on default settings, dynamic mapping, and even replaced words with emojis — yet still got relevant, well-ranked results without extra tuning. If you want to go deeper and fine-tune your search behavior, or simply learn more about how it works, inspecting the underlying Lucene index can provide great insights. Since Atlas Search indexes are Lucerne-compatible, tools like Luke allow you to see exactly how your text is tokenized, stored, and scored — giving you full transparency into how queries match your documents.
+Lucene search indexes in MongoDB (2 Part Series)
+1
+Text Search with MongoDB (BM25 TF-IDF) and PostgreSQL
+2
+MongoDB Search Index Internals with Luke (Lucene Toolbox GUI tool)
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Franck Pachot
+Follow
+🥑 Developer Advocate at 🍃 MongoDB, 🔶 AWS Data Hero, 🐘 PostgreSQL fan,▝▞ YugabyteDB expert, 🅾️ Oracle Certified Master, and 💚 loving all databases 🛢️
+Location
+Lausanne, Switzerland
+Education
+Master MIAGE, Université Paris-Sud, France
+Work
+Developer Advocate at MongoDB
+Joined
+Nov 12, 2018
+More from Franck Pachot
+Text Search with MongoDB (BM25 TF-IDF) and PostgreSQL
+#database
+#mongodb
+#postgres
+#elasticsearch
+Combine Two JSON Collections with Nested Arrays: MongoDB and PostgreSQL Aggregations
+#mongodb
+#postgres
+#sql
+#json
+MongoDB Multikey Indexes and Index Bound Optimization
+#database
+#mongodb
+#performance
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

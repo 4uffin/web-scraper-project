@@ -1,0 +1,292 @@
+🔐 Fine-Grained Role Control for Logic App Standard Workflows with APIM + Easy Auth - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Daniel Jonathan
+Posted on Sep 21
+🔐 Fine-Grained Role Control for Logic App Standard Workflows with APIM + Easy Auth
+#azure
+#logicapps
+#apigateway
+#microsoft
+In my earlier post, I showed how to enable Easy Auth for a Logic App Standard workflow:
+👉 Enabling Easy Auth for Azure Logic Apps Standard
+That secures the workflow endpoint itself with Azure Entra ID (App Service Authentication).
+Now let’s take it one step further — use Azure API Management (APIM) to enforce role-based access before the request ever reaches the Logic App.
+🔎 Note: In this setup we are only Exposing Logic Apps via APIM, not exposing them as an MCP Server through APIM.
+1. Register App Roles
+In the Entra App Registration that represents your API:
+Define roles such as:
+wf_arithmetic_add
+wf_arithmetic_sub
+Assign these roles to the service principals / users that should be allowed.
+You will see these roles reflected in the API permissions blade once consented.
+2. Onboard Logic App Standard into APIM
+As of today, APIM does not offer a direct import wizard for Logic App Standard (EasyAuth enabled).
+So we create the API manually:
+In APIM, create a new API (e.g., LAStandardAPI).
+Add operations such as Add, Sub, etc. to mirror your workflow triggers/actions.
+Configure each operation’s backend to point to the Logic App’s HTTPS endpoint (already protected by EasyAuth).
+💡 Tip:
+In Logic App Standard, each workflow is deployed under a unique folder name and exposes an HTTP trigger endpoint with a SAS token (sig=...) in the URL.
+Examples:
+https://mcpblogdemo.azurewebsites.net:443/api/wf_arithmetic_add/triggers/RcvReq/invoke?api-version=2022-05-01&sp=%2Ftriggers%2FRcvReq%2Frun&sv=1.0&sig=Key
+https://mcpblogdemo.azurewebsites.net:443/api/wf_arithmetic_sub/triggers/RcvReq/invoke?api-version=2022-05-01&sp=%2Ftriggers%2FRcvReq%2Frun&sv=1.0&sig=Key
+https://mcpblogdemo.azurewebsites.net:443/api/wf_arithmetic_mul/triggers/RcvReq/invoke?api-version=2022-05-01&sp=%2Ftriggers%2FRcvReq%2Frun&sv=1.0&sig=Key
+These work, but they bypass role-based authorization and rely only on SAS tokens.
+To simplify API Management configuration and improve security:
+Use a consistent name for the HTTP trigger in each workflow (e.g., RcvReq or In).
+Remove the sig query parameter when fronting through APIM (Easy Auth + JWT replaces SAS).
+Construct the backend URL dynamically and apply a rewrite policy instead of hardcoding each workflow path.
+Example backend URL pattern:
+https://<logicapp>.azurewebsites.net/api/wf_arithmetic_add/triggers/RcvReq/invoke?api-version=2022-05-01
+Example APIM frontend mapping:
+/api/wf_arithmetic_add → wf_arithmetic_add/triggers/RcvReq/invoke?api-version=2022-05-01
+/api/wf_arithmetic_sub → wf_arithmetic_sub/triggers/RcvReq/invoke?api-version=2022-05-01
+/api/wf_arithmetic_mul → wf_arithmetic_mul/triggers/RcvReq/invoke?api-version=2022-05-01
+Implement this with rewrite-uri or set-backend-service in APIM, so all workflow calls are role-protected and you no longer depend on SAS tokens.
+3. Validate JWT in APIM
+In the inbound policy (applied at all operations), use validate-jwt with your tenant’s OpenID configuration and issuer. This configuration:
+Uses the tenant-specific OpenID configuration (v2 endpoint).
+Accepts tokens from the tenant issuer (https://sts.windows.net/<TENANT_ID>/).
+Returns 401 Unauthorized when validation fails (signature/issuer issues).
+(Optional but recommended) You can add an <audiences> block later to enforce the API’s audience if needed.
+<policies>
+<inbound>
+<base />
+<validate-jwt header-name="Authorization"
+failed-validation-httpcode="401"
+failed-validation-error-message="Unauthorized.">
+<openid-config url="https://login.microsoftonline.com/<TENANT_ID>/v2.0/.well-known/openid-configuration" />
+<issuers>
+<issuer>https://sts.windows.net/<TENANT_ID>/</issuer>
+</issuers>
+<!-- Optional coarse filter: require at least one of the workflow roles to be present.
+This narrows tokens early but still enforces the exact role below. -->
+<!--
+<required-claims>
+<claim name="roles" match="any">
+<value>wf_arithmetic_add</value>
+<value>wf_arithmetic_sub</value>
+<value>wf_arithmetic_mul</value>
+</claim>
+</required-claims>
+-->
+</validate-jwt>
+<set-variable name="token" value="@{
+var authHeader = context.Request.Headers.GetValueOrDefault("Authorization", "");
+if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+{
+return authHeader.Substring(7);
+}
+return null;
+}" />
+<set-variable name="roles" value="@(
+context.Variables.GetValueOrDefault("token", "").AsJwt()?.Claims["roles"]?.FirstOrDefault() ?? ""
+)" />
+<set-variable name="roles_csv" value="@{
+var tok = (string)context.Variables.GetValueOrDefault("token", "");
+var jwt = string.IsNullOrEmpty(tok) ? null : tok.AsJwt();
+var arr = (jwt != null && jwt.Claims != null && jwt.Claims.ContainsKey("roles"))
+? jwt.Claims["roles"]
+: new string[0];
+return string.Join(",", arr);
+// e.g. "wf_arithmetic_add,wf_arithmetic_sub"
+}" />
+<set-variable name="wf" value="@{
+var p = context.Request.Url.Path ?? "";
+if (p.EndsWith("/")) { p = p.Substring(0, p.Length - 1); }
+var i = p.LastIndexOf("/");
+return (i >= 0 ? p.Substring(i + 1) : p).ToLower();
+}" />
+<set-variable name="isAuthorized" value="@{
+var wf = ((string)context.Variables.GetValueOrDefault("wf","")).ToLower();
+var roles = ((string)context.Variables.GetValueOrDefault("roles_csv","")).ToLower().Replace(" ", "");
+if (string.IsNullOrEmpty(wf) || string.IsNullOrEmpty(roles)) { return false; }
+// comma-delimited contains check to avoid partial matches
+var haystack = "," + roles + ",";
+var needle = "," + wf + ",";
+return haystack.Contains(needle);
+}" />
+<choose>
+<when condition="@((bool)context.Variables["isAuthorized"])">
+<!-- Authorized -->
+</when>
+<otherwise>
+<return-response>
+<set-status code="403" reason="Forbidden" />
+<set-body>@("{\"error\":\"Role missing or invalid\"}")</set-body>
+</return-response>
+</otherwise>
+</choose>
+<!-- Rewrite frontend /api/{workflow} to Logic App trigger backend -->
+<rewrite-uri template="@{
+var wf = (string)context.Variables["wf"];
+return $"/api/{wf}/triggers/RcvReq/invoke?api-version=2022-05-01";
+}" />
+</inbound>
+<backend>
+<base />
+</backend>
+<outbound>
+<base />
+</outbound>
+<on-error>
+<base />
+</on-error>
+</policies>
+Enter fullscreen mode
+Exit fullscreen mode
+4. Validation
+Once the policy is applied in APIM, you can validate the behavior by invoking the API with different roles in the JWT.
+✅ Case 1: Authorized Role
+When the token contains the role wf_arithmetic_add, the request to /api/wf_arithmetic_add succeeds with 200 OK.
+❌ Case 2: Unauthorized Role
+When the same token is used to call /api/wf_arithmetic_mul without the role wf_arithmetic_mul, APIM rejects the request with 403 Forbidden and returns the error:
+✅ Result
+This proves that:
+APIM validates the JWT and extracts the roles.
+Access is only granted when the role matches the workflow name.
+Any mismatch results in 403 Forbidden before the Logic App executes.
+✅ Role-based authorization is successfully enforced at APIM, while EasyAuth continues to protect the Logic App backend.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Daniel Jonathan
+Follow
+Software professional in Azure & MS Integration. Passionate about cloud, automation, and bringing AI into real-world solutions.
+Location
+Belgium
+Joined
+Sep 18, 2025
+More from Daniel Jonathan
+🔐 Enabling Easy Auth for Azure Logic Apps (Standard)
+#logicapps
+#easyauth
+#azure
+#microsoft
+Validate LogicApp MCP Server with BODMAS Rules
+#logicapps
+#azure
+#mcp
+#microsoft
+LogicApp Autonomous Agents for Dynamic Tool Creation in LogicApp MCP Server
+#logicapps
+#azure
+#mcp
+#mcptools
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

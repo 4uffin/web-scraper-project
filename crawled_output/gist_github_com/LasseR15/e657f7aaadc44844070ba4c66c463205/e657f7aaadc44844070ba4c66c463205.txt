@@ -1,0 +1,225 @@
+Install Steam in a unprivileged LXC in Proxmox with GPU passthrough · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+LasseR15/README.md
+Last active
+September 21, 2025 12:15
+Show Gist options
+Download ZIP
+Star
+10
+(10)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/LasseR15/e657f7aaadc44844070ba4c66c463205.js&quot;&gt;&lt;/script&gt;
+Save LasseR15/e657f7aaadc44844070ba4c66c463205 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+4
+Stars
+10
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/LasseR15/e657f7aaadc44844070ba4c66c463205.js&quot;&gt;&lt;/script&gt;
+Save LasseR15/e657f7aaadc44844070ba4c66c463205 to your computer and use it in GitHub Desktop.
+Download ZIP
+Install Steam in a unprivileged LXC in Proxmox with GPU passthrough
+Raw
+README.md
+Install Steam in a unprivileged LXC in Proxmox with GPU passthrough
+Tested working features/Setup notes
+Using KasmVNC as a vnc server (access the desktop via your browser)
+Unprivileged LXC in Proxmox 7.4 (no extra features enabled, if you're using PVE 8 ignore this guide, there is an easier way via the gui)
+Running Debian 12
+AMD APU passthrough from host CPU (should also work with Intel and Nvidia, but haven't tested it)
+Linux native aswell as Windows (Proton) games
+My Hardware-Setup
+CPU (with iGPU): AMD Ryzen Pro 7 5750G
+Memory: 64GB ECC DDR4
+Motherboard: Asus Prime B550 Plus
+How to:
+1. Create a new unprivileged CT and passthrough the GPU
+Go the default route of creating a new LXC ("CT") in the Proxmox Webinterface via the "Create CT" button
+General: Mark it as unprivileged container. I had nesting enabled, but I don't know if it's actually required. Note your CT ID as we will need this for later
+Template: Use Debian 12 standard as your template
+Disks: I gave mine 64GiB of storage
+CPU: Choose as you like
+Memory: I don't know what the minimum requirements are. I tried it with 8GiB which were quiet enough
+Network: You need a working internet connection for this
+DNS: You also need a working DNS server
+Confirm: Check that everything is correct
+Navigate to your newly created container and start it, after that open the "Console". Now login with the user 'root' your selected password
+We now need to paass through your gpu. For that follow the following steps:
+In the console of the container, get the gid of the group 'render', you can do this via getent group render. Mine always was 106, but your mileage may vary (exampe output: render:x:106:)
+Take note of the group (in my case 106) and then shutdown your created container. The next commands need to be executed in the hosts console (either via ssh or the web ui)
+Read the following notes and then follow the steps from the second chapter for an unprivileged ct from this repo created by @TheHellSite
+Use the LXC ID from the container you had just created
+There is a line that says Adjust the GID=989 in the "chown" command to match the GID of group "render" in your LXC !!! (if necessary). This was in my case necessary! I had to change the command to (notice the 106 (100106) from before): { echo 'lxc.cgroup2.devices.allow: c 226:128 rwm' ; echo 'lxc.mount.entry: /dev/dri/renderD128 dev/dri/renderD128 none bind,optional,create=file' ; echo 'lxc.hook.pre-start: sh -c "chown 100000:100106 /dev/dri/renderD128"' ; } | tee -a /etc/pve/lxc/LXC_ID.conf
+After that you can start your container again and if you run ls -lah /dev/dri/ inside it's console the output should look something like this:
+total 0
+drwxr-xr-x 2 root root
+60 Nov 28 16:20 .
+drwxr-xr-x 7 root root
+500 Nov 28 16:20 ..
+crw-rw---- 1 root render 226, 128 Nov 21 14:28 renderD128
+2. Update and upgrade your packages and install some additional packages
+Run as root:
+Update your package list: apt update
+Upgrade your packages: apt upgrade -y
+Install some additional packages: apt install -y sudo wget
+3. Create the new user
+Run as root and replace exampleuser with your desired username:
+To create the new user: adduser exampleuser
+Allow the new user to access your gpu: usermod -aG render exampleuser
+Allow the user to access sudo: usermod -aG sudo exampleuser
+Allow the user to access the ssl certs: usermod -aG ssl-cert exampleuser
+4. Install a desktop environment
+Run as root:
+Install the desktop environment Mate: apt install -y mate-desktop-environment
+5. Install KasmVNC
+I followed the guide from Kasmeb.com. You can find it here: https://kasmweb.com/kasmvnc/docs/master/install.html
+Here are the commands I ran (downloaded deb file will be deprecated at some point, so go to their repo and select the newest stable one) to install it (as root):
+Go to your tmp directory to download it: cd /tmp
+Download the KasmVNC DEB: wget https://github.com/kasmtech/KasmVNC/releases/download/v1.2.0/kasmvncserver_bookworm_1.2.0_amd64.deb
+Install the DEB: apt install -y ./kasmvncserver_*.deb
+6. Start KasmVNC
+Run as the exampleuser from before (you can do this for example via su - exampleuser):
+Start and setup KasmVNC with gpu passthrough: vncserver -hw3d -drinode /dev/dri/renderD128
+I choose [1] Create a new user with write access
+Choose the exampleuser as username and a random generated password
+NOTE: Always use vncserver -hw3d -drinode /dev/dri/renderD128 (run as the exampleuser) to start KasmVNC, else the gpu won't be used!
+NOTE 2: KasmVNC recommends to disable desktop compositing. You can find guides on their documentation
+7. Start using it
+To use it, simply open your webbrowser and navigate to the url outputted by the vncserver command. If you don't want to install Steam, you can stop here.
+I currently don't know why, but sometimes the website from KasmVNC isn't loading corrently, but after some attempts everything works.
+8. Install Steam
+You can also use every other guide for this (but don't use snap!)
+Allow the installation of 32bit packages: sudo dpkg --add-architecture i386
+Update your package list: sudo apt update
+Go to your tmp directory: cd /tmp
+Download the DEB file from the Steam website: wget https://cdn.akamai.steamstatic.com/client/installer/steam.deb
+Install steam: sudo apt install -y ./steam.deb
+Install the dependencies of steam: sudo apt install -y libc6-i386 libgl1:i386 libdrm2:i386 libc6:amd64 libc6:i386 libegl1:amd64 libegl1:i386 libgbm1:amd64 libgbm1:i386 libgl1-mesa-dri:amd64 libgl1-mesa-dri:i386 libgl1:amd64 libgl1:i386 steam-libs-amd6 4:amd64 steam-libs-i386:i386
+You should now also see the Steam icon on your desktop or startmenu. If not you can also simply run the command steam as your user (for example exampleuser)
+This was it!
+Sources:
+GPU pasthrough to lxc (Thanks @TheHellSite): https://github.com/TheHellSite/proxmox_tutorials/blob/main/lxc_gpu_passthrough/README.md
+KasmVNC installation: https://kasmweb.com/kasmvnc/docs/latest/install.html
+KasmVNC gpu acceleration: https://kasmweb.com/kasmvnc/docs/latest/gpu_acceleration.html
+And of course thanks to the KasmVNC team!
+Copy link
+DaiTheFluPerfect
+commented
+Jan 30, 2025
+I got all the way to here
+"
+Read the following notes and then follow the steps from the second chapter for an unprivileged ct from this repo created by @TheHellSite"
+Then you lost me to a 404
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+LasseR15
+commented
+Jan 30, 2025
+I got all the way to here " Read the following notes and then follow the steps from the second chapter for an unprivileged ct from this repo created by @TheHellSite" Then you lost me to a 404
+It seems like the file got moved to a new location. Here is the new link: https://github.com/TheHellSite/proxmox_collection/tree/46ed69c05a9a32d6517c6787c1697baa21a4bbfa/lxc/device_passthrough#2-pve-host-shutdown-the-lxc-and-run-the-command-below
+But if you are using Proxmox 8, you can pass through your gpu to a LXC much easier than before via the web interface.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+pawelwiejkut
+commented
+Jul 30, 2025
+Many thanks for this tutorial :) Is controller working for you ? I have only mouse/keyboard support.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+simon-git-h
+commented
+Sep 14, 2025
+Thanks for the write up!
+What have(nt) you been able to play on it?
+How did you compile your lists, dependancies etc?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+clintlombard
+commented
+Sep 15, 2025
+For future travelers, the manual setup for /dev/dri/renderD128 is no longer needed 1.
+You can just do it through the proxmox web UI under the resources section for the CT. Just check the GUI for render inside your container first (mine was 993).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+LasseR15
+commented
+Sep 15, 2025
+Many thanks for this tutorial :) Is controller working for you ? I have only mouse/keyboard support.
+Hi @pawelwiejkut, sorry for the late reply. I never tried controller support properly, but I think controller passthrough was(/is?) limited to Kasm Workspaces and can't just be enabled on KasmVNC. However, I don't know if it can't be enabled with a bit of work on the KasmVNC host
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+LasseR15
+commented
+Sep 15, 2025
+Thanks for the write up! What have(nt) you been able to play on it? How did you compile your lists, dependancies etc?
+I mainly used it to experiment with whats possible with this setup and my iGPU, but due to it not being really powerful, I stopped at some point.
+I got for example Unrailed and Toasterball to work really good with proper framerates, as long as the network connection was sufficient. But any other more GPU demanding game was to much for my iGPU (which was also encoding the video stream), at least with playable (45+) framerates.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

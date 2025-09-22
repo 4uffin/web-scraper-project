@@ -1,0 +1,265 @@
+javascript - What is the Expo 54 way of creating a file in external storage? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+What is the Expo 54 way of creating a file in external storage?
+Ask Question
+Asked
+4 days ago
+Modified
+4 days ago
+Viewed
+29 times
+0
+I've recently upgraded to expo 54 (from 53) where expo-file-system/next got renamed to expo-file-system and expo-file-system to expo-file-system/legacy.\
+I'm currently trying to migrate from the deprecated (/legacy) module to the main one.
+But I can't seem to be able to create a file in external storage.
+This is working code using the legacy module:
+import * as FileSystem from "expo-file-system/legacy";
+const SystemIO = FileSystem.StorageAccessFramework;
+async function externalSave(fileName: string, content: string) {
+const documentUri = SystemIO.getUriForDirectoryInRoot("Documents");
+const permission = await SystemIO.requestDirectoryPermissionsAsync(documentUri);
+if (permission.granted) {
+const targetPath = permission.directoryUri;
+const createdPath = await SystemIO.createFileAsync(
+targetPath,
+fileName,
+"application/json",
+);
+await SystemIO.writeAsStringAsync(createdPath, content);
+} else {
+// error handling
+}
+}
+And this is the modern attempt
+import { Directory, File } from "expo-file-system";
+async function externalSave(fileName: string, content: string) {
+// uri => content://com.android.externalstorage.documents/tree/primary%3ADocuments/
+const directory = await Directory.pickDirectoryAsync("Documents");
+// exists => false
+const file= new File(directory.uri, `${fileName}.${jsonExtension}`);
+// throws here
+file.create({ overwrite: true });
+// Also tried write without create and got the same error cause
+file.write(content);
+}
+This is the error caused by file.create
+Call to function 'FileSystemFile.create' has been rejected.
+→ Caused by: A folder with the same name already exists in the file location
+When the modern externalSave is called, the user is prompted to select a directory in the external storage (starting with /documents), a File object is created (whose exists property is false) and then the file.create call throws the above error.
+What is the proper way of creating a file in external storage, and writing to it?
+javascriptreact-nativeexpoexpo-file-system
+Share
+Improve this question
+Follow
+edited Sep 17 at 14:58
+nick zoumnick zoum
+asked Sep 17 at 14:52
+nick zoumnick zoum
+6,62177 gold badges4343 silver badges9292 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+After reading the documentation for Directory (not sure why it's not under file but ok) I found the method Directory#createFile.
+Which is a method of Directory that accepts the name of the file (without extension) and its mime type, and it creates a file under the directory that it's called.
+Here is a working example based on my original approach:
+import { Directory, File } from "expo-file-system";
+async function externalSave<T>(fileName: string, content: T) {
+const directory = await Directory.pickDirectoryAsync("Documents");
+// can replace the mime type with whatever you need like text/plain for .txt
+// or pass it as a parameter if it's not constant
+const createdFile = directory.createFile(fileName, "application/json");
+createdFile.write(JSON.stringify(content));
+}
+Share
+Improve this answer
+Follow
+answered Sep 17 at 15:07
+nick zoumnick zoum
+6,62177 gold badges4343 silver badges9292 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+javascriptreact-nativeexpoexpo-file-system
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+8537
+What does "use strict" do in JavaScript, and what is the reasoning behind it?
+5157
+What is the most efficient way to deep clone an object in JavaScript?
+6390
+What is the difference between "let" and "var"?
+3958
+What is the JavaScript version of sleep()?
+4214
+What does the !! (double exclamation mark) operator do in JavaScript?
+3505
+What is the difference between call and apply?
+2221
+What is the scope of variables in JavaScript?
+1932
+What is the 'new' keyword in JavaScript?
+1909
+What is the difference between Bower and npm?
+1577
+What is the "right" JSON date format?
+Hot Network Questions
+memoir documentclass and ctex package conflict with luatexja?
+Difficult triple stops in Grand Caprice (Erlkönig) for Violin Solo Op. 26: measure 9
+Can sequential limits fail to be limits in a Fréchet-Urysohn space?
+Who are “those” who do not receive the mysteries of the Kingdom of Heaven?
+Trapdoor functions and non-uniform adversaries
+Are rats in the house considered a good omen because a rat/mouse is vahan of Ganesh ? How can rat infestation be a good omen?
+"Saying who or what did the action would be clearer": passive voice vs. active voice in a technical document/checklist?
+IPA diacritics appear offset to the left in LuaLaTeX
+Do the Matrix movies take place in our present or our future?
+What does 我都晕肉了 mean?
+Linear rheostat - where lies a trick of a sliding contact with isolated wire?
+Can we reach a stage where there are 105 piles with 1 tile in each pile?
+Does the US Constitution's Supremacy Clause make California's new laws regulating the conduct of federal agents (e.g. "No Secret Police Act") moot?
+How do I make Windows open ps1 in PowerShell 7.x (black icon) instead of Windows Powershell (blue icon)?
+What are the specific legal pushing locations for Push Weapon Mastery and Repelling Blast?
+How to perform sed replacement from the rule file only on certain lines?
+Tooth cavities in 4 year old kid
+Controlling for higher level observables in mixed models
+How to completely remove the Firefox tabs' "tooltips", without affecting anything else?
+Two definitions of regularity for ultrafilters
+What was the first video game to feature a fake credits sequence?
+How did "hospital" lose its first syllable in some languages?
+Where should the ocean currents be located on this map?
+The most beautiful …
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-js
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

@@ -1,0 +1,868 @@
+Fedora 35 hibernation with swapfile, only for hibernation and resume · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+eloylp/Fedora35Hibernation.md
+Last active
+September 21, 2025 11:55
+Show Gist options
+Download ZIP
+Star
+80
+(80)
+You must be signed in to star a gist
+Fork
+10
+(10)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/eloylp/b0d64d3c947dbfb23d13864e0c051c67.js&quot;&gt;&lt;/script&gt;
+Save eloylp/b0d64d3c947dbfb23d13864e0c051c67 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+6
+Stars
+80
+Forks
+10
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/eloylp/b0d64d3c947dbfb23d13864e0c051c67.js&quot;&gt;&lt;/script&gt;
+Save eloylp/b0d64d3c947dbfb23d13864e0c051c67 to your computer and use it in GitHub Desktop.
+Download ZIP
+Fedora 35 hibernation with swapfile, only for hibernation and resume
+Raw
+Fedora35Hibernation.md
+Fedora35 hibernation
+This guide helps to configure the hibernation on a default Fedora35 (also worked fine in previous Fedora34) installation by using a swap file. The Fedora35 installation comes with btrfs as default filesystem. Also, it comes with a zram swap device:
+$ swapon
+NAME
+TYPE
+SIZE USED PRIO
+/dev/zram0 partition
+8G
+0B
+100
+This device reserves a physical memory area in which all the content will be compressed (at its input) and uncompressed (at its output). But, we cannot hibernate with this type of swap space as it is only in memory.
+After feedback received from contributors of this guide, seems we can say that this guide will work in both, encrypted and unencrypted setups.
+important note before you continue: Some of us are experimenting problems with nvidia proprietary drivers. See below comments for more information on the investigation.
+Motivation
+Nowadays we have lots of RAM in our laptops. In my case, a guy with a laptop for programming, i only use swap space for hibernation. When i move from one location to another, i dont want to loose all my open stuff nor consuming battery while i am moving.
+I want to preserve the zram swap device of the default configuration.
+Solution
+This are the steps we need to perform in our system:
+The hibernation is triggered by the user.
+The swap file is activated.
+The zram device is deactivated. If there are any memory pages present in zram, they will be moved to the activated (2) swap file.
+Hibernate the laptop.
+And the following sequence for resuming:
+Power on the computer.
+Restore system state from the swap file at boot time.
+Activate the zram device.
+Deactivate the swap file. That could cause the zram device to start compressing data.
+Seems there are efforts in order to make this much better, even with dynamic sized swap files, so only generating swap files for hibernation with the needed size on each moment, and more user friendly.
+This guide will make use of a fixed size swap file, since probably for going further is better to just contribute in the mentioned systemd issue .
+Steps
+Default Fedora35 installations comes
+with btrfs as default filesystem. Such file system comes with the subvolume feature. Subvolumes are not partitions. They are just a logical separations of a filesystem at a file level. Some kind of operations like snapshots, will try to include the swap file. We need to prevent this by isolating the swap file into its own subvolume:
+btrfs subvolume create /swap
+The above will ensure the swap file will not be taken into account in other snaphots as they are not recursive in other subvolumes.
+Next is to create our swapfile for hibernation. Ensure the specified size is enough for saving the contents of the RAM + the uncompressed contents of the zram swap space. How to determine the size ? that might be a rough estimation per use case. As root:
+touch /swap/swapfile
+chattr +C /swap/swapfile
+## Needed to disable Copy On Write on the file.
+fallocate --length 33GiB /swap/swapfile
+## Please, calculate your size as mentioned in above comments.
+chmod 600 /swap/swapfile
+mkswap /swap/swapfile
+Now lets prepare the path of the resume operation. We need add to the initramfs the necessary modules for resuming the system. We need to create a new file at /etc/dracut.conf.d/resume.conf with the following content:
+add_dracutmodules+=" resume "
+After that we need to regenerate the initramfs:
+dracut -f
+Next, we have to add the resume and resume_offset into the GRUB_CMDLINE_LINUX, so that Grub can instruct the kernel coordinates
+where the swap file resides, in order to resume the system.
+For gathering the resume param we need the partition UUID in which the swap file is stored:
+$ findmnt -no UUID -T /swap/swapfile
+dbb0f71f-8fe9-491e-bce7-4e0e3125ecb8
+Now lets gather the last needed data, we need the resume_offset. That is, the physical offset of our swap file in the file system. For doing that, we need to follow this guide.
+Now we need to instruct GRUB to initialize the kernel with this coordinates. Edit the /etc/defaut/grub and grab there the parameters we just calculated:
+GRUB_CMDLINE_LINUX="rd.luks.uuid=luks-4369a407-2be1-4f37-9764-ff848a0f2089 resume=UUID=dbb0f71f-8fe9-491e-bce7-4e0e3125ecb8 resume_offset=2459934 rhgb quiet"
+Now lets re-configure the grub (UEFI setup assumed):
+grub2-mkconfig -o /boot/grub2/grub.cfg
+Note:
+We only want the swap file to be used when the hibernation takes place and in the resume stage. we are not going to configure fstab entries. To achieve that, one of the options is to use systemd. We are going to configure 2 systemd services. One for preparing the hibernation and the other one for resuming it:
+For enabling the swap file and disabling the zram swap device before hibernation, lets create the file /etc/systemd/system/hibernate-preparation.service:
+[Unit]
+Description=Enable swap file and disable zram before hibernate
+Before=systemd-hibernate.service
+[Service]
+User=root
+Type=oneshot
+ExecStart=/bin/bash -c "/usr/sbin/swapon /swap/swapfile && /usr/sbin/swapoff /dev/zram0"
+[Install]
+WantedBy=systemd-hibernate.service
+The order is important in the above service definition. First of all we enable the swap file, which should have enough space to store the contents of the "in use RAM", plus the contents of the uncompressed zram swap device. Secondly, we disable the zram swap device. At that
+moment, the kernel will start moving all the memory pages from the zram swap device to the swap file if needed. After all of that, the hibernation will take place only in the swap file. Last step for the above script to have effect is to install this service in systemd:
+# systemctl enable hibernate-preparation.service
+Created symlink /etc/systemd/system/systemd-hibernate.service.wants/hibernate-preparation.service → /etc/systemd/system/hibernate-preparation.service.
+We need to disable the swap file when the system just resumed. Lets create the /etc/systemd/system/hibernate-resume.service file:
+[Unit]
+Description=Disable swap after resuming from hibernation
+After=hibernate.target
+[Service]
+User=root
+Type=oneshot
+ExecStart=/usr/sbin/swapoff /swap/swapfile
+[Install]
+WantedBy=hibernate.target
+Then enable it by:
+# systemctl enable hibernate-resume.service
+Created symlink /etc/systemd/system/hibernate.target.wants/hibernate-resume.service → /etc/systemd/system/hibernate-resume.service.
+In order to make the suspend-then-hibernate sequence to work, please take a look at this great comment and follow the instructions there.
+In order to avoid false positives regarding to swap space, due to the zram device existence, we need to disable some checks:
+mkdir -p /etc/systemd/system/systemd-logind.service.d/
+cat <<-EOF | sudo tee /etc/systemd/system/systemd-logind.service.d/override.conf
+[Service]
+Environment=SYSTEMD_BYPASS_HIBERNATION_MEMORY_CHECK=1
+EOF
+mkdir -p /etc/systemd/system/systemd-hibernate.service.d/
+cat <<-EOF | sudo tee /etc/systemd/system/systemd-hibernate.service.d/override.conf
+[Service]
+Environment=SYSTEMD_BYPASS_HIBERNATION_MEMORY_CHECK=1
+EOF
+Now you must reboot your computer, in order the steps until here take effect.
+We also need to allow systemd-sleep system to read the swap file in SELinux . One option for allowing this is to make it fail. After that, use the audit2allow to do the white listing. Lets go step by step:
+Try to hibernate:
+# systemctl hibernate
+This should fail right now. Probably returning you to the display manager login. Also, logging details at /var/log/audit/audit.log .
+We can check the event happened with audit2allow inspecting the log, it will ouput something similar to this entry among others:
+# audit2allow -w -a
+type=AVC msg=audit(1630262756.460:2098): avc:
+denied
+{ search } for
+pid=26180 comm="systemd-sleep" name="swap" dev="dm-0" ino=256 scontext=system_u:system_r:systemd_sleep_t:s0 tcontext=system_u:object_r:unlabeled_t:s0 tclass=dir permissive=0
+Was caused by:
+Missing type enforcement (TE) allow rule.
+You can use audit2allow to generate a loadable module to allow this access.3.
+To see what rule we must allow,
+just type:
+# audit2allow -b
+#============= systemd_sleep_t ==============
+allow systemd_sleep_t unlabeled_t:dir search;
+The above rule
+should be the only one in the output. If not, we could be white listing other elements by accident.
+Instruct SELinux to allow further attemps by executing the following commands:
+# cd /tmp
+# audit2allow -b -M systemd_sleep
+******************** IMPORTANT ***********************
+To make this policy package active, execute:
+semodule -i systemd_sleep.pp
+# semodule -i systemd_sleep.pp
+We should be ready to hibernate now. Lets just try it by:
+# systemctl hibernate
+After resuming, the swap file should be deactivated, so continuing with the default zram swap device setup:
+$ swapon
+NAME
+TYPE
+SIZE USED PRIO
+/dev/zram0 partition
+8G
+0B
+100
+As a bonus, you can enable gnome environment hibernate buttons by installing this extension.
+Please check that all your devices state are properly restored after resuming.
+Troubleshooting
+If you are having unexpected problems, inspectioning the journal will be of help to see errors in systemd scripts:
+journalctl -f
+Load earlier comments...
+Copy link
+Author
+eloylp
+commented
+Dec 15, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@ceiphr thanks for your comment and question. You are right.
+The swap file containing the OS state resides in the encripted btrfs partition, so in order to be accessed, the LUKS password its needed. I think we can assume its safe in terms of encryption.
+Thank you everyone for all the great contributions !
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+w4tsn
+commented
+Dec 16, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@ceiphr @quiteBold @eloylp if secure boot is enabled and the kernel is in lockdown mode (>=5.4) it refuses to suspend to a swap file more because it can't verify it rather than it being unencrypted (a bit misleading error message there). The kernel does not care if the hibernation store is encrypted or not. In lockdown certain APIs are restricted on the highest levels - even for root - as a security measure. When the system state and kernel are stored on disk state which was previously protected by lockdown would now be exposed to modifications. Without proper verification upon returning from hibernation this can't be done properly. That is why there is an effort to produce signed and verifiable hibernation images, but sadly we are not there yet. An encrypted disk does not solve this issue because after decryption in initramfs and right on storing the image before going to sleep you could modify the image from userland.
+As on modern business notebooks with Fedora and enabled Secure Boot (which is enabled by default) this lockdown problem applies the FedoraMagazine article is prepended with a short warning message.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ceiphr
+commented
+Dec 25, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@eloylp thank you for the reassurance!
+@w4tsn thank you for the thorough response, that makes a lot of sense! Hopefully, we will see developments with this in the future.
+For now, here are some interesting developments I've found related to this topic:
+Kernel patch for the daring: https://unix.stackexchange.com/a/719550/378978
+Interesting discussion on the cons of the patch and developments: https://ask.fedoraproject.org/t/hibernation-in-f36-with-secure-boot-on/26442
+A potential solution for future kernel versions: https://lkml.org/lkml/2022/5/4/2065
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+alexspurling
+commented
+Jan 10, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I think the description already specifies an idea on how to calculate the space for the swap file. However, i added a comment in the code for the quick reader.
+Firstly, thank you very much for the very well explained tutorial. Could you please explain this further? The article says you should ensure the size of the swap file "is enough for saving the contents of the RAM + the uncompressed contents of the zram swap space", but how can we calculate the uncompressed size of the contents of zram? As I understand, it will depend on the exact data that is stored as well as the selected compression algorithm.
+I have 32GB of ram, an 8GB zram file using LZO-RLE compression. How can I calculate the required size of the swap file?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+eloylp
+commented
+Jan 11, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hello @alexspurling
+Thank you for taking time of writing ! Yeah, you are right. That will depend on each use case/setup. I think the idea was to provide a rough estimation, trying to be generous with the size. But it was not clear in the guide. I just fixed that.
+I am not sure if this is something we could profile in an easy way. Probably it doesn't worth the effort. I think its something we can always adjust on demand, as we are not dealing with fixed partitions, but with a swap file we can reconfigure later on, after the initial setup.
+Many thanks for your contribution !
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stephane-klein
+commented
+Feb 17, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hello,
+I have executed all the instructions indicated in the guide Fedora35 hibernation that I found on Fedora Magazine.
+My laptop: Thinkpad T14s Gen 3 AMD
+OS: Fedora 37, totally up to date, freshly installed this morning
+Secure Boot disable in BIOS
+volume LUKS encryption enabled
+# neofetch
+.',;::::;,'.
+root@MiWiFi-R4A-srv
+.';:cccccccccccc:;,.
+-------------------
+.;cccccccccccccccccccccc;.
+OS: Fedora Linux 37 (Workstation Edition) x86_64
+.:cccccccccccccccccccccccccc:.
+Host: 21CQCTO1WW ThinkPad T14s Gen 3
+.;ccccccccccccc;.:dddl:.;ccccccc;.
+Kernel: 6.1.11-200.fc37.x86_64
+.:ccccccccccccc;OWMKOOXMWd;ccccccc:.
+Uptime: 9 mins
+.:ccccccccccccc;KMMc;cc;xMMc:ccccccc:.
+Packages: 1854 (rpm)
+,cccccccccccccc;MMM.;cc;;WW::cccccccc,
+Shell: bash 5.2.15
+:cccccccccccccc;MMM.;cccccccccccccccc:
+Resolution: 1920x1200
+:ccccccc;oxOOOo;MMM0OOk.;cccccccccccc:
+WM: Mutter
+cccccc:0MMKxdd:;MMMkddc.;cccccccccccc;
+WM Theme: Adwaita
+ccccc:XM0';cccc;MMM.;cccccccccccccccc'
+Theme: Adwaita [GTK3]
+ccccc;MMo;ccccc;MMW.;ccccccccccccccc;
+Icons: Adwaita [GTK3]
+ccccc;0MNc.ccc.xMMd:ccccccccccccccc;
+Terminal: gnome-terminal
+cccccc;dNMWXXXWM0::cccccccccccccc:,
+CPU: AMD Ryzen 7 PRO 6850U with Radeon Graphics (16) @ 2.700GHz
+cccccccc;.:odl:.;cccccccccccccc:,.
+GPU: AMD ATI Radeon 680M
+:cccccccccccccccccccccccccccc:'.
+Memory: 2017MiB / 30846MiB
+.:cccccccccccccccccccccc:;,..
+'::cccccccccccccc::;,.
+Problems encountered:
+the resuming take 2min after entering my LUKS encryption password
+wifi not working after resuming
+Here is the systemd journal content: https://gist.github.com/stephane-klein/29198d3ed43e01a2ba9d0360e6deedd8
+Do you know how to fix this issues?
+Best regards,
+Stéphane
+Note: same post on Thinkpad Subreddit and Ask Fedora Forum
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stephane-klein
+commented
+Mar 1, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+In my dmesg (click to see full content), I see:
+[
+213.051537] Call Trace:
+[
+213.051539]
+<TASK>
+[
+213.051541]
+ieee80211_do_stop+0x647/0x8b0 [mac80211]
+[
+213.051591]
+ieee80211_stop+0x49/0x170 [mac80211]
+[
+213.051633]
+__dev_close_many+0x8e/0xf0
+[
+213.051642]
+dev_close_many+0x7b/0x120
+[
+213.051648]
+? ieee80211_handle_reconfig_failure+0x69/0x90 [mac80211]
+[
+213.051696]
+dev_close+0x59/0x80
+[
+213.051701]
+cfg80211_shutdown_all_interfaces+0x49/0xf0 [cfg80211]
+[
+213.051742]
+wiphy_resume+0x94/0x150 [cfg80211]
+[
+213.051780]
+? wiphy_suspend+0x2b0/0x2b0 [cfg80211]
+[
+213.051840]
+dpm_run_callback+0x4a/0x150
+[
+213.051845]
+device_resume+0xa2/0x1f0
+[
+213.051848]
+async_resume+0x19/0x30
+[
+213.051852]
+async_run_entry_fn+0x30/0x130
+[
+213.051856]
+process_one_work+0x1c7/0x380
+[
+213.051859]
+worker_thread+0x4d/0x380
+[
+213.051862]
+? rescuer_thread+0x380/0x380
+[
+213.051864]
+kthread+0xe9/0x110
+[
+213.051868]
+? kthread_complete_and_exit+0x20/0x20
+[
+213.051873]
+ret_from_fork+0x22/0x30
+[
+213.051880]
+</TASK>
+[
+213.051881] ---[ end trace 0000000000000000 ]---
+[
+213.051903] ------------[ cut here ]------------
+...
+[
+213.052301] ieee80211 phy0: PM: dpm_run_callback(): wiphy_resume+0x0/0x150 [cfg80211] returns -11
+[
+213.052317] ieee80211 phy0: PM: failed to restore async: error -11
+I don't know if this detail is usefull to fix my issue :thinking: .
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stephane-klein
+commented
+Mar 1, 2023
+In my dmesg (click to see full content), I see:
+I see also :
+[
+210.043130] ath11k_pci 0000:01:00.0: failed to resume mhi: -5
+[
+210.043134] ath11k_pci 0000:01:00.0: failed to resume hif during resume: -5
+[
+210.043136] ath11k_pci 0000:01:00.0: failed to resume core: -5
+[
+210.043138] ath11k_pci 0000:01:00.0: PM: dpm_run_callback(): pci_pm_restore+0x0/0xe0 returns -5
+[
+210.043158] ath11k_pci 0000:01:00.0: PM: failed to restore async: error -5
+[
+213.050611] ath11k_pci 0000:01:00.0: wmi command 16387 timeout
+[
+213.050624] ath11k_pci 0000:01:00.0: failed to send WMI_PDEV_SET_PARAM cmd
+[
+213.050632] ath11k_pci 0000:01:00.0: failed to enable dynamic bw: -11
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stephane-klein
+commented
+Mar 1, 2023
+I just sent this email to the linux-wireless@vger.kernel.org
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mt190502
+commented
+Mar 5, 2023
+In my dmesg (click to see full content), I see:
+[
+213.051537] Call Trace:
+[
+213.051539]
+<TASK>
+[
+213.051541]
+ieee80211_do_stop+0x647/0x8b0 [mac80211]
+[
+213.051591]
+ieee80211_stop+0x49/0x170 [mac80211]
+[
+213.051633]
+__dev_close_many+0x8e/0xf0
+[
+213.051642]
+dev_close_many+0x7b/0x120
+[
+213.051648]
+? ieee80211_handle_reconfig_failure+0x69/0x90 [mac80211]
+[
+213.051696]
+dev_close+0x59/0x80
+[
+213.051701]
+cfg80211_shutdown_all_interfaces+0x49/0xf0 [cfg80211]
+[
+213.051742]
+wiphy_resume+0x94/0x150 [cfg80211]
+[
+213.051780]
+? wiphy_suspend+0x2b0/0x2b0 [cfg80211]
+[
+213.051840]
+dpm_run_callback+0x4a/0x150
+[
+213.051845]
+device_resume+0xa2/0x1f0
+[
+213.051848]
+async_resume+0x19/0x30
+[
+213.051852]
+async_run_entry_fn+0x30/0x130
+[
+213.051856]
+process_one_work+0x1c7/0x380
+[
+213.051859]
+worker_thread+0x4d/0x380
+[
+213.051862]
+? rescuer_thread+0x380/0x380
+[
+213.051864]
+kthread+0xe9/0x110
+[
+213.051868]
+? kthread_complete_and_exit+0x20/0x20
+[
+213.051873]
+ret_from_fork+0x22/0x30
+[
+213.051880]
+</TASK>
+[
+213.051881] ---[ end trace 0000000000000000 ]---
+[
+213.051903] ------------[ cut here ]------------
+...
+[
+213.052301] ieee80211 phy0: PM: dpm_run_callback(): wiphy_resume+0x0/0x150 [cfg80211] returns -11
+[
+213.052317] ieee80211 phy0: PM: failed to restore async: error -11
+I don't know if this detail is usefull to fix my issue thinking .
+Same issue
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stephane-klein
+commented
+Mar 9, 2023
+My laptop: Thinkpad T14s Gen 3 AMD
+Problems encountered:
+* the resuming take 2min after entering my LUKS encryption password
+* wifi not working after resuming
+Some issues to follow:
+Kernel bug tracker Bug 214649
+ath11k: kernel crashes after hibernation
+OpenSuse bug tracker Bug 1207948 - Lenovo T14s Gen3 AMD resume from hibernation ends in kernel panic
+OpenSuse bug tracker Bug 1208766 - Kernel 6.2.1 does not suspend/hibernate anymore for AMD Ryzen 7 Pro
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stephane-klein
+commented
+Mar 22, 2023
+More information for Thinkpad T14s Gen 3 AMD: https://discussion.fedoraproject.org/t/hibernation-issue-on-thinkpad-t14s-gen-3-amd-and-fedora-37/73666/3
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+dmy3k
+commented
+Jun 18, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+The guide still is relevant for Fedora 38, however some improvements can be done.
+With systemd v253 we have possibility to use suspend-then-hibernate that will sleep as long as possible. When battery enters low-charge state (5%) system will hibernate. This is beneficial for several use cases, e.g sleep between business hours, sleep on AC with closed lid, as this will avoid entering hibernate. Corresponding systemd pull requests #23895, #25374
+However, SElinux module to support the above is not shipped with os, logging errors in journalctl
+Jun 16 07:38:38 fedora audit[3100]: AVC avc:
+denied
+{ read } for
+pid=3100 comm="systemd-sleep" name="+power_supply:BAT0" dev="tmpfs" ino=1650 scontext=system_u:system_r:systemd_sleep_t:s0 tcontext=system_u:object_r:udev_var_run_t:s0 tclass=file permissive=0
+Jun 16 21:26:09 fedora audit[71808]: AVC avc:
+denied
+{ write } for
+pid=71808 comm="systemd-sleep" name="systemd" dev="dm-0" ino=143877 scontext=system_u:system_r:systemd_sleep_t:s0 tcontext=system_u:object_r:init_var_lib_t:s0 tclass=dir permissive=0
+We can update systemd_sleep module with audit2allow as shown in the guide above. Alternatively here is a gist to automate this
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tstoeckler
+commented
+Sep 19, 2023
+Note that there's also a guide for Silverblue: https://discussion.fedoraproject.org/t/setup-hibernation-on-silverblue-kionite/78834/8
+Not sure if anything mentioned there, for example the btrfs commands, could be used in the guide here, as well, but in any case I hadn't realized that I need to use /var/swap/swapfile as a swapfile path, which (presumably) is why I couldn't get this to work on Silverblue.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+00sapo
+commented
+Oct 12, 2023
+Great gist! I managed to get it working with nvidia drivers using the script in this commnet. However, just systemctl enable nvidia-{suspend,resume,hibernate} worked for hibernation only, but not for suspend-then-hibernate.
+I think we could set up a repo with a small script to ease the set up. Arguments should be the drive where the directory should be created and the size of if. --nvidia could be added as optional.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+obitbef
+commented
+Dec 6, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Please note that comment. It seems that deactivating zram and activating swapfile on hibernate and vice versa is not required.
+You do not need to deactivate zram, since the hibernation logic in systemd ignores zram devices anyway when looking for a swap device to hibernate into.
+if you have a swap file anyway, then just activate it always, but make sure to give it a lower priority than your zram device, so that zram is always preferred, and the swap file is only used if the system is under pressure enough that zram didn#t work. That will give you overall better behaviour.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+enmyj
+commented
+Dec 9, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I'm sure I'm wrong here but based on the above linked comment, it seems like a bunch of config is no longer required here. I'm on Fedora 39 and systemd version 254 and I'm able to hibernate with the following setup:
+create the swap subvolume, add it to /etc/fstab with low priority, swapon /swap/swapfile
+I kept the memory check overrides and the dracut config, not clear if that's still necessary
+I updated the selinux script posted above to include permissions for efivars:
+allow systemd_sleep_t swapfile_t:dir search;
+allow systemd_sleep_t efivarfs_t:file { create setattr getattr ioctl open read write };
+allow systemd_sleep_t efivarfs_t:dir { add_name create write };
+So basically, I'm able to hibernate with minimal config in /etc/systemd/* and without any kernel arguments 👍
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mardoodmuh
+commented
+Dec 27, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Hi, i am using Fedora workstation 39.
+I followed the instructions of the first comment and now my system is not booting.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+izen57
+commented
+Jul 29, 2024
+Tried to follow this guide, but I’m stuck at the end by audit2allow. When I run the command sudo audit2allow -b, I get just two empty lines, the command audit2allow -b -M systemd_sleep also fails with the compilation error systemd_sleep.te:6:ERROR 'syntax error' at token '' on line 6:. Any ideas?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coy-yote
+commented
+Aug 5, 2024
+audit2allow -b -M systemd_sleep also fails with the compilation error systemd_sleep.te:6:ERROR 'syntax error' at token '' on line 6:. Any ideas?
+I ran into the same thing, added sudo prefix and it worked fine. Are you already running as root / with sudo?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+izen57
+commented
+Aug 7, 2024
+I ran it with sudo. And to be honest, I gave up on this
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+wukongrita
+commented
+Aug 27, 2024
+Thanks @eloylp, works well on my Lenovo V14 G3 IAP KPID.
+Usually I used the swap partition, but in this case I tried with the swap file method.
+Seems okay and normal for now; bluetooth, wifi, LAN, display are all coming back from hibernation...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+sudeshjethoe
+commented
+Oct 15, 2024
+Anyone managed to get this working with secure boot in 2024? Seems it can work on SUSE... https://unix.stackexchange.com/questions/747938/how-can-linux-hibernation-be-enabled-under-uefi-secure-boot-with-kernel-lockdown
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+RNarayan73
+commented
+Oct 30, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Tried to follow this guide, but I’m stuck at the end by audit2allow. When I run the command sudo audit2allow -b, I get just two empty lines, the command audit2allow -b -M systemd_sleep also fails with the compilation error systemd_sleep.te:6:ERROR 'syntax error' at token '' on line 6:. Any ideas?
+I tried this on Fedora 40 on a ext4 partition. My only deviations from the above steps were:
+to create swapfile on /
+use filefrag -v /swapfile to get the offset of the swapfile on ext4
+The results were as follows:
+When I hibernate, the system goes into hibernation and switches off. It doesn't fail and get back to the login screen
+When I switch on the laptop after hibernation, the system doesn't resume; a hard reset is required to reboot the laptop and all the hibernated data is lost.
+running allow2audit -b outputs 2 blank lines (presumably because I had to do a hard reset) and
+'sudo audit2allow -b -M systemd_sleep' throws up these very same errors
+Has anyone had similar experiences?
+Any suggestions for how I can investigate the issue after step 2?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coy-yote
+commented
+Oct 30, 2024
+There must be something difficult to catch that's missing in your setup @RNarayan73. I ran into similar issues a long while back with Fedora 38. I reinstalled, tried again, and it just worked.
+I'm now running Fedora 40 with LUKS BTRFS. When I hibernate it locks the disk again and I'm reprompted for my LUKS password to wake it up. Even with that step everything comes up as expected for me now.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+universish
+commented
+Nov 5, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I applied hibernation for fedora 41, hibernate is not working.
+The system is installed on SSD. I installed it as btrfs. I updated from fedora 40 to fedora 41. I tried to enable Hibernate, but it didn't work.
+I followed all the steps, and since most of them were blocked, I added sudo code and completed the step successfully.
+https://fedoramagazine.org/hibernation-in-fedora-36-workstation/
+Only this part was a problem:
+After you’ve logged in again check the audit log, compile a policy and install it. The -b option filters for audit log entries from last boot. The -M option compiles all filtered rules into a module, which is then installed using semodule -i.
+**$ audit2allow -b** #============= systemd_sleep_t ============== allow systemd_sleep_t unlabeled_t:dir search; **$ cd /tmp $ audit2allow -b -M systemd_sleep $ semodule -i systemd_sleep.pp**
+I got the following errors:
+$ sudo audit2allow -b
+[sudo] password for macellan:
+Option ENRICHED not found - line 9
+NOTE - using built-in end_of_event_timeout: 2
+NOTE - using built-in logs: /var/log/audit/audit.log
+$ cd /tmp
+$ audit2allow -b -M systemd_sleep
+Error opening config file (Erişim engellendi)
+NOTE - using built-in end_of_event_timeout: 2
+NOTE - using built-in logs: /var/log/audit/audit.log
+Error opening /var/log/audit/audit.log (Erişim engellendi)
+compilation failed:
+systemd_sleep.te:6:ERROR 'syntax error' at token '0' on line 6:
+/usr/bin/checkmodule:
+error(s) encountered while parsing configuration
+$ sudo audit2allow -b -M systemd_sleep
+Option ENRICHED not found - line 9
+NOTE - using built-in end_of_event_timeout: 2
+NOTE - using built-in logs: /var/log/audit/audit.log
+could not write output file: [Errno 13] Erişim engellendi: 'systemd_sleep.te'
+$ audit2allow -b -M systemd_sleep
+Option ENRICHED not found - line 9
+NOTE - using built-in end_of_event_timeout: 2
+NOTE - using built-in logs: /var/log/audit/audit.log
+could not write output file: [Errno 13] Erişim engellendi: 'systemd_sleep.te'
+$ systemctl hibernate
+Call to Hibernate failed: Sleep verb 'hibernate' is not configured or configuration is not supported by kernel
+$ swapon
+NAME
+TYPE
+SIZE USED PRIO
+/dev/zram0 partition
+8G
+0B
+100
+$ semodule -i systemd_sleep.pp
+libsemanage.semanage_create_store: Could not read from module store, active modules subdirectory at /var/lib/selinux/targeted/active/modules. (Permission denied).
+libsemanage.semanage_direct_connect: could not establish direct connection (Permission denied).
+semodule:
+Could not connect to policy handler
+audit2allow -w -a
+In this command output There was no line related to “systemd-sleep”.
+I rebooted a few more times, but hibernate didn’t work:
+$ systemctl hibernate
+Call to Hibernate failed: Sleep verb 'hibernate' is not configured or configuration is not supported by kernel
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+brnl
+commented
+Nov 23, 2024
+@universish, if you do a journalctl -b, you'll probably see something like:
+$ journalctl -b
+kernel: Lockdown: systemd-logind: hibernation is restricted; see man kernel_lockdown.7
+You can read back in the earlier comments about that case.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Jak2k
+commented
+Apr 1, 2025
+I'm using Fedora Workstation 41 with btrfs and it works fine. The Gnome extension works fine too, but I prefer Ctrl + Alt + Delete. I bound hibernation to it like this:
+Install zenity: sudo dnf install zenity
+Remove the shortcut System > Log out.
+Add a custom shortcut bound to Ctrl + Alt + Delete with this command: zenity --title="Hibernate?" --text="Do you really want to hibernate the system?" --default-cancel --icon="system-shutdown" --question && systemctl hibernate
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+m1ndful
+commented
+Jul 16, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Lenovo ThinkPad X1 Carbon Gen 10.
+Fedora 40.
+Hibernate configured on a SWAP partition.
+Any ideas? ChatGPT says that the issue might be in transfering to GDM or userspace, so it hangs.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+m1ndful
+commented
+Aug 1, 2025
+[REGRESSION] tty lockup and WWAN loss after hibernate/suspend in 6.8+ on ThinkPad X1 Carbon Gen 10
+Working on kernel bisect v6.7.11-v6.8-rc1
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

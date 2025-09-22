@@ -1,0 +1,650 @@
+Skip JSON, Use Blade: A Simpler Way to Build Dynamic Laravel UIs Without JS Frameworks - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Raheel Shan
+Posted on Sep 21
+• Originally published at raheelshan.com
+Skip JSON, Use Blade: A Simpler Way to Build Dynamic Laravel UIs Without JS Frameworks
+#laravel
+#javascript
+#webdev
+#php
+Introduction
+In modern Laravel projects, developers are often nudged toward using JavaScript-heavy UI frameworks like Vue, React, Inertia.js, or Livewire. While these tools are useful, they often come with a high cognitive and technical overhead — especially when your goal is simple: submit data, get a response, and update part of your UI.
+But let me share something from my own development journey.
+Back when I used to work with CodeIgniter, I followed an approach that was surprisingly efficient: I would return HTML partials from backend APIs, and on the frontend, I used jQuery to inject these partials into the DOM. This meant forms would return with updated values and validation errors pre-rendered, just as you’d expect in a traditional multi-page app. No JSON parsing. No manual DOM patching. It just worked — and it worked really well.
+At that time, this method was largely overlooked because the trend was moving toward SPAs and JSON APIs. But today, in what I call Web Transition 4, this pattern is making a strong comeback. We are seeing a shift back to server-driven UI rendering, where HTML is once again the main response format, and JavaScript acts as a facilitator — not the core renderer.
+This article walks you through how to apply this exact pattern in modern Laravel: returning Blade partials from your controllers and using just a bit of JavaScript (not a full framework) to inject them into the DOM.
+This approach is simple, elegant, and leverages Laravel’s strengths — without the overhead of managing frontend state manually.
+The Problem with JSON-Centric UIs
+Consider a basic flow:
+You click a button or submit a form.
+Frontend sends a fetch/axios call to a Laravel API endpoint.
+Laravel processes the request and returns JSON.
+Frontend parses the JSON.
+Developer writes DOM manipulation code to reflect the new state.
+Developer manually handles errors (like validation messages).
+If you’re thinking, “That’s a lot of work for a simple interaction,” you’re right.
+It gets worse when:
+You have complex Blade conditions tied to authentication or roles.
+You rely on session state (which APIs can’t access).
+You end up duplicating rendering logic across PHP (for SSR) and JavaScript (for interactivity).
+So what’s the alternative?
+The Blade Partial API Pattern
+Instead of JSON, your Laravel controller returns Blade-rendered HTML as the response. Then, you simply replace part of your page with this HTML using JavaScript.
+Here’s how it works:
+Laravel Route
+// web.php
+Route::get('/products',
+[App\Http\Controllers\ProductController::class , 'index']
+);
+Enter fullscreen mode
+Exit fullscreen mode
+Blade Partial
+<div class="px-4 pb-4 flex flex-col items-center justify-start
+border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+<table class="min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+<thead class="bg-gray-100 dark:bg-gray-700">
+<tr>
+<th scope="col" class="p-4 text-xs text-center font-medium
+text-gray-500 uppercase dark:text-gray-400 w-2/5">
+Title</th>
+<th class="p-4 text-xs font-medium text-center text-gray-500 uppercase dark:text-gray-400 whitespace-nowrap
+">
+Category</th>
+<th scope="col" class="p-4 text-xs text-center font-medium
+text-gray-500 uppercase dark:text-gray-400">
+Actions</th>
+</tr>
+</thead>
+<tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
+@if (isset($products) && count($products) > 0)
+@foreach ($products as $product)
+<tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
+<td class="p-4 text-sm font-normal text-gray-500 dark:text-gray-400">
+{{ $product->title }}
+</td>
+<td class="p-4 text-sm font-normal text-gray-500 dark:text-gray-400">
+{{ $product->category->name ?? 'Uncategorized'
+}}
+</td>
+<td class="p-4 space-x-2 whitespace-nowrap text-center">
+<a href="{{ route('', [ 'products' => $id]) }}" title="Update">
+Edit
+</a>
+<button type="button">
+Delete
+</button>
+</td>
+</tr>
+@endforeach
+@else
+@include('partials.norecord')
+@endif
+</tbody>
+</table>
+{{ $products->links('partials.paginator', ['data' => $products->toArray()]) }}
+</div>
+Enter fullscreen mode
+Exit fullscreen mode
+Controller
+class ProductController extends Controller
+{
+public function index(Request $request)
+{
+$products = GetProducts::handle();
+return view('products.index',['products' => $products]);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This will generate html content with all blade power and pagination rendered.
+JavaScript
+async function getProducts() {
+const response = await fetch('/products', {
+method: 'GET',
+headers: {
+'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+}
+});
+const html = await response.text();
+document.querySelector('#products').innerHTML = html;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+And finally pre-loaded html.
+<div id="products"></div>
+Enter fullscreen mode
+Exit fullscreen mode
+Just like that, you’ve updated a part of your page without writing any JS templating logic.
+Why This Works So Well in Laravel
+Automatic Validation Rendering
+Imagine you submit a form and Laravel validation fails:
+$request->validate([
+'name' => 'required|min:3'
+]);
+Enter fullscreen mode
+Exit fullscreen mode
+If you’re returning a Blade partial that includes @error blocks, Laravel will render them as-is, no manual mapping or frontend logic required.
+<div class="col-span-6 sm:col-span-3">
+<label for="name"
+class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Name</label>
+<input form="user-form" type="text" name="name" id="name" required
+value="{{ old('name', $user->name) }}"
+/>
+@error('name')
+<p class="mt-2 text-sm text-red-600 dark:text-red-500">
+<span class="font-medium">{{ $message }}</span>
+</p>
+@enderror
+</div>
+Enter fullscreen mode
+Exit fullscreen mode
+And here is the result.
+Auth & Role Checks Just Work
+This is a game-changer.
+Recently, while working on a role management system, I had to show or hide certain buttons based on user roles:
+@can('edit_users')
+<button>Edit</button>
+@endcan
+Enter fullscreen mode
+Exit fullscreen mode
+This logic worked fine on normal pages. But when I moved this to an API route (routes/api.php) and called it via fetch, suddenly the buttons stopped showing up — even for admins.
+Why?
+Because API routes are stateless by default. They don’t use the session guard. When Laravel renders the view, there’s no authenticated user, and the role check fails.
+I spent hours debugging this, only to realize that moving the same logic to a web route fixed it instantly.
+With this Blade approach:
+Authenticated sessions work
+Middleware applies normally
+Role-based rendering behaves exactly as expected
+Security Considerations
+When returning Blade partials from Laravel, you still have all the same middleware power as regular routes:
+Use auth middleware for access control.
+Use @can, @auth, and other Blade directives for rendering logic.
+CSRF protection works out of the box (as long as you include the token in your fetch headers).
+Example:
+Route::middleware('auth')->post('/dashboard-widgets', function () {
+return view('partials.widgets', [...]);
+});
+Enter fullscreen mode
+Exit fullscreen mode
+When Is This Approach Better Than Livewire or Inertia?
+This method doesn’t replace every use case. But it shines when:
+Your app is mostly server-rendered.
+You only need light interactivity (forms, filters, search).
+You want to avoid frontend framework overhead.
+You prefer having one source of truth for your UI: your Blade views.
+Pros over Livewire
+No magic or hidden reactivity.
+No Alpine.js dependency.
+Full control over when and how DOM updates happen.
+Pros over Inertia
+You don’t need a JS framework (like Vue or React).
+You avoid tightly coupling your frontend to Laravel routes.
+You skip the client-side routing layer altogether.
+Final Thoughts
+Laravel is a server-side framework. It shines when you let it render views.
+By returning HTML instead of JSON from your APIs — and using Blade partials instead of frontend templates — you:
+Simplify your app
+Remove duplicated logic
+Retain Laravel’s full power (auth, roles, validation)
+Reduce frontend dependencies
+You don’t need a JavaScript framework to build reactive UIs.
+You just need to fetch partials — and let Laravel do the heavy lifting.
+Summary
+Stop over-engineering your frontend.
+Return HTML partials from Laravel, not JSON.
+Replace DOM content with simple JavaScript.
+Keep your logic in one place: Blade.
+Enjoy the full power of Laravel (auth, roles, validation) without fighting API statelessness.
+If you found this post helpful, consider supporting my work — it means a lot.
+Support my work
+Top comments (10)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+GG-HRN
+GG-HRN
+GG-HRN
+Follow
+Backend Dev with 3 years of independent services
+Education
+self-taught
+Work
+Fullstack Dev.
+Joined
+Sep 21, 2025
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+Great post and very good practice for laravel because the use of JS to fetch an endpoint is vulnerable. With this post i see how to make the error o succefully msg and evade sweet alert and dont expose anything ✌🏿
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Raheel Shan
+Raheel Shan
+Raheel Shan
+Follow
+Remix Developer, Tailwind, Laravel, Full Stack Developer at Ohad Technologies
+Available for 1:1 session on topmate.io. Book me here
+https://topmate.io/raheelshan/
+Location
+Karachi, Pakistan
+Education
+Federal Urdu University of Arts Science and Technology
+Pronouns
+Raheelshan
+Work
+Development
+Joined
+Mar 29, 2021
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+Thanks for the engagement. Glad to see it resonates.
+Like comment:
+Like comment:
+3 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+GG-HRN
+GG-HRN
+GG-HRN
+Follow
+Backend Dev with 3 years of independent services
+Education
+self-taught
+Work
+Fullstack Dev.
+Joined
+Sep 21, 2025
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+I work in a project in php, a big one but using JS and many frameworks in js but always think something i missing, when i can get a pc i'll put this on practice
+Like comment:
+Like comment:
+2 likes
+Like
+Thread
+Thread
+Raheel Shan
+Raheel Shan
+Raheel Shan
+Follow
+Remix Developer, Tailwind, Laravel, Full Stack Developer at Ohad Technologies
+Available for 1:1 session on topmate.io. Book me here
+https://topmate.io/raheelshan/
+Location
+Karachi, Pakistan
+Education
+Federal Urdu University of Arts Science and Technology
+Pronouns
+Raheelshan
+Work
+Development
+Joined
+Mar 29, 2021
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+wish you good luck.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Arman Alahi
+Arman Alahi
+Arman Alahi
+Follow
+💻 Developer | 🌱 Lifelong Learner | ✍️ Sharing insights on web development, open-source, and SEO for tech.
+Passionate about building clean solutions, experimenting with new technologies, and helping
+Location
+Manikganj, Dhaka, Bangladesh
+Education
+MBA
+Pronouns
+He
+Joined
+Sep 21, 2025
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+This really resonates 👏. I’ve found that returning Blade partials keeps things simple, especially when you want validation, auth checks, and role-based logic to “just work” without duplicating it in JavaScript. Sometimes less JSON = less headache. 🚀
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+Raheel Shan
+Raheel Shan
+Raheel Shan
+Follow
+Remix Developer, Tailwind, Laravel, Full Stack Developer at Ohad Technologies
+Available for 1:1 session on topmate.io. Book me here
+https://topmate.io/raheelshan/
+Location
+Karachi, Pakistan
+Education
+Federal Urdu University of Arts Science and Technology
+Pronouns
+Raheelshan
+Work
+Development
+Joined
+Mar 29, 2021
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+Yes sometimes the old is the best one.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+david duymelinck
+david duymelinck
+david duymelinck
+Follow
+Learned to code in the wild west time of php 4, also the time xml and xpath where the new hot thing.
+Location
+Belgium
+Joined
+Sep 24, 2019
+•
+Sep 21
+• Edited on Sep 21
+• Edited
+Dropdown menu
+Copy link
+Hide
+I agree that sending HTML is the best way to update a page part most of the times.
+In your example you make the same mistake that the javascript view libraries made.
+<div id="products"></div>
+Enter fullscreen mode
+Exit fullscreen mode
+In the case of the example it is the main content of the page so that is a problem for SEO and browsers without javascript.
+The template you send on page load should be
+<div id="products">
+@include('products.index')
+</div>
+Enter fullscreen mode
+Exit fullscreen mode
+And the javascript should fetch the changed content based on a page action.
+In the case of the example the action that is going to be performed is changing to another page of the pagination links. This means the javascript should handle the url state to keep the back button of the bowser working.
+Sending HTML is not only sending HTML anymore, And this is where Livewire shines.
+The simplest solution is to just render full pages instead of parts of pages. If you need more speed investigate the slowest elements and make them as performant as possible. If you need more speed cache them.
+The only use cases I can think of to use partial page updates are real time widgets like a chat or some monitoring tool. There will be cases json is the better format because of the volume of people that want to receive that information at the same time or when the tool handles the logic in the frontend.
+It isn't as clear cut as you show it in this post.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Raheel Shan
+Raheel Shan
+Raheel Shan
+Follow
+Remix Developer, Tailwind, Laravel, Full Stack Developer at Ohad Technologies
+Available for 1:1 session on topmate.io. Book me here
+https://topmate.io/raheelshan/
+Location
+Karachi, Pakistan
+Education
+Federal Urdu University of Arts Science and Technology
+Pronouns
+Raheelshan
+Work
+Development
+Joined
+Mar 29, 2021
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+Thanks for the thoughtful comment. I completely agree that the initial template should already contain the server-rendered content for SEO and non-JS fallbacks. My example was intentionally minimal just to highlight the pattern of replacing chunks of HTML instead of managing state with JSON, but in practice I also render the first page with @include.
+On pagination: yes, you’re right, URL state and browser back/forward buttons need to be handled properly. That’s not a weakness of the Blade partial approach though—it’s just the usual SPA/UX detail that any approach has to deal with, whether you’re using Livewire, Inertia, or plain Alpine.
+I also agree that this isn’t a one-size-fits-all solution. My point in the post was simply that for many common cases, forms, filters, tabs, simple CRUD lists, sending HTML fragments is both simpler and more maintainable than spinning up JSON APIs plus front-end rendering. Livewire does solve some of these concerns automatically, but sometimes you don’t want or need the extra layer or some developers don't want to learn a new tool.
+So I’d summarize it like this: full page renders are the default, Livewire can shine for more complex state, but Blade partial APIs hit the sweet spot for small to medium UI updates without overengineering.
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Collapse
+Expand
+david duymelinck
+david duymelinck
+david duymelinck
+Follow
+Learned to code in the wild west time of php 4, also the time xml and xpath where the new hot thing.
+Location
+Belgium
+Joined
+Sep 24, 2019
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+The main reason I added the comment is because I found that a lot of information was left out.
+I understand you have to find a balance to get to a reasonable length for a post. I'm just one of those guys who likes to fill in the blanks.
+Like comment:
+Like comment:
+1 like
+Like
+Thread
+Thread
+Raheel Shan
+Raheel Shan
+Raheel Shan
+Follow
+Remix Developer, Tailwind, Laravel, Full Stack Developer at Ohad Technologies
+Available for 1:1 session on topmate.io. Book me here
+https://topmate.io/raheelshan/
+Location
+Karachi, Pakistan
+Education
+Federal Urdu University of Arts Science and Technology
+Pronouns
+Raheelshan
+Work
+Development
+Joined
+Mar 29, 2021
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+Many thanks. I always like criticism and it gives me more push to do more research and improve my coding practices.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Some comments may only be visible to logged-in visitors. Sign in to view all comments.
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Raheel Shan
+Follow
+Remix Developer, Tailwind, Laravel, Full Stack Developer at Ohad Technologies
+Available for 1:1 session on topmate.io. Book me here
+https://topmate.io/raheelshan/
+Location
+Karachi, Pakistan
+Education
+Federal Urdu University of Arts Science and Technology
+Pronouns
+Raheelshan
+Work
+Development
+Joined
+Mar 29, 2021
+More from Raheel Shan
+Laravel Livewire: Understanding How Livewire Works Under the Hood
+#laravel
+#livewire
+#backend
+#fullstack
+Skip Livewire? Why Laravel Blade + AQC + Alpine Might Be All You Need
+#laravel
+#webperf
+#a11y
+#alpinejs
+Web Transition: Part 4 of 4 — The Return to Simplicity
+#ajax
+#html
+#javascript
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

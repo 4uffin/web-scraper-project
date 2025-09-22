@@ -1,0 +1,276 @@
+machine learning - Training a GAN for inpainting task - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Training a GAN for inpainting task [closed]
+Ask Question
+Asked
+4 days ago
+Modified
+4 days ago
+Viewed
+33 times
+-1
+Closed. This question is not about programming or software development. It is not currently accepting answers.
+This question does not appear to be about a specific programming problem, a software algorithm, or software tools primarily used by programmers. If you believe the question would be on-topic on another Stack Exchange site, you can leave a comment to explain where the question may be able to be answered.
+Closed 3 days ago.
+Improve this question
+I'm currently working on a GAN to reconstruct images from which random patches have been removed. I'm using an Autoencoder architecture for the generator part. My input images are 1577 rectangular 10x500 images (Portions of 2D spectra, 1 channel. The GAN must be able to reproduce the missing part of spectral lines).
+I built my own training step and trained the GAN for 200 epochs but the results are quite disappointing. Can you help me figuring out what I could change to make it work? I'm posting the definition of generator and discriminator, as well as the custom train step, here below. The generator gets the masked image as an input and returns an image of the same size, which should be the reconstructed/inpainted image. I'm also posting an input image example, with the random mask applied.
+def build_generator(image_size):
+model = tf.keras.Sequential()
+# Encoder
+model.add(Conv2D(16, (3, 3), activation='relu', padding='same',
+input_shape=(image_size[0], image_size[1], 1)))
+model.add(MaxPooling2D((2, 2), padding='same'))
+model.add(Conv2D(8, (3, 3), activation='relu', padding='same'))
+model.add(MaxPooling2D((2, 2), padding='same'))
+model.add(Conv2D(8, (3, 3), activation='relu', padding='same'))
+model.add(MaxPooling2D((2, 2), padding='same'))
+# Decoder
+model.add(Conv2D(8, (3, 3), activation='relu', padding='same'))
+model.add(UpSampling2D((2, 2)))
+model.add(Conv2D(8, (3, 3), activation='relu', padding='same'))
+model.add(UpSampling2D((2, 2)))
+model.add(Conv2D(16, (3, 3), activation='relu'))
+model.add(UpSampling2D((2, 2)))
+model.add(Conv2D(1, (3, 3), activation='sigmoid', padding='same'))
+model.add(Cropping2D(cropping=((2,0),(0,0))))
+# Compile
+model.compile(optimizer='adam', loss='binary_crossentropy')
+return model
+def build_discriminator():
+model = tf.keras.Sequential()
+model.add(layers.Conv2D(1, 2, strides=1,
+# 1 filter
+input_shape=[image_size[0], image_size[1], 1]))
+model.add(layers.LeakyReLU(0.2))
+model.add(layers.Dropout(0.4))
+model.add(layers.Conv2D(4, (4, 10), strides=1))
+model.add(layers.LeakyReLU())
+model.add(layers.Dropout(0.3))
+model.add(layers.Conv2D(16, (4, 20), strides=1))
+model.add(layers.LeakyReLU())
+model.add(layers.Dropout(0.3))
+model.add(layers.Conv2D(256, (3, 80), strides=1))
+model.add(layers.LeakyReLU())
+model.add(layers.Dropout(0.3))
+model.add(layers.Flatten()) # Flatten the 2D image into a 1D array of numbers
+model.add(layers.Dropout(0.3))
+model.add(layers.Dense(1, activation='sigmoid')) # the final output is a single neuron: binary discriminator
+return model
+# g for generator
+g_opt = Adam(learning_rate=0.0001)
+# d for discriminator
+d_opt = Adam(learning_rate=0.00001) # NB
+g_loss = BinaryCrossentropy()
+d_loss = BinaryCrossentropy()
+# Importing the base model class to subclass our training step
+from tensorflow.keras.models import Model
+class FashionGAN(Model):
+def __init__(self, generator, discriminator, *args, **kwargs):
+# Here we're inheriting args and kwargs from base class (Keras Model)
+super().__init__(*args, **kwargs)
+# Create attributes for gen and discr
+self.generator = generator
+self.discriminator = discriminator
+def compile(self, g_opt, d_opt, g_loss, d_loss, *args, **kwargs):
+super().compile(*args, **kwargs)
+# Create attributes for losses and optimizers
+self.g_opt = g_opt
+self.d_opt = d_opt
+self.g_loss = g_loss
+self.d_loss = d_loss
+# train_step takes a batch of data
+def train_step(self, data): # this is called when you call the .fit method
+# Get data
+original_images, masked_images = data
+reconstructed_images = self.generator(masked_images, training=False)
+# Train the discriminator
+# We need to calculate the gradient
+with tf.GradientTape() as d_tape:
+# Pass the original and reconstructred images to discriminator
+yhat_origin = self.discriminator(original_images, training=True)
+yhat_recons = self.discriminator(reconstructed_images, training=True)
+yhat_orcons = tf.concat([yhat_origin, yhat_recons], axis=0)
+# Create labels for orig and reconst imgs (TRUE labels)
+y_orcons = tf.concat([tf.zeros_like(yhat_origin), tf.ones_like(yhat_recons)], axis=0)
+# Add noise to the TRUE outputs
+noise_origin = 0.15*tf.random.uniform(tf.shape(yhat_origin))
+noise_recons = -0.15*tf.random.uniform(tf.shape(yhat_recons))
+y_orcons += tf.concat([noise_origin, noise_recons], axis=0)
+# Calculate loss
+total_d_loss = self.d_loss(y_orcons, yhat_orcons)
+# Apply backprop: outside the "with" loop. First we calculate the gradient, then apply that using optimizers
+dgrad = d_tape.gradient(total_d_loss, self.discriminator.trainable_variables)
+self.d_opt.apply_gradients(zip(dgrad, self.discriminator.trainable_variables)) # d_opt is Adam optimizer
+# Train the generator
+with tf.GradientTape() as g_tape:
+# Generate reconstructed images
+gen_images = self.generator(masked_images, training=True)
+# Create predicted labels
+predicted_labels = self.discriminator(gen_images, training=False)
+# Calculate loss
+# We're implying that generated images are REAL and we reward the generator for faking out the discriminator
+total_g_loss = self.g_loss(tf.zeros_like(predicted_labels), predicted_labels)
+# Apply backpropagation
+ggrad = g_tape.gradient(total_g_loss, self.generator.trainable_variables)
+self.g_opt.apply_gradients(zip(ggrad, self.generator.trainable_variables))
+return {"d_loss": total_d_loss, "g_loss": total_g_loss}
+Example_image
+machine-learningdeep-learningneural-networkgenerative-adversarial-networkinpainting
+Share
+Improve this question
+Follow
+edited Sep 17 at 15:14
+Nicolò FiabaNicolò Fiaba
+asked Sep 17 at 15:12
+Nicolò FiabaNicolò Fiaba
+111 bronze badge
+New contributor
+Nicolò Fiaba is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+Add a comment
+|
+Related questions
+9
+What is the ideal value of loss function for a GAN
+0
+Convolutional Autoencoders
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+machine-learningdeep-learningneural-networkgenerative-adversarial-networkinpainting
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+What's the PC used in "American Kickboxer"?
+Dashboard for a PSC-35A power supply UPS
+Yes or No question for an outsider (if possible)
+Terrorist acts committed by Antifa?
+Prospective new PI wants to chat with former PI who kicked me out. What to do?
+Movie with an alien in disguise as a human boy. Fights a bad alien
+Key change, from Ab major to E major
+Expected losses: My math and my program don't agree. Not sure which one is wrong
+How to completely disable Google Chrome page translate function?
+Can a Heavy Crossbow be used to push an opponent backwards 10 feet?
+Who I am so that they hate me even when I tell them it is already dead?
+I laugh when something bothers me or makes me uncomfortable, like a psychopath is there anything I can say to put the other person at ease?
+Submitted the same research article in two journals; now I'm scared
+ConTeXt: suppress label from the printed title of a section
+Generic way to combine formal systems (e.g., first-order theories)?
+Two definitions of regularity for ultrafilters
+Shelf life of homemade vegetable stock stored in the fridge
+What species of plum is this? (France, mid-September)
+When can “ever” appear in an affirmative context?
+Unable to Access CPU Model Name in Debian VMWare
+What are the specific legal pushing locations for Push Weapon Mastery and Repelling Blast?
+Who are “those” who do not receive the mysteries of the Kingdom of Heaven?
+I need a reason for artillery to still be used despite suboptimal conditions and terrain
+How do I make Windows open ps1 in PowerShell 7.x (black icon) instead of Windows Powershell (blue icon)?
+more hot questions
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

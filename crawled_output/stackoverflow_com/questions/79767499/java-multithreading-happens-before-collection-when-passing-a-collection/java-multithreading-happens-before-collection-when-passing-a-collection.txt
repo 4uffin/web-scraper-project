@@ -1,0 +1,393 @@
+Java multithreading happens-before collection when passing a collection - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Java multithreading happens-before collection when passing a collection
+Ask Question
+Asked
+4 days ago
+Modified
+3 days ago
+Viewed
+115 times
+0
+When we pass a collection from thread 1 to thread 2, and it will be used only for reading in thread 2, do we need to sync the collection? To force happens - before relationship
+List a = new ArrayList() ;
+a.add("val")
+methodToRunNewThread (a) ;
+Is it guaranteed that the new thread will see values inside (a) collection?
+And if yes, why, how happens before relationship is executed here?
+javamultithreading
+Share
+Improve this question
+Follow
+edited Sep 18 at 8:09
+Mark Rotteveel
+110k239239 gold badges158158 silver badges230230 bronze badges
+asked Sep 17 at 15:00
+VextoRVextoR
+5,2152424 gold badges7878 silver badges112112 bronze badges
+8
+3
+do we need to sync the collection? Yes.
+There must be a happens-before edge before reads take place, or visibility is not guaranteed.
+Usually starting a thread does this, but if you're not then you do need to make sure that an edge of some sort is present.
+Read the spec!
+markspace
+–
+markspace
+2025-09-17 15:13:42 +00:00
+Commented
+Sep 17 at 15:13
+Tooting my own horn here: stackoverflow.com/questions/27120914/…
+markspace
+–
+markspace
+2025-09-17 15:20:38 +00:00
+Commented
+Sep 17 at 15:20
+what if thread 1 created the collection and will not anymore add values there and then pass to thread 2, do we need still the synchronization?
+VextoR
+–
+VextoR
+2025-09-17 15:22:49 +00:00
+Commented
+Sep 17 at 15:22
+2
+@BasilBourque I gotta disagree with your comment on passing collections (or other objects) from thread to thread.
+Check out "Safe Publication" (a pattern) in Java Concurrency in Practice.
+To me this is very much codifying "passing a value from thread to thread" in a pattern.
+I think it's a good idea to think in this way.
+markspace
+–
+markspace
+2025-09-18 03:35:32 +00:00
+Commented
+Sep 18 at 3:35
+1
+Does methodToRunNewThread start a new thread? If so, that already establishes a happens-before, and no additional synchronisation is needed.
+Mark Rotteveel
+–
+Mark Rotteveel
+2025-09-18 08:10:25 +00:00
+Commented
+Sep 18 at 8:10
+|
+Show 3 more comments
+2 Answers
+2
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+4
+When we pass a collection from thread 1 to thread 2, and it will be used only for reading in thread 2, do we need to sync the collection?
+Yes you do.
+(It depends on what you precisely mean by "sync the collection".
+Your code doesn't show us what you are doing in that respect.)
+So is it guarantee that the new thread will see values inside (a) collection?
+If there is a happens-before relation chain from the last write to the collection in thread 1 to the first read by thread 2, then thread 2 will see all of the writes to the collection made by thread 1 ... up to the last write.
+And if yes, why, how happens before relationship is executed here?
+A happens-before relation will exist if certain events occur.
+These include appropriate use of a synchronized block or method, completion of a constructor (for final fields), creating a thread, joining a thread and using various Java concurrent classes.
+Not all of these will be relevant to your use-case.
+It will depend on how the collection is passed from thread 1 to thread 2.
+What if thread 1 created the collection and will not anymore add values there and then pass to thread 2, do we need still the synchronization?
+You still need to synchronize appropriately.
+Please read what I wrote in my 2nd paragraph.
+Share
+Improve this answer
+Follow
+edited Sep 18 at 7:17
+answered Sep 17 at 15:16
+Stephen CStephen C
+723k9595 gold badges849849 silver badges1.3k1.3k bronze badges
+7 Comments
+Add a comment
+VextoR VextoR Sep 17 at 15:21
+Thank you, what if thread 1 created the collection and will not anymore add values there and then pass to thread 2, do we need still the synchronization? 2025-09-17T15:21:45.993Z+00:00
+0
+Reply
+Copy link
+Ohm's Lawman Ohm's Lawman Sep 17 at 15:27
+Stephen is telling you that you must properly synchronize the act of passing the reference from thread 1 to thread 2, but then, if thread 1 does not make any changes to the collection after it was passed, you will not need any additional synchronization when thread 2 subsequently uses the collection. 2025-09-17T15:27:31.147Z+00:00
+0
+Reply
+Copy link
+Slaw Slaw Sep 17 at 17:42
+@VextoR See this documentation. Particularly, "Each action in a thread happens-before every action in that thread that comes later in the program's order", and, "A call to start on a thread happens-before any action in the started thread." 2025-09-17T17:42:58.33Z+00:00
+0
+Reply
+Copy link
+Basil Bourque Basil Bourque Sep 17 at 22:37
+Would it be correct to add “completion of the constructor” to your list of certain events that cause a happens-before? If a final member field List is assigned a List object in the containing class’ constructor, would accessing the reference to that list be thread-safe without needing to be volatile? 2025-09-17T22:37:42.197Z+00:00
+0
+Reply
+Copy link
+Stephen C Stephen C Sep 18 at 6:53
+Maybe.
+But the final happens-before is a bit different.
+As the JLS states: "This happens-before ordering does not transitively close with other happens-before orderings.". 2025-09-18T06:53:05.407Z+00:00
+1
+Reply
+Copy link
+Basil Bourque Basil Bourque Sep 19 at 0:28
+@StephenC I was thinking that assigning an object to the final member field while inside a constructor would make reading that field foolproof thread-safe given that Java guarantees an object is not accessible until after construction. 2025-09-19T00:28:57.42Z+00:00
+0
+Reply
+Copy link
+Stephen C Stephen C Sep 19 at 0:32
+Yea.
+But I'm not inclined to elaborate, given how sketchy the question is.
+In both senses of that word!
+Now ... if the OP could be bothered to clarify the question ... 2025-09-19T00:32:00.81Z+00:00
+0
+Reply
+Copy link
+Add a comment
+3
+what if thread 1 created the collection and will not anymore add values there and then pass to thread 2, do we need still the synchronization? –
+VextoR
+Yes, as Stephan mentions, you still need a happens-before edge. If you truly do not write after a certain point, then you only need one such edge (such as writing a reference to the object to a volatile variable).
+Example:
+class Example {
+private volatile List<String> list;
+public Example() {
+List<String> tempList = new List<>();
+tempList.add("a");
+list = tempList;
+// note: init first, then write to volatile
+}
+public boolean isPresent(String x) {
+return list.contains(x);
+// volatile provides happens-before
+}
+}
+Share
+Improve this answer
+Follow
+edited Sep 17 at 21:33
+answered Sep 17 at 15:28
+markspacemarkspace
+11.1k33 gold badges2828 silver badges4444 bronze badges
+12 Comments
+Add a comment
+VextoR VextoR Sep 17 at 15:49
+Will volatile help even for an object? I mean will volatile trigger happens before even for elements which are inside collection? 2025-09-17T15:49:03.533Z+00:00
+0
+Reply
+Copy link
+markspace markspace Sep 17 at 16:11
+Yes, volatile helps an entire object.
+The language spec says "all actions" including writes are made visible.
+That includes all writes inside an object, plus writes that happen elsewhere, as long as those writes happen (in program order) before the write to volatile.
+Brian Goetz in his book Java Concurrency in Practice calls this "piggy backing," where other writes can be made visible along with the write to volatile. 2025-09-17T16:11:56.77Z+00:00
+1
+Reply
+Copy link
+Basil Bourque Basil Bourque Sep 17 at 17:19
+I wonder… Would we effectively get the same result if we replaced the volatile member field with an AtomicReference, like this: private AtomicReference < List < String > > listRef ;? 2025-09-17T17:19:09.677Z+00:00
+0
+Reply
+Copy link
+Slaw Slaw Sep 17 at 17:39
+@BasilBourque The AtomicReference itself would not be published correctly without appropriate synchronization, such as by making listRef volatile. This could lead to other threads seeing null (or an old atomic reference if the field is written to more than once). But the value held by the atomic reference would be thread-safe, assuming the appropriate methods of AtomicReference are used (e.g., get and set have volatile semantics). 2025-09-17T17:39:14.833Z+00:00
+0
+Reply
+Copy link
+Slaw Slaw Sep 17 at 17:48
+With the current design of Example, I believe making list (Basil: or listRef) final instead of volatile would also work. At least since Java 8, I think. 2025-09-17T17:48:42.61Z+00:00
+1
+Reply
+Copy link
+markspace markspace Sep 17 at 21:36
+final would work the same here, but only because I happened to initialize the field in a constructor.
+volatile will work for ordinary methods too. 2025-09-17T21:36:17.453Z+00:00
+0
+Reply
+Copy link
+Basil Bourque Basil Bourque Sep 17 at 17:48
+@Slaw Yes, I did mean to populate on declaration to avoid that problem: private AtomicReference < List < String > > listRef = new AtomicReference <> ( List.of() ) ; 2025-09-17T17:48:48.65Z+00:00
+0
+Reply
+Copy link
+Add a comment | Show 5 more comments
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+javamultithreading
+See similar questions with these tags.
+The Overflow Blog
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New comment UI experiment graduation
+New and improved coding challenges
+Policy: Generative AI (e.g., ChatGPT) is banned
+Visit chat
+Linked
+46
+Java multi-threading & Safe Publication
+2
+Do I need to add some locks or synchronization if there is only one thread writing and several threads reading?
+Related
+3642
+When to use LinkedList over ArrayList in Java?
+914
+Efficiency of Java "Double Brace Initialization"?
+777
+How to filter a Java Collection (based on predicate)?
+467
+What is the difference between asynchronous programming and multithreading?
+4
+Java happens-before relationship invokeAndWait
+3
+Java multithreading without happens-before relationship
+7
+Happens-before rules in Java Memory Model
+470
+When to use AtomicReference in Java?
+Hot Network Questions
+Unable to Access CPU Model Name in Debian VMWare
+Weep holes or other? Should they be filled?
+How to end mob silencing? Targeted Canceling? Negative Votes require Feedback suggestion
+What are the criteria for press access to the Pentagon (DoD HQ)?
+memoir documentclass and ctex package conflict with luatexja?
+Check whether a binary tree is symmetric
+What is this theorem in Egorov 1981?
+Movie with an alien in disguise as a human boy. Fights a bad alien
+Dashboard for a PSC-35A power supply UPS
+Generic way to combine formal systems (e.g., first-order theories)?
+Who I am so that they hate me even when I tell them it is already dead?
+What is the practical impact of recognising another state?
+possible counter example to the following claim (power sets of topological spaces)
+Was it normal to refer to God as 'the Father' during the time of Jesus?
+How does Steam Cloud work for refunded games?
+Why it takes so long to referee a paper in some journals?
+Scifi story set in a spaceship around a weird star
+What insurance options, if any, exist to allow an individual to transport valuable items owned by others with minimal liability?
+Does the US Constitution's Supremacy Clause make California's new laws regulating the conduct of federal agents (e.g. "No Secret Police Act") moot?
+Removing a file from a Debian package without removing the existing file on upgrade
+Yes or No question for an outsider (if possible)
+ConTeXt: suppress label from the printed title of a section
+How did "hospital" lose its first syllable in some languages?
+What are good ways to make sure a USB-C type connector stays firmly attached to a PCB during mating/demating?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-java
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.19.34211

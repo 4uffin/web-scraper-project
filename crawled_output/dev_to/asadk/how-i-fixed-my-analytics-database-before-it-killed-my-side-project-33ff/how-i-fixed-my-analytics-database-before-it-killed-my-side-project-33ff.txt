@@ -1,0 +1,270 @@
+I Nearly Lost All My Users to 30-Second Database Queries - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Asadbek Karimov
+Posted on Sep 21
+I Nearly Lost All My Users to 30-Second Database Queries
+#webdev
+#sideprojects
+#lessons
+#postgres
+asadk.dev
+Built Mylinx as a solo dev -> grew to $750 MRR.
+Mylinx started as my alternative to Linktree. Built in three months, it grew into something I'm proud of:
+Full customization (layout, colors, themes, etc)
+Music/video embeds for creators
+QR codes for offline promotion
+SEO control and 11+ support
+Built-in URL shortener
+For over a year, everything ran smoothly. Then the analytics started choking.
+When "Simple" Analytics Becomes Not So Simple
+Like most developers, I built analytics the straightforward way:two tables (HitPage and HitPageLink) storing every click and view as raw data. Classic "I'll optimize later" thinking.
+12 months later:
+150K+ new rows monthly
+Queries timing out at 30+ seconds
+Users are complaining about broken analytics
+Database costs are climbing
+The wake-up call came when users started asking for refunds because the analytics features were unusable. At $750/month in revenue, losing customers over fixable technical issues felt especially painful.
+The Constraint That Shaped the Solution
+I had two paths:
+Enterprise approach: Rebuild with ClickHouse, TimescaleDB, and a separate analytics infrastructure
+Bootstrap approach: Work within existing constraints and get creative
+Learning From the Big Players (On a Small Budget)
+I studied how Instagram and other platforms handle analytics data and adapted their tiered storage approach:
+Hot Data (0–90 days): Keep in HitPage for real-time queries
+Warm Data (3–12 months): Pre-aggregate into daily summaries
+Cold Data (1+ years): Archive or delete
+The key insight: most analytics queries don't need individual hit-level data. Daily aggregates work fine for historical trends.
+The Schema That Made It Work
+I added a HitPageDaily table for pre-calculated metrics:
+model HitPageDaily {
+id
+Int
+@id @default(autoincrement())
+kyteId
+String
+date
+DateTime
+hitCount
+Int
+uniqueVisitors Int
+countryStats
+Json?
+deviceStats
+Json?
+referrerStats
+Json?
+createdAt
+DateTime @default(now())
+updatedAt
+DateTime @updatedAt
+@@unique([kyteId, date])
+@@index([kyteId])
+@@index([date])
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This turns millions of individual hits into manageable daily rows. A year of data becomes 365 rows instead of millions.
+The Aggregation Job
+I built a serverless function that runs nightly, processing old data in batches:
+const FETCH_BATCH_SIZE = 10000;
+const BATCH_SIZE = 100;
+const oldHitPageData = await prisma.hitPage.findMany({
+where: { timestamp: { lt: cutoffDate } },
+take: FETCH_BATCH_SIZE,
+skip
+});
+// aggregate into daily buckets
+oldHitPageData.forEach(hit => {
+const key = `${hit.kyteId}-${format(hit.timestamp, 'yyyy-MM-dd')}`;
+if (!dailyAggregates.has(key)) {
+dailyAggregates.set(key, {
+kyteId: hit.kyteId,
+date: startOfDay(hit.timestamp),
+hitCount: 0,
+uniqueVisitors: new Set(),
+});
+}
+const aggregate = dailyAggregates.get(key)!;
+aggregate.hitCount++;
+aggregate.uniqueVisitors.add(`${hit.ip}-${hit.device}`);
+});
+// save results
+await prisma.hitPageDaily.upsert({
+where: { kyteId_date: { kyteId: agg.kyteId, date: agg.date } },
+update: { hitCount: agg.hitCount, uniqueVisitors: agg.uniqueVisitors.size },
+create: { kyteId: agg.kyteId, date: agg.date, hitCount: agg.hitCount, uniqueVisitors: agg.uniqueVisitors.size }
+});
+Enter fullscreen mode
+Exit fullscreen mode
+The job processes data in chunks, aggregates by day, then cleans up the old raw data.
+Hybrid Queries for Seamless Experience
+The tricky part was making queries work across both recent raw data and historical aggregates:
+const [hitPageData, dailyData] = await Promise.all([
+prisma.$queryRaw`
+SELECT TO_CHAR("timestamp", 'MM/DD') as date,
+COUNT(DISTINCT CONCAT("ip", '-', "device"))::int as views
+FROM "HitPage"
+WHERE "kyteId" = ${kyteId} AND "timestamp" >= ${daysAgo}
+GROUP BY 1
+`,
+prisma.$queryRaw`
+SELECT TO_CHAR("date", 'MM/DD') as date, "uniqueVisitors" as views
+FROM "HitPageDaily"
+WHERE "kyteId" = ${kyteId} AND "date" >= DATE(${daysAgo})
+`
+]);
+Enter fullscreen mode
+Exit fullscreen mode
+This gives users recent data with full granularity, plus historical context without the performance hit.
+Testing and Deployment
+I set up a production-like dev environment with cloned real data to test the migration. After confirming everything worked as expected, I deployed during low-traffic hours with a rollback plan ready.
+Results after deployment:
+Analytics queries dropped from 30+ seconds to under 2 seconds
+Database size reduced by ~60%
+User complaints stopped
+No data loss or accuracy issues
+What I learned
+"I'll optimize later" is expensive. What seemed like premature optimization would have saved weeks of stress and nearly losing customers.
+Constraints breed creativity. Limited budget forced me to find a solution that big companies might overlook - sometimes simple aggregation beats complex infrastructure.
+Solo dev advantages are real. I could test on real data, deploy quickly, and iterate without committees or approval processes.
+Performance is a feature. Users don't care about your technical debt - they want things to work fast.
+The Bottom Line is
+This isn't how Google or Facebook would solve analytics scaling, but it doesn't need to be. For a solo developer with a $750/month side project, this pragmatic approach worked perfectly.
+Two months later, the system handles 3x the original traffic with better performance than day one. Sometimes the best architecture is the one you can actually build, deploy, and maintain yourself.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Asadbek Karimov
+Follow
+Software Engineer 📊 at http://sheetjs.com | R&D, docs & integrations | http://mylinx.cc creator 🔗 | Data science in JS?
+mylinx.cc/asad
+Location
+NYC
+Education
+Queens College, City University of New York
+Work
+SheetJS
+Joined
+Jul 30, 2024
+More from Asadbek Karimov
+[Boost]
+#webdev
+#sideprojects
+#lessons
+#postgres
+How I Built a Scalable, Free URL Shortener.
+#webdev
+#saas
+#node
+#extensions
+Another Linktree Clone?
+#sideprojects
+#saas
+#marketing
+#startup
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,230 @@
+If We Break an Image Into Waves, Can We Truly Put It Back Together? - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+AngyoKosaka
+Posted on Sep 21
+If We Break an Image Into Waves, Can We Truly Put It Back Together?
+#python
+#datascience
+#algorithms
+#coding
+The 2D Fast Fourier Transform (FFT) is a powerful tool in image processing, often used for tasks like denoising. It works by decomposing an image into its fundamental frequency components—essentially, a collection of simple sine waves.
+I always understood the decomposition part, but it led me to a question: can we reverse the process? Can we perfectly reconstruct the original image just by adding all those frequency components back together? To answer this, I built an app to see it for myself.
+In This Article
+Overview
+FFT Part
+The GUI: Visualizing the Reconstruction
+The First Hurdle: A Black Screen
+The "Aha!" Moment: Data Mismatch
+The Fix: Normalization is Key
+Conclusion
+The Final Result in Action
+Check Out the Full Code on GitHub!
+Thanks for Reading!
+Overview
+This application consists of two main parts: an FFT module and a GUI. The former decomposes the original image, and the latter visualizes the entire process.
+FFT Part
+First, we perform an FFT shift to move the zero-frequency component to the center of the image. The Python function below then takes this shifted data and sorts all the frequency components. It does this by calculating each component's distance from the center, which corresponds to its frequency (from low to high).
+Crucially, we also store the original (x, y) coordinates for each component. We'll need these to place everything back in the correct position during the re-synthesis phase.
+fft_result = fft2(img)
+def get_sorted_freq_components(self, fft_shifted: np.ndarray) -> List[Dict]:
+h, w = fft_shifted.shape
+center_x, center_y = h // 2, w // 2
+freq_components = []
+for y in range(h):
+for x in range(w):
+distance = np.sqrt((y - center_y)**2 + (x - center_x)**2)
+freq_components.append({
+"distance": distance,
+"value": fft_shifted[y, x],
+"y": y,
+"x": x
+})
+freq_components.sort(key = lambda item: item["distance"])
+return freq_components
+Enter fullscreen mode
+Exit fullscreen mode
+The GUI: Visualizing the Reconstruction
+The main feature of the GUI is a display that updates in real-time as we reconstruct the image. The idea is simple: in a loop, we add one frequency component at a time (from low to high) and update the image view with the result, creating an animation.
+The First Hurdle: A Black Screen
+However, my first attempt didn't work as expected. When I passed the NumPy array from the inverse FFT process directly to PySide6's QImage, all I got was a black screen. The image simply wouldn't display correctly.
+def _create_scaled_pixmap(self, img: np.ndarray, frame: QFrame) -> QPixmap:
+h, w = img.shape
+bytes_per_line = w
+q_image = QImage(img, w, h, bytes_per_line, QImage.Format.Format_Grayscale8)
+pixmap = QPixmap.fromImage(q_image.copy())
+return pixmap.scaled(
+frame.size(),
+Qt.AspectRatioMode.KeepAspectRatio,
+Qt.TransformationMode.SmoothTransformation
+)
+Enter fullscreen mode
+Exit fullscreen mode
+The "Aha!" Moment: Data Mismatch
+After some debugging, I realized the issue was a data type mismatch. QImage with the format Format_Grayscale8 expects a very specific input: a NumPy array of 8-bit unsigned integers (uint8) with values in the 0-255 range.
+My array, which was the result of the inverse FFT, was an array of floats with a completely different scale (e.g., from -50.0 to 3000.0). QImage didn't know how to interpret these float values as grayscale pixels, resulting in the black screen.
+The Fix: Normalization is Key
+To solve this, I had to add a pre-processing step. Before creating the QImage, the function now checks if the input array is the correct uint8 type. If it's not, it normalizes the array—scaling its values to the proper 0-255 range—and then converts its data type.
+This ensures the data is always in a format that QImage can understand and display correctly.
+def _create_scaled_pixmap(self, img: np.ndarray, frame: QFrame) -> QPixmap:
+if img.dtype != np.uint8:
+# Normalize float image to 0-255 range and convert to uint8
+min_val, max_val = np.min(img), np.max(img)
+if min_val == max_val:
+img_norm = np.zeros_like(img)
+else:
+img_norm = (img - min_val) / (max_val - min_val)
+img = (255 * img_norm).astype(np.uint8)
+if not img.flags['C_CONTIGUOUS']:
+img = np.ascontiguousarray(img)
+h, w = img.shape
+bytes_per_line = w
+q_image = QImage(img, w, h, bytes_per_line, QImage.Format.Format_Grayscale8)
+pixmap = QPixmap.fromImage(q_image.copy())
+return pixmap.scaled(
+frame.size(),
+Qt.AspectRatioMode.KeepAspectRatio,
+Qt.TransformationMode.SmoothTransformation
+)
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+And there we have it! By building this simple application, we not only visualized the fascinating process of the Fourier Transform but also learned a valuable lesson in debugging. The biggest takeaway for me was realizing how crucial data types are when passing NumPy arrays to GUI frameworks like PySide6. That "black screen" moment taught me that normalization isn't just a theoretical concept, but a practical necessity.
+The Final Result in Action
+Here is one more look at our application, successfully reconstructing an image from a sea of frequencies, one wave at a time.
+Check Out the Full Code on GitHub!
+I've posted the entire source code for this application on my GitHub repository. Feel free to clone it, run it yourself, and experiment with your own images!
+➡️ My_GitHub_Repository
+If you found this article or the project helpful, please consider leaving a star ⭐️ on the repository. It would make my day!
+Thanks for Reading!
+What other mathematical concepts do you think would be cool to visualize in an app like this? Let me know your ideas in the comments below!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AngyoKosaka
+Follow
+Ph.D. in Science exploring the world of software development. By day, I work as a data engineer in a non-IT division, bridging the gap between data and domain knowledge. By night, I'm a writer, passio
+Location
+Japan
+Joined
+Sep 14, 2025
+Trending on DEV Community
+Hot
+Top 7 Featured DEV Posts of the Week
+#top7
+#discuss
+Orchestrating Real-World Agent Workflows with MCP
+#ai
+#beginners
+#tutorial
+#discuss
+These Are AI Coding Companions Devs Actually Love
+#ai
+#coding
+#tooling
+#developers
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

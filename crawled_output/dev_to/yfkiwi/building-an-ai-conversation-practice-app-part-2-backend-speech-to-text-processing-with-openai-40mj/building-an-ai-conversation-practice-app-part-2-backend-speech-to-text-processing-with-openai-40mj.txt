@@ -1,0 +1,421 @@
+Building an AI Conversation Practice App: Part 2 - Backend Speech-to-Text Processing with OpenAI Whisper - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Evie Wang
+Posted on Sep 21
+Building an AI Conversation Practice App: Part 2 - Backend Speech-to-Text Processing with OpenAI Whisper
+#openai
+#whisper
+#nextjs
+#stt
+This is the second post in a series documenting the technical implementation of a browser-based English learning application with cost-friendly conversation system.
+Overview: The STT Pipeline
+The complete STT workflow involves:
+Audio Reception → FormData parsing with formidable
+File Validation → WebM format verification and size checks
+Stream Processing → Direct file stream to OpenAI API
+Transcription → Whisper-1 model with Canadian English optimization
+Response Handling → Error management and cleanup
+Integration → Seamless handoff to conversation system
+Total processing time: 200-500ms
+Technical Stack Summary:
+Primary STT: OpenAI Whisper-1
+File Processing: Formidable + Node.js streams
+Language: TypeScript with Next.js API routes
+Error Handling: Basic try-catch with error logging
+Performance: Stream processing, Node.js runtime
+The Challenges I Solved
+1. File Upload Complexity in Next.js
+Problem: Next.js API routes have strict limitations on file uploads, especially with form-data.
+Solution: Used a custom formidable-based parser:
+// Disable Next.js body parsing
+export const config = { api: { bodyParser: false } };
+// Custom form parsing with formidable
+const form = new IncomingForm({
+keepExtensions: true,
+});
+const formData: [Fields, Files] = await new Promise((resolve, reject) => {
+form.parse(req, (err, fields, files) => {
+if (err) return reject(err);
+resolve([fields, files]);
+});
+});
+Enter fullscreen mode
+Exit fullscreen mode
+The reason:
+Bypasses Next.js 1MB body size limit
+Handles WebM files up to 25MB
+Maintains file metadata and extensions
+Provides proper error handling
+2. Stream Processing for Large Files
+Problem: Loading entire audio files into memory causes performance issues and potential crashes after deployment.
+Solution: Direct stream processing to OpenAI API:
+// Create readable stream from uploaded file
+const audioPath = audioFile.filepath;
+const audioStream = createReadStream(audioPath);
+// Stream directly to OpenAI (no memory buffering)
+const transcription = await openai.audio.transcriptions.create({
+file: audioStream,
+model: "whisper-1",
+language: "en",
+prompt: "This is a conversation in Canadian English.",
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Performance Benefits:
+Significantly reduced memory usage through streaming
+Faster processing for large files
+Better reliability and no memory overflow crashes
+3. Frontend Audio Validation
+Problem:
+Short audio recordings (< 300ms) are often accidental and waste API calls.
+Solution:
+Early validation on the frontend before sending to backend
+// Frontend validation before API call
+const recordingDuration = Date.now() - recordingStartTimeRef.current;
+if (recordingDuration < 300) {
+const clarificationText = getRandomClarification();
+const assistantMessage: Message = {
+role: 'assistant',
+content: '',
+isStreaming: true
+};
+setMessages(prevMessages => [...prevMessages, assistantMessage]);
+streamText(clarificationText, messageIndex);
+return; // Don't call STT API
+}
+// Only send to backend if recording is long enough
+const sttResponse = await fetch('/api/stt', {
+method: 'POST',
+body: formData,
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Results:
+API call reduction: ~15% fewer unnecessary calls
+User experience: Immediate feedback for accidental recordings
+Cost savings: Reduced unwanted OpenAI API usage
+4. Canadian English Optimization
+Problem: Default Whisper models aren't optimized for Canadian English expressions and pronunciation patterns.
+Solution: Custom prompt engineering:
+const transcription = await openai.audio.transcriptions.create({
+file: audioStream,
+model: "whisper-1",
+language: "en",
+prompt: "This is a conversation in Canadian English.",
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Results:
+Better recognition of Canadian expressions
+Improved handling of slang and culture-related expressions
+Core Technical Implementation
+1. API Endpoint Architecture
+Our main STT endpoint (/api/stt) follows a robust error-handling pattern:
+export default async function handler(
+req: NextApiRequest,
+res: NextApiResponse<ApiResponse>
+) {
+if (req.method !== 'POST') {
+return res.status(405).json({ success: false, error: 'Method not allowed' });
+}
+try {
+// Parse form data
+const form = new IncomingForm({ keepExtensions: true });
+const formData: [Fields, Files] = await new Promise((resolve, reject) => {
+form.parse(req, (err, fields, files) => {
+if (err) return reject(err);
+resolve([fields, files]);
+});
+});
+const [fields, files] = formData;
+// Validate audio file
+const audioFiles = files.audio;
+if (!audioFiles || !Array.isArray(audioFiles) || audioFiles.length === 0) {
+return res.status(400).json({ success: false, error: 'No audio file provided' });
+}
+const audioFile = audioFiles[0] as File;
+// Process with OpenAI
+const audioPath = audioFile.filepath;
+const audioStream = createReadStream(audioPath);
+const transcription = await openai.audio.transcriptions.create({
+file: audioStream,
+model: "whisper-1",
+language: "en",
+prompt: "This is a conversation in Canadian English.",
+});
+// Cleanup and respond
+fs.unlinkSync(audioPath);
+return res.status(200).json({
+success: true,
+transcript: transcription.text
+});
+} catch (error) {
+console.error('STT Error:', error);
+return res.status(500).json({
+success: false,
+error: error instanceof Error ? error.message : 'Failed to transcribe audio'
+});
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2. File Validation & Security
+// Access the audio file with proper type checking
+const audioFiles = files.audio;
+if (!audioFiles || !Array.isArray(audioFiles) || audioFiles.length === 0) {
+return res.status(400).json({
+success: false,
+error: 'No audio file provided'
+});
+}
+const audioFile = audioFiles[0] as File;
+// Additional validation
+if (!audioFile.filepath || audioFile.size === 0) {
+return res.status(400).json({
+success: false,
+error: 'Invalid audio file'
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Security Measures:
+File type validation (WebM only)
+Size limits (25MB max)
+Temporary file cleanup
+No persistent storage
+3. Resource Management
+// Critical: Clean up temporary files
+const audioPath = audioFile.filepath;
+const audioStream = createReadStream(audioPath);
+// Process audio...
+// Always cleanup, even on error
+try {
+fs.unlinkSync(audioPath);
+} catch (cleanupError) {
+console.warn('Failed to cleanup temp file:', cleanupError);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Resource Management Benefits:
+Disk space: Prevents temp file accumulation
+Security: No persistent audio storage
+Performance: Clean server state
+Performance Optimizations
+1. Streaming vs Buffering
+Before (Buffering):
+// Load entire file into memory
+const audioBuffer = fs.readFileSync(audioPath);
+const transcription = await openai.audio.transcriptions.create({
+file: audioBuffer, // Large memory usage
+});
+Enter fullscreen mode
+Exit fullscreen mode
+After (Streaming):
+// Stream file directly
+const audioStream = createReadStream(audioPath);
+const transcription = await openai.audio.transcriptions.create({
+file: audioStream, // Minimal memory usage
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Results:
+Significantly reduced memory usage through streaming
+Faster processing for large files
+Better support for concurrent requests
+Integration with Frontend
+The STT API seamlessly integrates with our frontend conversation system:
+// Frontend STT call
+const sttResponse = await fetch('/api/stt', {
+method: 'POST',
+body: formData,
+});
+const sttData = await sttResponse.json();
+if (!sttData.success) {
+// Handle error gracefully
+const clarificationText = getRandomClarification();
+// Show clarification message to user
+} else {
+// Continue with conversation
+const transcript = sttData.transcript;
+// Send to GPT for response generation
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Error Handling & User Experience
+1. Graceful Degradation
+// If STT fails, don't break the conversation
+if (!sttData.success) {
+const clarificationPhrases = [
+"Sorry, can you repeat that?",
+"Could you say that again please?",
+"I didn't quite get that. Could you repeat?",
+];
+const randomClarification = clarificationPhrases[
+Math.floor(Math.random() * clarificationPhrases.length)
+];
+// Continue conversation with clarification
+}
+Enter fullscreen mode
+Exit fullscreen mode
+2. Debugging & Monitoring
+// Comprehensive logging for debugging
+console.log('STT Response:', {
+success: sttData.success,
+transcript: sttData.transcript?.substring(0, 50) + '...',
+processingTime: Date.now() - startTime,
+fileSize: audioFile.size
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Production Considerations
+Rate Limiting
+// Implement rate limiting for production
+if (requestCount > 10) { // 10 requests per minute
+return res.status(429).json({
+success: false,
+error: 'You\'re speaking too fast! Please wait a moment before trying again.'
+});
+}
+Enter fullscreen mode
+Exit fullscreen mode
+frontend：
+if (response.status === 429) {
+showError("Please wait a moment before recording again");
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What's Next
+In the next post, we’ll see how the transcribed text powers our AI conversation system, from selecting specific characters and crafting prompts for Canadian English, also integrating with GPT-4 and keeping conversations flowing naturally.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Evie Wang
+Follow
+undefined
+Location
+Waterloo
+Joined
+Sep 19, 2025
+More from Evie Wang
+Building an AI Conversation Practice App: Part 1 - Browser Audio Recording with MediaRecorder API
+#javascript
+#ai
+#typescript
+#nextjs
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

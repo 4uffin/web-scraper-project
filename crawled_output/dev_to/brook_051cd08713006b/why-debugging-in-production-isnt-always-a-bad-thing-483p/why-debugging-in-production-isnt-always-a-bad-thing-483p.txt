@@ -1,0 +1,485 @@
+Why Debugging in Production Isn't Always a Bad Thing - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Brooke Harris
+Posted on Sep 21
+Why Debugging in Production Isn't Always a Bad Thing
+#devops
+#development
+#productivity
+#webdev
+Never debug in production." It's one of the first rules every developer learns, right up there with "always backup your code" and "test everything twice." But after 15 years of building software, I've learned that sometimes—just sometimes—debugging in production isn't just acceptable, it's necessary.
+Last month, I found myself SSH'd into a production server at 2 AM, frantically adding console.log statements to figure out why our payment processing was failing for exactly 23% of transactions. By all conventional wisdom, I was committing a cardinal sin. But that "sin" saved our company $50,000 in lost revenue and taught me that the real world of software development is messier and more nuanced than our textbooks suggest.
+The Night Everything Went Wrong
+The Setup: A Perfect Storm
+It was a Tuesday evening when our monitoring alerts started screaming. Our ecommerce platform was processing payments normally for most customers, but roughly one in four transactions was failing with a cryptic error: "Payment processor timeout
+code 4021."
+The Initial Response:
+Checked all monitoring dashboards: ✅ All systems green
+Reviewed recent deployments: ✅ Nothing deployed in 48 hours
+Examined error logs: ❌ Minimal useful information
+Contacted payment processor: 🤷‍♂️ "Everything looks normal on our end"
+The Growing Crisis:
+Revenue dropping by $2,000 per hour
+Customer support tickets flooding in
+Social media complaints starting to trend
+CEO asking for hourly updates
+The Dilemma:
+Our staging environment couldn't replicate the issue. The error only occurred with real customer data, real payment methods, and real transaction volumes. We had two choices: spend hours trying to recreate the production environment locally, or debug directly in production.
+The Decision to Break the Rules
+At 1:47 AM, with revenue losses mounting and no clear path forward, I made the call that would have horrified my computer science professors: I was going into production to debug live.
+The Justification:
+The issue was already affecting customers—we weren't making it worse
+Every hour of delay cost more than the risk of careful debugging
+We had safeguards in place (feature flags, rollback capabilities, database backups)
+The alternative was potentially days of investigation while customers suffered
+The Safety Measures:
+Before touching production, we established guardrails:
+All changes would be logged and reversible
+Only nondestructive debugging code (logging, monitoring)
+Realtime monitoring of system performance
+Immediate rollback plan if anything went wrong
+Second engineer reviewing every change
+The Hunt Begins: Debugging in the Wild
+Adding Eyes to the Black Box
+The first step was adding visibility to what was actually happening in production:
+javascript
+// Added strategic logging to the payment processing pipeline
+app.post('/processpayment', async (req, res) => {
+const startTime = Date.now();
+console.log([DEBUG] Payment processing started for user ${req.user.id} at ${new Date().toISOString()});
+try {
+// Existing payment logic
+const paymentResult = await processPayment(req.body);
+console.log([DEBUG] Payment processing completed in ${Date.now()
+startTime}ms);
+console.log([DEBUG] Payment result:, JSON.stringify(paymentResult, null, 2));
+res.json(paymentResult);
+Enter fullscreen mode
+Exit fullscreen mode
+} catch (error) {
+console.log([DEBUG] Payment processing failed after ${Date.now()
+startTime}ms);
+console.log([DEBUG] Error details:, error.message, error.stack);
+console.log([DEBUG] Request payload:, JSON.stringify(req.body, null, 2));
+res.status(500).json({ error: 'Payment processing failed' });
+Enter fullscreen mode
+Exit fullscreen mode
+}
+});
+What We Discovered:
+Within 10 minutes of adding logging, patterns emerged:
+Failures were happening exactly 30 seconds after payment initiation
+All failing transactions had customer IDs ending in specific digits
+The error occurred during a database query, not the payment API call
+Following the Breadcrumbs
+The logs revealed that our payment processor wasn't the problem—our database was. But only for certain customers.
+javascript
+// Added database query logging
+async function getUserPaymentMethods(userId) {
+console.log([DEBUG] Fetching payment methods for user ${userId});
+const startTime = Date.now();
+try {
+const query =
+SELECT pm., cc.last_four, cc.expiry_date
+FROM payment_methods pm
+LEFT JOIN credit_cards cc ON pm.id = cc.payment_method_id
+WHERE pm.user_id = ? AND pm.active = 1
+;
+const result = await db.query(query, [userId]);
+console.log([DEBUG] Query completed in ${Date.now()
+startTime}ms, returned ${result.length} records);
+return result;
+Enter fullscreen mode
+Exit fullscreen mode
+} catch (error) {
+console.log([DEBUG] Database query failed after ${Date.now()
+startTime}ms:, error.message);
+throw error;
+}
+}
+The Smoking Gun:
+The logs showed that for certain users, the database query was taking exactly 30 seconds—hitting our timeout limit. But why only some users?
+The Root Cause Revelation
+More targeted logging revealed the issue:
+javascript
+// Added query plan analysis
+async function getUserPaymentMethods(userId) {
+console.log([DEBUG] Analyzing query for user ${userId});
+// Check if this user ID triggers the slow path
+const userIdStr = userId.toString();
+const lastDigit = userIdStr[userIdStr.length
+1];
+console.log([DEBUG] User ID last digit: ${lastDigit});
+// Add query execution plan logging
+const explainQuery = EXPLAIN SELECT pm., cc.last_four, cc.expiry_date
+FROM payment_methods pm
+LEFT JOIN credit_cards cc ON pm.id = cc.payment_method_id
+WHERE pm.user_id = ? AND pm.active = 1;
+const queryPlan = await db.query(explainQuery, [userId]);
+console.log([DEBUG] Query execution plan:, JSON.stringify(queryPlan, null, 2));
+// Rest of the function...
+}
+The Discovery:
+Users with IDs ending in certain digits were triggering a database bug where the query optimizer chose an inefficient execution plan. A recent database update had changed the optimizer's behavior, but only for specific data patterns.
+The 23% Mystery Solved:
+Our user ID generation algorithm created a nonuniform distribution—23% of user IDs ended in the digits that triggered the slow query path.
+The Fix: Production Debugging Pays Off
+The Immediate Solution
+With the root cause identified, we could implement a targeted fix:
+javascript
+// Temporary workaround deployed to production
+async function getUserPaymentMethods(userId) {
+// Force the database to use the correct index
+const query =
+SELECT pm., cc.last_four, cc.expiry_date
+FROM payment_methods pm USE INDEX (idx_user_id_active)
+LEFT JOIN credit_cards cc ON pm.id = cc.payment_method_id
+WHERE pm.user_id = ? AND pm.active = 1
+;
+return await db.query(query, [userId]);
+}
+The Results:
+Payment failures dropped to 0% within 5 minutes
+Average payment processing time improved by 40%
+Customer complaints stopped immediately
+Revenue recovery began instantly
+The Proper LongTerm Fix
+The next day, we implemented a comprehensive solution:
+Updated database statistics to fix the query optimizer
+Added proper database monitoring for slow queries
+Implemented query performance alerts
+Created automated tests for database performance regression
+Total Time to Resolution:
+Production debugging approach: 3 hours from problem to fix
+Estimated traditional approach: 23 days to recreate the issue locally
+Financial Impact:
+Revenue saved: $50,000+ in prevented losses
+Customer trust preserved: Zero churn from the incident
+Engineering time saved: 40+ hours of investigation avoided
+When Production Debugging Makes Sense
+The Criteria for Breaking the Rules
+Based on this experience and others, I've developed criteria for when production debugging is not just acceptable, but necessary:
+The Issue Only Exists in Production
+Real data volumes or patterns trigger the bug
+Production environment complexity can't be replicated
+Timing or concurrency issues that don't appear in staging
+The Cost of Delay Exceeds the Risk
+Revenue impact is significant and growing
+Customer experience is severely degraded
+Security vulnerabilities are actively being exploited
+Competitive advantage is at stake
+You Have Adequate Safeguards
+Nondestructive debugging methods available
+Rollback capabilities are tested and ready
+Monitoring can detect if debugging causes issues
+Team expertise to debug safely
+Traditional Methods Have Failed
+Staging environments can't reproduce the issue
+Log analysis provides insufficient information
+The problem is timesensitive and urgent
+The Safe Production Debugging Playbook
+Phase 1: Preparation
+Ensure all changes are reversible
+Set up enhanced monitoring
+Prepare rollback procedures
+Get stakeholder approval for the approach
+Document everything in realtime
+Phase 2: Minimal Invasive Debugging
+Start with readonly operations (logging, monitoring)
+Add observability without changing business logic
+Use feature flags to control debugging code
+Monitor system performance continuously
+Phase 3: Hypothesis Testing
+Form specific hypotheses based on initial data
+Test hypotheses with minimal changes
+Validate findings before implementing fixes
+Document learnings for future reference
+Phase 4: Careful Implementation
+Implement fixes incrementally
+Monitor impact at each step
+Be ready to rollback immediately
+Validate fix effectiveness with real data
+The Lessons Learned
+Production Debugging Best Practices
+Observability is Your Best Friend
+The ability to see what's happening in production is crucial. Invest in:
+Comprehensive logging frameworks
+Realtime monitoring and alerting
+Distributed tracing for complex systems
+Performance profiling tools
+Feature Flags Enable Safe Experimentation
+Feature flags allow you to:
+Turn debugging code on and off instantly
+Test fixes with a subset of traffic
+Rollback changes without deployments
+Experiment safely in production
+Database Debugging Requires Extra Care
+When debugging database issues in production:
+Use readonly queries when possible
+Monitor query performance impact
+Have database rollback procedures ready
+Consider read replicas for investigation
+Communication is Critical
+During production debugging:
+Keep stakeholders informed of progress
+Document decisions and rationale
+Share findings with the team immediately
+Conduct thorough postmortems
+The Mindset Shift
+From "Never Debug in Production" to "Debug Safely in Production When Necessary"
+The absolute rule against production debugging assumes that:
+You can always recreate production issues locally
+The cost of delay is always less than the risk
+Production environments are too dangerous to touch
+There are no safe ways to debug live systems
+The Reality:
+Modern systems are too complex to fully replicate
+Business impact often outweighs technical risk
+Safe debugging practices can minimize danger
+Sometimes production is the only place to find answers
+The Tools That Make It Possible
+Modern Debugging Infrastructure
+Observability Platforms:
+DataDog, New Relic, Honeycomb: Realtime system monitoring
+Sentry, Rollbar: Error tracking and alerting
+Jaeger, Zipkin: Distributed tracing for microservices
+Grafana, Kibana: Log analysis and visualization
+Safe Deployment Tools:
+LaunchDarkly, Split.io: Feature flag management
+Kubernetes, Docker: Containerized rollback capabilities
+Bluegreen deployments: Zerodowntime deployment strategies
+Canary releases: Gradual rollout with monitoring
+Database Safety Tools:
+Read replicas: Safe environments for query analysis
+Query performance monitoring: Realtime slow query detection
+Database migration tools: Safe schema changes
+Pointintime recovery: Database rollback capabilities
+The CounterArguments and Responses
+"But What About Security?"
+The Concern: Production debugging could expose sensitive data or create security vulnerabilities.
+The Response:
+Use proper access controls and audit logging
+Sanitize sensitive data in debug output
+Limit debugging access to essential personnel
+Monitor all debugging activities
+"What About Compliance?"
+The Concern: Regulatory requirements might prohibit production changes.
+The Response:
+Many compliance frameworks allow emergency procedures
+Document debugging activities for audit trails
+Get preapproval for emergency debugging procedures
+Ensure debugging doesn't violate data protection rules
+"Isn't This Just Technical Debt?"
+The Concern: Production debugging creates shortcuts that become permanent.
+The Response:
+Always follow up with proper fixes
+Use debugging as investigation, not permanent solution
+Document technical debt created and prioritize resolution
+Learn from debugging to improve development processes
+Building a Culture That Supports Safe Production Debugging
+Organizational Changes
+Update Your Incident Response Procedures
+Include production debugging as an approved escalation path
+Define criteria for when it's appropriate
+Establish approval processes for emergency debugging
+Create templates for documenting debugging activities
+Invest in Debugging Infrastructure
+Build observability into all systems from the start
+Implement feature flag systems across your platform
+Create safe debugging environments and tools
+Train teams on safe production debugging practices
+Change the Conversation
+Move from "never debug in production" to "debug safely when necessary"
+Celebrate successful production debugging that saves the business
+Learn from both successful and failed debugging attempts
+Share knowledge and best practices across teams
+Team Preparation
+Skills Development:
+Train engineers in safe production debugging techniques
+Practice debugging scenarios in controlled environments
+Develop expertise in observability and monitoring tools
+Build confidence in rollback and recovery procedures
+Process Development:
+Create checklists for production debugging decisions
+Establish communication protocols during incidents
+Define roles and responsibilities for debugging teams
+Develop postincident review processes
+Conclusion: Embracing Pragmatic Engineering
+The night I debugged our payment processing issue in production, I learned that software engineering isn't about following rules blindly—it's about making informed decisions that balance risk and reward. Sometimes the safest choice is the one that seems most dangerous.
+The Key Insights:
+Production debugging can be safe when done with proper precautions
+The cost of delay often exceeds the risk of careful investigation
+Modern tools make production debugging safer than ever before
+Realworld problems sometimes require realworld solutions
+The New Rule:
+Instead of "never debug in production," perhaps we should teach "debug in production safely when the situation demands it."
+The Bigger Picture:
+This experience taught me that the best engineers aren't those who never break rules—they're those who know when and how to break them safely. In a world where software systems are increasingly complex and business requirements are increasingly urgent, the ability to debug safely in production isn't just a useful skill—it's a competitive advantage.
+The next time you're facing a production issue that can't be reproduced elsewhere, don't automatically dismiss the idea of debugging in production. Instead, ask yourself: Do I have the tools, knowledge, and safeguards to do this safely? Can I afford not to?
+Sometimes the most professional thing you can do is break the rules professionally.
+Remember: The goal isn't to avoid all risk—it's to manage risk intelligently while delivering value to users and the business. Sometimes that means getting your hands dirty in production, and that's okay.
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Nicholas Fane
+Nicholas Fane
+Nicholas Fane
+Follow
+Software Engineer | Javascript & .NET | Brisbane Au
+Location
+Brisbane, Australia
+Joined
+Sep 21, 2025
+•
+Sep 21
+Dropdown menu
+Copy link
+Hide
+Is this really a lesson in debugging in production? Rather than just not having enough observability of your applications? If anything, I would argue that the main lesson to learn here would be to add more logs and traceability to your system for the long term...
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Some comments may only be visible to logged-in visitors. Sign in to view all comments.
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Brooke Harris
+Follow
+Passionate about creating systems that help humans do less but achieve more. Covering tools, frameworks, and workflows that level up your digital game—powered by automation and intent.
+Joined
+Jun 26, 2025
+More from Brooke Harris
+I Didn't Know Git Stash Could Save My Messy Work Until Yesterday
+#gitstash
+#webdev
+#programming
+#productivity
+I Didn’t Know Copilot Had Two Modes — Ask for Devs, Agent for Non-Devs
+#githubcopilot
+#agentaichallenge
+#development
+#nocode
+Using IF nodes for conditional logic
+#node
+#automation
+#ai
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

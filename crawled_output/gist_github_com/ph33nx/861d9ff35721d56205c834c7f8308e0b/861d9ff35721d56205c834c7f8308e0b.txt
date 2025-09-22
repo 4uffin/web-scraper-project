@@ -1,0 +1,231 @@
+Batch Convert Images to Web-Optimized JPG or WEBP using Python with EXIF Preservation 🖼️✨ Fast, batch image conversion while preserving EXIF metadata using Python Script · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+ph33nx/batch_image_converter.py
+Last active
+September 22, 2025 00:35
+Show Gist options
+Download ZIP
+Star
+4
+(4)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ph33nx/861d9ff35721d56205c834c7f8308e0b.js&quot;&gt;&lt;/script&gt;
+Save ph33nx/861d9ff35721d56205c834c7f8308e0b to your computer and use it in GitHub Desktop.
+Code
+Revisions
+8
+Stars
+4
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ph33nx/861d9ff35721d56205c834c7f8308e0b.js&quot;&gt;&lt;/script&gt;
+Save ph33nx/861d9ff35721d56205c834c7f8308e0b to your computer and use it in GitHub Desktop.
+Download ZIP
+Batch Convert Images to Web-Optimized JPG or WEBP using Python with EXIF Preservation 🖼️✨ Fast, batch image conversion while preserving EXIF metadata using Python Script
+Raw
+batch_image_converter.py
+#!/usr/bin/env python3
+"""
+Author: ph33nx
+URL: https://gist.github.com/ph33nx/861d9ff35721d56205c834c7f8308e0b
+Description:
+This script converts images from various formats (e.g., PNG, JPG, WebP) to either JPG or WebP for web optimization.
+It preserves EXIF metadata, allows for optional parameter customization, and handles errors gracefully.
+Key Features:
+- Converts images to web-optimized JPG or WebP while preserving EXIF metadata.
+- Accepts multiple image formats as input.
+- Provides optional parameters for output format, metadata preservation, and file cleanup.
+- Displays help and examples when no parameters are passed or `-h` is used.
+Requirements:
+- Python 3.x
+- Pillow library for image processing (will auto-install if missing).
+Usage:
+python image_converter.py <folder_path> [--format=jpg|webp] [--preserve-exif=true|false] [--delete-original=true|false] [--quality=<int>] [--verbose]
+Options:
+<folder_path>
+Path to the folder containing images for conversion.
+--format=jpg|webp
+Output format (default: jpg).
+--preserve-exif=true|false
+Preserve EXIF metadata (default: true).
+--delete-original=true|false Delete original files after conversion (default: false).
+--quality=<int>
+Output quality for JPG/WebP (default: 85).
+--verbose
+Enable detailed logging.
+-h, --help
+Display this help information.
+Example:
+python image_converter.py /path/to/images --format=webp --preserve-exif=true --delete-original=true --quality=90 --verbose
+"""
+import os
+import sys
+import subprocess
+def ensure_pillow_installed():
+try:
+import PIL
+except ImportError:
+print("Pillow is not installed. Installing now...")
+subprocess.check_call([sys.executable, "-m", "pip", "install", "pillow"])
+print("Pillow installed successfully.")
+def is_image_file(filename):
+# Check for common image extensions
+image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"}
+return any(filename.lower().endswith(ext) for ext in image_extensions)
+def convert_image(
+file_path,
+output_format="jpg",
+preserve_exif=True,
+delete_original=False,
+quality=85,
+verbose=False,
+):
+try:
+output_ext = output_format.lower()
+valid_formats = {"jpg": "JPEG", "webp": "WEBP"}
+if output_ext not in valid_formats:
+raise ValueError("Unsupported output format. Use 'jpg' or 'webp'.")
+output_path = f"{os.path.splitext(file_path)[0]}.{output_ext}"
+with Image.open(file_path) as img:
+exif_data = (
+img.info.get("exif") if preserve_exif and "exif" in img.info else None
+)
+if exif_data is None and preserve_exif:
+if verbose:
+print(
+f"Warning: No EXIF data found for {file_path}. EXIF preservation skipped."
+)
+img = img.convert("RGB")
+# Save with or without EXIF
+if exif_data:
+img.save(
+output_path,
+valid_formats[output_ext],
+exif=exif_data,
+quality=quality,
+)
+else:
+img.save(output_path, valid_formats[output_ext], quality=quality)
+if verbose:
+print(f"Converted {file_path} to {output_path}.")
+if delete_original:
+os.remove(file_path)
+if verbose:
+print(f"Deleted original file: {file_path}")
+except Exception as e:
+print(f"Failed to convert {file_path}: {e}")
+def process_folder(
+folder_path,
+output_format="jpg",
+preserve_exif=True,
+delete_original=False,
+quality=85,
+verbose=False,
+):
+if not os.path.isdir(folder_path):
+print(f"Error: {folder_path} is not a valid directory.")
+return
+for root, _, files in os.walk(folder_path):
+for file in files:
+# Skip hidden files (e.g., files starting with .)
+if file.startswith("."):
+if verbose:
+print(f"Skipping hidden file: {file}")
+continue
+# Skip non-image files
+if not is_image_file(file):
+if verbose:
+print(f"Skipping non-image file: {file}")
+continue
+file_path = os.path.join(root, file)
+convert_image(
+file_path,
+output_format,
+preserve_exif,
+delete_original,
+quality,
+verbose,
+)
+if __name__ == "__main__":
+ensure_pillow_installed()
+from PIL import Image
+if "-h" in sys.argv or "--help" in sys.argv or len(sys.argv) < 2:
+print(__doc__)
+sys.exit(0)
+folder_path = sys.argv[1]
+output_format = "jpg"
+preserve_exif = True
+delete_original = False
+quality = 85
+verbose = False
+for arg in sys.argv[2:]:
+if arg.startswith("--format="):
+output_format = arg.split("=")[1].lower()
+elif arg.startswith("--preserve-exif="):
+preserve_exif = arg.split("=")[1].lower() == "true"
+elif arg.startswith("--delete-original="):
+delete_original = arg.split("=")[1].lower() == "true"
+elif arg.startswith("--quality="):
+try:
+quality = int(arg.split("=")[1])
+except ValueError:
+print("Error: Quality must be an integer.")
+sys.exit(1)
+elif arg == "--verbose":
+verbose = True
+try:
+process_folder(
+folder_path, output_format, preserve_exif, delete_original, quality, verbose
+)
+except Exception as e:
+print(f"An error occurred: {e}")
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

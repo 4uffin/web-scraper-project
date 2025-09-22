@@ -1,0 +1,203 @@
+Comparing RDS PostgreSQL, Athena on S3 JSON, and QuickSight for Scalable Dashboards - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Antek
+Posted on Sep 21
+Comparing RDS PostgreSQL, Athena on S3 JSON, and QuickSight for Scalable Dashboards
+#database
+#architecture
+#aws
+#serverless
+Vulnerability management platforms require robust, scalable architectures to process diverse data and deliver real-time insights through interactive dashboards. This article evaluates three AWS-based data storage and querying architectures for a multi-tenant SaaS platform that ingests JSON vulnerability scan data, normalizes it, and supports dynamic SQL queries for dashboard visualization and LLM-driven analysis (e.g., remediation suggestions). The architectures—Amazon RDS with PostgreSQL for structured storage, Amazon Athena on raw JSON in S3 for serverless querying, and Amazon QuickSight embedded in a web app for BI visualization—are compared as part of a serverless backend using Step Functions with Lambda for data processing. The focus is on cost, latency, complexity, scalability, and LLM integration for an MVP serving 10 tenants, 200 users, and 50 GB of data with moderate traffic (~1,000 daily API requests, ~1 GB served/month). The article explains the chosen architecture, contrasts it with alternatives, and highlights trade-offs to guide developers designing similar systems.
+Problem Statement and Context
+The platform ingests JSON vulnerability data from various sources, requiring normalization to a consistent schema, storage for dynamic SQL queries, and integration with an LLM for semantic analysis. Key requirements include low-latency queries for interactive dashboards (e.g., filtering by severity or customer ID), multi-tenant isolation, cost efficiency (~$14-50/month for MVP), scalability to 50+ tenants, and minimal operational overhead. The backend uses Step Functions with Lambda for orchestration, selected for its flexibility in handling conditional logic (e.g., embedding critical vulnerabilities) and multi-source data processing, replacing earlier considerations of other ETL approaches. The frontend is a React single-page app hosted serverlessly, with the data layer needing to integrate seamlessly for dynamic queries and LLM processing.
+Solutions Architectures Compared
+1. RDS with PostgreSQL for Structured Dashboards
+Architecture: Vulnerability data is ingested via API Gateway, stored in S3, and processed by a Step Functions workflow with Lambda tasks for idempotency checks, metadata hydration, source-specific preprocessing, normalization, conditional LLM embedding, and batch upsert to RDS. The PostgreSQL database stores normalized data in a custom schema (e.g., columns for vuln_id, severity, description, customer_id, and embeddings). The dashboard backend executes SQL queries to retrieve data for visualization (e.g., severity-based filtering) and feeds results to an LLM for analysis. Multi-tenant isolation is achieved through row-level filtering by customer_id.
+Components:
+Storage: PostgreSQL database in RDS for normalized data and embeddings.
+ETL: Step Functions with Lambda normalizes JSON and upserts to RDS.
+Querying: Backend SQL queries retrieve data for the dashboard and LLM.
+LLM: Embedding results stored in RDS for semantic analysis.
+Multi-Tenancy: Customer_id-based filtering in SQL queries.
+2. Athena on Raw JSON Objects in S3
+Architecture: Raw JSON data is stored in S3, partitioned by customer_id and source. Metadata is tracked separately, and a Step Functions workflow with Lambda tasks validates uploads and updates metadata, but normalization occurs at query time. Athena runs serverless SQL queries on raw JSON (using JSON parsing functions), with results feeding the dashboard and LLM. Partitioning ensures tenant isolation, and the workflow leverages the same Step Functions orchestration for preprocessing and error handling.
+Components:
+Storage: S3 for raw JSON, partitioned for efficiency.
+ETL: Step Functions with Lambda for validation and metadata.
+Querying: Athena SQL queries extract data from JSON.
+LLM: Query results processed for embeddings or analysis.
+Multi-Tenancy: S3 prefixes and IAM policies for isolation.
+3. QuickSight Embedded in Web App
+Architecture: QuickSight provides BI dashboards embedded in the React web app, querying either RDS or S3/Athena for data. The Step Functions with Lambda workflow normalizes and stores data (in RDS or S3), and QuickSight datasets are configured to visualize vuln metrics (e.g., severity counts). URL actions in QuickSight trigger LLM analysis via a backend. Multi-tenant isolation uses namespaces or row-level security.
+Components:
+Storage: RDS or S3 (as above).
+ETL: Step Functions with Lambda for data processing.
+Querying: QuickSight datasets query RDS/S3 for visualizations.
+LLM: Backend processes QuickSight data for analysis.
+Multi-Tenancy: QuickSight namespaces or row-level security.
+Comparison of Solutions Architectures
+The architectures were evaluated for cost, latency, complexity, scalability, and LLM integration, aligned with the Step Functions with Lambda ETL pipeline.
+Cost
+RDS PostgreSQL: Approximately $14.12/month, including ~$12.41 for a small instance, ~$0.16 for Step Functions (900 executions, 7 transitions), ~$0.06 for Lambda, ~$0.09 for LLM embeddings, and ~$1.40 for storage and metadata. Fixed instance cost dominates, but queries are free within limits.
+Athena on S3 JSON: Around $2.15/month, with ~$1.15 for S3 (50 GB), ~$0.50 for Athena (100 queries, 100 GB scanned), ~$0.16 for Step Functions, ~$0.06 for Lambda, and ~$0.09 for embeddings. Pay-per-query model minimizes costs for low volume.
+QuickSight Embedded: Approximately $1,094/month, including ~$1,069 for 200 users (user-based pricing), ~$11.40 for caching, and ~$14.12 (RDS) or ~$2.15 (S3/Athena) for data. High per-user fees make it costly for an MVP.
+Analysis: Athena/S3 is cheapest for sporadic queries, followed by RDS for predictable costs. QuickSight’s user-based pricing is prohibitive for small-scale deployments.
+Latency and Performance
+RDS PostgreSQL: Millisecond query latency supports real-time dashboard interactions (e.g., instant filtering by severity). Embedding storage enables fast LLM retrieval.
+Athena on S3 JSON: 1-5 second query latency due to S3 scans, suitable for batch analysis but inadequate for responsive dashboards.
+QuickSight Embedded: Seconds-scale latency (cached data), acceptable for BI but slower than RDS for dynamic queries.
+Analysis: RDS provides the best performance for interactive dashboards, critical for user experience. Athena and QuickSight are better for analytical tasks.
+Complexity and Setup
+RDS PostgreSQL: Moderate setup (~1-2 days for Step Functions, Lambda SQL integration). Requires custom SQL queries but benefits from structured schemas and serverless frontend hosting.
+Athena on S3 JSON: Low setup (~1 day for S3 partitioning, query setup). JSON parsing adds query complexity, but no database management is needed.
+QuickSight Embedded: Moderate setup (~2-3 days for embedding, dataset configuration). Simplifies visualization but requires additional setup for multi-tenant isolation.
+Analysis: RDS balances structured querying with moderate setup. Athena minimizes infrastructure but complicates queries. QuickSight reduces UI development but adds BI configuration.
+Scalability
+RDS PostgreSQL: Scales vertically (larger instances) or via read replicas; serverless options adapt to variable loads.
+Athena on S3 JSON: Scales infinitely with S3 storage and Athena concurrency, ideal for large datasets.
+QuickSight Embedded: Scales with users but at high cost (linear per-user pricing).
+Analysis: Athena/S3 offers unmatched storage scalability, but RDS is sufficient for MVP volumes. QuickSight scales for visualization but is cost-limited.
+LLM Integration
+RDS PostgreSQL: Seamless, with structured storage for embeddings and low-latency retrieval for LLM processing (e.g., semantic analysis of critical vulns).
+Athena on S3 JSON: Adequate, but query latency hinders real-time LLM tasks. Embeddings require additional storage/ETL.
+QuickSight Embedded: Moderate; LLM integration via backend actions is less direct than RDS’s query-based approach.
+Analysis: RDS optimizes real-time LLM workflows, critical for remediation features.
+Rationale for Choosing RDS PostgreSQL with Step Functions and Lambda
+The RDS PostgreSQL architecture, paired with Step Functions and Lambda for ETL, was selected for its optimal alignment with the platform’s MVP requirements and synergy with the serverless processing pipeline.
+Performance for Dashboards: RDS’s millisecond-latency queries enable responsive, interactive dashboards (e.g., real-time filtering of vulnerabilities), essential for user satisfaction. Athena’s 1-5 second latency and QuickSight’s cached query performance (~seconds) are less suitable for dynamic, user-driven interactions.
+Cost Efficiency: At ~$14.12/month, RDS is cost-competitive with Athena (~$2.15/month) for low query volumes (100 queries/month, 100 GB scanned) and far more affordable than QuickSight (~$1,094/month for 200 users). The fixed RDS cost (~$12.41/month) ensures predictability, unlike Athena’s scan-based fees, which can grow with unoptimized queries, or QuickSight’s high per-user pricing.
+Simplicity and Integration: The Step Functions with Lambda pipeline provides flexible orchestration for conditional logic (e.g., embedding only critical vulnerabilities) and source-specific processing (e.g., branching for Prowler vs. Trivy), complementing RDS’s structured schema. Serverless frontend hosting integrates seamlessly with RDS via automated API configurations, reducing setup to ~1-2 days compared to manual server management or QuickSight’s BI setup (~2-3 days). Athena requires complex JSON parsing, increasing query development effort.
+LLM Synergy: RDS supports efficient storage and retrieval of LLM embeddings (e.g., using vector extensions), enabling real-time semantic analysis for remediation. Athena’s latency and lack of native vector support hinder real-time LLM tasks, while QuickSight requires additional backend processing for LLM integration.
+Multi-Tenant Isolation: RDS achieves tenant isolation through row-level filtering by customer_id, integrated with serverless authentication. Athena uses S3 prefixes and IAM policies but complicates query logic. QuickSight’s namespaces or row-level security are effective but costly.
+Extensibility: RDS allows future integration with standardized schemas or data lakes without disrupting the core workflow. Athena supports scalability but not real-time needs, and QuickSight locks into BI-focused workflows.
+Why Not Athena or QuickSight?
+Athena on S3 JSON: While the cheapest option (~$2.15/month), Athena’s scan-based latency (~1-5 seconds) degrades dashboard performance, making it unsuitable for real-time user interactions. JSON parsing adds query complexity, and embedding storage requires additional ETL, unlike RDS’s direct support. Athena is better as a complementary tool for batch LLM analysis or raw data archiving.
+QuickSight Embedded: QuickSight simplifies visualization with no-code BI, but its high cost (~$1,094/month for 200 users) is prohibitive for an MVP. It’s less flexible for custom dashboard interactions (e.g., remediation modals) and relies on slower queries compared to RDS, making it a future option for BI enhancements rather than the core MVP solution.
+The Step Functions with Lambda ETL, paired with RDS PostgreSQL, balances these trade-offs, delivering a low-latency, cost-efficient, and extensible architecture for the platform’s immediate needs.
+Benefits of the Chosen Architecture
+Cost-Effectiveness: ~$14.12/month supports 10 tenants with minimal overhead, leveraging pay-per-use Step Functions and Lambda (~$0.22/month) alongside a predictable RDS cost (~$12.41/month).
+High Performance: Millisecond query latency ensures responsive dashboards, critical for user-facing features like filtering and remediation triggers.
+Simplified Operations: Step Functions’ visual orchestration and serverless hosting reduce setup to ~1-2 days, with built-in error handling (retries, DLQ) minimizing maintenance compared to server-based alternatives.
+Scalable and Extensible: Serverless components scale to 50+ tenants, and RDS supports growth via serverless options or replicas. Future enhancements (e.g., data lake integration) are feasible without refactoring.
+Robust LLM Integration: Structured storage optimizes LLM-driven analysis, enabling real-time remediation workflows.
+Conclusion
+The RDS PostgreSQL architecture, integrated with Step Functions and Lambda, delivers a high-performance, cost-efficient solution for vulnerability management dashboards. By prioritizing low-latency queries, seamless LLM integration, and serverless orchestration, it outperforms Athena’s slower scans and QuickSight’s costly BI model for an MVP. Developers building similar SaaS platforms can adopt this approach, leveraging serverless hosting for rapid deployment and structured storage for dynamic, AI-driven features. Explore AWS documentation for implementation details and test with free tiers to validate performance and costs.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Antek
+Follow
+Joined
+Sep 21, 2025
+More from Antek8
+Designing a Scalable, Serverless Vulnerability Data Processing Pipeline on AWS
+#architecture
+#aws
+#serverless
+#cybersecurity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

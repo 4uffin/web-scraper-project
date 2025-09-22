@@ -1,0 +1,208 @@
+Your response to the Shai-Hulud supply chain attack - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Mariam Reba Alexander
+Posted on Sep 21
+Your response to the Shai-Hulud supply chain attack
+#shaihulud
+#cybersecurity
+#npm
+#supplychainattack
+I am sure you have heard about the recent supply chain attack on npm packages. Many news outlets and blogs are explaining the attack and the immediate and intermediate actions you can take to mitigate and prevent falling victim to this attack. If you are already affected, there are some recommendations you should follow.
+For those who don’t know about this attack, the malicious packages contain a worm that activates after npm installation, scanning the environment for sensitive credentials such as .npmrc files, environment variables, and config files targeting GitHub PATs and cloud API keys (AWS, GCP, Azure). These credentials are exfiltrated to an attacker-controlled endpoint. The malware creates a public GitHub repository named "Shai-Hulud" under the victim's account to host stolen secrets. It also uses the compromised npm token to access the npm registry, infect other packages maintained by the developer, and publish malicious updates, enabling rapid, autonomous spread.
+The basic steps to prevent this include following cautious procedures before npm installation, such as verifying all dependencies in your package and package-lock files, whether in your local development environment or your CI/CD pipelines, and enforcing MFA on your GitHub and npm accounts. If compromised, check your GitHub repositories for the presence of the Shai-Hulud repository and exposed public tokens.
+Npm safe check
+While there are general recommendations, if you are affected by the malware, you may need some detailed steps and guidance. During my internet search, I found several good detailed guidelines like the blog from Socket and StepSecurity and tried to consolidate all those points. I also looked for a database of all the identified vulnerabilities and didn’t find a ready-to-use format, so I created a json file here. Additionally, I developed a ready-to-use script in a repository that you can run locally or in your CI/CD pipelines to check the installed packages against the list of vulnerable ones. It can also be run before the next install to verify whether the packages you're about to install are safe. While the list may grow in the future, npm installations should be performed with caution. For example, follow npm ci with the --ignore-scripts flag to prevent any post-installation script execution from unknown vulnerable packages.
+npmSafeCheck repository provides a script to check for known malicious npm packages (eg: related to the Shai-Hulud supply chain attack) before installing or upgrading dependencies. It also detects if any compromised packages are already installed in your project. It helps mitigate the risk of supply chain attacks by verifying package versions against a list of compromised packages identified as of 20th Sept 2025.
+Usage
+Clone this repository or download the npmSafeCheck.sh script and npmMalwareChecklist.json file.
+Place the script and JSON file in your project root directory.
+Run the script BEFORE executing npm install or npm update:
+sh npmSafeCheck.sh
+Enter fullscreen mode
+Exit fullscreen mode
+or you can run it as a npm script by adding the following to your package.json:
+"scripts": {
+"safe-check": "sh npmSafeCheck.sh"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+If the script detects any known malicious packages, it will flag and provide guidance on mitigation steps.
+You can also refer to a database of known compromised packages instead of the local JSON file.
+An example of how to integrate this script into a CI/CD pipeline is provided in the .github/workflows/ci.yml file.
+Immediate actions guidance
+If you have already installed or upgraded packages and suspect that your project may be affected by the Shai-Hulud attack, take the following immediate actions:
+Delete node_modules and lockfiles having malicious versions
+rm -rf node_modules package-lock.json yarn.lock
+Enter fullscreen mode
+Exit fullscreen mode
+Clean npm cache
+npm cache clean --force
+Enter fullscreen mode
+Exit fullscreen mode
+do a dry-run to check what packages will be installed , this will not run any install scripts but will show what packages will be installed
+npm install --dry-run --ignore-scripts
+Enter fullscreen mode
+Exit fullscreen mode
+reinstall safe packages only using npm install with --ignore-scripts flag
+npm install --ignore-scripts <safe-package>@<safe-version>
+Enter fullscreen mode
+Exit fullscreen mode
+Avoid commands like npm audit fixand npm upgrade as they also install packages under the hood
+pin to known-good versions using package-lock.json
+and use npm ci for future installs
+npm ci --ignore-scripts
+Enter fullscreen mode
+Exit fullscreen mode
+Search for repos or worklows or branches with name Shai-Hulud in your public GitHub repositories and indicators of compromise, like bundle.js hash, suspicious network calls, function calls or process executions.
+Clean infected repositories('shai-hulud' branches and workflows). Referenced from: https://www.stepsecurity.io/blog/ctrl-tinycolor-and-40-npm-packages-compromised#immediate-actions-required
+# Check for and remove the backdoor workflow
+rm -f .github/workflows/shai-hulud-workflow.yml
+# Look for suspicious 'shai-hulud' branches in all repositories
+git ls-remote --heads origin | grep shai-hulud
+# Delete any malicious branches found
+git push origin --delete shai-hulud
+Enter fullscreen mode
+Exit fullscreen mode
+Audit environments (CI/CD agents, developer laptops) that installed the affected versions for unauthorized publishes or credential theft.
+Rotate npm tokens and other exposed secrets if these packages were present on machines with publishing credentials.
+Turn on multifactor authentication on GitHub and npm.
+Audit Cloud Infrastructure for Compromise
+Monitor network logs for active exploitation.
+Monitor logs for unusual npm publish or package modification events.
+Verify Package provenance https://docs.npmjs.com/viewing-package-provenance, https://github.blog/security/supply-chain-security/introducing-npm-package-provenance/
+Further guidance's and references: https://www.stepsecurity.io/blog/ctrl-tinycolor-and-40-npm-packages-compromised#immediate-actions-required
+https://socket.dev/blog/tinycolor-supply-chain-attack-affects-40-packages
+https://www.aikido.dev/blog/s1ngularity-nx-attackers-strike-again
+Other preventive solutions I found are https://www.npmjs.com/package/@aikidosec/safe-chain and https://github.com/danielroe/provenance-action.
+I am curious to know what more the developer community is doing to mitigate and prevent this, and how they are doing it.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Mariam Reba Alexander
+Follow
+Frontend developer, Speaker, Certified in Cybersecurity (ISC2 CC)
+Work
+Software Engineer at Maersk
+Joined
+Jul 8, 2021
+More from Mariam Reba Alexander
+What action should one take to prevent and mitigate the recent npm supply chain attack
+#shaihulud
+#cybersecurity
+#npm
+#supplychainattack
+Why protect undersea cables?
+#cybersecurity
+#security
+#network
+Eavesdropping Drones
+#security
+#network
+#wifi
+#cybersecurity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
