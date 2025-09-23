@@ -1,0 +1,259 @@
+Creating Project-Specific Commit Messages with Claude Code Subagents - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+shibayu36
+Posted on Sep 23
+Creating Project-Specific Commit Messages with Claude Code Subagents
+#ai
+#vibecoding
+#programming
+#git
+When developing with Claude Code, I often face the problem of overly verbose commit messages being generated. I recently discovered that the newly released subagents feature can solve this problem, so I'd like to share how to set it up.
+The Problem with Claude Code's Commit Messages
+When you ask Claude Code to execute git commit after implementing features, it generates extremely verbose commit messages like this:
+Add describe_tables e2e test and refactor MCP initialization
+- Add comprehensive e2e test for describe_tables tool
+- Refactor MCP server initialization into reusable functions
+- setupMCPServer: Starts the server process
+- initializeMCPServer: Handles the MCP protocol handshake
+- Ensure both list_tables and describe_tables have complete e2e coverage
+🤖 Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>
+Enter fullscreen mode
+Exit fullscreen mode
+Claude Code's generated commit messages have several issues:
+They include excessive implementation details in bullet points
+They reflect the conversation context from the session
+They don't consider the project's preferred simple message style
+In worse cases, they even include trial-and-error processes like "Initially tried this approach, but got errors, so abandoned it and ended up doing this instead." This happens because the session's conversation context influences the message generation.
+Solving It with Subagents
+Claude Code's subagents feature allows you to delegate specific tasks to independent agents with separated context. I thought this could isolate commit message generation from conversation context and create messages tailored to project conventions.
+First, I used the /agents command to generate a subagent configuration file, then made some adjustments to create the following setup. Here's what this subagent does:
+Check README.md and CLAUDE.md for project commit message rules and conventions
+Analyze detailed changes in git added files
+Study the project's commit history to learn message patterns
+Generate commit messages following project conventions
+Propose the generated message to the parent session
+Full content of .claude/agents/git-commit-message-generator.md
+---
+name: git-commit-message-generator
+description: "Use this agent when you need to generate appropriate commit messages for staged files in a git repository. Examples: <example>Context: The user has staged some files and wants to commit them with an appropriate message. user: 'I've staged some changes to the authentication system. Can you help me create a commit message?' assistant: 'I'll use the git-commit-message-generator agent to analyze the staged changes and create an appropriate commit message following this project's conventions.' <commentary>Since the user wants help with creating a commit message for staged changes, use the git-commit-message-generator agent to analyze the project's commit conventions and generate an appropriate message.</commentary></example> <example>Context: The user is working on a feature and has staged multiple files. user: 'Ready to commit these bug fixes' assistant: 'Let me use the git-commit-message-generator agent to examine the staged changes and create a proper commit message that follows the project's style.' <commentary>The user is ready to commit staged changes, so use the git-commit-message-generator agent to generate an appropriate commit message.</commentary></example>"
+model: sonnet
+---
+You are a specialized agent for generating git commit messages! ✨ You are responsible for creating appropriate commit messages that follow project conventions for staged files.
+## Your Work Process
+### 1. Check Project Commit Rules
+- Check CLAUDE.md and README.md files for any rules or conventions about commit messages
+- If found, follow those rules as top priority
+### 2. Analyze Staged Files
+- Run `git diff --cached` to check detailed changes in staged files
+- Identify the nature of changes (new features, bug fixes, refactoring, documentation updates, etc.)
+- Evaluate the scope and importance of changes
+### 3. Analyze Project Commit History
+- Run `git log --oneline -10` to check recent commit message formats
+- Pay special attention to these aspects:
+- Language (Japanese, English, or other)
+- Message structure (single-line vs multi-line format)
+- Prefix usage (feat:, fix:, docs:, etc.)
+- Writing style and tone patterns
+- Character count tendencies
+- Other distinctive patterns
+### 4. Generate and Propose Commit Message
+- Based on the analysis above, generate a commit message that perfectly matches project conventions
+- The message should accurately and concisely describe changes and be easily understood by future developers
+- End with "Please run git commit -m 'generated message' yourself"
+## Important Notes
+- **Do NOT execute git commit** - Only propose messages and leave the actual commit to the parent session
+- Respect existing project patterns and maintain consistency
+- For complex changes, summarize appropriately while not missing important information
+- Ask for clarification if anything is unclear
+## Error Handling
+- If no files are staged, report this
+- If not in a git repository or git-related errors occur, report appropriately
+- If project conventions can't be determined, follow general best practices and explain this
+Your goal is to provide project-optimized messages that developers can confidently commit! Good luck! 💪
+Enter fullscreen mode
+Exit fullscreen mode
+An important design choice was not letting the subagent execute the commit itself. The reason is that if the subagent commits directly, you can't adjust the message if you want to. Instead, I have it end with "Please run git commit -m 'generated message' yourself", so the parent session executes git commit. This allows message adjustments if you're not satisfied with it.
+Results from Actual Usage
+Usage is simple - just say "create a commit message" after doing git add. Claude Code will automatically launch the subagent. If it doesn't launch automatically, you can explicitly say "create a commit message with the subagent".
+Let's look at an actual session log. While developing slack-explorer-mcp, I was implementing a feature to add workspace URL to responses. When I asked for a commit message afterward, it generated a simple message:
+Add workspace URL to search_messages response
+Enter fullscreen mode
+Exit fullscreen mode
+I'm including the session log below. You can see how the subagent properly analyzes and generates a message following project conventions, and the parent session executes git commit.
+Full session log
+> git add completed, subagent commit
+⏺ git-commit-message-generator(Task: Generate commit message (using git-commit-message-generator agent)
+Prompt: Please analyze the staged changes and generate an appropriate commit message following the project's conventions.)
+⎿
+Agent Response:
+No special commit message rules in CLAUDE.md. Let me analyze recent commit history patterns!
+Project Commit Message Pattern Analysis 📊
+1. Language: English
+2. Structure: Simple single-line format
+3. Prefix: None used (no feat:, fix:, etc.)
+4. Style: Imperative mood starting with verbs (Add, Update, Implement, Refactor, etc.)
+5. Character count: Around 50-70 characters
+Change Analysis 🔍
+Looking at staged changes:
+handler.go:
+- Added WorkspaceURL field to SearchMessagesResponse struct
+- Added workspace URL extraction from first message permalink when messages exist
+handler_test.go:
+- Updated existing tests to assert workspace_url is included in response
+- Added test case for when no messages found (workspace_url should be empty string)
+This is adding workspace URL return functionality to search_messages response!
+Proposed Commit Message ✨
+Following existing project patterns, I propose this commit message:
+Add workspace URL to search_messages response
+Reasons for this message:
+- Starts with imperative verb "Add" matching the pattern
+- Accurately and concisely describes the change
+- 51 characters, appropriate length
+- No prefix, matching project style
+Please run git commit -m "Add workspace URL to search_messages response" yourself!
+⎿
+Done (4 tool uses · 20.2k tokens · 27.2s)
+⏺ Bash(git commit -m "Add workspace URL to search_messages response")
+⎿
+[return-workspace-url b5e9f4c] Add workspace URL to search_messages response
+2 files changed, 66 insertions(+), 1 deletion(-)
+⏺ Commit completed! 🎉
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+Using Claude Code's subagents feature successfully solved the verbose commit message problem. Since introducing this setup, I rarely need to manually edit commit messages. If you're experiencing similar issues with Claude Code development, I recommend giving this approach a try.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+shibayu36
+Follow
+Joined
+May 7, 2022
+More from shibayu36
+Added Streamable HTTP Support to Slack Explorer MCP
+#ai
+#mcp
+#productivity
+#showdev
+Making Historical Context Easily Discoverable from Slack with AI - Building slack-explorer-mcp
+#ai
+#mcp
+#productivity
+#showdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Página Inicial
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+Sobre
+Contato
+Free Postgres Database
+Software comparisons
+Forem Shop
+Código de Conduta
+Política de Privacidade
+Termos de Uso
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -14,8 +14,8 @@ You switched accounts on another tab or window. Reload to refresh your session.
 Dismiss alert
 Instantly share code, notes, and snippets.
 iraj-zahedi/gist:d13f298071df8bcd2586f8482f132f16
-Created
-September 17, 2025 08:04
+Last active
+September 23, 2025 13:51
 Show Gist options
 Download ZIP
 Star
@@ -38,7 +38,7 @@ Clone this repository at &lt;script src=&quot;https://gist.github.com/iraj-zahed
 Save iraj-zahedi/d13f298071df8bcd2586f8482f132f16 to your computer and use it in GitHub Desktop.
 Code
 Revisions
-1
+5
 Stars
 1
 Embed
@@ -56,8 +56,7 @@ change ssh port script
 Raw
 gistfile1.txt
 #!/bin/bash
-# A robust script to change the SSH port on various systemd-based Linux distributions
-# including Ubuntu (20.04+), Debian, AlmaLinux (8, 9, 10), and others.
+# Universal SSH port changer for systemd-based Linux (Ubuntu 22/24, Debian, AlmaLinux/RHEL/CentOS)
 # --- Ensure the script is run as root ---
 if [ "$EUID" -ne 0 ]; then
 echo "Please run this script as root."
@@ -67,7 +66,6 @@ fi
 echo ""
 echo -n "Please enter the new SSH port: "
 while read SSHPORT; do
-# Check if input is a valid number between 1024-65535
 if [[ "$SSHPORT" =~ ^[0-9]+$ && "$SSHPORT" -ge 1024 && "$SSHPORT" -le 65535 ]]; then
 break
 else
@@ -80,45 +78,44 @@ echo "Backing up /etc/ssh/sshd_config..."
 NOW=$(date +"%Y-%m-%d_%H-%M-%S")
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup.$NOW
 echo "Changing port to $SSHPORT in /etc/ssh/sshd_config..."
-# Remove any existing Port or #Port lines to avoid duplicates
 sed -i '/^#\?Port/d' /etc/ssh/sshd_config
-# Add the new Port configuration
 echo "Port $SSHPORT" >> /etc/ssh/sshd_config
 sleep 1
-# --- Firewall and SELinux Management ---
-# Check for firewalld (common on AlmaLinux/RHEL/CentOS)
-if command -v firewall-cmd &> /dev/null; then
+# --- Firewall Management ---
+if command -v ufw &> /dev/null; then
+echo "UFW detected. Adding rule for port $SSHPORT..."
+ufw allow $SSHPORT/tcp
+echo "UFW rule updated."
+elif command -v firewall-cmd &> /dev/null; then
 echo "Firewalld detected. Adding port $SSHPORT..."
 firewall-cmd --permanent --add-port=${SSHPORT}/tcp
 firewall-cmd --reload
 echo "Firewalld rule updated."
-# Handle SELinux (crucial for RHEL-based distros)
+else
+echo "Warning: No known firewall detected. Configure manually to allow port $SSHPORT."
+fi
+# --- SELinux Management (RHEL/AlmaLinux) ---
 if command -v semanage &> /dev/null; then
 echo "SELinux detected. Applying port context..."
-semanage port -a -t sshd_port_t -p tcp $SSHPORT
+semanage port -a -t sshd_port_t -p tcp $SSHPORT 2>/dev/null || \
+semanage port -m -t sshd_port_t -p tcp $SSHPORT
 echo "SELinux policy updated for port $SSHPORT."
-else
-echo "Warning: 'semanage' command not found. If SELinux is enforced, you may need to install 'policycoreutils-python-utils' and run the semanage command manually."
 fi
-# Check for ufw (common on Ubuntu/Debian)
-elif command -v ufw &> /dev/null; then
-echo "UFW detected. Adding rule for port $SSHPORT..."
-ufw allow $SSHPORT/tcp
-echo "UFW rule updated."
-else
-echo "Warning: No known firewall (firewalld, ufw) was detected. Please configure your firewall manually to allow port $SSHPORT."
-fi
-# --- Restart SSH Service (The Smart Way) ---
+# --- Restart SSH Service (Universal fix) ---
 echo "Restarting SSH service..."
-# First, check for the modern socket-based activation (e.g., Ubuntu 22.10+)
-if systemctl is-active --quiet ssh.socket; then
-echo "SSH socket activation is active. Restarting ssh.socket..."
-systemctl restart ssh.socket
-else
-# Fallback for traditional service-based systems (e.g., AlmaLinux, older Ubuntu/Debian)
-# The service is usually called sshd.service, and ssh.service is often an alias.
-echo "Standard SSH service detected. Restarting sshd.service..."
+# Handle Ubuntu socket activation
+if systemctl list-unit-files | grep -q "^ssh.socket"; then
+echo "Detected ssh.socket → disabling it and restarting ssh.service..."
+systemctl disable --now ssh.socket
+fi
+# Restart the appropriate service
+if systemctl list-unit-files | grep -q "^ssh.service"; then
+systemctl restart ssh.service
+elif systemctl list-unit-files | grep -q "^sshd.service"; then
 systemctl restart sshd.service
+else
+echo "ERROR: Could not detect ssh/sshd service name. Please restart manually."
+exit 1
 fi
 echo ""
 echo "----------------------------------------------------------------"

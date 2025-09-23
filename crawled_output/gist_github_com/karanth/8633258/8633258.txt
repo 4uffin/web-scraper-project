@@ -1,0 +1,152 @@
+Notes on installing SSL certificates in jetty - clojure + ring · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+karanth/jetty-clojure.md
+Last active
+September 23, 2025 11:51
+Show Gist options
+Download ZIP
+Star
+16
+(16)
+You must be signed in to star a gist
+Fork
+2
+(2)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/karanth/8633258.js&quot;&gt;&lt;/script&gt;
+Save karanth/8633258 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+8
+Stars
+16
+Forks
+2
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/karanth/8633258.js&quot;&gt;&lt;/script&gt;
+Save karanth/8633258 to your computer and use it in GitHub Desktop.
+Download ZIP
+Notes on installing SSL certificates in jetty - clojure + ring
+Raw
+jetty-clojure.md
+SSL is an important security and privacy feature for all websites. Its details are outlined in this wikipedia [article] ("http://en.wikipedia.org/wiki/Secure_Sockets_Layer"). At Scibler, we use SSL certificates, encrypting all traffic to and fro from our servers. SSL is a public-key based asymmetric encryption scheme for symmetric key exchange. Symmetric keys are used for payload encryption. On our servers, we use embedded jetty (ring jetty adapter), with the clojure [ring] (https://github.com/ring-clojure) library to handle the http specific functionality.
+This is a tutorial about installing SSL certificates on jetty webservers. SSL certificates are X.509 certificates that can be self-signed (authorized by Scibler) or can be signed by trusted third-parties. Trusted third-party certificates are the ones that a Internet user and browsers trust the most. Trusted third-party certification authorities issue certificates per domain and charge a nominal yearly fee.
+####Pre-Requisites
+The Java JDK has to be installed on the machine. The JDK is packaged with a tool called the keytool. An alternative is to install the OpenSSL tool. These tools help in certificate and key management.
+A domain name that is already purchased.
+A valid credit-card to purchase the signed certificate from the 3rd party trusted certificate authority.
+####Details
+The first step is to generate a certificate and a key pair for your organization using the command below. The key size
+(2048 bytes), the keystore name (jetty.keystore) and the key algorithm (RSA) are specified as arguments to the tool. The alias identifies the certificate within the keystore. The certificate is directly imported into the keystore. In the process of creating the certificate a few questions are prompted for answers. A mandatory question is the "first and last name" question. The fully qualified domain name of your organization has to be mentioned here (wild cards can be used to generate a certificate for all subdomains. For example, *.abc.com. Wild card certificates cost more). This step is enough to encrypt all the traffic (after importing into the web server), but the browser will not trust this certificate and will prompt the user everytime the site is loaded with this certificate.
+keytool -keysize 2048 -genkey -alias jetty -keyalg RSA -keystore jetty.keystore
+Enter keystore password:
+password
+What is your first and last name?
+[Unknown]:
+xyz.abc.org
+What is the name of your organizational unit?
+[Unknown]:
+xyz
+What is the name of your organization?
+[Unknown]:
+xyz corp.
+What is the name of your City or Locality?
+[Unknown]:
+What is the name of your State or Province?
+[Unknown]:
+What is the two-letter country code for this unit?
+[Unknown]:
+Is CN=xyz.abc.org, OU=xyz, O=xyz corp.,
+L=Unknown, ST=Unknown, C=Unknown correct?
+[no]:
+yes
+Enter key password for
+(RETURN if same as keystore password):
+The next step is to create a certificate request (CSR) that can be sent to the third party certification authority, requesting a signed certificate for your domain. The command below is how it is done. This creates a CSR file, a file that can be submitted to the third party.
+keytool -certreq -keyalg RSA -alias jetty -file xyz.csr -keystore jetty.keystore
+We use godaddy to issue the trusted certificate. The csr file needs to be pasted at the godaddy portal and the necessary payments have to be made for godaddy to issue the certificate. It is important to include the header and footer lines as well (----BEGIN NEW CERTIFICATE REQUEST---- and ----END CERTIFICATE REQUEST----) when submitting the CSR to the certification authority.
+The certification authority may give a single certificate (assuming you have the entire chain) or a bundle of certificates that include all intermediate certificates. From Godaddy, we requested and received a bundle of certificates consisting of,
+gd_bundle.crt
+gd_intermediate.crt
+xyz.abc.com.crt
+It is time to import the intermediate certificates into the keystore.
+keytool -import -alias intermed -keystore jetty.keystore -trustcacerts -file gd_intermediate.crt
+keytool -import -alias jetty.xyz -keystore jetty.keystore -trustcacerts -file xyz.abc.com.crt
+If your certification authority is an intermediary, you need to build the certificate chain before pushing it to the keystore. The order is very important to establish the right certificate chain.
+cat xyz.abc.com.crt gd_intermediate.crt > xyz.abc.com.chain.crt
+keytool -import -alias jetty.xyz.chain -keystore jetty.keystore -trustcacerts -file xyz.abc.com.chain.crt
+Now this particular certificate needs to be loaded on the web server. The clojure code to do this is given below.
+(ns Dash-Webapp.core
+(:use [ring.adapter.jetty :only [run-jetty]]))
+(defonce ssl-server
+(run-jetty #'dash-app-handler
+{ :port (parse-int (:PORT_NUMBER config-map))
+:join? false
+:ssl? true
+:ssl-port (parse-int (:SSL_PORT_NUMBER config-map))
+:keystore (:KEY_STORE_PATH config-map)
+; Path to the jetty.keystore file
+:key-password (:KEY_STORE_PASSWORD config-map) ; Password you gave when creating the keystore
+}
+))
+####Notes
+You can load the site in a browser and check the certificate (generally the lock on the browser omnibox) to see if the chain is correct and that there are no errors.
+The domain has to match the certificate issued by the authority. Otherwise, the browser will throw prompts and may not load the site.
+Now the site can be addressed using 'https' prefix. However, the most common way of addressing a site is using the 'http' prefix. You will have to handle this by redirecting 'http' users to your 'https' endpoint.
+The port for https is 443.
+Copy link
+jmurp
+commented
+Mar 9, 2019
+Thank you for these notes.
+They were very helpful to me when setting up an ssl-only ring server.
+I would like to mention that the alias used when importing the crt should be the same as the inital alias used when creating the csr.
+This links the certificate to the correct entry in the keystore.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

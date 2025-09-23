@@ -1,0 +1,275 @@
+Migrating 120k+ Lines of Legacy Banking JavaScript to TypeScript with Zero Downtime - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Vinyl-Davyl
+Posted on Sep 23
+Migrating 120k+ Lines of Legacy Banking JavaScript to TypeScript with Zero Downtime
+#webdev
+#programming
+#javascript
+#beginners
+Migrating a large-scale production application is never a small decision especially when the application in question is powering wallet operations, bill payments and crypto-to-fiat conversions. For context, the system I worked on had grown beyond 120,000 lines of JavaScript, much of it mission-critical and actively serving users with real money flowing through it every single day.
+The push to migrate wasn’t just my personal, although I’d long advocated for TypeScript internally. The tipping point came through a combination of colleague feedback, developer pain around ongoing maintenance, and the long-term risks of leaving such a large system in “pure JavaScript mode.”
+I should also note that this work was heavily inspired by Ben Howdle. His excellent talk on Letting Go of Perfectionism in Distributed Systems and his write-up on migrating on Production Banking convinced me that it could be done, and done without downtime. What follows is my broken voice and process logged in Git history.
+Why We Migrated
+In a fintech company, downtime isn’t a minor inconvenience, it’s a direct hit to customer trust and financial operations. Even a brief outage could result in lost transactions or delayed payments, and the limitations of the existing setup were becoming increasingly evident:
+Scale & Complexity: As features like virtual cards, crypto conversions, biller integrations, and multiple payment rails kept growing, the codebase became more complex and demanded a stronger foundation.
+Developer experience Without types, changing one module often meant fear of breaking another. Code reviews got slower. Even small changes required significant mental load to avoid regressions.
+Risk Management: In fintech, errors cost more than just “bugs.” They cost trust, sometimes money (refunds), or regulatory headaches. We wanted earlier detection of issues.
+Code stability wasn’t keeping up with scaling. Banking logic has no tolerance for “undefined is not a function” at runtime.
+TypeScript promised stronger contracts, compile-time bug detection, and better tooling across the team. The key question wasn’t should we migrate, but rather how can we migrate without disrupting production systems?
+The Core Challenges
+Migrating 120k+ lines of production code presented three main challenges:
+1.** Zero Downtime Requirement**
+We could not afford any outage. Users relied on the platform daily for wallet operations, bill payments, crypto-to-fiat conversions and more. Downtime would mean failed transactions, regulatory implications, and broken trust.
+Large Codebase
+The frontend was built with Next.js, using RTK Query for data fetching and Redux/Context for state management. Testing was done with Jest, RTL, and Cypress. The backend included a Node.js Express API, GraphQL services, and a real-time event processing system. Additional services ran on AWS Lambda and ECS workers, handling tasks like currency conversion and compliance checks.
+Parallel Development
+The business couldn’t pause feature delivery. New features, bug fixes, and compliance requirements had to continue while the migration was ongoing.
+The Migration Strategy
+1. Create a Dedicated Migration Branch
+At the time, I was in the lead role, stepping back from day-to-day feature and bug work to orchestrate the migration. The first step was to create a separate branch. Every .js and .jsx file in the codebase was renamed to .ts and .tsx, giving us a dedicated environment to work in without disturbing production.
+This isolated “migration branch” acted as the staging ground. We could gradually introduce TypeScript features and compiler settings without destabilizing ongoing development.
+Pro Tip: Use incremental commits per module instead of one massive push. This keeps changes reviewable and easier to debug.
+2. Periodic Rebasing Against Main
+Because the main branch continued to move with feature delivery, the migration branch required regular rebasing. This ensured that when the eventual merge happened, conflicts were minimized.
+In practice, this meant re-applying TypeScript conversions to any new .js files introduced since the last rebase. A typical cycle looked like this:
+git checkout migration-branch
+git fetch origin
+git rebase origin/main
+# resolve conflicts
+# convert any new .js/.jsx files to .ts/.tsx
+Enter fullscreen mode
+Exit fullscreen mode
+3. Incremental Typing & Module-by-Module Progress
+Rather than converting everything at once. Instead, we prioritized incremental typing:
+Critical workflows (wallet funding, transfer logic, virtual card issuance).
+Core shared utilities (error handling, logging, validation).
+Less critical or peripheral features last (UI-facing non-critical modules, internal dashboards).
+Loosen tsconfig.json settings at the start (e.g., strict: false) and progressively tighten them.
+At some point, we encountered thousands of unique errors (missing types, wrong function signatures, incorrect return types). That was expected. Each error was logged, triaged, and fixed in batches, module by module.
+4. CI/CD Integration & Automated Checks
+Every rebase triggered our CI/CD pipeline, which ran:
+Jest tests. (unit + integration).
+Frontend E2E tests (Cypress runs on wallet top-ups, card creation, bill payments).
+Type checks via tsc --noEmit.
+Nothing hit staging unless it passed the same scrutiny as production.
+Testing in Staging: Our Safety Nets
+Before we even dreamed of a production merge, staging was our battlefield. We simulated real-world user flows for days top-ups, conversions, card transactions, sometimes even looping “heartbeat transfers” between test accounts just to make sure nothing ever silently failed.
+We deployed the TypeScript-converted version to staging (mirroring production services).
+For 5-6 days, we ran real-world usage simulations: card creation, payments, wallet funding, conversion, bill payments.
+Synthetic transactions were part of the monitoring so we could detect regressions in flows early.
+If you’ve never watched a test wallet send $1 back and forth between itself for 48 hours straight, I can assure you it’s the fintech equivalent of a lava lamp: oddly hypnotic, slightly absurd, but incredibly useful.
+Fallback / Safe Flags During Deployment
+Because not every UI module was migrated at once, we used feature flags and conditional resolution in the frontend. The idea was if a TypeScript-compiled version of a component/page existed, the app would load it; otherwise, it would fall back to the legacy JavaScript version.
+This gave us granular control during rollout, so unfinished modules didn’t block deploys and we could safely rebase our migration branch onto main without risking a broken build.
+Here’s a representative snippet from one of our entry points:
+// utils/loadModule.ts
+export async function loadModule(moduleName: string) {
+try {
+return await import(`../dist/${moduleName}.js`);
+} catch {
+return await import(`../src/${moduleName}.js`);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This progressive bootstrapping let us ship continuously without waiting for “100% TypeScript.”
+Cutover: The Zero Downtime Merge
+Once staging ran clean for days, we merged the branch and deployed.🪔 Thanks to f*eature flags, our CI/CD guardrails, and fallback loaders*, the cutover was smooth. Users never noticed the tectonic shift happening under their accounts.
+Results: What We Gained (and What Hurt)
+Gains
+Developer confidence rose sharply. With TypeScript, many bugs got caught before QA or staging.
+Maintenance cost dropped, especially for refactors, less “fear-driven development.” I call this one FDD.
+Code readability and shared understanding improved: new engineers on the team could follow contracts via types.
+Hard Parts
+The initial error list was overwhelming. Prioritization was critical.
+Rebasing often created merge conflicts (especially around shared utilities). Sometimes took many hours.
+Some third-party libraries had poor typings or none, which meant writing our own .d.ts or wrapping them.
+Tools & Key Configurations
+Several tools proved invaluable during the migration:
+Typescript Hero and TypeScript Import Sorter: import management.
+Code transformation tools (ts-migrate) to automate tedious parts (renaming imports, updating require → import).
+Feature flags / dynamic module loading as above snippet to allow mixing old and new code safely.
+ESLint with TypeScript plugin. Enforced consistent style and caught many import/exports mistakes early.
+Jest + type checking in CI. Ensured types and tests both passed.
+Conclusion: Was it worth it?
+100%. Migrating a large-scale production banking system from JavaScript to TypeScript is not trivial. It requires planning, discipline, and collaboration across the engineering team. But the payoff is clear: safer code, happier developers, and a platform that can scale confidently.
+For us, the migration took roughly one month plus of focused effort. It was challenging but ultimately transformative.
+I want to credit Ben Howdle for openly sharing his own journey, which directly influenced our approach. If you’re considering such a migration, I encourage you to study his experience as well.
+_TypeScript isn’t just about types, it’s about trust. Trust that your system will behave consistently under load, trust that developers can make changes without fear, and trust that users’ money remains safe.
+_
+If your fintech or enterprise platform is still operating at scale in plain JavaScript, the time to consider migration is now.
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Kyle Logue
+Kyle Logue
+Kyle Logue
+Follow
+Frontend dev tired of waiting 4+ days for APIs. Researching why contract-first development fails in practice. Building CLI experiments to solve API coordination workflow problems.
+Location
+Willow Spring, NC
+Work
+Senior Frontend Developer
+Joined
+Sep 19, 2025
+•
+Sep 23
+Dropdown menu
+Copy link
+Hide
+Your experience with the CI/CD integration and comprehensive testing really highlights how critical proper tooling is for large migrations. The coordination between Jest tests, E2E tests, and type checking reminds me of similar challenges we've faced with API contract changes between frontend and backend. How did you handle ensuring the backend API contracts stayed in sync during the TypeScript migration?
+Also curious... How big was/is your team? Did you encounter any team members that were opposed to the migration? This definitely sounds like a big effort, but you seemed to have broken it down well. Thanks for sharing!
+Like comment:
+Like comment:
+3 likes
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Vinyl-Davyl
+Follow
+Software Engineering!
+knife talk only🧘
+JavaScript, Typescript, React.js, Vue.js, Node.js and the web!
+Come and explore this world of the software development Industry with me!
+Location
+Lagos, Nigeria
+Pronouns
+He/Him
+Joined
+Oct 15, 2022
+More from Vinyl-Davyl
+Google Summer of Code: Getting Selected, My Time, My Experience, My Journey.
+#webdev
+#googlesummerofcode
+#opensource
+#tutorial
+What Are Web Workers and How to Leverage Them for Optimized Frontend Performance
+#javascript
+#webdev
+#programming
+#tutorial
+The Ultimate Guide to Styling with CSS-in-JS Using Styled Components
+#webdev
+#javascript
+#beginners
+#css
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,860 @@
+Saga pattern with PHP: Masterful Coordination of Distributed Transactions in Microservices - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Igor Nosatov
+Posted on Sep 23
+Saga pattern with PHP: Masterful Coordination of Distributed Transactions in Microservices
+Saga Pattern: Mastering Distributed Transactions in PHP Microservices
+Reading time: ~45 minutes
+Imagine ordering pizza through a mobile app. Behind the scenes, a symphony of microservices unfolds—your account is verified, funds are reserved on your card, an order is created in the restaurant system, the delivery service is notified, and bonus points are deducted. What happens when something goes wrong at one of these steps? This is where the Saga pattern enters the stage—an elegant solution for managing distributed transactions.
+Theoretical Foundations
+The CAP Theorem and Distributed Systems
+Before diving into Saga, it's crucial to understand the theoretical constraints we're working within. The CAP theorem, formulated by Eric Brewer, states that in any distributed data store, you can only guarantee two of the following three properties simultaneously:
+Consistency (C): All nodes see the same data simultaneously
+Availability (A): System remains operational and responsive
+Partition Tolerance (P): System continues despite network failures
+In microservices architectures, network partitions are inevitable, so we must choose between consistency and availability. Saga pattern is fundamentally about managing this trade-off by providing eventual consistency while maintaining high availability.
+ACID vs BASE Properties
+Traditional databases provide ACID guarantees:
+Atomicity: All or nothing execution
+Consistency: Valid state transitions
+Isolation: Concurrent operations don't interfere
+Durability: Committed changes persist
+Distributed systems often adopt BASE properties instead:
+Basically Available: System remains available despite failures
+Soft State: State may change over time without input
+Eventual Consistency: System will become consistent eventually
+The Saga pattern embodies BASE principles by trading immediate consistency for availability and partition tolerance.
+Transaction Models in Distributed Systems
+Two-Phase Commit (2PC)
+Traditional 2PC protocol attempts to maintain ACID properties across distributed systems:
+Prepare Phase: Coordinator asks all participants to prepare
+Commit Phase: If all agree, coordinator tells all to commit
+Problems with 2PC:
+Blocking protocol (single point of failure)
+Poor performance due to synchronous nature
+Cannot handle coordinator failures gracefully
+Locks resources for extended periods
+Three-Phase Commit (3PC)
+3PC adds a "pre-commit" phase to reduce blocking scenarios but introduces additional complexity and network overhead.
+Saga Transactions
+Saga pattern takes a fundamentally different approach:
+Compensating Transactions: Instead of locks, use reversible operations
+Forward Recovery: Complete the saga or compensate completed steps
+No Global Locks: Each step is a local transaction
+Asynchronous: Non-blocking execution model
+Why ACID Doesn't Work in Microservices
+In monolithic applications, we're accustomed to the comfort of ACID transactions. The database guarantees that either all operations succeed or none do. But in microservices architecture, each service has its own database, and traditional transactions become powerless.
+// This DOESN'T work in distributed systems
+try {
+$db->beginTransaction();
+$userService->debitAccount($userId, $amount);
+// Database A
+$inventoryService->reserveItem($itemId);
+// Database B
+$orderService->createOrder($orderData);
+// Database C
+$notificationService->sendConfirmation($email);
+// External API
+$db->commit(); // Cannot control all services!
+} catch (Exception $e) {
+$db->rollback(); // Only rolls back local changes
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The problem is obvious: we cannot guarantee atomicity of operations distributed across different systems.
+Saga Pattern: Divide and Conquer
+The Saga pattern solves this problem elegantly: instead of one large transaction, we create a sequence of local transactions, each of which can be compensated in case of failure.
+Core Concepts
+1. Compensable Transactions
+Operations that can be "undone" using compensating actions:
+Reserve funds ↔ Release funds
+Create order ↔ Cancel order
+Send email ↔ Send cancellation email
+2. Pivot Transaction (Point of No Return)
+An operation after which the saga must complete successfully. Usually an irreversible operation like charging a credit card or shipping goods.
+3. Retriable Transactions
+Idempotent operations that can be safely repeated until successful completion.
+4. Critical Sections
+Parts of the saga that must be executed atomically within a single service boundary.
+Mathematical Model
+A Saga S can be represented as a sequence of transactions:
+S = T₁, T₂, T₃, ..., Tₙ
+Enter fullscreen mode
+Exit fullscreen mode
+Each transaction Tᵢ has a corresponding compensating transaction Cᵢ:
+S = {T₁, T₂, ..., Tₙ} with {C₁, C₂, ..., Cₙ}
+Enter fullscreen mode
+Exit fullscreen mode
+For successful execution:
+T₁ • T₂ • T₃ • ... • Tₙ = Success
+Enter fullscreen mode
+Exit fullscreen mode
+For failed execution at step k:
+T₁ • T₂ • ... • Tₖ (fails) → Cₖ₋₁ • Cₖ₋₂ • ... • C₁
+Enter fullscreen mode
+Exit fullscreen mode
+Where • represents sequential composition.
+Implementation Approaches
+1. Choreography: The Dance of Services
+In the choreographic approach, services interact through events without a central coordinator:
+// Order Service
+class OrderService
+{
+public function createOrder(array $orderData): void
+{
+$orderId = $this->repository->create($orderData);
+// Publish event for next step
+$this->eventBus->publish(new OrderCreatedEvent($orderId, $orderData));
+}
+// Compensating action
+public function cancelOrder(string $orderId): void
+{
+$this->repository->markAsCancelled($orderId);
+$this->eventBus->publish(new OrderCancelledEvent($orderId));
+}
+}
+// Payment Service
+class PaymentService
+{
+public function handleOrderCreated(OrderCreatedEvent $event): void
+{
+try {
+$paymentId = $this->processPayment($event->getAmount(), $event->getCardToken());
+$this->eventBus->publish(new PaymentProcessedEvent($event->getOrderId(), $paymentId));
+} catch (PaymentException $e) {
+$this->eventBus->publish(new PaymentFailedEvent($event->getOrderId(), $e->getMessage()));
+}
+}
+public function handleOrderCancelled(OrderCancelledEvent $event): void
+{
+// Compensate payment
+$this->refundPayment($event->getOrderId());
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Choreography Pros:
+No single point of failure
+Simple for small systems
+High performance
+Natural decoupling
+Choreography Cons:
+Complex debugging as system grows
+Risk of circular dependencies
+Testing difficulties
+Hard to maintain global invariants
+2. Orchestration: The Conductor Manages the Orchestra
+In the orchestration approach, a central coordinator manages the entire process:
+class OrderSagaOrchestrator
+{
+private array $steps = [];
+private array $compensations = [];
+public function __construct(
+private OrderService $orderService,
+private PaymentService $paymentService,
+private InventoryService $inventoryService,
+private NotificationService $notificationService,
+private SagaRepository $sagaRepository
+) {
+$this->defineSteps();
+}
+private function defineSteps(): void
+{
+$this->steps = [
+'reserve_inventory' => [$this->inventoryService, 'reserveItems'],
+'process_payment' => [$this->paymentService, 'processPayment'],
+'create_order' => [$this->orderService, 'createOrder'], // Pivot point
+'send_confirmation' => [$this->notificationService, 'sendOrderConfirmation']
+];
+$this->compensations = [
+'reserve_inventory' => [$this->inventoryService, 'releaseItems'],
+'process_payment' => [$this->paymentService, 'refundPayment'],
+'create_order' => [$this->orderService, 'cancelOrder'],
+'send_confirmation' => null // No compensation required
+];
+}
+public function executeOrderSaga(array $orderData): SagaResult
+{
+$sagaId = $this->generateSagaId();
+$saga = new OrderSaga($sagaId, $orderData);
+try {
+foreach ($this->steps as $stepName => $callable) {
+$this->executeStep($saga, $stepName, $callable);
+$this->sagaRepository->updateProgress($saga);
+}
+$saga->markAsCompleted();
+return new SagaResult(true, 'Order processed successfully');
+} catch (SagaException $e) {
+$this->compensateFailedSaga($saga);
+return new SagaResult(false, $e->getMessage());
+}
+}
+private function executeStep(OrderSaga $saga, string $stepName, callable $step): void
+{
+try {
+$result = call_user_func($step, $saga->getData());
+$saga->markStepCompleted($stepName, $result);
+} catch (Exception $e) {
+$saga->markStepFailed($stepName, $e->getMessage());
+throw new SagaException("Step {$stepName} failed: " . $e->getMessage());
+}
+}
+private function compensateFailedSaga(OrderSaga $saga): void
+{
+$completedSteps = array_reverse($saga->getCompletedSteps());
+foreach ($completedSteps as $stepName => $stepResult) {
+if ($compensation = $this->compensations[$stepName]) {
+try {
+call_user_func($compensation, $saga->getData(), $stepResult);
+$saga->markStepCompensated($stepName);
+} catch (Exception $e) {
+// Log compensation error but continue
+$this->logger->error("Compensation failed for step {$stepName}: " . $e->getMessage());
+}
+}
+}
+$saga->markAsCompensated();
+$this->sagaRepository->update($saga);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Orchestration Pros:
+Centralized control and visibility
+Easier debugging and testing
+Clear business process flow
+Better handling of complex workflows
+Orchestration Cons:
+Single point of failure (orchestrator)
+Potential performance bottleneck
+Tight coupling between orchestrator and services
+Advanced Implementation Techniques
+Saga State and Persistence
+class SagaState
+{
+const STATUS_RUNNING = 'running';
+const STATUS_COMPLETED = 'completed';
+const STATUS_COMPENSATING = 'compensating';
+const STATUS_COMPENSATED = 'compensated';
+const STATUS_FAILED = 'failed';
+public function __construct(
+private string $sagaId,
+private string $sagaType,
+private array $data,
+private string $status = self::STATUS_RUNNING,
+private array $completedSteps = [],
+private array $compensatedSteps = [],
+private ?string $currentStep = null,
+private array $metadata = []
+) {}
+public function toArray(): array
+{
+return [
+'saga_id' => $this->sagaId,
+'saga_type' => $this->sagaType,
+'data' => json_encode($this->data),
+'status' => $this->status,
+'completed_steps' => json_encode($this->completedSteps),
+'compensated_steps' => json_encode($this->compensatedSteps),
+'current_step' => $this->currentStep,
+'metadata' => json_encode($this->metadata),
+'created_at' => date('Y-m-d H:i:s'),
+'updated_at' => date('Y-m-d H:i:s')
+];
+}
+}
+class DatabaseSagaRepository implements SagaRepository
+{
+public function save(SagaState $saga): void
+{
+$data = $saga->toArray();
+$sql = "INSERT INTO sagas (saga_id, saga_type, data, status, completed_steps,
+compensated_steps, current_step, metadata, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+$this->db->execute($sql, array_values($data));
+}
+public function findPendingSagas(): array
+{
+$sql = "SELECT * FROM sagas WHERE status IN (?, ?) AND updated_at < ?";
+$timeoutThreshold = date('Y-m-d H:i:s', strtotime('-5 minutes'));
+return $this->db->fetchAll($sql, [
+SagaState::STATUS_RUNNING,
+SagaState::STATUS_COMPENSATING,
+$timeoutThreshold
+]);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Handling Timeouts and Recovery
+class SagaRecoveryService
+{
+public function __construct(
+private SagaRepository $repository,
+private array $orchestrators = []
+) {}
+public function recoverPendingSagas(): void
+{
+$pendingSagas = $this->repository->findPendingSagas();
+foreach ($pendingSagas as $sagaData) {
+$saga = SagaState::fromArray($sagaData);
+$orchestrator = $this->getOrchestratorForType($saga->getType());
+if ($saga->getStatus() === SagaState::STATUS_RUNNING) {
+// Attempt to continue execution
+$orchestrator->resumeSaga($saga);
+} elseif ($saga->getStatus() === SagaState::STATUS_COMPENSATING) {
+// Continue compensation
+$orchestrator->continueCompensation($saga);
+}
+}
+}
+private function getOrchestratorForType(string $sagaType): SagaOrchestrator
+{
+if (!isset($this->orchestrators[$sagaType])) {
+throw new RuntimeException("No orchestrator found for saga type: {$sagaType}");
+}
+return $this->orchestrators[$sagaType];
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Idempotency and Deduplication
+class IdempotentSagaStep
+{
+public function __construct(
+private string $stepId,
+private callable $operation,
+private RedisAdapter $cache
+) {}
+public function execute(array $data): mixed
+{
+$cacheKey = "saga_step:{$this->stepId}:" . md5(serialize($data));
+// Check if operation was executed before
+if ($result = $this->cache->get($cacheKey)) {
+return unserialize($result);
+}
+$result = call_user_func($this->operation, $data);
+// Cache result for potential re-execution
+$this->cache->setex($cacheKey, 3600, serialize($result));
+return $result;
+}
+}
+// Usage
+$idempotentPayment = new IdempotentSagaStep(
+'process_payment',
+[$this->paymentService, 'processPayment'],
+$this->redis
+);
+$paymentResult = $idempotentPayment->execute($paymentData);
+Enter fullscreen mode
+Exit fullscreen mode
+Theoretical Challenges and Solutions
+Data Consistency Anomalies
+The ABA Problem
+In distributed systems, a value might change from A to B and back to A between observations. Saga pattern addresses this through:
+Version Vectors: Track causality relationships
+Logical Timestamps: Order events consistently
+Optimistic Locking: Detect concurrent modifications
+class VersionedEntity
+{
+private array $vectorClock = [];
+public function updateVector(string $nodeId): void
+{
+$this->vectorClock[$nodeId] = ($this->vectorClock[$nodeId] ?? 0) + 1;
+}
+public function compareVector(array $otherVector): int
+{
+// Returns -1 if this < other, 1 if this > other, 0 if concurrent
+$thisGreater = false;
+$otherGreater = false;
+$allNodes = array_unique(array_merge(
+array_keys($this->vectorClock),
+array_keys($otherVector)
+));
+foreach ($allNodes as $node) {
+$thisValue = $this->vectorClock[$node] ?? 0;
+$otherValue = $otherVector[$node] ?? 0;
+if ($thisValue > $otherValue) {
+$thisGreater = true;
+} elseif ($thisValue < $otherValue) {
+$otherGreater = true;
+}
+}
+if ($thisGreater && !$otherGreater) return 1;
+if ($otherGreater && !$thisGreater) return -1;
+return 0; // Concurrent
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Lost Update Problem
+When multiple sagas modify the same resource concurrently:
+Solution: Semantic Locking
+class SemanticLock
+{
+public function __construct(private RedisAdapter $redis) {}
+public function acquireLock(string $resource, string $sagaId, int $ttl = 300): bool
+{
+$lockKey = "lock:{$resource}";
+$lockValue = "{$sagaId}:" . time();
+// Atomic set if not exists with TTL
+return $this->redis->set($lockKey, $lockValue, ['NX', 'EX' => $ttl]);
+}
+public function releaseLock(string $resource, string $sagaId): bool
+{
+$lockKey = "lock:{$resource}";
+$expectedValue = "{$sagaId}:" . time();
+// Lua script for atomic compare and delete
+$script = "
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+return redis.call('DEL', KEYS[1])
+else
+return 0
+end
+";
+return $this->redis->eval($script, [$lockKey], [$expectedValue]) === 1;
+}
+}
+class InventoryService
+{
+public function reserveItems(array $items, string $sagaId): array
+{
+$locks = [];
+$reserved = [];
+try {
+// Acquire semantic locks on all items
+foreach ($items as $item) {
+$resourceId = "inventory:{$item['sku']}";
+if ($this->semanticLock->acquireLock($resourceId, $sagaId)) {
+$locks[] = $resourceId;
+} else {
+throw new ResourceLockedException("Cannot lock item: {$item['sku']}");
+}
+}
+// Reserve items
+foreach ($items as $item) {
+$this->repository->reserveItem($item['sku'], $item['quantity'], $sagaId);
+$reserved[] = $item['sku'];
+}
+return ['reserved_items' => $reserved, 'locks' => $locks];
+} catch (Exception $e) {
+// Release already acquired locks
+foreach ($locks as $resource) {
+$this->semanticLock->releaseLock($resource, $sagaId);
+}
+throw $e;
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Dirty Read Problem
+Reading uncommitted data from other sagas:
+Solution: Commutative Updates
+class AccountService
+{
+// Instead of direct balance changes, use operations
+public function debitAccount(string $accountId, float $amount, string $sagaId): void
+{
+$operation = new AccountOperation([
+'account_id' => $accountId,
+'type' => 'DEBIT',
+'amount' => $amount,
+'saga_id' => $sagaId,
+'timestamp' => microtime(true)
+]);
+$this->operationQueue->push($operation);
+}
+public function creditAccount(string $accountId, float $amount, string $sagaId): void
+{
+$operation = new AccountOperation([
+'account_id' => $accountId,
+'type' => 'CREDIT',
+'amount' => $amount,
+'saga_id' => $sagaId,
+'timestamp' => microtime(true)
+]);
+$this->operationQueue->push($operation);
+}
+// Operation processor applies them in correct order
+public function processAccountOperations(string $accountId): void
+{
+$operations = $this->operationQueue->getForAccount($accountId);
+// Sort by timestamp for correct order
+usort($operations, fn($a, $b) => $a['timestamp'] <=> $b['timestamp']);
+$balance = $this->getAccountBalance($accountId);
+foreach ($operations as $operation) {
+if ($operation['type'] === 'DEBIT') {
+$balance -= $operation['amount'];
+} else {
+$balance += $operation['amount'];
+}
+}
+$this->updateAccountBalance($accountId, $balance);
+$this->operationQueue->clearForAccount($accountId);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Advanced Theoretical Patterns
+Nested Sagas
+Complex business processes may require hierarchical saga structures:
+abstract class NestedSaga extends BaseSaga
+{
+protected array $childSagas = [];
+protected function executeChildSaga(string $sagaType, array $data): SagaResult
+{
+$childSaga = $this->sagaFactory->create($sagaType, $data);
+$this->childSagas[] = $childSaga;
+return $childSaga->execute();
+}
+protected function compensateChildSagas(): void
+{
+foreach (array_reverse($this->childSagas) as $childSaga) {
+if ($childSaga->getStatus() === SagaState::STATUS_COMPLETED) {
+$childSaga->compensate();
+}
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Saga with Confirmation Pattern
+For operations requiring external approval:
+class ConfirmationRequiredSaga extends BaseSaga
+{
+const STATUS_PENDING_CONFIRMATION = 'pending_confirmation';
+protected function defineSteps(): array
+{
+return [
+'prepare_order' => new PrepareOrderStep(),
+'await_confirmation' => new AwaitConfirmationStep(),
+'finalize_order' => new FinalizeOrderStep()
+];
+}
+public function requestUserConfirmation(): void
+{
+$this->status = self::STATUS_PENDING_CONFIRMATION;
+// Send confirmation request to user
+$this->notificationService->sendConfirmationRequest(
+$this->data['customer']['email'],
+$this->sagaId
+);
+// Set timeout
+$this->scheduleTimeout(300); // 5 minutes
+}
+public function handleUserConfirmation(bool $confirmed): void
+{
+if ($confirmed) {
+$this->continueExecution();
+} else {
+$this->startCompensation();
+}
+}
+public function handleTimeout(): void
+{
+// On timeout, assume user declined
+$this->handleUserConfirmation(false);
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Parallel Branches in Saga
+For operations that can execute concurrently:
+class ParallelSagaOrchestrator
+{
+public function executeParallelSteps(SagaState $saga, array $parallelSteps): array
+{
+$promises = [];
+foreach ($parallelSteps as $stepName => $step) {
+$promises[$stepName] = $this->asyncExecutor->execute(
+fn() => $step->execute($saga)
+);
+}
+// Wait for all parallel operations to complete
+$results = [];
+$failures = [];
+foreach ($promises as $stepName => $promise) {
+try {
+$results[$stepName] = $promise->wait();
+} catch (Exception $e) {
+$failures[$stepName] = $e;
+}
+}
+// If there are failures, compensate successful operations
+if (!empty($failures)) {
+foreach ($results as $stepName => $result) {
+$parallelSteps[$stepName]->compensate($saga, $result);
+}
+throw new ParallelStepFailureException($failures);
+}
+return $results;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Formal Verification and Testing
+Property-Based Testing
+Saga implementations should satisfy certain invariants:
+class SagaPropertyTests extends TestCase
+{
+/**
+* Property: If a saga completes successfully, all steps were executed
+*/
+public function testCompletenessProperty(): void
+{
+$this->forAll(
+Generator\elements(['order', 'payment', 'shipping']),
+Generator\associative(['amount' => Generator\positive_float()])
+)->then(function ($sagaType, $data) {
+$saga = $this->createSaga($sagaType, $data);
+$result = $saga->execute();
+if ($result->isSuccess()) {
+$this->assertAllStepsCompleted($saga);
+}
+});
+}
+/**
+* Property: If a saga fails, all completed steps are compensated
+*/
+public function testCompensationProperty(): void
+{
+$this->forAll(
+Generator\elements(['order', 'payment', 'shipping']),
+Generator\associative(['amount' => Generator\positive_float()])
+)->then(function ($sagaType, $data) {
+$saga = $this->createFailingSaga($sagaType, $data);
+$result = $saga->execute();
+if (!$result->isSuccess()) {
+$this->assertAllCompletedStepsCompensated($saga);
+}
+});
+}
+/**
+* Property: Saga execution is idempotent
+*/
+public function testIdempotencyProperty(): void
+{
+$this->forAll(
+Generator\elements(['order', 'payment', 'shipping']),
+Generator\associative(['amount' => Generator\positive_float()])
+)->then(function ($sagaType, $data) {
+$saga1 = $this->createSaga($sagaType, $data);
+$saga2 = $this->createSaga($sagaType, $data);
+$result1 = $saga1->execute();
+$result2 = $saga2->execute();
+$this->assertEquals($result1->isSuccess(), $result2->isSuccess());
+});
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Monitoring and Observability
+Comprehensive Saga Tracking
+class SagaTracker
+{
+public function __construct(
+private LoggerInterface $logger,
+private MetricsCollector $metrics,
+private EventBus $eventBus
+) {}
+public function trackSagaStarted(string $sagaId, string $sagaType, array $data): void
+{
+$this->logger->info("Saga started", [
+'saga_id' => $sagaId,
+'saga_type' => $sagaType,
+'data' => $data
+]);
+$this->metrics->increment('saga.started', ['type' => $sagaType]);
+$this->eventBus->publish(new SagaStartedEvent($sagaId, $sagaType, $data));
+}
+public function trackStepCompleted(string $sagaId, string $stepName, $result, float $duration): void
+{
+$this->logger->info("Saga step completed", [
+'saga_id' => $sagaId,
+'step' => $stepName,
+'duration' => $duration
+]);
+$this->metrics->histogram('saga.step.duration', $duration, [
+'step' => $stepName
+]);
+}
+public function trackSagaFailed(string $sagaId, string $reason, array $context): void
+{
+$this->logger->error("Saga failed", [
+'saga_id' => $sagaId,
+'reason' => $reason,
+'context' => $context
+]);
+$this->metrics->increment('saga.failed');
+// Send alert to monitoring system
+$this->eventBus->publish(new SagaFailedEvent($sagaId, $reason, $context));
+}
+}
+class SagaDashboard
+{
+public function getSagaStatistics(): array
+{
+return [
+'total_sagas' => $this->repository->getTotalCount(),
+'running_sagas' => $this->repository->getCountByStatus('running'),
+'completed_sagas' => $this->repository->getCountByStatus('completed'),
+'failed_sagas' => $this->repository->getCountByStatus('failed'),
+'average_duration' => $this->repository->getAverageDuration(),
+'success_rate' => $this->calculateSuccessRate(),
+'most_failed_steps' => $this->repository->getMostFailedSteps(10)
+];
+}
+public function getSagaDetails(string $sagaId): array
+{
+$saga = $this->repository->findById($sagaId);
+$timeline = $this->repository->getSagaTimeline($sagaId);
+return [
+'saga' => $saga,
+'timeline' => $timeline,
+'duration' => $this->calculateDuration($timeline),
+'current_status' => $saga->getStatus()
+];
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Igor Nosatov
+Follow
+I transform slow, outdated PHP applications into fast, scalable systems that drive business growth.My Stack: Laravel • Symfony • Vue.js • React • AWS • MySQL/PostgreSQL • Redis
+Location
+Ukraine.Rivne
+Work
+Full Stack Software Engineer | Laravel • Symfony • Vue.js • React • AWS | Microservices & Cloud
+Joined
+Sep 14, 2025
+More from Igor Nosatov
+The Unbreachable Resort: When Php Back End Goes to Therapy with GDPR, PCI DSS and HIPAA -> part one
+From SQL to AI: A Fun Look at Conflict Detection Methods in MariaDB and PostgreSQL
+#database
+#postgres
+#sql
+#ai
+From Spaghetti to Symphony: Taming Complex PHP Applications with DDD and CQRS
+#architecture
+#backend
+#php
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Página Inicial
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+Sobre
+Contato
+Free Postgres Database
+Software comparisons
+Forem Shop
+Código de Conduta
+Política de Privacidade
+Termos de Uso
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

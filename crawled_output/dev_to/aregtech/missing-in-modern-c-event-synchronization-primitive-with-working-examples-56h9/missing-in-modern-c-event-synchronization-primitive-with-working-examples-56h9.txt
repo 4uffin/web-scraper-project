@@ -1,4 +1,4 @@
-Missing in Modern C++: Event Synchronization Primitive — with Working Examples - DEV Community
+Missing in Modern C++? Event Synchronization Primitive — Areg vs STL vs POCO vs Win32 API - DEV Community
 Forem Feed
 Follow new Subforems to improve your feed
 DEV Community
@@ -75,7 +75,7 @@ Share to Mastodon
 Report Abuse
 Artak Avetyan
 Posted on Sep 23
-Missing in Modern C++: Event Synchronization Primitive — with Working Examples
+Missing in Modern C++? Event Synchronization Primitive — Areg vs STL vs POCO vs Win32 API
 #cpp
 #opensource
 #programming
@@ -127,35 +127,48 @@ cv.notify_one();
 int main() {
 data = "Example";
 std::thread worker(worker);
-{ std::lock_guard lk(m); ready = true; }
+{
+std::lock_guard lk(m);
+ready = true;
+}
 cv.notify_one();
-{ std::unique_lock lk(m); cv.wait(lk, []{ return processed; }); }
+{
+std::unique_lock lk(m);
+cv.wait(lk, []{ return processed; });
+}
+std::cout << data << '\n'; // check processed
 worker.join();
-std::cout << data << '\n';
+return 0;
 }
 Enter fullscreen mode
 Exit fullscreen mode
 With SynchEvent (Areg SDK)
 Full example here
 #include "areg/base/SynchObjects.hpp"
-SynchEvent gEvent(false, true); // signaled, auto-reset
-std::string data;
+SynchEvent
+ready(true, true);
+// non-signaled, auto-reset event
+SynchEvent
+processed(true, false); // non-signaled, manual-reset event
+std::string data{};
+// A text to output
 void workerThread() {
-gEvent.lock();
-// wait (no spurious wakeups, no predicate loops)
+Lock lock(ready);
 data += " processed";
-gEvent.setEvent();
-// signal done
+// we own the lock
+processed.setEvent();
+// manual set event
 }
 int main() {
 data = "Example";
 std::thread worker(workerThread);
-gEvent.setEvent();
-// signal worker
-gEvent.lock();
-// wait for completion
+ready.setEvent();
+// signal the worker thread
+processed.lock();
+// wait for worker thread to signal
+std::cout << data << '\n'; // check processed
 worker.join();
-std::cout << data << '\n';
+return 0;
 }
 Enter fullscreen mode
 Exit fullscreen mode
@@ -223,7 +236,7 @@ Condition variables are fine for state predicates, but for pure synchronization,
 Final Takeaway
 If you’re tired of condition-variable spaghetti, try SynchEvent from Areg Framework: cross-platform, lightweight, and modeled after Windows Events.
 👉 Star the Areg SDK repo on GitHub, try the examples, and experience how effortless C++ multithreading can be!
-Top comments (1)
+Top comments (3)
 Subscribe
 Personal
 Trusted User
@@ -249,6 +262,62 @@ Dropdown menu
 Copy link
 Hide
 WIndows has a native primitive for event, and it is indeed really handy. So I am curious and would have to see what the posix one looks like. But it might make my move pipelines even more efficient because I do the conditional variable / lock thing for that, though I only signal on empty or when becoming less than full, and keep separate conditions for each side of the pipeline. Another kind of primitive I have found useful and emulate from go is the waitgroup.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+Artak Avetyan
+Artak Avetyan
+Artak Avetyan
+Follow
+👨‍👩‍👦 Father | ❤️ Husband | 🚀 C++ Enthusiast
+Build fast, reliable apps with Areg SDK — real-time, cross-platform communication for connected apps made simple.
+⭐ Support us on GitHub.
+Location
+Munich, Germany
+Education
+It was so many years ago that now plays no role :)
+Work
+Creator of https://github.com/aregtech/areg-sdk/ . This is for heart and the rest is for food :)
+Joined
+Oct 30, 2021
+•
+Sep 23
+Dropdown menu
+Copy link
+Hide
+On POSIX, the implementation is built on top of pthread_cond + pthread_mutex — no need to reinvent the wheel. You can check it in framework/areg/base/private/posix.
+What makes it different is the semantics: it supports both auto-reset and manual-reset modes, plus it integrates with a multi-wait mechanism. That means you can wait not just on multiple events, but also mix different sync objects (Event, Mutex, Semaphore) and choose whether to wake on any or on all signals.
+The behavior is consistent across Windows and Linux, so you get the same API on both platforms. The multi-wait feature is conceptually close to Go’s waitgroups, but with the added flexibility of handling heterogeneous synchronization objects.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Collapse
+Expand
+David Sugar
+David Sugar
+David Sugar
+Follow
+Improving business confidentiality in the post-quantum world.
+Location
+Cape May
+Joined
+May 29, 2023
+•
+Sep 23
+Dropdown menu
+Copy link
+Hide
+Then what this really tells me is that if I want to rebuld pipeline on windows optimally I might want to use event rather than emulating the Posix pattern with monitor (what in effect using C++ condition_variable and mutex does), and which is what I would normally have done. So I could simply use this if I was targetting both. And yes, I can then see how this would be easier to later target HPX too.
+I do tend to put a lot of my sync code right up front in my stuff because I am targeting C++ threading rather than platform primitives directly. But I also primarily focus on Posix, and the C++ thread std closely follows that. Its also why I use mingw with Posix mode runtime in a cross-build from Debian (or Alpine) to target windows rather than do so natively on VS.MSVC.
+None of these choices are at all wrong. My choice was to narrow and simplify the platform scope rather than abstract and better optimize for each target platform.
 Like comment:
 Like comment:
 1 like

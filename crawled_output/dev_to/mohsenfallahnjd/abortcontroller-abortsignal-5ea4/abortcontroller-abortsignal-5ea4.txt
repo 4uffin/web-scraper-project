@@ -1,0 +1,292 @@
+AbortController & AbortSignal - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Mohsen Fallahnejad
+Posted on Sep 23
+AbortController & AbortSignal
+#javascript
+#abortcontroller
+#abortsignal
+#react
+AbortController is the standard way to cancel async work in modern JavaScript. It pairs with AbortSignal, which you pass to tasks so they can stop immediately.
+1) TL;DR
+Create a controller → pass controller.signal to your async work.
+Call controller.abort(reason?) to cancel; consumers see an AbortError (or signal.reason).
+Works with fetch, streams, and your own functions.
+const c = new AbortController()
+const resP = fetch('/api/data', { signal: c.signal })
+// later...
+c.abort('user navigated away')
+try { await resP } catch (e) { if (e.name === 'AbortError') /* ignore */ }
+Enter fullscreen mode
+Exit fullscreen mode
+2) Core API (with reason support)
+const c = new AbortController()
+const { signal } = c
+signal.aborted
+// boolean
+signal.reason
+// any (why it was aborted)
+c.abort(new DOMException('Timeout', 'AbortError'))
+// or: c.abort('User left the page')
+Enter fullscreen mode
+Exit fullscreen mode
+Tip: If you pass a reason, propagate it in your own tasks. fetch will still reject with AbortError.
+3) Fetch + Timeouts
+A) Easiest: AbortSignal.timeout(ms)
+// Modern browsers & Node 18+
+const res = await fetch('/slow', { signal: AbortSignal.timeout(3000) })
+Enter fullscreen mode
+Exit fullscreen mode
+B) Manual timer
+const c = new AbortController()
+const id = setTimeout(() => c.abort(new DOMException('Timeout', 'AbortError')), 3000)
+try {
+const res = await fetch('/slow', { signal: c.signal })
+// use res
+} catch (e) {
+if (e.name !== 'AbortError') throw e
+} finally {
+clearTimeout(id)
+}
+Enter fullscreen mode
+Exit fullscreen mode
+C) Race utilities
+// winner-takes-all -> cancel the losers
+const controllers = [new AbortController(), new AbortController()]
+const [a, b] = controllers.map(c => fetch('/mirror', { signal: c.signal }))
+const winner = await Promise.any([a, b])
+controllers.forEach(c => c.abort('lost the race'))
+Enter fullscreen mode
+Exit fullscreen mode
+4) Make Your Own Functions Abortable
+export function wait(ms, signal) {
+return new Promise((resolve, reject) => {
+const id = setTimeout(resolve, ms)
+const onAbort = () => { clearTimeout(id); reject(new DOMException('Aborted', 'AbortError')) }
+if (signal.aborted) return onAbort()
+signal.addEventListener('abort', onAbort, { once: true })
+})
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Propagate reason:
+const onAbort = () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+Enter fullscreen mode
+Exit fullscreen mode
+5) Streams & Readers (Browser + Node)
+const c = new AbortController()
+const res = await fetch('/stream', { signal: c.signal }) // can be aborted
+const reader = res.body.getReader({ signal: c.signal })
+// abort affects reads too
+// later
+c.abort()
+Enter fullscreen mode
+Exit fullscreen mode
+Node: fetch in Node 18+ also supports abort; for streams, pipe/reader operations should react to abort and close resources.
+6) React Patterns
+A) Cancel on unmount (and on deps change)
+useEffect(() => {
+const c = new AbortController()
+;(async () => {
+try {
+const r = await fetch('/api/search?q=' + q, { signal: c.signal })
+setData(await r.json())
+} catch (e) {
+if (e.name !== 'AbortError') console.error(e)
+}
+})()
+return () => c.abort('component unmounted or q changed')
+}, [q])
+Enter fullscreen mode
+Exit fullscreen mode
+B) Latest-typed value wins (typeahead)
+const ref = useRef<AbortController | null>(null)
+async function onType(v: string) {
+ref.current?.abort('superseded')
+const c = new AbortController()
+ref.current = c
+try {
+const r = await fetch('/api?q=' + v, { signal: c.signal })
+setOptions(await r.json())
+} catch (e) { if (e.name !== 'AbortError') console.error(e) }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+7) Small Utilities (copy‑paste)
+// create a controller that auto-aborts after ms
+export const withTimeout = (ms = 5000) => AbortSignal.timeout(ms)
+// combine multiple signals -> aborted if ANY aborts
+export function anySignal(...signals) {
+const c = new AbortController()
+const onAbort = (s) => c.abort(s.reason ?? new DOMException('Aborted', 'AbortError'))
+signals.forEach(s => s.addEventListener('abort', () => onAbort(s), { once: true }))
+return c.signal
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Usage:
+const c = new AbortController()
+const s = anySignal(c.signal, AbortSignal.timeout(3000))
+fetch('/x', { signal: s })
+Enter fullscreen mode
+Exit fullscreen mode
+8) Common Pitfalls & Gotchas
+Not wiring the signal → pass { signal } everywhere the task supports it.
+Forgetting cleanup → clear timers and remove listeners on abort (use { once: true }).
+Swallowing all errors → only ignore AbortError; surface real failures.
+Global controller reuse → create fresh controllers per operation to avoid accidental cross‑cancels.
+Overriding reason → if you care about why, use abort(reason) and read signal.reason in custom code.
+9) Quick Cheatsheet
+Need
+Do this
+Cancel slow fetch
+fetch(url, { signal: AbortSignal.timeout(ms) })
+Cancel on unmount
+Create AbortController in useEffect, abort in cleanup
+Cancel prior request (search)
+Keep last controller in ref, abort before new fetch
+Cancel a batch
+Share one controller across requests and call abort()
+Keep “why” it was cancelled
+controller.abort('reason'); signal.reason
+Happy cancelling ✨ Use AbortController to keep your apps snappy, correct, and memory‑leak free.
+Originally published on: Bitlyst
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Mohsen Fallahnejad
+Follow
+Code on #JavaScript - Frontend
+Joined
+Mar 12, 2020
+More from Mohsen Fallahnejad
+JavaScript is Single-Threaded
+#javascript
+#async
+#eventloop
+How useState Works Under the Hood (and Why It Needs use client)
+#react
+#hooks
+#usestate
+#nextjs
+Next.js Page Router vs App Router
+#nextjs
+#react
+#routing
+#frontend
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Página Inicial
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+Sobre
+Contato
+Free Postgres Database
+Software comparisons
+Forem Shop
+Código de Conduta
+Política de Privacidade
+Termos de Uso
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

