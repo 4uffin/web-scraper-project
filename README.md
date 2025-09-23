@@ -4,6 +4,9 @@
 > THE REST OF THIS PROJECT WAS CREATED USING GOOGLE GEMINI 2.5 FLASH. EXPECT BUGS AND USE WITH CAUTION!
 
 ![GitHub repo size](https://img.shields.io/github/repo-size/4uffin/web-crawler-project)
+[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Automated-brightgreen)](https://github.com/features/actions)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **To view what's been crawled click [here](crawled_output)**
 
