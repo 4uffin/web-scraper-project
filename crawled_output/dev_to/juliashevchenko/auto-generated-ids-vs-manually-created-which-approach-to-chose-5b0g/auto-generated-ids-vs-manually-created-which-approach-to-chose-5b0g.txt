@@ -1,0 +1,319 @@
+Auto-generated IDs VS Manually created: which approach to chose? - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Julia Shevchenko
+Posted on Sep 22
+Auto-generated IDs VS Manually created: which approach to chose?
+#webdev
+#dotnet
+#tutorial
+#microservices
+Creating incremented auto-generated integer IDs on a database level was a default approach for a long time. It was (is?) very popular for a reason.
+Advantages of generated IDs includes:
+No need to manage IDs manually in code + database guarantees uniqueness;
+Integers perform fast DB-level for joins, comparisons, indexing, and take less storage size;
+Natural Ordering - Sequential IDs help clustered indexes, reduce fragmentation.
+However, with modern software architecture evolving, this approach may not be the best option.
+Let's compare this approach and the approach with manually creating IDs by example. It is simplified but reflects a common business case without diving into details.
+This article shows examples in C# and EF Core, but the same approach can be used for any language and ORM that implements the Unit of Work pattern.
+Example case description
+Let's imagine there are three independent microservices or modules: OrderService, PaymentService, and ShippingService. Each module has its own database.
+Order service saves an Order with all its information, including OrderItems. Payment service is not interested in Order Details, it tracks if the Order was paid or not. Shipping service wants to have its own Order, but it should only contain shipment information.
+Orders should be easily synced between services, so that the most recent information about the order is available in whichever service and it is easy to get information about the order from other services if needed. Payment Service has OrderId and it should be the same for Orders in all services.
+Using auto-generated IDs
+The following code shows what it looks like with the IDs generated on the DB level.
+Disclaimer: I'm advocating for initializing domain entities through constructors, but for the articles, it is more readable to do it with object initializers.
+public async Task<int> Handle(CreateOrderCommand request, CancellationToken ct)
+{
+var order = new Order
+{
+TotalPrice = request.TotalPrice,
+OrderItems = request.Items.Select(i => new OrderItem
+{
+ProductId = i.ProductId,
+Quantity = i.Quantity
+}).ToList(),
+OrderedAt = DateTime.Now()
+};
+_dbContext.Orders.Add(order);
+await _dbContext.SaveChangesAsync(ct);
+var paymentEvent = new OrderCreatedForPayment
+{
+OrderId = order.Id,
+TotalPrice = order.TotalPrice
+};
+var shippingEvent = new OrderCreatedForShipping
+{
+OrderId = order.Id
+};
+await _messageBus.PublishAsync(paymentEvent, ct);
+await _messageBus.PublishAsync(shippingEvent, ct);
+return order.Id;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This example looks not that bad, however, it has potential issues:
+Order cannot be saved in the same transaction with events to apply Outbox pattern because Order Id will be available only after SaveChangesAsync() is called;
+There is no guarantee that Order in other services, Shipping Service in particular, will be created with the same ID. And this point is crucial;
+Entities rely on the infrastructure.
+The same object should be identified the same way across different services or modules. Of course, it is possible to solve this by adding a separate column OrderId along with the database ID. But it adds complexity, makes it harder to maintain and may introduce errors if identifiers are misused.
+Using manually created IDs (Guid)
+Let's see how we can improve this case by manually creating IDs.
+In C# the common type for IDs will be Guid. In SQL, it will be translated into type UUID v4. Important: to generate a new random Giud, you need to call a static Guid.NewGuid(), not create a class instance.
+public async Task<Guid> Handle(CreateOrderCommand request, CancellationToken ct)
+{
+var orderId = Guid.NewGuid();
+var order = new Order
+{
+Id = orderId,
+TotalPrice = request.TotalPrice,
+OrderItems = request.Items.Select(i => new OrderItem
+{
+ProductId = i.ProductId,
+Quantity = i.Quantity
+}).ToList(),
+OrderedAt = DateTime.Now()
+};
+_dbContext.Orders.Add(order);
+var paymentEvent = new OrderCreatedForPayment
+{
+OrderId = orderId,
+TotalPrice = order.TotalPrice
+};
+var shippingEvent = new OrderCreatedForShipping
+{
+OrderId = orderId
+};
+_dbContext.OutboxMessages.Add(new OutboxMessage
+{
+Id = Guid.NewGuid(),
+Type = nameof(OrderCreatedForPayment),
+Payload = JsonSerializer.Serialize(paymentEvent),
+OccurredOnUtc = DateTime.UtcNow
+});
+_dbContext.OutboxMessages.Add(new OutboxMessage
+{
+Id = Guid.NewGuid(),
+Type = nameof(OrderCreatedForShipping),
+Payload = JsonSerializer.Serialize(shippingEvent),
+OccurredOnUtc = DateTime.UtcNow
+});
+await _dbContext.SaveChangesAsync(ct);
+return orderId;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Advantages of this approach are:
+Order is created in the same transaction as corresponding events ensuring data integrity;
+Only single DB connection was opened for this piece of code;
+Entity is untied from the Infrastructure;
+Order will be created with the same identifier across all microservices, modules or, even, systems. This means data can be easily synced or merged, if needed.
+We are fully in charge of how the identifier is generated. We could use any of the UUIDs or even compose it with some additional information. For example, if we want natural ordering and timestamp-based identifier, we may use UUIDv7;
+It is easier to write tests, because there is no need to save the entity to access its ID. This may sound not important, however it's crusial that the code is easily testable which leads to better tests quality and therefore less problems in the future.
+Note: for this implementation, you will also need background service to read OutboxMessages and publish them to the message broker.
+EF Core Configuration
+By default, EF Core generates values for the defined identifiers depending on its type - integers or GUID.
+Here is how to configure EF Core to not generate IDs using Fluent API. This should be a part of DbContext:
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+modelBuilder.Entity<Order>()
+.Property(o => o.Id)
+.ValueGeneratedNever();
+}
+Enter fullscreen mode
+Exit fullscreen mode
+What about sequences?
+There is a workaround on how to get next value for autogenerated IDs. You can say ORM, in our case EF Core, to use sequence as the default ID generator for an entity.
+A sequence is a database object that generates a sequence of numbers (1, 2, 3, …) independent of any table. When you call it to get the next value, it reserves the value so it could not be used in another transaction.
+The next value in code can be with a raw SQL call (which is not very elegant).
+var nextId = await context.Database
+.SqlQueryRaw<int>("SELECT NEXT VALUE FOR MySequence")
+.FirstAsync();
+Enter fullscreen mode
+Exit fullscreen mode
+Could it solve all our concerns? Not really.
+Imagine that there is a need to create new Service that also produces Order, for example, Subscription service. Each service has its own database. It means that there is a very high chance to have Orders with same IDs in different services.
+Yes, this may never happen, but business requirements change rapidly and are not always predictable.
+Remember, Entity should be unique across the whole system.
+Conclusion
+Shifting responsibility to the database to manage ID values leads to:
+No ability to provide data consistency between services or modules;
+Concurrency issues when two or more threads try to create a row with the same id;
+Difficulties with synchronizing database data;
+These are crucial for microservice or event-driven architectures and could be solved by utilizing manual IDs creation.
+It is worth mentioning that integer IDs are claimed to be faster and take less disc space. However, nowadays databases are stored in the cloud and have significantly more performance capabilities than before. For massive tables, smaller indexes may help, but for normal-sized cloud apps, the difference is often negligible. Additionally, there are UUIDs which are timestamp based, so could cover natural ordering needs.
+Of course, every decision is a trade-off. The manual creation of IDs is not the silver bullet. There is a chance of collision (which is nearly zero), they are less readable and take more space than integer values.
+Every project is special and there is no single right way to build it.
+However, for most modern applications, especially those with an emphasis on domain logic, it is a great approach, which will save you a lot of time and prevent unexpected errors.
+Thank you for reading!
+Feel free to share in the comments, which approach do you prefer and why?
+Top comments (2)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Igor Shevchenko
+Igor Shevchenko
+Igor Shevchenko
+Follow
+Experienced Software Engineer with a Master's degree and 10 years of expertise in developing high-quality, efficient solutions.
+Location
+Ukraine
+Work
+Senior Software Engineer at mysupply
+Joined
+Feb 27, 2025
+•
+Sep 22
+Dropdown menu
+Copy link
+Hide
+I started using UUIDs instead of auto-generated integers six years ago, and it solved a lot of problems for me.
+Like comment:
+Like comment:
+2 likes
+Like
+Comment button
+Reply
+Some comments may only be visible to logged-in visitors. Sign in to view all comments.
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Julia Shevchenko
+Follow
+🔹Software Engineer | .NET Developer
+🔹Domain-driven Design Enthusiast
+🧭 Hobbies: reading, photography, astronomy, robotics, modern technologies, sci-fi, traveling
+Location
+Ukraine
+Joined
+Sep 10, 2024
+More from Julia Shevchenko
+TODO or not TODO / Stop spamming the code with useless comments
+#programming
+#cleancode
+#beginners
+#tutorial
+Health Check setup for .NET application
+#dotnet
+#csharp
+#webdev
+#cicd
+Parallel Queries in EF Core with PostgreSQL: Why It Fails and How to Fix It
+#efcore
+#dotnet
+#postgres
+#sqlserver
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

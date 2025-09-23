@@ -75,7 +75,7 @@ Share to Mastodon
 Report Abuse
 Kyle Pena
 Posted on Sep 19
-• Edited on Sep 21
+• Edited on Sep 22
 TypeScript Types Are The Best Kind Of Magic
 #typescript
 #programming
@@ -86,18 +86,22 @@ On the other hand, Arthur C. Clarke stated that any sufficiently advanced techno
 So: Is some bit of magic code a hand grenade with the pin pulled, or are we just not clever enough to get it?
 Is there any way to tell the difference?
 It Depends
-I had a colleague who was tasked with building a Bun-compatible auto-instrumentation framework.
-The goal was to create a developer-friendly mechanism to instrument a wide variety of ES2020+ features - method calls, property access, yields from a generator, and so on.
-Sadly, it all went a bit sideways.
-After two months of work, it leaked memory and had all sorts of finicky edge cases.
-By his own admission, he had relied on "too much auto-magic".
+I once worked with a team which was building a Bun-compatible auto-instrumentation framework.
+The goal was to provide a mechanism to instrument a wide variety of ES2020 features - method calls, property access, yields from a generator, and so on.
+After two months of effort, we struggled with edge cases and memory leaks.
+By our own admission, we had relied on "too much auto-magic".
 So, magic strikes again - but what was the deeper reason the project didn't pan out? I think it boils down to scope.
-In this case, the "thing" that the magic was wrangling - its domain, or "scope" - was an entire language.
-And ES2020+ is one of the more complicated language specifications out there.
+In this case, the "thing" that the magic was wrangling was an entire language.
+And ES2020 is one of the more complicated language specifications out there.
 Check out these obscure corners.
 For "magic" to work reliably, a restricted domain of operation seems necessary.
-A language's type system is usually quite a bit better behaved than the language itself.
-That is why, as I dive deeper into TypeScript, I'm warming up to the idea of "type magic".
+And ES2020's runtime is a huge domain.
+However, a language's type system is simpler than the runtime.
+This makes type-driver auto-magic very doable.
+However, TypeScript's advanced type system seems designed to encourage magic.
+Zod, Prisma, and Hono all use auto-magic typing tricks and are resounding successes.
+Zod, for example, is widely adopted.
+I'd like to demonstrate how you can build similar type auto-magic as they frameworks in order to improve the developer experience.
 Quick Case Study
 Suppose we have some unmanaged resource that we retrieve by scoped ID:
 employee/543293 represents Employee 543293.
@@ -153,6 +157,7 @@ return retrievedValue as TypeForObjectIdentifier<T>;
 }
 Enter fullscreen mode
 Exit fullscreen mode
+Here's a step-by-step breakdown.
 Generic Types As "Functions On Types"
 Note the return type of retrieve: TypeForObjectIdentifier<T>.
 It's helpful to think of TypeForObjectIdentifier<T> as a "function on type T", rather than a generic type in the traditional sense.
@@ -176,12 +181,61 @@ type TypeForObjectIdentifier<T> = KeywordToObjectType[ExtractKeyword<T>];
 Enter fullscreen mode
 Exit fullscreen mode
 Now it should be clearer how TypeForObjectIdentifier<T> works: Extract the Keyword portion of the string template via ExtractKeyword<T>, and then map it to the object type.
-Drawbacks
+Adding Runtime Safety
 This trick does not guarantee runtime safety.
 If the shape of the retrieved object does not conform to the expected type given its identifier, we're past the limits of what compile-time safety can guarantee.
 We can remedy this with some clever use of Zod schemas.
-Adding Runtime Validation
-First, let's redefine our types as Zod schemas.
+Here is the code in entirety:
+import z from "zod"
+const Employee = z.object({
+id: z.string(),
+name: z.string(),
+});
+const Department = z.object({
+id : z.string(),
+name : z.string(),
+budget : z.number(),
+buildingId: z.string()
+});
+const Building = z.object({
+id : z.string(),
+name : z.string()
+});
+const KeywordToZodSchema = {
+employee: Employee,
+department: Department,
+building: Building
+};
+type Keyword = keyof typeof KeywordToZodSchema;
+type KeywordToObjectType = {
+[key in Keyword]: z.infer<(typeof KeywordToZodSchema)[key]>
+}
+// Format of the string literal
+type ObjectIdentifier = `${Keyword}/${string}`;
+// Utility: Extracts the keyword out of the string literal
+type ExtractKeyword<T> = T extends `${infer K extends Keyword}/${string}` ?
+K :
+never;
+// Utility: Maps ObjectIdentifier to appropriate type
+type TypeForObjectIdentifier<T> = KeywordToObjectType[ExtractKeyword<T>];
+function extractKeyword(identifier: string) : Keyword {
+const keyword = identifier.split('/')[0];
+if (!(keyword in KeywordToZodSchema)) {
+throw new Error("Invalid identifier");
+}
+return keyword as Keyword;
+}
+export async function retrieve<T extends ObjectIdentifier>(identifier: T) :
+Promise<TypeForObjectIdentifier<T>> {
+const retrievedValue = {}; // fetch / parse / etc.
+const keyword = extractKeyword(identifier);
+const parsed = KeywordToZodSchema[keyword].parse(retrievedValue);
+return parsed as TypeForObjectIdentifier<T>;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Runtime Validation Refactor Step by Step
+First, we redefined our types as Zod schemas.
 import z from "zod"
 const Employee = z.object({
 id: z.string(),
@@ -199,23 +253,23 @@ name : z.string()
 });
 Enter fullscreen mode
 Exit fullscreen mode
-Then, we'll define a single source-of-truth const mapping from keyword to Zod schema.
-This is more DRY then maintaining both a type mapping and a keyword-to-Zod-schema mapping side by side.
+Then, we defined a mapping from keyword to schema as a const map.
 const KeywordToZodSchema = {
 employee: Employee,
 department: Department,
 building: Building
 };
-type Keyword = keyof typeof KeywordToZodSchema;
 Enter fullscreen mode
 Exit fullscreen mode
-We still need to the KeywordToObjectType type mapping, but we can recover that programmatically (type-matically?) with a mapped type:
+Then, we recovered the KeywordToObjectType from our original implementation using a mapped type.
+This keeps the type definition automatically in sync with the const mapping from keyword to schema, which is available at runtime.
+type Keyword = keyof typeof KeywordToZodSchema;
 type KeywordToObjectType = {
-[key in Keyword]: z.infer<typeof KeywordToZodSchema[key]>
+[key in Keyword]: z.infer<(typeof KeywordToZodSchema)[key]>
 }
 Enter fullscreen mode
 Exit fullscreen mode
-Finally, we need a function equivalent to ExtractKeyword<T> so that we can pull the correct schema out of KeywordToZodSchema at runtime:
+At runtime, we need to be able to map object identifier values to keyword values, so we defined a runtime counterpart to ExtractKeyword<T> called extractKeyword:
 function extractKeyword(identifier: string) : Keyword {
 const keyword = identifier.split('/')[0];
 if (!(keyword in KeywordToZodSchema)) {
@@ -225,24 +279,25 @@ return keyword as Keyword;
 }
 Enter fullscreen mode
 Exit fullscreen mode
-Then it's just a matter of using the extract keyword to index into the schema map and calling Zod's .parse:
+And finally, we re-implemented retrieve to perform runtime validation with Zod.
+First, we extract the keyword from the identifier.
+Then, we index into KeywordToZodSchema to select the appropriate Zod schema.
+Finally, we parse and return the result.
 export async function retrieve<T extends ObjectIdentifier>(identifier: T) :
 Promise<TypeForObjectIdentifier<T>> {
 const retrievedValue = {}; // fetch / parse / etc.
 const keyword = extractKeyword(identifier);
-const parsed = KeywordToZodSchema[keyword].parse(retrievedValue);
+const schema = KeywordToZodSchema[keyword]
+const parsed = schema.parse(retrievedValue);
 return parsed as TypeForObjectIdentifier<T>;
 }
 Enter fullscreen mode
 Exit fullscreen mode
-There's a bit of awkwardness here because we have to narrow parsed from a type union covering all possible object types to the specific type as represented by TypeForObjectIdentifier<T>.
-In other words, we've still got an as when theoretically Zod should let us avoid it.
-I think it's perfectly fine to stop here. But if we're feeling impractical purists, we can fix it.
-Let's kick some "as".
-Kicking Some "as"
+There's an unavoidable as because we have to narrow parsed from a type union covering all possible object types into the specific type as represented by TypeForObjectIdentifier<T>.
 Conclusion
 It is possible, helpful, and practical to implement "magic type tricks" for cleaner TypeScript code.
-Rather than create trouble, these tricks increase type safety and make for a better developer experience.
+In fact, many popular frameworks do it, and you can do remarkable things with template literals.
+Rather than create trouble and confusion, these tricks increase type safety and make for a better developer experience.
 Top comments (0)
 Subscribe
 Personal
@@ -285,10 +340,9 @@ Google AI is the official AI Model and Platform Partner of DEV
 Neon is the official database partner of DEV
 Algolia is the official search partner of DEV
 DEV Community — A space to discuss and keep up software development and manage your software career
-Home
+Página Inicial
 DEV++
 Welcome Thread
-Reading List
 Podcasts
 Videos
 Tags
@@ -297,14 +351,14 @@ DEV Challenges
 DEV Help
 Advertise on DEV
 DEV Showcase
-About
-Contact
+Sobre
+Contato
 Free Postgres Database
 Software comparisons
 Forem Shop
-Code of Conduct
-Privacy Policy
-Terms of Use
+Código de Conduta
+Política de Privacidade
+Termos de Uso
 Built on Forem — the open source software that powers DEV and other inclusive communities.
 Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
 We're a place where coders share, stay up-to-date and grow their careers.

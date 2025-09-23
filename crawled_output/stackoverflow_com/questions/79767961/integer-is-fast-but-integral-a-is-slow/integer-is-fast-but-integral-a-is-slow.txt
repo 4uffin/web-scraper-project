@@ -1,4 +1,4 @@
-haskell - Integer is fast, but Integral a is slow - Stack Overflow
+polymorphism - Unexpected caching behavior using polymorphic records in Haskell - Stack Overflow
 Skip to main content
 Stack Overflow
 About
@@ -54,90 +54,162 @@ Teams
 Q&A for work
 Connect and share knowledge within a single location that is structured and easy to search.
 Learn more about Teams
-Integer is fast, but Integral a is slow
+Unexpected caching behavior using polymorphic records in Haskell
 Ask Question
 Asked
-today
+6 years, 8 months ago
 Modified
-today
+6 years, 8 months ago
 Viewed
-14 times
-0
-Why is this slow
-fibonacciSequence :: Integral a => [a]
-fibonacciSequence = 0 : 1 :
-zipWith (+) fibonacciSequence (tail fibonacciSequence)
--- in repl
-take 10000 fibonacciSequence
-but this super fast?
-fibonacciSequence :: [Integer]
-fibonacciSequence = 0 : 1 :
-zipWith (+) fibonacciSequence (tail fibonacciSequence)
--- in repl
-take 10000 fibonacciSequence
-Context: I thought why not just add some abstraction at the basic level and then defer the determination of the type, be it Int or Integer, to whichever function that calls it.
-PS - yes, I know that Int overflows really quickly (on my machine, at the 92nd Fibonacci number), but I'm just curious as to why introducing the abstraction causes such a huge slowdown.
-haskell
+173 times
+8
+I've run into some unexpected behavior using polymorphic records in Haskell, where some values are not cached when I expect them to be cached.
+Here is a minimal example:
+{-# LANGUAGE RankNTypes #-}
+import Debug.Trace
+-- Prints out two "hello"s
+data Translation = Trans { m :: forall a . Floating a => a }
+g :: Floating a => a -> a
+g x = x + 1
+f :: Floating a => a -> a
+f x = trace "hello" $ x - 2.0
+-- Only one "hello"
+-- data Translation = Trans { m :: Float }
+--
+-- f :: Float -> Float
+-- f x = trace "hello" $ x - 2.0
+main :: IO ()
+main = do
+let trans = Trans { m = f 1.5 }
+putStrLn $ show $ m trans
+putStrLn $ show $ m trans
+In the example, I thought if the value f 1.5 was computed and stored in the field m, on the next time it is accessed, it would not be computed again. However, it seems to be recomputed on every access to the record field, as shown by the fact that "hello" is printed twice.
+On the other hand, if we remove the polymorphism from the field, the value is cached as expected, and "hello" is only printed once.
+I suspect this is due to the interaction of typeclasses (being treated as records) preventing memoization. However, I don't fully understand why.
+I realized that compiling with -O2 makes the problem go away, however, this behavior occurs in a much larger system where compiling with -O2 does not seem to have any effect, therefore I'd like to understand the root cause of the problem, so I can fix the performance issues in the larger system.
+haskellpolymorphismrecord
 Share
 Improve this question
 Follow
-asked 1 hour ago
-daikonradishdaikonradish
-72166 silver badges1717 bronze badges
-2
-1
-Possible duplicate of Unexpected caching behavior using polymorphic records in Haskell. If that answers your question, I'll formalize the mark; if not, please edit your question with details about why not.
-Daniel Wagner
-–
-Daniel Wagner
-2025-09-18 04:07:05 +00:00
-Commented
-58 mins ago
-Also some interesting discussion at Is there an automatic way to memoise global polymorphic values in Haskell?.
-Daniel Wagner
-–
-Daniel Wagner
-2025-09-18 04:09:08 +00:00
-Commented
-56 mins ago
+asked Jan 21, 2019 at 20:18
+kyekye
+45333 silver badges88 bronze badges
 Add a comment
 |
-Related questions
-352
-Why is Haskell (GHC) so darn fast?
-6
-How can I bit-convert between Int and Word quickly?
-62
-Integral operators quot vs. div
-Related questions
-352
-Why is Haskell (GHC) so darn fast?
-6
-How can I bit-convert between Int and Word quickly?
-62
-Integral operators quot vs. div
-203
-What is the difference between Int and Integer?
-26
-Num vs Integral
-4
-What type to give to a function that measures a data structure? Int, Integer, Integral?
-3
-Matching Integral with Int (Haskell)
-1
-Haskell type `forall a . (Num a, Integral a) => a` for an integer constant of many types
-36
-Positive integer type
-Load 6 more related questions
-Show fewer related questions
-0
+2 Answers
+2
 Sorted by:
 Reset to default
 Highest score (default)
 Trending (recent votes count more)
 Date modified (newest first)
 Date created (oldest first)
-Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+6
+Hold my beer.
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ConstraintKinds #-}
+import Debug.Trace
+data Dict c where Dict :: c => Dict c
+-- An isomorphism between explicit dictionary-passing style (Dict c -> a)
+-- and typeclass constraints (c => a) exists:
+from :: (c => a) -> (Dict c -> a)
+from v Dict = v
+to :: (Dict c -> a) -> (c => a)
+to f = f Dict
+data Translation = Trans { m :: forall a . Floating a => a }
+f1, f2 :: Dict (Floating a) -> a -> a
+f1 = trace "hello" $ \Dict x -> x - 2.0
+f2 = \Dict -> trace "hello" $ \x -> x - 2.0
+main = do
+let trans1 = Trans { m = to (flip f1 1.5) }
+trans2 = Trans { m = to (flip f2 1.5) }
+putStrLn "trans1"
+print (m trans1)
+print (m trans1)
+putStrLn "trans2"
+print (m trans2)
+print (m trans2)
+Take a second to predict what this will output before you run it. Then go ask your GHC if she agrees with your guess.
+Clear as mud?
+The basic distinction you need to draw here is right here in this significantly simplified example:
+> g = trace "a" $ \() -> trace "b" ()
+> g ()
+a
+b
+()
+> g ()
+b
+()
+There is a separate notion of caching a function and caching its output. The latter is, simply, never done in GHC (though see discussion of what's going on with your optimized version below). The former may sound dumb, but it in fact is not so dumb as you might think; you could imagine writing a function which is, say, id if the collatz conjecture is true and not otherwise. In such a situation, it makes complete sense to only test the collatz conjecture once, and then cache whether we should behave as id or not forever afterwards.
+Once you understand this basic fact, the next leap you must believe is that in GHC, typeclass constraints are compiled to functions. (The arguments to the function are typeclass dictionaries telling how each of the typeclass' methods behave.) GHC itself manages constructing and passing these dictionaries around for you, and in most cases it's quite transparent to the user.
+But the upshot of this compilation strategy is this: a polymorphic but typeclass-constrained type is a function even if it doesn't appear to have function arrows in it. That is,
+f 1.5 :: Floating a => a
+looks like a plain old value; but in fact it is a function which takes a Floating a dictionary and produces a value of type a. So any computations that go into computing the value a are redone afresh each time this function is applied (read: used at a specific monomorphic type) because, after all, the precise value chosen depends critically on how the typeclass' methods behave.
+This leaves only the question of why optimizations changed things in your situation. There I believe what happened is called "specialization", in which the compiler will try to notice when polymorphic things get used at a statically-known monomorphic type and make a binding for that. It goes something like this:
+-- starting point
+main = do
+let trans = \dict -> trace "hello" $ minus dict (fromRational dict (3%2)) (fromRational dict (2%1))
+print (trans dictForDouble)
+print (trans dictForDouble)
+-- specialization
+main = do
+let trans = \dict -> trace "hello" $ minus dict (fromRational dict (3%2)) (fromRational dict (2%1))
+let transForDouble = trans dictForDouble
+print transForDouble
+print transForDouble
+-- inlining
+main = do
+let transForDouble = trace "hello" $ minus dictForDouble (fromRational dict (3%2)) (fromRational dictForDouble (2%1))
+print transForDouble
+print transForDouble
+In this last one the function-ness is gone; it is "as if" GHC has cached the output of trans when applied to the dictionary dictForDouble. (If you compile with optimizations and -ddump-simpl you will see it goes even further, doing constant-propagation to turn the minus ... stuff into just D# -0.5##. Whew!)
+Share
+Improve this answer
+Follow
+edited Jan 21, 2019 at 22:47
+answered Jan 21, 2019 at 21:40
+Daniel WagnerDaniel Wagner
+155k1010 gold badges231231 silver badges392392 bronze badges
+Comments
+Add a comment
+1
+{-# LANGUAGE RankNTypes #-}
+import Debug.Trace
+--Does not get cached
+data Translation = Trans { m :: forall a. Floating a => a }
+f :: Floating a => a -> a
+f x = trace "f" $ x - 2.0
+Since a is a rigid type variable bound by a type expected by the context
+forall a. Floating a => a you would have to cache the context as well
+--Does get cached
+data Translation' = Trans' { m' :: Float }
+f' :: Float -> Float
+f' x = trace "f'" $ x - 2.0
+Since this is a value of type Float it can be computed once and cached afterwards.
+main :: IO ()
+main = do
+let
+trans = Trans { m = f 1.5 }
+trans' = Trans' { m' = f' 1.5}
+putStrLn $ show $ (m trans :: Double)
+putStrLn $ show $ (m trans :: Float)
+-- ^ you can evaluate it with 2 different contexts
+putStrLn $ show $ (m' trans' :: Float)
+putStrLn $ show $ (m' trans' :: Float)
+-- ^ context fixed
+Note that the former one does not get cached whether compiler optimization is turned on or off.
+When they are both Float and you turn on optimization the problem is gone.
+If you compile the larger system with optimization and it is to inefficient on some metric I would suspect that the problem lies somewhere else.
+Share
+Improve this answer
+Follow
+edited Jan 21, 2019 at 22:27
+answered Jan 21, 2019 at 21:53
+stevesteve
+28111 silver badge55 bronze badges
+Comments
+Add a comment
 Your Answer
 Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
 Draft saved
@@ -161,46 +233,68 @@ Start asking to get answers
 Find the answer to your question by asking.
 Ask question
 Explore related questions
-haskell
+haskellpolymorphismrecord
 See similar questions with these tags.
 The Overflow Blog
-What an MCP implementation looks like at a CRM company
+Stack Overflow is helping you learn to code with new resources
+Off with your CMS’s head! Composability and security in headless CMS
 Featured on Meta
-stackoverflow.ai - rebuilt for attribution
 Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
 Policy: Generative AI (e.g., ChatGPT) is banned
-New comment UI experiment graduation
 New and improved coding challenges
+New comment UI experiment graduation
 Linked
-10
-Is there an automatic way to memoise global polymorphic values in Haskell?
+0
+Integer is fast, but Integral a is slow
+0
+Confused output of `traceM` in recursive call on function monad
+Related
+4
+Implementing a cache
+5
+Haskell polymorphic functions with records and class types
+49
+How can I use HaskellDB with polymorphic fields? (Problems with overlapping instances)
 7
-Unexpected caching behavior using polymorphic records in Haskell
+Laziness and polymorphic values
+15
+Why does adding a polymorphic type signature degrade performance?
+2
+Haskell Caching
+6
+Polymorphic types in records
+4
+Polymorphic variable used in different contexts haskell
+8
+reuse/memoization of global polymorphic (class) values in Haskell
+3
+Polymorphic functions in Record Types Haskell
 Hot Network Questions
-Energy Conservation for Quantum Systems
-Why do we use こちら when introducing someone?
-What component of the magnetic flux density is responsible for actuating a reed switch?
-Is electrolysis of alumina (Al2O3) without cryolite possible to produce pure aluminum?
-Open pdf files in the background with fzf
-append iterator value to variable in for loop
-Tiling the plane with pair-wise non-congruent and mutually similar quadrilaterals
-Find the first relabeling
-What is supposed to make judicial branch make its best effort to judge cases in accordance with laws?
-why the "e" and "m" in the last terms look different from those in the first terms
-How to fix excessive dust / lint problem inside the house
-Get function parameter for functions fitting "between" two other functions
-Why is ASCII punctuation in that order?
-Scalars, Vectors, Tensors: are they all?
-Prevent Zoom Client 6.6.0 update adding watermark to video and shared screens
-How does Trump come up with the sizes of his lawsuits?
-My pure mathematics PhD dissertation will likely be very short. I have until the last day of January 2026 to remedy this. What can I do?
-What happens when a card copying a Double Team card triggers?
-When can you stealth in terms of "other senses"?
-What is the probability that a plane through three random points on the surface of the Earth intersects the Moon?
-Does a "Minimal" Grothendieck Universe Avoid Russell-Style Paradoxes?
-Define counters using a loop
-Color GeoPath according to current distance traveled
-Is there any guideline to make it portable regarding filepath related code?
+Movie with an alien in disguise as a human boy. Fights a bad alien
+How to prevent paste from removing Data Validation (no macros), while allowing users to insert rows in Excel?
+Can Slashing Grace be used with natural attacks?
+Key change, from Ab major to E major
+Did Jack Swigert really cover the LEM detachment switch with a paper note in Apollo 13?
+Apparent contradiction in Lorentz's magnetic force and Ohm's law relation
+`circledsteps`, but... `squaredsteps` and `triangledsteps`?
+Why would you find "be clutch" useful or not and is there another slang/informal phrase with a similar meaning?
+What does "your own" mean in "did it not remain your own?", Acts 5:4?
+Why is it useful to have mem_top < mem_max?
+What is a numerically practical and safe measure of dispersion of a data set?
+How to cast rays from curve points?
+help understanding quantifier rules for natural deduction
+What spider is this. Found in Milwaukee WI
+n white and n black balls, pairs of balls drawn one by one. Probability that each pair contains 1W & 1B.
+How do I handle two apps for a single Firebase Project?
+Find a linear function such that if f(0), f(1), f(2), ⋯ are indices of the elements of the list, the sum must equal to its slope
+Linear rheostat - where lies a trick of a sliding contact with isolated wire?
+What are the circumstances that would put an offender at risk of the death penalty in state court under Utah law?
+Prospective new PI wants to chat with former PI who kicked me out. What to do?
+In a Windows 10 system how can I clear the stored credentials used to access a network shared folder?
+What is this circuit breaker on the outside of my house for?
+Novel Two ships set out to explore the arctic. Disaster befalls them. There is a demon which appears to be a polar bear
+How to completely remove the Firefox tabs' "tooltips", without affecting anything else?
 more hot questions
 Question feed
 Subscribe to RSS
@@ -243,4 +337,4 @@ Site design / logo © 2025 Stack Exchange Inc;
 user contributions licensed under
 CC BY-SA
 .
-rev 2025.9.17.34093
+rev 2025.9.22.34261

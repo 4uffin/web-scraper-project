@@ -1,0 +1,257 @@
+New in EasyAdmin: Custom Admin Routes - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Javier Eguiluz
+Posted on Sep 22
+New in EasyAdmin: Custom Admin Routes
+#easyadmin
+#symfony
+#php
+EasyAdmin lets you create CRUD-based backends with minimal setup: define your entities, add CRUD controllers, get a complete admin interface.
+You can extend these CRUD controllers with custom actions (e.g. approve action for users, duplicate action for products, etc.) These custom actions must live inside the CRUD controller, which isn't always practical.
+Also, your application has features that don't fit the CRUD pattern and require their own controllers with custom logic. You could always embed external controllers in EasyAdmin, but the integration was clunky. The external controllers were integrated via their Symfony routes from your main menu like this:
+yield MenuItem::linkToRoute('Business Stats', 'fa fa-chart-bar', 'business_stats_index', [
+'param1' => 'value1',
+'param2' => 'value2',
+]);
+Enter fullscreen mode
+Exit fullscreen mode
+But the generated URLs revealed the awkward integration:
+/admin?routeName=business_stats_index&routeParams%5Bparam1%5D=value1&routeParams%5Bparam2%5D=value2
+Enter fullscreen mode
+Exit fullscreen mode
+The AdminRoute Attribute
+EasyAdmin 4.25.0 introduces the #[AdminRoute] attribute for seamless Symfony controller integration. Take the following Symfony controller to calculate some business stats:
+use App\Stats\BusinessStatsCalculator;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+class StatsController extends AbstractController
+{
+public function __construct(
+private BusinessStatsCalculator $statsCalculator,
+) {
+}
+public function index(): Response
+{
+$stats = $this->statsCalculator->getData();
+// ...
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This is a pure Symfony controller. It doesn't use any EasyAdmin code or feature. Now, add the #[AdminRoute] attribute to your controller action:
+use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminRoute;
+// ...
+class StatsController extends AbstractController
+{
+// ...
+#[AdminRoute('/stats', name: 'stats')]
+public function index(): Response
+{
+// ...
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+That's it. The #[AdminRoute] configuration in controllers is appended to the route path/name of the dashboard(s). If your Symfony application defines an admin dashboard with /admin route path and admin route name, this code will add an admin route called admin_stats with path /admin/stats.
+Browse to that URL and your custom logic is rendered inside the backend with the same layout and navigation as your CRUD pages. Use the new route to link to the controller from your dashboard menu:
+public function configureMenuItems(): iterable
+{
+yield MenuItem::linkToRoute('Statistics', 'fa fa-chart-bar', 'admin_stats');
+// ...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Click on that menu item and you'll see that the URL is now just /admin/stats, without the previous awkward query parameters.
+Composing Routes
+Similar to Symfony's #[Route] attribute, #[AdminRoute] supports class-level configuration for common prefixes:
+use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminRoute;
+// ...
+#[AdminRoute('/reports', name: 'reports')]
+class ReportController extends AbstractController
+{
+#[AdminRoute('/sales', name: 'sales')]
+public function sales(): Response
+{
+// ...
+}
+#[AdminRoute('/inventory', name: 'inventory')]
+public function inventory(): Response
+{
+// ...
+}
+#[AdminRoute('/customers/{id}', name: 'customer')]
+public function customerReport(Customer $customer): Response
+{
+// ...
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This generates three admin routes:
+admin_reports_sales at /admin/reports/sales
+admin_reports_inventory at /admin/reports/inventory
+admin_reports_customer at /admin/reports/customers/{id}
+The routing system concatenates the dashboard prefix, the class-level route, and the action-level route to build the final path and name.
+The #[AdminRoute] attribute can also customize the default CRUD route names and paths, giving you complete control over your admin URL structure.
+Multi-Dashboard Control
+#[AdminRoute] creates one admin route per dashboard. If your application has multiple dashboards, you can control where routes are registered with allowedDashboards (route is created only in these dashboards) and deniedDashboards (route is created in all dashboards except these):
+#[AdminRoute(
+'/financial-reports', name: 'financial',
+allowedDashboards: [AdminDashboardController::class]
+)]
+class FinancialReportController extends AbstractController
+{
+// ...
+}
+#[AdminRoute(
+'/user-reports', name: 'users',
+deniedDashboards: [GuestDashboardController::class, '...']
+)]
+class UserReportController extends AbstractController
+{
+// ...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Recap
+The #[AdminRoute] attribute solves a common need: keeping your business logic in dedicated controllers while providing a unified admin experience. No more awkward URL parameters. Your controllers stay pure Symfony code, but render like native EasyAdmin pages.
+✨ If you enjoyed this feature and want to see more like it, consider
+sponsoring the EasyAdmin project 🙌💡
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Javier Eguiluz
+Follow
+Joined
+Mar 25, 2019
+More from Javier Eguiluz
+How to Make ChatGPT Codex Work with PHP and Symfony
+#ai
+#codex
+#php
+#symfony
+New in EasyAdmin: Pretty URLs
+#easyadmin
+#symfony
+#php
+Generating deterministic UUIDs from arbitrary strings with Symfony
+#symfony
+#php
+#uid
+#uuid
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,412 @@
+Using OIDC with .NET to connect to MongoDB Atlas - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Luce Carter
+for MongoDB
+Posted on Sep 22
+Using OIDC with .NET to connect to MongoDB Atlas
+#mongodb
+#dotnet
+#csharp
+#security
+This tutorial was written by Luce Carter
+In any kind of application, especially enterprise applications, developers will want to keep their data and the access to that data secure. It is common for businesses to use identity and access management (IAM) systems such as Azure EntraID (formerly Azure Active Directory) to manage access to an application, including its data.
+In this tutorial, we are going to look at adding OpenID Connect (OIDC) using EntraID to a .NET and MongoDB Atlas-backed application, ensuring only those with access can log in with their Microsoft credentials and use the application.
+Note: We are using Azure EntraID in this tutorial but this will work with IAM solutions offered by AWS and Google Cloud as well, as long as you have the required configuration values for MongoDB Atlas that we will cover later in the tutorial.
+If you want to see the finished result, you can visit the GitHub repo for the application on the with-oidc branch.
+Prerequisites
+You will need a few things in place in order to follow this tutorial:
+Azure EntraID configuration details
+Because this is an enterprise feature, you will need to ensure you are not using a free or trial subscription.
+In order to configure Workforce Federation in Atlas, you will need your application (client) ID and your OIDC metadata doc.
+You can obtain this from the Azure Portal under EntraID.
+You will also need your domain value. You can find this by clicking the settings cog icon at the top of any page in the Azure Portal and it will show in the page that opens.
+The GitHub repo forked to your own account and cloned
+Make sure you are on the start-oidc branch.
+A MongoDB Atlas M10 or above cluster deployed
+OIDC support via Workforce Federation in MongoDB Atlas is an enterprise feature and thus not available on the free tier.
+MongoDB Atlas Workforce Federation configured including the step for adding a Database User Group linked to EntraID to allow full access to the database
+The connection string for your cluster added to appsettings.json and appsettings.Development.json in place of the placeholder text
+Note: You will not need the username and password but instead just the clustername and address—for example, mongodb+srv://cluster0.lz13sat.mongodb.net.
+Validating MongoDB Atlas Workforce Federation
+Before we get into writing any code and updating the existing EnterpriseHealthcareDotNet application to add support for OIDC, we first need to ensure that MongoDB Atlas Workforce Federation is set up with the configuration values obtained from EntraID (or your cloud provider of choice) as mentioned in the prerequisites.
+The first step is to go to the landing page of your organization where you will see Federation listed on the left under Identity & Access.
+Then click the button to Open Federation Management App which will open in a new tab. Under the left-side menu, select Identity Providers. This will show you the configured identity provider, with the values populated.
+You will see a “Complete” label next to the Identity Provider in Workforce Federation that shows it has been configured.
+Also under the Project in MongoDB Atlas in Database Access, ensure the user has been added successfully. The ‘User’ value should match your Tenant ID value from EntraID.
+Adding NuGet packages
+Now that MongoDB Atlas Workforce Federation is configured for OIDC, in this case with Azure EntraID, it is time to move on to working on the application.
+You will need to add the following NuGet packages to the application, either via the NuGet Package Manager in your IDE/Text Editor of choice, or via CLI:
+Microsoft.Identity.Web
+Microsoft.Identity.Web.UI
+Microsoft.AspNetCore.Authentication.OpenIdConnect
+Microsoft.Identity.Client
+Adding these four packages will make available other packages implicitly, so getting setup for OIDC in your .NET 9 Blazor application is as simple as adding those packages—neat!
+Updating appsettings and Program.cs
+We have the required packages in place, so now it is time to start to set it up. We will be adding configuration secrets to the application, so these will be added to appsettings.
+Add the following to both appsettings.json and appsettings.Development.json, below the existing MongoDB entry:
+"AzureEntraID": {
+"Authority": "<your OIDC Metadata doc URL until the 2.0 suffix>",
+"Domain": "<your domain>.onmicrosoft.com",
+"ClientId": "<your EntraID client id>",
+"ClientSecret": "<your EntraID client secret value>",
+"CallbackPath": "/signin-oidc",
+"RedirectUri": "http://localhost:<your default .NET app port>/signin-oidc"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Be sure to update the placeholder entries with your own values. Of course, the domain value also will be slightly different here if not using Azure EntraID.
+Now that we have the configuration values in place, we can update Program.cs to set up our authentication, and be able to reference those values.
+Add the following using statements to the top of the class below the existing ones:
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Identity.Web;
+using Microsoft.IdentityModel.Logging;
+Enter fullscreen mode
+Exit fullscreen mode
+Then add the following code below the line var builder = WebApplication.CreateBuilder(args);:
+IdentityModelEventSource.ShowPII = true;
+var entraDetails = builder.Configuration.GetSection("AzureEntraID");
+builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+.AddMicrosoftIdentityWebApp(entraDetails)
+.EnableTokenAcquisitionToCallDownstreamApi(new[] { "User.Read" })
+.AddDistributedTokenCaches();
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddAuthorization(options =>
+{
+options.FallbackPolicy = options.DefaultPolicy;
+});
+Enter fullscreen mode
+Exit fullscreen mode
+This is all standard as part of the Microsoft Identity Web authentication library which is available in ASP.NET Core, rather than being unique to MongoDB.
+Replace the existing first call to builder.Services with the following:
+builder.Services.AddRazorComponents()
+.AddInteractiveServerComponents()
+.AddMicrosoftIdentityConsentHandler();
+builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
+Enter fullscreen mode
+Exit fullscreen mode
+You will also need to change the call to add MongoDBService from AddSingleton to AddScoped:
+builder.Services.AddScoped<MongoDBService>();
+This is because authentication uses scoped services under the hood, and if you leave it as AddSingleton, you will get errors at runtime about it.
+Before the call to app.UseHttpsRedirection(); further down the class, add the following:
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+Enter fullscreen mode
+Exit fullscreen mode
+None of this is doing anything specific to MongoDB, but it is setting everything up for authentication and authorization. This is such a common feature in .NET applications, especially ASP.NET applications such as those built with Blazor, like this demo repo, that Microsoft makes it as easy as possible with simple calls to use certain features.
+Updating the MongoDB service
+Things are slowly coming together nicely. Now that the application is configured to use authentication, we can update the existing MongoDBService.cs class to set up authentication on the MongoDB Atlas side, using the MongoDB C# Driver.
+Add the following extra using statements to the top of the file:
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Identity.Web;
+using MongoDB.Driver.Authentication.Oidc;
+Enter fullscreen mode
+Exit fullscreen mode
+Then add these new local readonly variables below private IMongoClient? _client;:
+private readonly IHttpContextAccessor _httpContextAccessor;
+private readonly ITokenAcquisition _tokenAcquisition;
+Enter fullscreen mode
+Exit fullscreen mode
+Next, we need to add some additional parameters to the constructor, so replace the constructor declaration with the following:
+public MongoDBService(IConfiguration appSettings, IHttpContextAccessor httpContextAccessor, ITokenAcquisition tokenAcquisition)
+Enter fullscreen mode
+Exit fullscreen mode
+Then initialize the local variables with the new parameters:
+_httpContextAccessor = httpContextAccessor;
+_tokenAcquisition = tokenAcquisition;
+Enter fullscreen mode
+Exit fullscreen mode
+Delete the following calls to initialize the client and collection as we will be doing that later now instead:
+_client = new MongoClient(appSettings["MongoDBConnectionString"] ??
+throw new ArgumentNullException("MongoDbUri cannot be null"));
+_patientsCollection = _client.GetDatabase("MongoDBMedical").GetCollection<Patient>("Patients");
+Enter fullscreen mode
+Exit fullscreen mode
+The crux of the changes to the service class comes next with a method and an inner class to handle authentication.
+First, let’s define the method and then talk through what is happening:
+public async Task InitializeAsync()
+{
+var httpContext = _httpContextAccessor.HttpContext;
+if (httpContext == null)
+{
+// No HTTP context, do not initialize (let UI handle login prompt)
+return;
+}
+// Use Microsoft.Identity.Web to get the access token for the user
+string[] scopes = new[] { "<your client id>/.default" }; // Replace with your API scope
+var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
+if (string.IsNullOrEmpty(accessToken))
+{
+// User not authenticated, do not initialize (let UI handle login prompt)
+return;
+}
+var authenticatedConnString = _appSettings["MongoDBConnectionString"] + "?authMechanism=MONGODB-OIDC&authSource=$external";
+var mongoDBClientSettings = MongoClientSettings.FromConnectionString(authenticatedConnString);
+// Pass the acquired access token directly to the OIDC callback
+mongoDBClientSettings.Credential = MongoCredential.CreateOidcCredential(new AccessTokenOidcCallback(accessToken));
+_client = new MongoClient(mongoDBClientSettings);
+try
+{
+var result = await _client.GetDatabase("admin").RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
+if (result.GetValue("ok") == 1.0)
+{
+_patientsCollection = _client.GetDatabase("medicalRecords").GetCollection<Patient>("patients");
+}
+} catch (Exception ex)
+{
+Console.WriteLine($"Error connecting to MongoDB: {ex.Message}");
+throw;
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Note: Be sure to update the placeholder value in the string[] scopes assignment with your client id.
+The code then builds up the connection string by appending on additional values that you can add as parameters to the base connection string that MongoDB uses to know that your application is using OIDC and an external authentication source—in this case, EntraID.
+It then uses the new connection string and the access token received from authentication, to initialize the MongoClient object we added earlier and carry out some best practice steps to check the connection. This step will automatically check that the authentication has been configured correctly both in the application and in MongoDB Atlas.
+This code will currently give you an error/red squiggly line because we haven’t defined the class yet that was mentioned earlier, so let’s do that now.
+private class AccessTokenOidcCallback : IOidcCallback
+{
+private readonly string _accessToken;
+public AccessTokenOidcCallback(string accessToken)
+{
+_accessToken = accessToken;
+}
+public OidcAccessToken GetOidcAccessToken(OidcCallbackParameters parameters, CancellationToken cancellationToken)
+{
+return new OidcAccessToken(_accessToken, expiresIn: null);
+}
+public Task<OidcAccessToken> GetOidcAccessTokenAsync(OidcCallbackParameters parameters, CancellationToken cancellationToken)
+{
+return Task.FromResult(GetOidcAccessToken(parameters, cancellationToken));
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This class implements an interface available in the MongoDB C# Driver as part of its support for OIDC, which provides helpful token management methods to make it easier to work with and add OIDC features.
+Adding a login page
+The backend side of things is set up now and ready for login, but we need to add a login page to trigger the authentication flow in the frontend, so let’s do that now.
+Add a new Blazor Component page called Login.razor in the Components/Pages folder and paste the following code to replace any existing code that is automatically created:
+@page "/login"
+@using EnterpriseHealthcareDotNet.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager NavigationManager
+@inject MongoDBService MongoDBService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+<h3>Login</h3>
+@if (IsAuthenticated)
+{
+<p>You are signed in.</p>
+}
+else
+{
+<a href="/auth/login" class="btn btn-primary">Authorize with Entra ID</a>
+}
+@code {
+private bool IsAuthenticated = false;
+private bool ShouldRedirect = false;
+protected override async Task OnInitializedAsync()
+{
+var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+var user = authState.User;
+if (!user.Identity?.IsAuthenticated ?? true)
+{
+ShouldRedirect = true;
+}
+else
+{
+await MongoDBService.InitializeAsync();
+NavigationManager.NavigateTo("/", forceLoad: true);
+}
+}
+protected override async Task OnAfterRenderAsync(bool firstRender)
+{
+if (firstRender && ShouldRedirect)
+{
+NavigationManager.NavigateTo("/login", forceLoad: true);
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This is a pretty straightforward page that gives the ability to log in if not already logged in and calls the InitalizeAsync method we added to the service class in the previous section.
+Adding the username to the home page
+Almost there! The last thing we want to do is add the username of the logging in user to the top right of the home page, just so that if they are logged in, the user can see that they are because their username is displayed.
+We will need to add some new code to Home.razor to fetch the user’s information for displaying. So add the following inject statement to the top of the class:
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthenticationStateProvider
+Enter fullscreen mode
+Exit fullscreen mode
+Then add the following code block at the bottom of the file, to make the user information available to be referenced in our razor code:
+@code {
+private string? userName;
+private bool isAuthenticated;
+protected override async Task OnInitializedAsync()
+{
+var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+var user = authState.User;
+isAuthenticated = user.Identity != null && user.Identity.IsAuthenticated;
+if (isAuthenticated && user.Identity != null)
+{
+userName = user.Identity.Name ?? string.Empty;
+await MongoDbService.InitializeAsync();
+}
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Finally, after the first div container definition in the file, add the following div which will display a welcome message to the user in the top-right corner:
+<div class="d-flex justify-content-end align-items-center mb-2">
+@if (isAuthenticated && !string.IsNullOrEmpty(userName))
+{
+<span class="text-muted">Welcome, <strong>@userName</strong></span>
+}
+</div>
+Enter fullscreen mode
+Exit fullscreen mode
+Testing it all out
+Now, it is time to run the application for the first time and test logging in!
+It is important to know that this code is not production-ready and does not have any cache for storing sessions. For this reason, you will need to empty your browser cache and cookies between runs of the application or you will get an MSAL error related to authentication not being passed.
+But the first time you run the app, you will be asked to log in to a Microsoft account. This is because we are using EntraID. Make sure you use an account in the tenant you used when setting up EntraID. But once you sign in, you will get redirected to the homepage and will see your username in the top right corner.
+Summary
+There we have it, OIDC integrated into your .NET application, linked up to MongoDB Atlas for a secure experience!
+This tutorial used Azure EntraID but MongoDB Atlas’ OIDC support is not exclusive to Azure. You can use other identity providers from Google and AWS, as well. You just need the client ID, client secret, and OIDC URL from them to configure it in MongoDB Atlas’ Workforce Federation as an external provider.
+You could even combine this with Queryable Encryption (QE), MongoDB’s encryption capability that not only encrypts the data client-side for transport over the network but even at rest, for an extra level of security, while still allowing the encrypted data in the database to be queried against! In fact, there is an earlier tutorial I wrote which shows you how to add QE support to the same application. Why not try them together for even more security and let us know in the comments how you got on?
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+MongoDB
+Follow
+Modern database platform
+More from MongoDB
+Secure Your Spring API With JWT and MongoDB
+#mongodb
+#spring
+#jwt
+#security
+Beyond Keywords: Hybrid Search With Atlas and Vector Search (Part 3)
+#java
+#programming
+#nosql
+#mongodb
+Beyond Keywords: Implementing Semantic Search in Java With Spring Data (Part 1)
+#java
+#springboot
+#vectorsearch
+#mongodb
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

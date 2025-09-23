@@ -1,0 +1,347 @@
+Ask Your Video: Build a Containerized RAG Application for Visual and Audio Analysis - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Elizabeth Fuentes L
+for AWS
+Posted on Sep 23
+• Originally published at builder.aws.com
+Ask Your Video: Build a Containerized RAG Application for Visual and Audio Analysis
+#rag
+#ai
+#python
+#beginners
+Ask Your Video (2 Part Series)
+1
+Building a RAG System for Video Content Search and Analysis
+2
+Ask Your Video: Build a Containerized RAG Application for Visual and Audio Analysis
+🇻🇪🇨🇱 Dev.to Linkedin GitHub Twitter Instagram Youtube
+Linktr
+Elizabeth Fuentes LFollow
+AWS Developer Advocate
+Link to the app container-video-embeddings / ⭐ Star this repository
+In this second part of the series, you'll learn how to implement a containerized version of Ask Your Video using AWS Step Functions for orchestration. The application processes video content in parallel streams, enabling natural language search across visual and audio elements.
+In Part 1: Building a RAG System for Video Content Search and Analysis, explored implementing a RAG system using jupyter notebook . While this approach works well for prototypes and small applications, scaling presents a principal challenges: Video processing demands intensive CPU resources, especially during frame extraction and embedding generation.
+To address these constraint, this blog demonstrates a containerized application that offers improved scalability and resource management. The containerized architecture provides these key benefits:
+Unlimited processing time using Amazon Elastic Container Service (Amaozon ECS).
+Consistent environment management through Docker containers .
+Robust workflow orchestration with AWS Step Functions.
+This architecture creates a application for processing video content at scale.
+Architecture Deep Dive
+The solution uses AWS Step Functions to orchestrate a parallel workflow that processes both visual and audio content simultaneously:
+Trigger: When a video is uploaded to Amazon S3, it initiates the Step Functions workflow
+Parallel Processing Branches:
+Visual Branch:
+An Amazon ECS task runs a containerized FFmpeg process that extracts frames at 1 FPS
+Each frame is processed to minimize storage costs by comparing frame similarity
+Unique frames are sent to Amazon Bedrock for embedding generation
+Audio Branch:
+Amazon Transcribe processes the audio track with speaker diarization enabled
+The transcription is segmented based on speaker changes and timing
+Text segments are converted to embeddings using Amazon Bedrock
+3 . Convergence:
+A Lambda function processes both streams' outputs
+Generates final embeddings using Amazon Bedrock Titan multimodal model
+Stores vectors in Amazon Aurora PostgreSQL with pgvector
+Container Implementation
+Step 0: Clone the GitHub repository
+git clone https://github.com/build-on-aws/langchain-embeddings
+cd container-video-embeddings
+Enter fullscreen mode
+Exit fullscreen mode
+Set up the environment:
+Create a virtual environment:
+python3 -m venv .venv
+Enter fullscreen mode
+Exit fullscreen mode
+Activate the virtual environment:
+# For Linux/macOS
+source .venv/bin/activate
+# For Windows
+.venv\Scripts\activate.bat
+Enter fullscreen mode
+Exit fullscreen mode
+Install dependencies:
+pip install -r 04-retrieval/requirements.txt
+Enter fullscreen mode
+Exit fullscreen mode
+Step 1:
+Deploy Amazon ECS Cluster for Audio/Video Embeddings Processing
+This CDK project creates the foundational infrastructure for an audio and video processing application that generates embeddings from media files. The infrastructure includes:
+An Amazon ECS cluster named "video-processing"
+A VPC with public and private subnets for secure networking
+SSM parameters to store cluster and VPC information for use by other stacks
+cd 01-ecs-cluster
+cdk deploy
+Enter fullscreen mode
+Exit fullscreen mode
+This deployment takes approximately 162 s.
+Verify Deployment
+After deployment, you can verify the resources in the AWS Cloudformation console:
+Check parameters in the Systems Manager Parameter Store, ​​necesary to deploy other stacks that are part of this application:
+-/videopgvector/cluster-name: Contains the ECS cluster name
+-/videopgvector/vpc-id: Contains the VPC ID
+Step 2:
+Deploy Amazon Aurora PostgreSQL Vector Database for Audio/Video Embeddings
+This CDK project creates an Amazon Aurora PostgreSQL database with vector capabilities for storing and querying embeddings generated from audio and video files.
+The infrastructure includes:
+An Aurora PostgreSQL Serverless v2 cluster with pgvector extension
+Lambda functions for database setup and management
+Security groups and IAM roles for secure access- SSM parameters to store database connection information
+cd ../02-aurora-pg-vector
+cdk deploy
+Enter fullscreen mode
+Exit fullscreen mode
+This deployment takes approximately 594.29s.
+Verify Deployment
+After deployment, you can verify the resources in the AWS Cloudformation console:
+Check parameters in the Systems Manager Parameter Store, ​​necesary to deploy other stacks that are part of this application:
+/videopgvector/cluster_arn: Contains the Aurora cluster ARN
+/videopgvector/secret_arn: Contains the secret ARN for database credentials
+/videopgvector/video_table_name: Contains the table name for video embeddings
+Step 3:
+Deploy Audio/Video processing workflow
+This CDK project creates a complete workflow for processing audio and video files to generate embeddings.
+The infrastructure includes:
+A Step Functions workflow that orchestrates the entire process
+Lambda functions for various processing steps
+An ECS Fargate task for video frame extraction
+Integration with Amazon Transcribe for audio transcription
+DynamoDB tables for tracking job status
+S3 bucket for storing media files and processing results
+Install Docker Desktop and then:
+cd ../03-audio-video-workflow
+cdk deploy
+Enter fullscreen mode
+Exit fullscreen mode
+This deployment takes approximately 171s.
+Verify Deployment
+After deployment, you can verify the resources in the AWS Cloudformation console:
+Step 4:
+Deploy retrieval API for Audio/Video embeddings
+This CDK project creates a retrieval API for searching and querying embeddings generated from audio and video files.
+The infrastructure includes:
+An API Gateway REST API with Cognito authentication.
+Lambda functions for retrieval operations.
+Integration with the Aurora PostgreSQL vector database.
+cd ../04-retrieval
+cdk deploy
+Enter fullscreen mode
+Exit fullscreen mode
+This deployment takes approximately 56.77s.
+Verify Deployment
+After deployment, you can verify the resources in the AWS Cloudformation console:
+Check parameters in the Systems Manager Parameter Store, ​​necesary to deploy other stacks that are part of this application:
+/videopgvector/api_retrieve: Contains the API endpoint URL
+/videopgvector/lambda_retreval_name: Contains the retrieval Lambda function name
+Testing the Application
+Navigate to the test environment:
+../04-retrieval/test-retrieval/
+Enter fullscreen mode
+Exit fullscreen mode
+Upload the video file to the bucket created in the previous deployment.
+Check the bucket name as follows:
+import boto3
+ssm = boto3.client(service_name="ssm", region_name=region)
+def get_ssm_parameter(name):
+response = ssm.get_parameter(Name=name, WithDecryption=True)
+return response["Parameter"]["Value"]
+Enter fullscreen mode
+Exit fullscreen mode
+Then upload the file with this function:
+s3_client = boto3.client('s3')
+# Upload Video to Amazon S3 bucket
+def upload_file_to_s3 (video_path,bucket_name,s3_key):
+s3_client.upload_file(video_path, bucket_name,s3_key)
+print("Upload successful!")
+Enter fullscreen mode
+Exit fullscreen mode
+Once the file upload is complete, the Step Functions workflow is automatically triggered. The pipeline will automatically:
+Extract audio and start transcription
+Process video frames and generate embeddings
+Store results in Aurora PostgreSQL
+You can test the application in two ways:
+Query:
+Open the notebook 01_query_audio_video_embeddings.ipynb and make queries directly to Aurora PostgreSQL, similar to what we did in the previous blog.
+Try the API:
+Open the notebook 02_test_webhook.ipynb. This notebook demonstrates how to:
+Upload video files to the S3 bucket for processing
+Test the retrieval API endpoints with different query parameters
+*Upload video files to the S3 bucket for processing *
+response = sns_client.list_executions(
+stateMachineArn=state_machine_arn,
+maxResults=12
+)
+response['executions'][0]
+Enter fullscreen mode
+Exit fullscreen mode
+You can also see the status in the AWS Step Functions console.
+Test the retrieval API endpoints with different query parameters:
+To method as retrieve: For basic search functionality.
+To method as retrieve_generate: For enhanced search with generated responses.
+Basándome en el contenido del blog y el notebook de referencia que menciona el uso de Strands agents, aquí está una conclusión que conecta naturalmente con el siguiente paso:
+What's Next?
+This containerized implementation of Ask Your Video demonstrates how you can scale video content processing using AWS Step Functions and Amazon ECS. The parallel processing architecture significantly improves performance while maintaining cost efficiency through optimized resource utilization.
+The solution provides several key advantages over traditional approaches:
+Scalability: Handle multiple video files simultaneously without resource constraints
+Reliability: Robust error handling and workflow orchestration through Step Functions
+Cost optimization: Pay only for the compute resources you use with Fargate
+Maintainability: Containerized components ensure consistent deployments across environments
+The complete source code and deployment instructions are available in the GitHub repository ⭐ Star this repository.
+Try implementing this solution in your AWS environment and share your feedback on how it performs with your video content. Stay tuned for Part 3, where we'll dive into building AI agents that can intelligently interact with your video content!
+Taking It Further with AI Agents
+Now that you have a robust video processing pipeline, the next logical step is to integrate this capability with AI agents for more sophisticated interactions. In the upcoming Part 3 of this series, you'll learn how to transform this containerized video analysis system into a powerful tool for Strands Agents Open Sources fremework.
+By creating a custom tool that connects to your video processing API, you can build conversational AI agents that can:
+Analyze video content through natural language queries
+Provide contextual responses based on both visual and audio elements
+Enable complex multi-modal interactions across your video library
+Integrate seamlessly with other business workflows through agent orchestration
+This integration opens up possibilities for applications like intelligent video search assistants, content moderation agents, and automated video analysis workflows that respond to natural language instructions.
+Gracias
+Eli
+🇻🇪🇨🇱 Dev.to Linkedin GitHub Twitter Instagram Youtube
+Linktr
+Elizabeth Fuentes LFollow
+AWS Developer Advocate
+Ask Your Video (2 Part Series)
+1
+Building a RAG System for Video Content Search and Analysis
+2
+Ask Your Video: Build a Containerized RAG Application for Visual and Audio Analysis
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS
+Follow
+Collection of articles by AWS Developer Advocates
+More from AWS
+Visualizing AI Agent Memory: Building a Web Browser for Amazon Bedrock AgentCore Memory
+#ai
+#aws
+#bedrock
+#agentcore
+4 Ways to Supercharge Your HLS Live Streaming App with AI-Powered Analysis
+#aws
+#amazonivs
+#ai
+#livestreaming
+Token Counting Meets Amazon Bedrock
+#ai
+#aws
+#bedrock
+#programming
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Página Inicial
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+Sobre
+Contato
+Free Postgres Database
+Software comparisons
+Forem Shop
+Código de Conduta
+Política de Privacidade
+Termos de Uso
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,323 @@
+Missing in Modern C++: Event Synchronization Primitive — with Working Examples - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Artak Avetyan
+Posted on Sep 23
+Missing in Modern C++: Event Synchronization Primitive — with Working Examples
+#cpp
+#opensource
+#programming
+#multiplatform
+If you’ve ever struggled with mutexes, predicates, and spurious wakeups in C++ multithreaded code, you know how much time can be lost managing synchronization instead of solving real problems. Here’s a simpler, more predictable approach.
+std::condition_variable is powerful, but it’s verbose, fragile, and full of boilerplate.
+Check the official example in cppreference:
+mutexes, predicates, loops, unlock/relock dance — and still you’re exposed to spurious wakeups (proof). Boost and Qt inherit the same quirks.
+For developers seeking a straightforward signaling primitive, Windows long offered Event objects, with auto-reset and manual-reset semantics to directly signal threads.
+The Areg Framework brings the same concept to cross-platform C++: SynchEvent, a lightweight, developer-friendly multithreading primitive that behaves like Windows Events and works well even in embedded systems.
+Why SynchEvent?
+Think of it as a direct C++ event primitive:
+✅ No spurious wakeups
+✅ No predicate gymnastics
+✅ No unlock/relock pitfalls
+Just signal and wait — with both auto-reset and manual-reset semantics, like Windows Events.
+Key Features
+SynchEvent is modeled after Windows Events, but works on Linux and Windows alike:
+Auto-reset → wakes exactly one thread, then resets automatically
+Manual-reset → wakes all waiters until reset
+Persistent state → no lost signals (signal-before-wait still wakes)
+Straightforward API → lock(), unlock(), setEvent(), resetEvent()
+No extra flags, mutexes, or predicate loops required.
+Auto-reset vs Manual-reset (visual)
+Auto-reset (wake ONE, then reset):
+[Thread A waits] ---+
+[Thread B waits] ---+--> Signal --> wakes one thread --> reset
+Manual-reset (wake ALL until reset):
+[Thread A waits] ---+
+[Thread B waits] ---+--> Signal --> wakes all threads --> stays signaled
+Enter fullscreen mode
+Exit fullscreen mode
+Code Comparison
+With std::condition_variable
+Example from cppreference
+std::mutex m;
+std::condition_variable cv;
+std::string data;
+bool ready = false;
+bool processed = false;
+void worker() {
+std::unique_lock lk(m);
+cv.wait(lk, []{ return ready; });
+data += " processed";
+processed = true;
+lk.unlock();
+cv.notify_one();
+}
+int main() {
+data = "Example";
+std::thread worker(worker);
+{ std::lock_guard lk(m); ready = true; }
+cv.notify_one();
+{ std::unique_lock lk(m); cv.wait(lk, []{ return processed; }); }
+worker.join();
+std::cout << data << '\n';
+}
+Enter fullscreen mode
+Exit fullscreen mode
+With SynchEvent (Areg SDK)
+Full example here
+#include "areg/base/SynchObjects.hpp"
+SynchEvent gEvent(false, true); // signaled, auto-reset
+std::string data;
+void workerThread() {
+gEvent.lock();
+// wait (no spurious wakeups, no predicate loops)
+data += " processed";
+gEvent.setEvent();
+// signal done
+}
+int main() {
+data = "Example";
+std::thread worker(workerThread);
+gEvent.setEvent();
+// signal worker
+gEvent.lock();
+// wait for completion
+worker.join();
+std::cout << data << '\n';
+}
+Enter fullscreen mode
+Exit fullscreen mode
+👉 Notice the difference: no flags, no spurious wakeups, no lock dance.
+Another example demonstrates waiting on multiple mixed synchronization objects like SynchEvent and Mutex. Clone the repo and try it yourself to see the simplicity firsthand.
+Feature
+Areg SynchEvent
+std::condition_variable
+Win Event
+POCO::Event
+Auto-reset
+✅ Wakes one thread
+⚠️ Manual logic
+✅ Wakes one
+✅ Wakes one
+Manual-reset
+✅ Wakes all threads
+❌ Not supported
+✅ Wakes all
+✅ Wakes all
+Initial state
+✅ Persistent
+❌ Not persistent
+✅ Persistent
+❌ Not persistent
+Reliable wakeups
+✅ Guaranteed
+⚠️ Spurious possible
+❌ Not guaranteed
+❌ Not guaranteed
+Boilerplate
+✅ Minimal API
+⚠️ Verbose
+✅ Low
+✅ Low
+Multi-event wait
+✅ Native support
+❌ Complex
+✅ Supported
+❌ Not supported
+Mix with mutex
+✅ Fully supported
+❌ Custom logic
+✅ Supported
+❌ Not supported
+Cross-platform
+✅ Windows & Linux
+✅ STL/Boost
+❌ Windows only
+✅ Windows & Linux
+Ease of use
+✅ Simple & flexible
+⚠️ Verbose, error-prone
+✅ Simple
+✅ Simple
+Legend: ✅ = supported, ⚠️ = problematic, ❌ = not available
+Where SynchEvent Shines
+A classic use case for a synchronization event is a Message Queue:
+Queue has a manual-reset event
+As long as messages exist → event stays signaled
+When last message is consumed → event resets
+With condition_variable, this requires extra locks, predicates, and loop checks.
+With SynchEvent, it’s a single signal/wait mechanism.
+Condition variables are fine for state predicates, but for pure synchronization, SynchEvent is the sharper tool.
+Final Takeaway
+If you’re tired of condition-variable spaghetti, try SynchEvent from Areg Framework: cross-platform, lightweight, and modeled after Windows Events.
+👉 Star the Areg SDK repo on GitHub, try the examples, and experience how effortless C++ multithreading can be!
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+David Sugar
+David Sugar
+David Sugar
+Follow
+Improving business confidentiality in the post-quantum world.
+Location
+Cape May
+Joined
+May 29, 2023
+•
+Sep 23
+Dropdown menu
+Copy link
+Hide
+WIndows has a native primitive for event, and it is indeed really handy. So I am curious and would have to see what the posix one looks like. But it might make my move pipelines even more efficient because I do the conditional variable / lock thing for that, though I only signal on empty or when becoming less than full, and keep separate conditions for each side of the pipeline. Another kind of primitive I have found useful and emulate from go is the waitgroup.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Artak Avetyan
+Follow
+👨‍👩‍👦 Father | ❤️ Husband | 🚀 C++ Enthusiast
+Build fast, reliable apps with Areg SDK — real-time, cross-platform communication for connected apps made simple.
+⭐ Support us on GitHub.
+Location
+Munich, Germany
+Education
+It was so many years ago that now plays no role :)
+Work
+Creator of https://github.com/aregtech/areg-sdk/ . This is for heart and the rest is for food :)
+Joined
+Oct 30, 2021
+More from Artak Avetyan
+🕒 Per-Thread Timers: Areg vs Qt vs POCO
+#programming
+#cpp
+#opensource
+#learning
+C++ Can Be Easy: Service-Oriented programming with Areg SDK
+#cpp
+#programming
+#productivity
+#opensource
+Fun project
+#programming
+#productivity
+#opensource
+#beginners
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Página Inicial
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+Sobre
+Contato
+Free Postgres Database
+Software comparisons
+Forem Shop
+Código de Conduta
+Política de Privacidade
+Termos de Uso
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

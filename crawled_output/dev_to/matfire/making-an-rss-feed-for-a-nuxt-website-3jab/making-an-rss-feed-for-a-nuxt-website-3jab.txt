@@ -1,0 +1,288 @@
+Making an RSS Feed for a Nuxt Website - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Matteo
+Posted on Sep 22
+• Originally published at matteogassend.com
+Making an RSS Feed for a Nuxt Website
+#nuxt
+#javascript
+#rss
+I recently remade my website (I know, I know) and I got a surprise when getting to reimplement an rss feed because, while Astro has a module that helps with generating an rss feed, Nuxt doesn't - at least not for V3 and consequently V4. But worry not, for making one is easy enough !
+What is an RSS Feed ?
+An RSS feed is an xml document that allows users to subscribe to updates on a website. It is an xml document that can be easily parsed to retrieve the latest published article, the website's author and more info (wikipedia entry here if you want to learn more).
+There are a lot of applications that will allow you to subscribe to an rss feed and even get notified when one is updated.
+Although RSS in its xml format is the most well-known way to consume web feeds, there are other formats that are also widely supported:
+json feeds
+atom feeds
+In this article I'll only be talking about RSS - and briefly mentioning atom - but all the things I'm talking about apply to all of them.
+The structure of an RSS Feed
+Let's take a look at what an rss feed looks like (you can find mine here) - specifically the one for my website
+<rss version="2.0">
+<channel>
+<title>Matteo's Log</title>
+<link>https://www.matteogassend.com</link>
+<generator>Nuxt & Feed</generator>
+<language>en</language>
+<atom:link href="https://www.matteogassend.com/rss.xml" rel="self" type="application/rss+xml"/>
+<item>
+<title>T3Chat Cloneathon Postmortem</title>
+<link>
+https://www.matteogassend.com/articles/t3-cloneathon-postmortem
+</link>
+<guid isPermaLink="false">t3-cloneathon-postmortem</guid>
+<pubDate>Mon, 14 Jul 2025 00:00:00 GMT</pubDate>
+<description>
+I participated in the T3Chat cloneathon; here's how it went
+</description>
+<content:encoded>
+...
+</content:encoded>
+</item>
+</channel>
+</rss>
+Enter fullscreen mode
+Exit fullscreen mode
+First we have the main tag specifying that this xml document is an rss feed and its implementation version (in this case, version 2.0).
+We then get to the channel definition; this is the actual feed that will be consumed and inside of it we can find info such as its name, description, language and more.
+Then, for each element we want to add to our channel, we have a item tag. Each item contains a name, description, publication date, unique id and optionally the raw content of the item (in this case, a blog article).
+How to build one in Nuxt
+Luckily, Nuxt routes can be either Vue components or server endpoints - you could also use tsx, but we'll skip that for now. Server - or API - endpoints are handled by Nitro and use the classic browser Request & Response, meaning we can simply return an xml document with the correct headers and we're good to go! Let's see how to do it in detail
+Declaring the API route
+Let's start by declaring the Nitro route; in this instance I'll have it match the /rss.xml path, meaning I will create a file here: /server/routes/rss.xml.ts and fill it with the basic Nitro handlers:
+export default defineEventHandler(async (event) => {
+//generate the feed
+...
+//return the actual feed data here
+return {}
+})
+Enter fullscreen mode
+Exit fullscreen mode
+The RSS Feed enter the game
+We could write the xml document by hand, but why bother? There exist the perfect package for this: feed. It allows use to programmatically build a feed and return it in different formats. Let's see how we can integrate it with Nitro.
+First things first, let's install the dependency:
+npm install feed
+Enter fullscreen mode
+Exit fullscreen mode
+And let's start creating the feed itself; we'll begin by setting all the basic info needed for the feed and leave the items for later:
+const feed = new Feed({
+title: "Matteo's Log",
+description: "All the articles from matteogassend.com",
+id: <a unique id>,
+link: <url of your website>,
+language: "en",
+copyright: `All rights reserved ${new Date().getFullYear()}, Matteo Gassend`,
+updated: new Date(),
+generator: "Nuxt & Feed",
+feedLinks: {
+rss: `<url of your website>/rss.xml`,
+},
+author: {
+name: <name of the author>,
+},
+});
+Enter fullscreen mode
+Exit fullscreen mode
+With just this, we could generate an xml document and return it with the endpoint we made above. Let's do just that
+export default defineEventHandler(async (event) => {
+... // the feed is here
+return feed.rss2()
+})
+Enter fullscreen mode
+Exit fullscreen mode
+We only need two other things before we have a fully functional rss feed:
+informing the browser of the type of data we're sending
+inserting the actual items in the feed
+The first step is simple enough, so let's get it out of the way; before returning the generated feed, let's set the content-type header. This header tells the browser how to understand the content we'll send it back; you can see it used mostly when sending back json data - when making an api, for example. Here's how we can do it in Nitro:
+setResponseHeader(event, "content-type", "text/xml");
+Enter fullscreen mode
+Exit fullscreen mode
+This tells the browser we're sending back an xml document.
+Adding Items to the feed
+Now that we have our basis covered, let's get to adding actual items to the feed. In my usecase, I needed to fetch items from a Nuxt Content collection and add it to the feed. So let's do just that:
+const articles = await queryCollection(event, "articles")
+.order("publishDate", "DESC")
+.all();
+Enter fullscreen mode
+Exit fullscreen mode
+If you don't have a collection, just pretend this is an array of objects.
+After that, it's as simple as looping over your data array and calling the addItem method on your feed instance:
+articles.forEach((article) => {
+feed.addItem({
+title: article.title,
+id: article.slug,
+description: article.summary,
+date: new Date(article.publishDate),
+link: `${BASE_URL}/articles/${article.slug}`,
+content: article.rawbody,
+});
+});
+Enter fullscreen mode
+Exit fullscreen mode
+And that's all you need to do to generate an RSS feed in your Nuxt app! I also added an atom feed with the exact same logic - I just had to replace rss2 call with atom1 and you're done!
+Adding the Feed to the Website
+Once you have your server route you just need to add it to your pages and most rss readers should be able to pick it up. Let's say our rss feed lives at /rss.xml: if so, we'll need to add the following link tag to our page's head:
+<link rel="alternate" type="application/rss+xml" title="Your feed's title" href=`${BASE_URL}/rss.xml`
+Enter fullscreen mode
+Exit fullscreen mode
+If you're using unhead, then this can also be done in a useHead composable hook using something like this:
+useHead({
+link: [
+{
+rel: "alternate",
+type: "application/rss+xml",
+title: "Matteo's Log",
+href: "/rss.xml",
+},
+{
+rel: "alternate",
+type: "application/atom+xml",
+title: "Matteo's Log",
+href: "/atom",
+},
+],
+});
+Enter fullscreen mode
+Exit fullscreen mode
+And you're officially done!
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Matteo
+Follow
+Just your friendly neighborhood developer.
+Location
+Marseille
+Education
+Epitech Lyon
+Joined
+Nov 2, 2017
+More from Matteo
+Building a dynamic form with Svelte and Typescript
+#typescript
+#svelte
+#javascript
+How filesystem-based routers work: building one for express
+#javascript
+#node
+test everywhere with dagger.io
+#docker
+#devops
+#dagger
+#javascript
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

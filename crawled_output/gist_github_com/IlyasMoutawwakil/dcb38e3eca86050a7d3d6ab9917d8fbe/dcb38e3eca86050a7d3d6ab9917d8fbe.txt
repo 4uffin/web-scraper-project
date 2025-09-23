@@ -1,0 +1,217 @@
+A self-contained performance benchmarking script, comparing SmolVLM2 on PyTorch and Optimum-Intel's OpenVINO integration · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+IlyasMoutawwakil/openvino-vlm-benchmark.py
+Last active
+September 22, 2025 14:17
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/IlyasMoutawwakil/dcb38e3eca86050a7d3d6ab9917d8fbe.js&quot;&gt;&lt;/script&gt;
+Save IlyasMoutawwakil/dcb38e3eca86050a7d3d6ab9917d8fbe to your computer and use it in GitHub Desktop.
+Code
+Revisions
+12
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/IlyasMoutawwakil/dcb38e3eca86050a7d3d6ab9917d8fbe.js&quot;&gt;&lt;/script&gt;
+Save IlyasMoutawwakil/dcb38e3eca86050a7d3d6ab9917d8fbe to your computer and use it in GitHub Desktop.
+Download ZIP
+A self-contained performance benchmarking script, comparing SmolVLM2 on PyTorch and Optimum-Intel's OpenVINO integration
+Raw
+openvino-vlm-benchmark.py
+# /// script
+# dependencies = [
+#
+"optimum-benchmark[openvino]@git+https://github.com/huggingface/optimum-benchmark.git@main",
+#
+"optimum-intel@git+https://github.com/huggingface/optimum-intel.git@main",
+#
+"transformers==4.55.*",
+#
+"torchvision",
+#
+"num2words",
+# ]
+# ///
+from argparse import ArgumentParser
+import matplotlib.pyplot as plt
+from huggingface_hub import create_repo, upload_file
+from optimum_benchmark import (
+Benchmark,
+BenchmarkConfig,
+BenchmarkReport,
+InferenceConfig,
+OpenVINOConfig,
+ProcessConfig,
+PyTorchConfig,
+)
+from optimum_benchmark.logging_utils import setup_logging
+if __name__ == "__main__":
+setup_logging(level="INFO", prefix="MAIN-PROCESS")
+parser = ArgumentParser()
+parser.add_argument("--model_id", type=str, default="HuggingFaceTB/SmolVLM2-500M-Video-Instruct")
+parser.add_argument("--benchmark_repo_id", type=str, default=None)
+args = parser.parse_args()
+model_id = args.model_id
+benchmark_repo_id = args.benchmark_repo_id
+if benchmark_repo_id is not None:
+# not needed but useful to error early if benchmark_repo_id is not valid
+create_repo(benchmark_repo_id, repo_type="dataset", exist_ok=True)
+launcher_config = ProcessConfig()
+scenario_config = InferenceConfig(
+memory=True,
+latency=True,
+generate_kwargs={"max_new_tokens": 16, "min_new_tokens": 16},
+input_shapes={"batch_size": 1, "sequence_length": 16, "num_images": 1},
+)
+configs = {
+"pytorch": PyTorchConfig(device="cpu", model=model_id, no_weights=True),
+"openvino": OpenVINOConfig(device="cpu", model=model_id, no_weights=True),
+"openvino-8bit-woq": OpenVINOConfig(
+device="cpu",
+model=model_id,
+no_weights=True,
+quantization_config={"bits": 8, "num_samples": 1, "weight_only": True},
+),
+"openvino-8bit-static": OpenVINOConfig(
+device="cpu",
+model=model_id,
+no_weights=True,
+quantization_config={"bits": 8, "num_samples": 1, "weight_only": False, "dataset": "contextual"},
+),
+}
+for config_name, backend_config in configs.items():
+benchmark_config = BenchmarkConfig(
+name=f"{config_name}",
+launcher=launcher_config,
+scenario=scenario_config,
+backend=backend_config,
+)
+benchmark_report = Benchmark.launch(benchmark_config)
+if benchmark_repo_id is not None:
+benchmark_report.push_to_hub(repo_id=benchmark_repo_id, filename=f"{config_name}_report.json")
+benchmark_config.push_to_hub(repo_id=benchmark_repo_id, filename=f"{config_name}_config.json")
+else:
+benchmark_report.save_json(f"{config_name}_report.json")
+benchmark_config.save_json(f"{config_name}_config.json")
+reports = {}
+for config_name in configs.keys():
+if benchmark_repo_id is not None:
+reports[config_name] = BenchmarkReport.from_hub(
+repo_id=benchmark_repo_id, filename=f"{config_name}_report.json"
+)
+else:
+reports[config_name] = BenchmarkReport.from_json(f"{config_name}_report.json")
+# Plotting results
+_, ax = plt.subplots()
+ax.boxplot(
+[reports[config_name].prefill.latency.values for config_name in reports.keys()],
+tick_labels=reports.keys(),
+showfliers=False,
+)
+plt.xticks(rotation=10)
+ax.set_ylabel("Latency (s)")
+ax.set_xlabel("Configurations")
+ax.set_title("Prefill Latencies")
+plt.savefig("prefill_latencies_boxplot.png")
+_, ax = plt.subplots()
+ax.bar(
+list(reports.keys()),
+[reports[config_name].decode.throughput.value for config_name in reports.keys()],
+color=["C0", "C1", "C2", "C3", "C4", "C5"],
+)
+plt.xticks(rotation=10)
+ax.set_xlabel("Configurations")
+ax.set_title("Decoding Throughput")
+ax.set_ylabel("Throughput (tokens/s)")
+plt.savefig("decode_throughput_barplot.png")
+if benchmark_repo_id is not None:
+upload_file(
+path_or_fileobj="prefill_latencies_boxplot.png",
+path_in_repo="plots/prefill_latencies_boxplot.png",
+repo_id=benchmark_repo_id,
+repo_type="dataset",
+token=True,
+)
+upload_file(
+path_or_fileobj="decode_throughput_barplot.png",
+path_in_repo="plots/decode_throughput_barplot.png",
+repo_id=benchmark_repo_id,
+repo_type="dataset",
+token=True,
+)
+Copy link
+Author
+IlyasMoutawwakil
+commented
+Sep 22, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+HF repository with all configs/results/plots:
+https://huggingface.co/datasets/IlyasMoutawwakil/OpenVINO-VLM-Benchmark
+How to reproduce using HF Jobs on an optimized Intel CPU:
+hf auth login
+hf jobs uv run --flavor "cpu-upgrade" --secrets HF_TOKEN=your_write_token "https://gist.githubusercontent.com/IlyasMoutawwakil/dcb38e3eca86050a7d3d6ab9917d8fbe/raw/openvino-vlm-benchmark.py" --benchmark_repo_id=NameSpace/RepoName
+Plots (taken directly from the hub):
+Prefill Latency / TTFT (time to first token): from 2.5s to 0.75s (3.33x speedup)
+Decoding Throughput / TPS
+(tokens per second): from 2.5tok/s to 17.5 tok/s (7x speedup)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

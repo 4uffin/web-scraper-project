@@ -1,0 +1,300 @@
+Generic Data Structures in C - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Paul J. Lucas
+Posted on Sep 22
+Generic Data Structures in C
+#c
+Introduction
+Since C doesn’t have templates like C++, void* is typically used in data structures since it can point to any type of data.
+For example, a node in a red-black tree might be something like:
+typedef struct rb_node rb_node_t;
+struct rb_node {
+rb_node_t *child[2];
+// 0 = left; 1 = right
+rb_node_t *parent;
+void
+*data;
+};
+Enter fullscreen mode
+Exit fullscreen mode
+Of course there are disadvantages to using a pointer rather than having the data directly in the node itself:
+Often, a separate call to malloc() is needed to allocate the data and a separate call to free() is needed to deallocate it.
+Accessing the data is slower since it’s in a different memory location than the node (not part of the same cache line).
+However, if the size of the data you need to store ≤ sizeof(void*), e.g., an int, then you can cram it into and extract it from data directly using casts:
+node->data = (void*)i;
+// cram int in
+// ...
+i = (int)node->data;
+// pull int out
+Enter fullscreen mode
+Exit fullscreen mode
+But if the size of the data is > sizeof(void*), you’re forced to malloc separate storage for it — or are you?
+Balanced binary trees, in particular red-black trees, are core data structures in computer science (along with linked lists and hash tables).
+In this article, I’m going to cover how to make a red-black tree generic in C; I’m not going to cover the details of the red-black tree algorithms themselves because, while they’re not that hard, they’re a bit involved and distract from my goal with this article.
+If you want to know more about the algorithms behind red-black trees, there’s plenty of resources online and in books.
+The book and reference implementation I use is the one given in Introduction to Algorithms, 4th ed., Thomas H. Cormen, Charles E. Leiserson, Ronald L. Rivest, and Clifford Stein, MIT Press, ISBN 9780262046305, §13.
+I was originally planning on incorporating this article as a chapter in my book Why Learn C, but, in a book, I felt I’d have to cover the algorithms in detail, along with several supporting figures, that got to be the bulk of the chapter — and detailed algorithm explanations are beyond the scope of my book.
+I felt it would have been unfair not to cover the explanations and refer readers who’ve paid for my book to go read another book.
+Hence, I dropped the chapter from my book.
+(My book does include chapters on linked lists and hash tables since their algorithms are far less involved.)
+However, since my blog is free, I don’t feel guilty about not covering red-black tree algorithm details here.
+Flexible Array Members
+There is a better way: use a flexible array member (FAM) for data:
+struct rb_node {
+rb_node_t *child[2];
+// 0 = left; 1 = right
+rb_node_t *parent;
+alignas( max_align_t ) char data[];
+};
+Enter fullscreen mode
+Exit fullscreen mode
+As I wrote in my previous article:
+Introduced in C99, the last member of a struct with more than one named member may be a flexible array member, that is an array of an unspecified size.
+Typically, such a struct serves as a “header” for a larger region of memory ....
+If the signature of rb_tree_insert() includes data_size, then a new node can be malloc’d and the data can be copied into the node like:
+new_node = malloc( sizeof(rb_node_t) + data_size );
+memcpy( new_node->data, data, data_size );
+Enter fullscreen mode
+Exit fullscreen mode
+Reminder: since a node’s data is an array, it means specifying its name in an expression causes it to “decay” to a pointer to its first element as if &new_node->data[0].
+Since data_size is passed as an argument, this allows every node to have a different size if necessary.
+Since C allows a structure to have at most one FAM, using one provides for only a single chunk of data, not a separate key and a value like C++’s std::map.
+But you don’t actually need a key and value to be stored separately: just store them both within data.
+For example, if you want to store something like a word count, then declare something like:
+struct word_count {
+char
+*word;
+unsigned
+count;
+};
+Enter fullscreen mode
+Exit fullscreen mode
+and store that in the FAM.
+A comparison function would compare only word and ignore count.
+Or you can just store a single value.
+Hence, a red-black tree using a FAM can implement either a set or a map.
+Of course even though using a flexible array member eliminates the aforementioned disadvantages, it creates some of its own:
+Inserting data into a tree requires copying it into a node.
+For large data, this can be expensive.
+If you want to delete a node from the tree but keep its data, you have to copy it out first.
+There are disadvantages either way.
+Like most things in computer science, it’s a trade-off.
+But what if there were a way to let the user to choose which data storage method to use, that is external to the node via pointer or internal to the node?
+Data Location
+Suppose we add the following enumeration:
+enum rb_dloc {
+RB_DINT,
+// Nodes contain data internally.
+RB_DPTR
+// Nodes contain a pointer to data.
+};
+typedef enum rb_dloc rb_dloc_t;
+Enter fullscreen mode
+Exit fullscreen mode
+and then rb_tree contains a member of that type:
+struct rb_tree {
+rb_node_t
+*root;
+// Root node of tree.
+rb_cmp_fn_t
+cmp_fn;
+// Data comparison function.
+rb_dloc_t
+dloc;
+// Node data location.
+rb_node_t
+nil;
+// Nil sentinel.
+};
+typedef struct rb_tree rb_tree_t;
+Enter fullscreen mode
+Exit fullscreen mode
+and finally, we add the following helper macros:
+#define RB_DINT(NODE)
+( (void*)(NODE)->data )
+#define RB_DPTR(NODE)
+( *(void**)RB_DINT( (NODE) ) )
+Enter fullscreen mode
+Exit fullscreen mode
+where RB_DINT(node) accesses the data stored internally to node and RB_DPTR(node) accesses the data using node as the pointer to it.
+In case you’re wondering how there can be RB_DINT and RB_DPTR as both enumeration constants and preprocessor macros, as I mentioned in my macros article, the preprocessor does not expand a function-like macro if it’s not followed by (; hence either RB_DINT or RB_DPTR not followed by ( refer to the enumeration constant.
+Given all that, an rb_dloc is passed to the function to initialize a red-black tree:
+void rb_tree_init( rb_tree_t *tree, rb_dloc_t dloc,
+rb_cmp_fn_t cmp_fn );
+Enter fullscreen mode
+Exit fullscreen mode
+When inserting into a red-black tree via rb_tree_insert:
+rb_insert_rv_t rb_tree_insert( rb_tree_t *tree, void *data,
+size_t data_size ) {
+// ...
+if ( tree->dloc == RB_DINT ) {
+new_node = malloc( sizeof(rb_node_t) + data_size );
+memcpy( RB_DINT( z_new_node ), data, data_size );
+}
+else {
+new_node = malloc( sizeof(rb_node_t) + sizeof(void*) );
+RB_DPTR( z_new_node ) = data;
+}
+// ...
+Enter fullscreen mode
+Exit fullscreen mode
+that is when dloc is RB_DINT, the rb_node is malloc’d big enough for the node and the data that’s memcpy’d into place; when dloc is RB_DPTR, only the pointer to the data is copied.
+A helper function of:
+inline void* rb_node_data( rb_tree_t const *tree,
+rb_node_t const *node ) {
+return tree->dloc == RB_DINT ? RB_DINT(node) : RB_DPTR(node);
+}
+Enter fullscreen mode
+Exit fullscreen mode
+gets a pointer to a node’s data regardless of where it’s stored and:
+static inline int rb_tree_cmp( rb_tree_t const *tree,
+rb_node_t *node,
+void const *data ) {
+return (*tree->cmp_fn)( data, rb_node_data( tree, node ) );
+}
+Enter fullscreen mode
+Exit fullscreen mode
+compares new data to find or insert with the data at node.
+Aside from rb_node_data and rb_tree_insert that use dloc, all the rest of the code for finding, deleting, and visiting nodes is exactly the same as for any other red-black tree implementation.
+Among other places, I use a red-black tree within cdecl.
+The source files are red_black.h and red_black.c.
+Conclusion
+Using flexible array members works for any data structure that uses dynamically allocated nodes (linked lists, hash tables, sets, or maps) and allows the user to choose whether data is stored either internally to nodes or externally via pointer to suit the user’s particular circumstances.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Paul J. Lucas
+Follow
+C++ Jedi Master
+Location
+San Francisco Bay Area
+Education
+University of Illinois at Urbana-Champaign
+Work
+Retired Principal Software Engineer
+Joined
+Jan 21, 2017
+More from Paul J. Lucas
+Implementing “Did you mean ...?” Suggestions
+#c
+#api
+Anonymous Structures in C
+#c
+“Why Learn C” Book Announcement
+#c
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Página Inicial
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+Sobre
+Contato
+Free Postgres Database
+Software comparisons
+Forem Shop
+Código de Conduta
+Política de Privacidade
+Termos de Uso
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
