@@ -1,0 +1,348 @@
+修正微软拼音输入法无法添加多个格式化自定义短语的问题，默认添加 sj 和 rq 两个自定义短语 · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+scruel/fix-ms-input-pinyin-phrase.py
+Last active
+September 24, 2025 00:21
+Show Gist options
+Download ZIP
+Star
+26
+(26)
+You must be signed in to star a gist
+Fork
+5
+(5)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/scruel/36cb4614665acc5943ff8c563e884081.js&quot;&gt;&lt;/script&gt;
+Save scruel/36cb4614665acc5943ff8c563e884081 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+20
+Stars
+26
+Forks
+5
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/scruel/36cb4614665acc5943ff8c563e884081.js&quot;&gt;&lt;/script&gt;
+Save scruel/36cb4614665acc5943ff8c563e884081 to your computer and use it in GitHub Desktop.
+Download ZIP
+修正微软拼音输入法无法添加多个格式化自定义短语的问题，默认添加 sj 和 rq 两个自定义短语
+Raw
+fix-ms-input-pinyin-phrase.py
+"""
+修正微软拼音输入法无法添加多个格式化自定义短语的问题
+Author: Scruel Tao
+"""
+import os
+import re
+import pathlib
+import traceback
+from pathlib import Path
+# 自定义: 下面设置自定义短语，格式<拼音 位置 短语>，一行一项，短语中可放心包含空格
+# 或也可在该脚本的同目录下，创建一个 phrases.txt，在其中以同一格式写入自定义短语
+PHRASES_TEXT = """
+rq 1 %yyyy%-%MM%-%dd%
+sj 1 %yyyy%-%MM%-%dd% %HH%:%mm%:%ss%
+""".strip()
+LEX_FILE = os.path.join(os.getenv('APPDATA'),
+r'Microsoft\InputMethod\Chs\ChsPinyinEUDPv1.lex')
+HEADER_LEN = 16 + 4
+PHRASE_64PCNT_POS = HEADER_LEN
+TOTAL_BYTES_POS = HEADER_LEN + 4
+PHRASE_CNT_POS = HEADER_LEN + 8
+PADDED_ENCODING = 'utf-16le'
+HEADER_BYTES = bytes('mschxudp', encoding='ascii')
+HEADER_BYTES = HEADER_BYTES + bytes('\x02\x60\x01\x00', PADDED_ENCODING)
+PHRASE_SEPARATOR_BYTES = b'\x00\x00'
+PHRASE_SEPARATOR_SIZE = len(PHRASE_SEPARATOR_BYTES)
+PHRASE_LEN_FIRST_POS = PHRASE_CNT_POS + 40
+phrase_fixed_last_bytes = b'\xA5\x2C'
+def read_bytes(position, length=1):
+with open(LEX_FILE, 'rb+') as file:
+file.seek(position)
+return file.read(length)
+def replace_bytes(position, value):
+with open(LEX_FILE, 'rb+') as file:
+file.seek(position)
+data = file.read()
+file.seek(position)
+file.write(value + data[len(value):])
+def bytes2int(data):
+return int.from_bytes(data, byteorder='little')
+def int2bytes(data, length=1):
+return int.to_bytes(data, length=length, byteorder='little')
+def padded_bytes(s):
+def padded_byte(c):
+b = bytes(c, PADDED_ENCODING)
+return b + b'\x00' if len(b) == 1 else b
+return b''.join([padded_byte(c) for c in s])
+def get_phrase_header(header_pinyin_len, index):
+return (b'\x10\x00\x10\x00' + int2bytes(header_pinyin_len, 2)
++ int2bytes(index) + b'\x06\x00\x00\x00\x00' + b'\x00\x00'
++ phrase_fixed_last_bytes)
+def main():
+global phrase_fixed_last_bytes
+current_dir = os.path.dirname(os.path.realpath(__file__))
+phrases_file = Path(current_dir) / 'phrases.txt'
+phrases_text = PHRASES_TEXT
+if phrases_file.exists():
+try:
+phrases_file_text = phrases_file.read_text('utf-8')
+except:
+phrases_file_text = phrases_file.read_text('gbk')
+phrases_text += '\n' + phrases_file_text.replace('\r\n', '\n')
+phrase_items = list(set([x.strip() for x in phrases_text.split('\n') if x]))
+print(f"==================\n"
+f"Author: Scruel Tao\n"
+f"==================\n\n"
+f"正在修正巨硬拼音并添加\n"
+f"预置的日期格式化短语……\n"
+f"\n"
+f"短语数量：{len(phrase_items)}\n"
+)
+last_phrase_pos = 0
+phrase_list = []
+# (is_new, pinyin, header, phrase))
+if not os.path.exists(LEX_FILE):
+with open(LEX_FILE, 'wb') as f:
+# Initing lex file
+f.write(HEADER_BYTES)
+f.write((b'\x40' + b'\x00' * 3) * 3)
+f.write(b'\x00' * 4)
+f.write(b'\x38\xd2\xa3\x65')
+f.write(b'\x00' * 32)
+else:
+phrase_cnt = bytes2int(read_bytes(PHRASE_CNT_POS, 4))
+phrase_block_first_pos = PHRASE_LEN_FIRST_POS + 4 * (phrase_cnt - 1)
+# Read existing phrases
+for i in range(phrase_cnt):
+if i == phrase_cnt - 1:
+phrase_block_pos = phrase_block_len = -1
+else:
+phrase_block_pos = bytes2int(
+read_bytes(PHRASE_LEN_FIRST_POS + i * 4, 4))
+phrase_block_len = phrase_block_pos - last_phrase_pos
+phrase_block_bytes = read_bytes(
+phrase_block_first_pos + last_phrase_pos, phrase_block_len)
+last_phrase_pos = phrase_block_pos
+pinyin_bytes, phrase_bytes = re.match(
+(b'(.+)' + PHRASE_SEPARATOR_BYTES) * 2, phrase_block_bytes[16:]).groups()
+phrase_fixed_last_bytes = phrase_block_bytes[14:16]
+# Prevent deleted phrases
+if phrase_block_bytes[9:10] == b'\x00':
+phrase_list.append((0, pinyin_bytes,
+phrase_block_bytes[:16], phrase_bytes))
+# Fix custom phrases
+for item in phrase_items:
+if not item:
+continue
+pinyin, index, phrase = item.split(maxsplit=2)
+pinyin_bytes = padded_bytes(pinyin)
+phrase_bytes = padded_bytes(phrase)
+phrase_list = [x for x in phrase_list if x[0] or not x[1] == pinyin_bytes]
+header = get_phrase_header(
+16 + len(pinyin_bytes) + PHRASE_SEPARATOR_SIZE, int(index))
+phrase_list.append((1, pinyin_bytes, header, phrase_bytes))
+# Necessary fix, otherwise the order of phrases will be messed up.
+phrase_list.sort(key=lambda x: x[1])
+# Write phrases
+tolast_phrase_pos = 0
+total_size = PHRASE_LEN_FIRST_POS
+with open(LEX_FILE, 'rb+') as file:
+file.seek(PHRASE_LEN_FIRST_POS)
+file.truncate()
+for _, *items in phrase_list[:-1]:
+phrase_len = sum(map(len, items)) + PHRASE_SEPARATOR_SIZE * 2
+tolast_phrase_pos += phrase_len
+file.write(int2bytes(tolast_phrase_pos, length=4))
+total_size += PHRASE_SEPARATOR_SIZE * 2
+for _, pinyin_bytes, header, phrase_bytes in phrase_list:
+file.write(header)
+data_bytes = PHRASE_SEPARATOR_BYTES.join(
+[pinyin_bytes, phrase_bytes, b''])
+file.write(data_bytes)
+total_size += len(header) + len(data_bytes)
+# Fix file header
+replace_bytes(PHRASE_64PCNT_POS, int2bytes(
+64 + len(phrase_list) * 4, length=4))
+replace_bytes(PHRASE_CNT_POS, int2bytes(len(phrase_list), length=4))
+replace_bytes(TOTAL_BYTES_POS, int2bytes(total_size, length=4))
+if __name__ == "__main__":
+try:
+main()
+print('Done')
+except:
+traceback.print_exc()
+os.system('pause')
+Copy link
+latv666
+commented
+Oct 7, 2023
+你好,非常感谢你在国庆期间写了这个脚本
+我在运行时报错,如图,环境是 VMware 16 + win10 x64 + python 3.12
+目前是可以自定义首个候选字,可不可以定义为首个以外的候选字? 比如我自定义 rq,首候选字是 2023年10月07日,次候选字是 2023年10月07日_125521
+另外这个脚本似乎对中文支持的不是很好,比如我自定义的是 %yyyy%年%MM%月%dd%日,好像也会报错
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+scruel
+commented
+Oct 7, 2023
+@latv666 看了下之前上传的是写了一半的代码，现在没问题了。
+同时顺便简化了一下代码，增加了你要的自定义候选词位置和对中文的支持。
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+latv666
+commented
+Oct 7, 2023
+@latv666 看了下之前上传的是写了一半的代码，现在没问题了。 同时顺便简化了一下代码，增加了你要的自定义候选词位置和对中文的支持。
+非常感谢,测试成功
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+SuperMonkeyC1
+commented
+Oct 11, 2023
+非常感谢，问题已经解决了~
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+JiangSNZero
+commented
+Feb 28, 2024
+非常感谢!您编写的脚本成功的帮助了我👍
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Roadelse
+commented
+Mar 19, 2024
+非常感谢, 让我不用再去下载qq输入法了...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+snsnsjsn
+commented
+Apr 10, 2024
+效果非常好，解决了手动设置两个变量，就无法使用
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+luoshuaidev
+commented
+May 11, 2024
+Traceback (most recent call last):
+File "PyCharm2023.3\light-edit\fix-ms-input-pinyin-phrase.py", line 168, in <module>
+main()
+File "PyCharm2023.3\light-edit\fix-ms-input-pinyin-phrase.py", line 118, in main
+pinyin_bytes, phrase_bytes = re.match(
+AttributeError: 'NoneType' object has no attribute 'groups'
+4月2日使是正常的, 这次使用就报错了.
+我尝试了最新版也是这里报错, 我也尝试了先清空自定义短语, 直接使用, 还是同样的问题.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+scruel
+commented
+May 16, 2024
+@luoshuaidev 我这里仍正常，另外最近比较忙，可能没时间解决相关问题，建议自行调试一下。
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+danangua
+commented
+Oct 15, 2024
+非常感谢，解决了一个大困扰。
+被强迫用微软拼音，不得不自己解决问题。下一个是自定义标点符号的，希望也能找到更好的方案。例如我希望中文模式下/ 和 _ 是英文标点，而不是顿号和破折号
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+scruel
+commented
+Oct 25, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+被强迫用微软拼音，不得不自己解决问题。下一个是自定义标点符号的，希望也能找到更好的方案。例如我希望中文模式下/ 和 _ 是英文标点，而不是顿号和破折号
+本身支持的，按 Ctrl + . 切换
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+danangua
+commented
+Oct 25, 2024
+切换费手啊，还能直接快捷键切换别的输入法呢，其他国产输入法能自定义标点根本没有这种问题。
+目前只是用回了微软拼音旧版，至少/=/，不再是讨厌的、了。下划线暂时无解。
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Mjhjh
+commented
+Apr 21, 2025
+很有用的脚本，非常感谢分享
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

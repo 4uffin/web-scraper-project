@@ -1,0 +1,463 @@
+Polyglot Dockerization: Java + Python + Vue in Local and Production - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Majedul Islam
+Posted on Sep 24
+Polyglot Dockerization: Java + Python + Vue in Local and Production
+#docker
+#spring
+#fastapi
+#vue
+Polyglot Dockerization: Java + Python + Vue in Local and Production
+Why these services: A polyglot stack where Spring Boot powers core business workflows, FastAPI powers AI/RAG, and Vue powers the frontend.
+Why dockerization matters: Containers keep Java, Python, and Node toolchains consistent everywhere, eliminating cross-language environment drift.
+Two goals: (1) frictionless local development with one command, (2) production-grade images and configuration for reliable deploys.
+Keep secrets and configuration in .env files. Compose reads values like POSTGRES_PASSWORD, JWT_SECRET, GOOGLE_API_KEY, etc., from a local .env placed next to docker-compose.yml.
+Local Dockerization with Docker Compose
+Spring Boot service
+Dockerfile (multi-stage: build with Maven, run on JRE):
+# ---------- Build stage ----------
+FROM maven:3.9-eclipse-temurin-21 AS builder
+WORKDIR /workspace/legalconnect
+# Copy Maven wrapper and pom.xml first for better caching
+COPY legalconnect/mvnw legalconnect/mvnw.cmd ./
+COPY legalconnect/.mvn ./.mvn
+COPY legalconnect/pom.xml ./
+# Download dependencies
+RUN ./mvnw dependency:go-offline -B
+# Copy source code and build
+COPY legalconnect/src ./src
+RUN ./mvnw clean package -DskipTests -B
+# ---------- Runtime stage ----------
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+# Non-root user + logs dir
+RUN addgroup -g 1001 -S spring && adduser -S spring -u 1001 \
+&& mkdir -p /app/logs && chown -R spring:spring /app
+# Copy fat jar
+COPY --from=builder /workspace/legalconnect/target/legalconnect-0.0.1-SNAPSHOT.jar /app/app.jar
+RUN chown spring:spring /app/app.jar
+USER spring
+ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC -XX:+UseContainerSupport"
+ENV SERVER_PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
+Enter fullscreen mode
+Exit fullscreen mode
+FastAPI service
+Dockerfile (Python slim base, pinned requirements, uvicorn):
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+&& pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+Enter fullscreen mode
+Exit fullscreen mode
+Frontend (Vue) service
+Dockerfile (build with Node 22, serve static with serve):
+# ---- Build stage ----
+FROM node:22-alpine AS builder
+WORKDIR /app
+# Install deps first (better layer caching)
+COPY package*.json ./
+RUN npm ci
+# Copy source
+COPY . .
+# Accept build-time envs for Vite
+ARG VITE_API_BASE_URL
+ARG VITE_AI_CHAT_BASE_URL
+ARG VITE_JAAS_URL
+ARG VITE_JITSI_APP_ID
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_AI_CHAT_BASE_URL=${VITE_AI_CHAT_BASE_URL}
+ENV VITE_JAAS_URL=${VITE_JAAS_URL}
+ENV VITE_JITSI_APP_ID=${VITE_JITSI_APP_ID}
+# Build
+RUN npm run build
+# ---- Runtime stage (serve) ----
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+RUN npm i -g serve@14
+COPY --from=builder /app/dist /app
+# Use port 5173 to match development server
+ENV PORT=5173
+EXPOSE 5173
+# Bind to 0.0.0.0 and use port 5173
+CMD ["sh","-c","serve -s /app -l tcp://0.0.0.0:${PORT}"]
+Enter fullscreen mode
+Exit fullscreen mode
+docker-compose.yml (all services)
+One Compose file orchestrates everything locally: Postgres, Redis, Elasticsearch, Spring Boot, FastAPI, and the frontend. Services depend on each other with health checks. Environment variables are injected from .env.
+services:
+postgres:
+image: postgres:17.5
+environment:
+- POSTGRES_DB=${POSTGRES_DB:-legalconnect}
+- POSTGRES_USER=${POSTGRES_USER:-root}
+- POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+ports: ["5432:5432"]
+volumes:
+- postgres_data:/var/lib/postgresql/data
+- ./backend/legalconnect/src/main/resources/quartz_tables.sql:/docker-entrypoint-initdb.d/10_quartz.sql:ro
+healthcheck:
+test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-root} -d ${POSTGRES_DB:-legalconnect}"]
+redis:
+image: redis:7
+command: ["redis-server", "--appendonly", "yes"]
+ports: ["6379:6379"]
+healthcheck:
+test: ["CMD", "redis-cli", "ping"]
+elasticsearch:
+image: docker.elastic.co/elasticsearch/elasticsearch:9.1.1
+environment:
+- discovery.type=single-node
+- xpack.security.enabled=false
+- ES_JAVA_OPTS=-Xms512m -Xmx512m
+ports: ["9200:9200"]
+backend:
+build: { context: ./backend, dockerfile: Dockerfile }
+environment:
+- SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-legalconnect}
+- SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-root}
+- SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+- SPRING_DATA_REDIS_HOST=redis
+- SPRING_DATA_REDIS_PORT=6379
+- SPRING_ELASTICSEARCH_URIS=http://elasticsearch:9200
+- SPRING_CUSTOM_SECURITY_JWTSECRET=${JWT_SECRET}
+- FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+ports: ["8080:8080"]
+depends_on:
+postgres: { condition: service_healthy }
+redis: { condition: service_healthy }
+elasticsearch: { condition: service_healthy }
+backend-ai:
+build: { context: ./backend-ai, dockerfile: Dockerfile }
+environment:
+- DATABASE_URL=postgresql://${POSTGRES_USER:-root}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-legalconnect}
+- REDIS_URL=redis://redis:6379/0
+- QDRANT_URL=${QDRANT_URL}
+- QDRANT_API_KEY=${QDRANT_API_KEY}
+- QDRANT_COLLECTION_NAME=${QDRANT_COLLECTION_NAME}
+- GOOGLE_API_KEY=${GOOGLE_API_KEY}
+- JWT_SECRET_KEY=${JWT_SECRET}
+ports: ["8000:8000"]
+depends_on:
+postgres: { condition: service_healthy }
+redis: { condition: service_healthy }
+frontend:
+build:
+context: ./frontend
+dockerfile: Dockerfile
+args:
+- VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8080/v1}
+- VITE_AI_CHAT_BASE_URL=${VITE_AI_CHAT_BASE_URL:-http://localhost:8000/api/v1}
+ports: ["5173:5173"]
+volumes:
+postgres_data: {}
+Enter fullscreen mode
+Exit fullscreen mode
+What this compose does
+Brings up stateful services (Postgres, Redis, Elasticsearch) first, then app services.
+Uses container DNS for internal networking (postgres, redis, elasticsearch).
+Exposes only required ports to the host, keeping service internals private.
+Injects configuration via .env and built-in defaults for quick start.
+Benefits: One command (docker compose up -d) to bring the entire stack up; reproducible environments; isolated dependencies; easy resets via volumes.
+Challenges: Service-to-service networking (use container names like postgres, redis); managing env vars across services (centralize in .env); ensuring startup order (use depends_on + health checks); volume mounts for logs/data; port collisions.
+Run Only One Backend (single-service Compose files)
+Sometimes you need to run just one backend service for focused development.
+Spring Boot only (backend/docker-compose.yml):
+authors-note: run only Spring Boot with Postgres/Redis locally
+services:
+db:
+image: postgres:17.5
+environment:
+- POSTGRES_DB=${POSTGRES_DB:-legalconnect}
+- POSTGRES_USER=${POSTGRES_USER:-root}
+- POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+ports: ["5432:5432"]
+redis:
+image: redis:7
+ports: ["6379:6379"]
+backend:
+image: maven:3.9-eclipse-temurin-21
+working_dir: /workspace/backend/legalconnect
+command: ./mvnw spring-boot:run
+environment:
+- SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/${POSTGRES_DB:-legalconnect}
+- SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-root}
+- SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+- SPRING_DATA_REDIS_HOST=redis
+- SPRING_DATA_REDIS_PORT=6379
+volumes:
+- ./legalconnect:/workspace/backend/legalconnect
+- ~/.m2:/root/.m2
+ports: ["8080:8080"]
+depends_on:
+db: { condition: service_started }
+redis: { condition: service_started }
+Enter fullscreen mode
+Exit fullscreen mode
+What this compose does
+Runs Spring Boot directly via Maven wrapper inside the container for fast feedback.
+Mounts your project folder and local Maven cache for quick rebuilds.
+Provides local Postgres + Redis with simple default credentials.
+FastAPI only (backend-ai/docker-compose.yml):
+authors-note: run only FastAPI with Postgres/Redis locally
+services:
+db:
+image: postgres:17.5
+environment:
+- POSTGRES_DB=${POSTGRES_DB:-legal_connect_db}
+- POSTGRES_USER=${POSTGRES_USER:-legal}
+- POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+ports: ["5432:5432"]
+redis:
+image: redis:7
+ports: ["6379:6379"]
+fastapi-app:
+build: { context: ., dockerfile: Dockerfile }
+environment:
+- DATABASE_URL=postgresql://${POSTGRES_USER:-legal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-legal_connect_db}
+- REDIS_URL=redis://redis:6379/0
+ports: ["8000:8000"]
+depends_on:
+db: { condition: service_started }
+redis: { condition: service_started }
+Enter fullscreen mode
+Exit fullscreen mode
+What this compose does
+Builds your FastAPI app image and runs it with DB/Redis dependencies.
+Uses the standard DATABASE_URL/REDIS_URL patterns for twelve-factor configuration.
+Exposes only the FastAPI port to your host for API testing.
+How to run locally
+1) Prepare environment
+Keep you environment variables and secrets (DB password, JWT secrets, API keys) in a .env file.
+Ensure no local services are occupying ports: 5432, 6379, 9200, 8080, 8000, 5173. Stop them or free ports.
+2) Run the full stack
+Build and start: docker compose up -d --build
+Check health: docker compose ps and docker compose logs -f backend backend-ai frontend
+App URLs: backend http://localhost:8080, AI http://localhost:8000, frontend http://localhost:5173
+3) Run only one backend
+Spring Boot only: docker compose -f backend/docker-compose.yml up -d
+FastAPI only: docker compose -f backend-ai/docker-compose.yml up -d
+4) Tear down and reset
+Stop: docker compose down
+Stop + remove volumes (DB reset): docker compose down -v
+Production Dockerization
+Spring Boot optimized Dockerfile (multi-stage, smaller image)
+# Build stage
+FROM maven:3.9-eclipse-temurin-21 AS builder
+WORKDIR /workspace/legalconnect
+COPY legalconnect/mvnw legalconnect/mvnw.cmd ./
+COPY legalconnect/.mvn ./.mvn
+COPY legalconnect/pom.xml ./
+RUN ./mvnw dependency:go-offline -B
+COPY legalconnect/src ./src
+RUN ./mvnw clean package -DskipTests -B
+# Runtime stage
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+RUN addgroup -g 1001 -S spring && adduser -S spring -u 1001 \
+&& mkdir -p /app/logs && chown -R spring:spring /app
+COPY --from=builder /workspace/legalconnect/target/legalconnect-0.0.1-SNAPSHOT.jar /app/app.jar
+USER spring
+ENV SPRING_PROFILES_ACTIVE=prod
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication"
+ENV PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=$PORT -jar /app/app.jar"]
+Enter fullscreen mode
+Exit fullscreen mode
+FastAPI optimized Dockerfile (lightweight base, non-root, healthcheck)
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y gcc g++ \
+&& rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+&& pip install --no-cache-dir -r requirements.txt
+COPY . .
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+&& mkdir -p /app/logs /app/bdcode_json \
+&& chown -R appuser:appuser /app
+USER appuser
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PORT=8000
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+CMD python -c "import requests; requests.get('http://localhost:$PORT/health')" || exit 1
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"]
+Enter fullscreen mode
+Exit fullscreen mode
+Config differences vs local: In production, deploy images directly (Cloud Run/Kubernetes). Prefer managed services: Cloud SQL (Postgres), Memorystore (Redis), Elastic Cloud. Service discovery and autoscaling are handled by the platform.
+Handling env vars + secrets: Use Secret Manager/Key Vault and runtime env vars. Keep .env for local only; mirror variable names across environments for parity.
+Comparing Local vs Prod Setup
+Service
+Local
+Production
+Spring Boot
+Compose + Postgres/Redis/Elasticsearch
+Multi-stage image, managed Postgres (Cloud SQL), managed Redis (Memorystore), Elastic Cloud
+FastAPI
+Compose + Postgres + Redis
+Lightweight image, managed Postgres/Redis, scale-to-zero via Cloud Run
+Frontend
+Compose-built image (Vite args)
+Static hosting or container image served behind CDN
+Config
+.env + docker compose
+Secret manager + platform env vars
+Networking
+Container DNS names (postgres, redis)
+Platform service URLs, VPC connectors if needed
+Potential Issues to Watch For
+Port conflicts: Stop anything already running on 5432 (Postgres), 6379 (Redis), 9200 (Elasticsearch), 8080 (Spring), 8000 (FastAPI), 5173 (Frontend). Use lsof -i :PORT or sudo fuser -k PORT/tcp to free ports.
+Stale volumes/config: Remove volumes when schema or config changes: docker compose down -v.
+Env var drift: Missing .env keys cause startup errors (DB auth, JWT, API keys). Keep sample .env.example in sync.
+Service startup race: Ensure DB/Redis are healthy before app starts (health checks + depends_on).
+Memory limits: Elasticsearch can fail on low memory; adjust ES_JAVA_OPTS or allocate more resources.
+File permissions: Volume-mounted logs or cache dirs may need proper ownership for non-root users.
+Networking visibility: Containers resolve by service name (e.g., postgres); don’t use localhost from inside containers.
+Lessons Learned
+Image size optimization: Multi-stage builds; slim base images; --no-cache-dir; remove build tools from runtime.
+Isolate configs per environment: Same variable names across .env, CI/CD, and prod reduce drift.
+FastAPI vs Spring Boot: Python starts fast and is small; JVM needs warm-up but offers strong concurrency and tooling.
+Debug container networking: Use container names, verify health checks, confirm exposed ports, and tail logs with docker compose logs -f.
+Dockerizing a polyglot stack ensures reliable, reproducible environments end-to-end. With Compose locally and optimized images for production, we can iterate quickly and deploy confidently. Next up: deploying both services on Cloud Run with a CI/CD pipeline that builds, scans, and rolls out images automatically.
+Tip: Keep sensitive values in .env locally and in a secret manager in production. Validate required vars early and fail fast when missing.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Majedul Islam
+Follow
+Aspiring backend developer with keen interest in Operating System and Distributed network.
+Education
+BRAC University
+Joined
+Nov 14, 2022
+Trending on DEV Community
+Hot
+"Your Profile Doesn't Match the Role" and Other Interview Horror Stories
+#watercooler
+#career
+#interview
+#discuss
+3 Reasons You're in Tech Post-Layoff Shock (Based on personal experience)
+#career
+#beginners
+#learning
+Boost Your Workflow: 12 Free Figma Plugins That Save Hours of Design & Dev Time
+#figma
+#design
+#webdev
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

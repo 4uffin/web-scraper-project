@@ -1,0 +1,207 @@
+Porting MiniScript to Cosmopolitan Libc - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+minerobber
+Posted on Sep 23
+Porting MiniScript to Cosmopolitan Libc
+#miniscript
+There is a lot to be written up. Starting with "wtf is cosmopolitan?" If you leave this now as it is, it will be essentially wasted effort (except for any enjoyment you got out of doing it) — I barely understand what you did, how you did it, and the implications of it, and nobody else is going to get even that far.
+It may seem trivial to you, because you already understand all that. 99.9999% of people don't.
+It doesn't need to be complicated. Just explain (1) a little background, (2) what you accomplished, (3) how you did it, and (4) why it is interesting/useful.
+Then somebody else can come along and appreciate what you've done! 💪
+~ Joe Strout, August 27, 2025 (bold emphasis mine)
+Alright!
+Part the First: "a little background"
+Firstly, what is MiniScript, and who is Joe Strout? MiniScript is a programming language that was created in 2016 (first released in 2017) by Joe Strout as an alternative to other programming languages that were/are typically used to teach kids how to program. As the MiniScript homepage states:
+This is the home page for MiniScript, a clean, simple language for embedding or learning to program.
+MiniScript is modern, elegant, easy to learn, and easy to embed in your own C# or C++ projects. (And elsewhere — there are unofficial ports to TypeScript, Kotlin, and more.)
+My favorite thing about MiniScript is that a decently full-featured summary of the entire language fits on one side of a sheet of letter paper. The cheat sheet for Mini Micro, a self-described "neo-retro virtual computer" based around MiniScript, only takes 3 more pages of letter paper to cover pretty much every API that it has (except the ones implemented in MiniScript, which you can read the code of yourself; the fourth page in that PDF, fittingly, is the one-page cheat sheet for the language itself).
+Secondly, as Joe put it, "wtf is cosmopolitan?" In the words of creator Justine Tunney:
+Cosmopolitan Libc makes C/C++ a build-once run-anywhere language, like Java, except it doesn't need an interpreter or virtual machine. Instead, it reconfigures stock GCC and Clang to output a POSIX-approved polyglot format that runs natively on Linux + Mac + Windows + FreeBSD + OpenBSD 7.3 + NetBSD + BIOS with the best possible performance and the tiniest footprint imaginable.
+In layman's terms, Cosmopolitan takes normal C or C++ code and compiles it into a special file. Windows sees it as a normal .EXE file, the other operating systems see it as a shell script (which does some magic to extract the code into a format the operating system in question understands), and in addition to all of that, it's also a .ZIP file, which contains all of the files it needs to be truly portable.
+Part the Second: "what you accomplished"
+This is the MiniScript C++ command-line interpreter (SHA256 hash: 6fdbe7410d79af6c70e7948d31af7b838c1d88eb7679a87ffe100f3737c08ccb). You can run it on your computer (your antivirus might complain, and/or you may need to do some tricks to make it work if you're on a Mac, but by and large it should Just Work). It contains all of the libraries that "come with" the command-line interpreter (dateTime, grfon, importUtil, json, listUtil, mapUtil, mathUtil, matrixUtil, qa, stringUtil, tsv, and vt) inside the executable (this is where the .ZIP file part above comes in handy).
+If you write a script with it and want to share that script as a self-contained executable in its own right, the steps are simple:
+Copy miniscript.com and rename the copy to something like MyAwesomeProgram.com or whatever you want (it only really needs a file extension if you're on Windows).
+Change the file extension of MyAwesomeProgram.com to .zip.
+Copy your script (and any libraries you imported) into the .zip.
+Write a .args file containing the filename of your script preceded by /zip/ (so MyAwesomeProgram.ms would be put in there as /zip/MyAwesomeProgram.ms), and place that in the .zip file as well.
+Finally, change the file extension back to .com (or remove it if you don't need it).
+Now, when you run MyAwesomeProgram.com, it should run your script!
+Part the Third: "how you did it"
+Well, first, compiling a cmake project like MiniScript using Cosmopolitan's "cosmocc" compiler has been done before; I personally followed (and suggest following to anyone doing something similar) these instructions by Jacob Hummer. I did have to modify MiniScript's whereami.c to properly handle Cosmopolitan as a platform, but that was really easy and basically amounted to making a WAI-shaped wrapper for the Cosmopolitan function GetProgramExecutableName (after I was told that function existed). Doing just that is enough to get a functional, if odd, MiniScript install; it says it's running on Linux, for some reason, and it's missing a lot of features common to Cosmopolitan projects, like support for .args, use of storing files in the ZIP, etc.
+Luckily, these features are somewhat easy to add. In the case of "it says it's a command line interpreter for Linux", Linux is just what it defaults to if it doesn't think it's running on something else, so correctly reporting ourselves as a Cosmopolitan interpreter is as easy as just adding a case for __COSMOPOLITAN__. Storing files in the .ZIP portion of the executable ("ZipFS" in Cosmopolitan parlance) is automatically supported by the runtime, so we just need to tell MiniScript to go look there; in my actual implementation I moved the definition of the default import path into ShellIntrinsics.h, so I could add /zip/lib to the end if and only if we were compiling for Cosmopolitan. As for .args, the function in Cosmopolitan that implements this is called cosmo_args, so it's just a matter of calling that before we do anything with arguments. I did a little fancy stuff so that argv could be defined as const when not compiling for Cosmopolitan (no reason not to, and that's what it was before I got to the code), but not be defined as const when we were compiling for Cosmopolitan (since cosmo_args, by definition, modifies argv).
+Part the Fourth: "why it is interesting/useful"
+With this finished, MiniScript joins the ranks of programming languages like Janet, Lua(JIT), Perl, PHP, Python, and Tcl in having been ported to Cosmopolitan. The idea of being able to package everything you need to write command-line MiniScript programs into a single file--and then package that program as a single-file click-it-and-run executable of its own--well...
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Jess Lee
+Jess Lee
+Jess Lee
+Follow
+Building DEV and Forem with everyone here. Interested in the future.
+Email
+jess@forem.com
+Location
+USA / TAIWAN
+Pronouns
+she/they
+Work
+Co-Founder & COO at Forem
+Joined
+Jul 29, 2016
+•
+Sep 23
+Dropdown menu
+Copy link
+Hide
+This is really cool! Thanks for sharing - just poked around the miniscript site and see that they released a book yesterday that's suitable for kids! Looking forward to digging into it (with my kids) one day.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+minerobber
+Follow
+Location
+New York
+Pronouns
+he/him
+Joined
+Nov 17, 2019
+Trending on DEV Community
+Hot
+The 90-Day Coding Routine That Made Me Think Like An Architect
+#webdev
+#programming
+#ai
+#discuss
+Why Are You Not Reading My Post?
+#tutorial
+#discuss
+#productivity
+#career
+Meme Monday
+#discuss
+#watercooler
+#jokes
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Reading List
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Free Postgres Database
+Software comparisons
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

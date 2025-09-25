@@ -1,0 +1,266 @@
+Taming Large Codebases with Kiro: Lessons from a 58K-LoC Rust Migration - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Vivek V.
+for kirodotdev
+Posted on Sep 23
+Taming Large Codebases with Kiro: Lessons from a 58K-LoC Rust Migration
+#kiro
+#softwaredevelopment
+#coding
+#agentic
+The Scale Problem
+AI assistants excel at small tasks but struggle with large codebase management. In the vibe mode, I asked Kiro to pick the largest open-source repo for testing Rust migration and Kiro shortlisted PostgreSQL repo containing 1.5M lines of C code. One advantage using Claude Sonnet 4 with Kiro was that the LLM's training data mostly included the PostgreSQL open-source repo, so it understood the codebase structure to some extent.
+MCP Tool Selection: Disabled 15+ tools, kept only:
+sequential-thinking - Complex problem breakdown
+git-repo-research - Easy access to source repo analysis
+aws-knowledge-mcp-server - AWS Documentation access
+aws-api-mcp-server - AWS Cloud integration
+Although the 2 AWS MCP Servers could be disabled for this project, I keep them for other tasks, as they are my favourite ones.
+Anthropic's official sequential-thinking MCP server helped break down complex PostgreSQL migration specs into manageable steps through dynamic and reflective problem-solving. It enables iterative thought refinement, allowing revision of
+previous reasoning and branching into alternative approaches, which helped Kiro systematically work through dependencies and edge cases with adaptive thinking rather than linear progression.
+AWS Labs git-repo-research - The search_repos_on_github and access_file tools provided access to postgres repository and codebase, enabling discovery and analysis design patterns and implementation strategies.
+After multiple iterations of specs and using my 3 Kiro accounts (kiro hackathon google account, AWS Builder ID account and AWS IAM Identity Center account), I got a working postgres server and a psql client built in Rust with core UPSERT functionality. Here are the generated code stats: 58,478 lines Rust code, 167 files, 264 total files.
+Top 3 Steering Guides Used with Spec-driven development approach:
+• Visibility: Making failing tests visible to Kiro
+• Organization: Preventing LLM codebase chaos
+• Efficiency: Avoiding duplication and waste
+Guide 1: Visibility - "If Kiro Can't See It, It Didn't Happen"
+# Critical for shell integration issues
+cargo test 2>&1 | tee compilation_errors.log
+cargo build --workspace 2>&1 | tee build_errors.log
+cargo clippy --workspace 2>&1 | tee lint_errors.log
+Enter fullscreen mode
+Exit fullscreen mode
+Problem: Shell integration failures caused Kiro to assume command success when tests actually fail.
+Technical Solution:
+• 2>&1 redirects stderr to stdout
+• tee writes to both file and terminal
+• Always clean up: rm *.log after verification
+Real Impact: Prevented LLM loops debugging phantom "passing" tests that were actually compilation failures.
+Side Benefit: As a pro tip, when my Kiro free tier limits were running out of one account, and the tests were actually reporting success due to my shell integration issue, I used the Q Developer Extension in Kiro IDE itself to fix the failing tests and saved on my Kiro credits usage. I also upgraded my AWS Builder ID account to a Kiro pro account and later also got benefit of free August credits, and also the extra limits that were reset for everyone in August/September months.
+Guide 2: Organization - "Every File Has a Home"
+postgres-rust-migration/
+├── docs/{spec-name}/
+# Implementation summaries
+│
+└── insert-storage-persistence_8_summary.md
+├── scripts/verification/{spec-name}/
+# Verification scripts
+│
+└── database-durability_verification.rs
+├── crates/{crate}/tests/temp/
+# Temporary test files
+│
+└── temp_sql-update_integration_test.rs
+└── target/
+# Build artifacts gitignored
+Enter fullscreen mode
+Exit fullscreen mode
+Critical Rules:
+• Never create files in project root - causes workspace pollution
+• Spec-name prefixes for all artifacts: {spec-name}{task-number}{type}
+• Immediate cleanup of temp files and logs
+• Use tempfile crate for truly temporary files
+Guide 3: Efficiency - "Search Before You Code"
+# Before implementing any function
+rg "fn.*storage.*persist" --type rust
+rg "struct.*Buffer" --type rust
+rg "impl.*Transaction" --type rust
+Enter fullscreen mode
+Exit fullscreen mode
+Code Duplication Prevention:
+• Search entire codebase before implementing
+• Check similar filenames: find . -name "storage" -name "*.rs"
+• Verify existing functionality in related crates
+Rust-Specific Rules:
+# Always use cargo, never rustc directly
+cargo build --workspace
+# ✓ Handles dependencies
+rustc src/main.rs
+# ✗ Fails in multi-crate workspace
+Enter fullscreen mode
+Exit fullscreen mode
+# Testing workflow
+cargo test --workspace
+# All tests
+cargo test --package postgres-storage
+# Specific crate
+cargo run --example verification_script
+# Examples
+Enter fullscreen mode
+Exit fullscreen mode
+Repository Hygiene:
+.gitignore
+/target/
+*.log
+.env
+*_temp*
+*_backup*
+Enter fullscreen mode
+Exit fullscreen mode
+Agent Hooks: Automation
+Tokei Integration (auto-updates README):
+# Post-task hook
+tokei --output json
+Enter fullscreen mode
+Exit fullscreen mode
+Instructions for Kiro agent: A task completion document has been updated. Please run tokei . --output json to get the current lines of code statistics, then update the README.md file with the latest code metrics. Include total lines of code, lines by language (especially Rust), and any other relevant statistics from the tokei output. Make sure to update any existing code statistics section or add a new one if it doesn't exist.
+Other Kiro Tips
+If you move the Kiro project directory, and restart Kiro from different location, then you loose the chat and spec sessions history, so its always recommended to save the session history using task summary as mentioned in the steering rule above
+Always ask Kiro to run cargo commands from workspace root to avoid duplicate target directories, e.g.
+cd $HOME/project && cargo build
+Enter fullscreen mode
+Exit fullscreen mode
+Have Kiro run tests with the lowest verbosity and to filter with grep if necessary to avoid context filling up quickly due to large outputs
+When Kiro runs an AWS CLI command, have it include --no-cli-pager. This prevents interactive pager output that the agent can't see or exit from. Other similar commands that generate huge outputs quickly fill the session context, so use similar technique to skip this output in the response if it is not useful for the agent.
+When multiple approaches exist for tasks like publishing to Amplify, ask Kiro to create standardized script and instruct to always use that script rather than improvising different methods each time.
+Testing the Postgres-Rust
+# Start the postgres server
+./target/release/postgres-server --config postgresql.conf > server.log 2>&1 &
+# 1. Create table
+./target/release/psql -c "CREATE TABLE kiro (id INTEGER, name TEXT, age INTEGER, email TEXT);"
+# 2. Insert records
+./target/release/psql -c "INSERT INTO kiro (id, name, age, email) VALUES (1, 'Alice Johnson', 28, 'alice@example.com');"
+./target/release/psql -c "INSERT INTO kiro (id, name, age, email) VALUES (2, 'Bob Smith', 35, 'bob@example.com');"
+# 3. Select to verify
+./target/release/psql -c "SELECT * FROM kiro;"
+# 4. Update Alice's record
+./target/release/psql -c "UPDATE kiro SET age = 29, email = 'alice.updated@example.com' WHERE id = 1;"
+# 5. Select to verify update
+./target/release/psql -c "SELECT * FROM kiro;"
+Enter fullscreen mode
+Exit fullscreen mode
+Postgres client psql with update statements work!
+Restarting Postgres server to verify persistent updates
+Check out my postgres-rust-migration repository for the complete implementation with 58K+ lines of Rust code across modular crates.
+Watch the livestream recording | Kiro bi-weekly show | An engineer's take on Kiro
+Results: Measurable Impact (AI - calculated numbers)
+• Project size: Reduced repo size by excluding targets
+• Build time: 15% faster with proper workspace structure
+• Debug efficiency: 80% reduction in false-positive "passing" tests
+• Code reuse: 23% of functions found existing implementations before coding
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+kirodotdev
+Follow
+More from kirodotdev
+How Kiro Got Peekberry To Production and Our First Client
+#kiro
+#kirodotdev
+#buildinpublic
+#saas
+RAG-based Presentation Generator built with Kiro
+#kiro
+#s3vectors
+#rag
+#bedrock
+How i Built Bloxely Using Kiro
+#kiro
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

@@ -1,0 +1,156 @@
+OPNsense is perfect for protecting your home network, but it can cause unexpected issues
+Menu
+Sign in now
+Close
+News
+PC Hardware
+Submenu
+CPU
+GPU
+Storage
+Monitors
+Keyboards & Mice
+Software
+Submenu
+Productivity
+Other Software
+Operating Systems
+Submenu
+Windows
+Linux
+macOS
+Devices
+Submenu
+Single-Board Computers
+Laptops
+Gaming Handheld
+Prebuilt PC
+Home
+Submenu
+Networking
+Smart Home
+Gaming
+Submenu
+Game Reviews
+Sign in
+Newsletter
+Menu
+Follow
+Followed
+Like
+Threads
+More Action
+Summary
+Generate a summary of this story
+Sign in now
+Switch 2
+RTX 5060
+Windows 11
+Gaming
+Forums
+Close
+OPNsense is perfect for protecting your home network, but it can cause unexpected issues
+Credit:
+By
+Adam Conway
+Published 3 hours ago
+I’m Adam Conway, an Irish technology fanatic with a BSc in Computer Science and I'm XDA’s Lead Technical Editor. My Bachelor’s thesis was conducted on the viability of benchmarking the non-functional elements of Android apps and smartphones such as performance, and I’ve been working in the tech industry in some way or another since 2017.
+In my spare time, you’ll probably find me playing Counter-Strike or VALORANT, and you can reach out to me at adam@xda-developers.com, on Twitter as @AdamConwayIE, on Instagram as adamc.99, or u/AdamConwayIE on Reddit.
+Sign in to your XDA account
+Summary
+Generate a summary of this story
+follow
+Follow
+followed
+Followed
+Like
+Like
+Thread
+Log in
+Here is a fact-based summary of the story contents:
+Try something different:
+Show me the facts
+Explain it like I’m 5
+Give me a lighthearted recap
+I absolutely love
+OPNsense, and it's the perfect place to tinker with my home network, learn more, and do some pretty cool stuff in general. Yet every now and again, something happens that leaves me scratching my head trying to figure out what's going on. This isn't an OPNsense quirk before people tell me that I should have used pfSense instead; no, this is a security-by-default quirk, and it affects pfSense, too.
+As someone who plays a lot of my
+Nintendo Switch, I actually don't tend to play many online games. However, recently while trying to visit a friend's island in Animal Crossing: New Horizons, I encountered an error telling me that it couldn't connect to the other person. The error message mentioned a few different errors that it could be, and one of them mentioned NAT, otherwise known as Network Address Translation.
+As it turns out, the rabbit hole I went down was, in fact, a secure implementation on the side of OPNsense and a rather puzzling choice made by Nintendo. However, it's these edge cases and weird problems that you can face which could lead someone to question what the point is in the first place. Weirdly, though, I feel more secure in my network after the experience I had in diagnosing and fixing the problem.
+Why it happens (and why it's not just limited to Nintendo)
+It's all down to security
+Before diving into the technical cause and what exactly went wrong, this isn't a problem limited to just Nintendo. In my research, I came across PlayStation and Xbox players experiencing similar errors that were solved in the same way that this was also solved. I was first tipped off to what the problem was when I ran a connection test on the Switch, and it told me that my NAT type was D. NAT type D means that you can only connect to players with a NAT type A, though it's a Nintendo-specific notation. Many console games, including Animal Crossing, don't actually rely on the developer running a big central server for the gameplay itself. Instead, they often use peer-to-peer networking, which means your Switch has to talk directly to another person's console, and theirs has to talk back to yours. This means accepting unsolicited inbound UDP traffic at any time while connected. On most consumer routers, this happens invisibly.
+UPnP is often enabled by default, and a console can poke a hole in the firewall to receive connections when it needs to. At the same time, it can also handle NAT reflection, also known as hairpin NAT. This allows a device to connect to a device on the local network using a public IP address and importantly, they take a relaxed stance on source port preservation. Many consoles, including those from Nintendo, requires that traffic outbound responds on the same port inbound as if it originated on the Switch. These conveniences are built in to most consumer routers as developers know consumers expect devices to "just work."
+The flow looks something like this:
+The Switch sends traffic from port 45000 and tells its peer to expect replies on 45000.
+Your router, using symmetric NAT, might remap that to port 50000 on the way out, but it remembers internally that 50000 maps back to 45000.
+The peer console, however, sees traffic from port 50000 when it was told to expect 45000. The mismatch causes the connection to fail.
+OPNsense is different from consumer routers, as is pfSense. These come from the world of enterprise firewalls, where the default stance is security first rather than convenience. UPnP is disabled, because leaving devices free to open firewall rules on their own is a potential security nightmare. NAT reflection is not assumed either, because reflecting packets back into the LAN can cause confusing or unsafe traffic flows if you don't intend them. And OPNsense tracks connection states carefully, so if it sees traffic coming in from outside that doesn't match an established outbound session or a specific port forward, it drops it. With an enterprise firewall, these inbound peer-to-peer connections simply won't work, as they're not allowed unless you create the conditions to allow them to exist. Instead, port forwarding a range back to your Switch with NAT reflection enabled is required. Consumer routers tend to bend the rules a bit when it comes to networking, whereas enterprise firewalls will play it by the book and follow a strict "default deny" playbook. In other words, unless it's been explicitly allowed, it's getting blocked.
+How to set up OPNsense for online P2P gaming
+Enabling a static port
+Credit:
+So, if you have OPNsense and a Nintendo Switch, what can you do? Thankfully, you can create the necessary NAT rules yourself so that your Switch can access the internet and play with others as normal, and you don't need to weaken your network's security, either. All you need to do is set a static IP address for your Switch (either on-device or by reserving it in the DHCP), create a port forward for the necessary range to go back to your Switch, enable NAT reflection for the forwarded range, and then enable hybrid outbound NAT rule generation in the "outbound" settings. How do you identify the range? Well here's the other problem: Nintendo doesn't really make it easy. The company's published range to forward is 1024-65535, which is basically everything that can be assigned a port with non-root access on a Linux machine, right up until the maximum port number. There are a lot of reasons why this is a bad idea, but many users, including myself, have had success just forwarding 45000 to 65535 instead and ensuring that the Static port option is ticked.
+Once I'd done this, everything worked as it should. However, coming across these quirks is often jarring, as you never really know what just worked when it really shouldn't have until you come across a situation like this. I was never aware, previously, that Nintendo was doing anything weird when it came to networking. It's not that I didn't care, it's that I just never had a reason to look into it.
+This is part of why I love OPNsense, though. While it can be frustrating to face a new issue like that and not know what the cause is, it's a great feeling as well when you know that your network is secure and safe because of default settings like these. It makes you aware of what's going on when it comes to the networking side of things, and you discover what would have technically been security flaws that you never even knew about.
+Networking
+Follow
+Followed
+Like
+Share
+Facebook
+X
+LinkedIn
+Reddit
+Flipboard
+Copy link
+Email
+Close
+Thread
+Sign in to your XDA account
+We want to hear from you! Share your opinions in the thread below and remember to keep it respectful.
+Be the first to post
+Images
+Attachment(s)
+Please respect our community guidelines. No links, inappropriate language, or spam.
+Your comment has not been saved
+Send confirmation email
+This thread is open for discussion.
+Be the first to post your thoughts.
+Terms
+Privacy
+Feedback
+Recommended
+3 days ago
+Why relying on USB-to-Ethernet adapters can cost you more in the long run
+3 days ago
+I built my own video platform like YouTube by self-hosting this tool
+3 days ago
+I let Perplexity guide my graphic design workflow, and the results were surprising
+2 days ago
+This awesome Raspberry Pi project brings the Game Boy Advance back to life
+Today's best deals
+Grab the iPad Air with an M3 chip for one of its best prices at just $539
+1 hour ago
+This sleek soundbar delivers bold sound without the big price
+3 hours ago
+This legendary farming sim with 98% positive Steam reviews is just $2 for a limited time
+21 hours ago
+See More
+Trending Now
+The Virtua Fighter 5 R.E.V.O.: World Stage closed beta was more of the same, but with a bigger pool of players
+I’m building a privacy-focused life, and these Docker containers are non-negotiable
+4 upcoming video game live-action adaptations I'm excited to see and why you need to be now
+Join Our Team
+Our Audience
+About Us
+Press & Events
+Contact Us
+Follow Us
+Advertising
+Careers
+Terms
+Privacy
+Policies
+XDA is part of the
+Valnet Publishing Group
+Copyright © 2025 Valnet Inc.

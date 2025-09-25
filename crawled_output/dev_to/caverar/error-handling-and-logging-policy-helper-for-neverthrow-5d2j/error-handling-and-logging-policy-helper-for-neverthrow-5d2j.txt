@@ -1,0 +1,281 @@
+Error Handling and logging policy helper for neverthrow - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Camilo Andres Vera Ruiz
+Posted on Sep 24
+Error Handling and logging policy helper for neverthrow
+Ever found yourself in a TypeScript project using the Result pattern, only to discover that while it promises type-safe error handling, your code is now cluttered with boilerplate if (result.isErr()) checks and inconsistent logging? If so, you're not alone. The power of this pattern can get lost as your codebase grows, especially if you're not fully embracing a functional style. This article explores a solution to this common problem, aiming to streamline error handling and restore clarity to your code.
+About a year and a half ago, I discovered the Result pattern from functional programming, allowing me to get a type safe error handling, in typescript. There are multiple libraries for that, such as ts-results, neverthrow and the more ambitious Effect but all implement the same idea.
+I successfully used this pattern in my production apps using the ts-results package at first, and then changing to neverthrow (due to be more complete and better maintained), and it proved to be a path toward writing more robust applications, with better observability, getting a consistent logging policy and robust error handling.
+Initial Aproach
+At first I used it directly in all my functions and methods like this.
+// genericFunction.ts
+import { err, ok, Result } from 'neverthrow'
+type FunctionError = {
+code: 'UNEXPECTED_ERROR' | 'GENERIC_ERROR_1' | 'GENERIC_ERROR_2' | 'NOT_FOUND'
+data?: Record<string, unknown>
+}
+export function genericFunction(input: { param: string }):
+Result<{ param: string }, FunctionError> {
+// ...
+// Something went wrong
+if (input.param !== 'ok') return err({ code: 'GENERIC_ERROR_1' })
+// All ok
+return ok({ param: 'ok' })
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Then when I needed to call a method or a function inside another, I did something like this:
+// upperFunction.ts
+import { err, ok, Result } from 'neverthrow'
+import { genericFunction } from './genericFunction'
+import { Logger } from '../utils/logger'
+const logger = Logger
+type UpperFunctionError = {
+code: 'UNEXPECTED_ERROR' | 'UPPER_ERROR' | 'NOT_FOUND'
+data?: Record<string, unknown>
+}
+export function upperFunction(input: { param: string }):
+Result<{ param: string }, UpperFunctionError> {
+const res = genericFunction(input)
+if (res.isErr()) {
+switch (res.error.code) {
+case 'UNEXPECTED_ERROR':
+return err({ code: 'UNEXPECTED_ERROR' })
+case 'GENERIC_ERROR_1': {
+const customError = { code: 'UNEXPECTED_ERROR' as const }
+logger.error('This should not happen', {
+...customError,
+params: input
+})
+return err(customError)
+}
+case 'GENERIC_ERROR_2':
+return err({ code: 'UPPER_ERROR' })
+case 'NOT_FOUND':
+return err({ code: 'NOT_FOUND' })
+default:
+return err({ code: 'UNEXPECTED_ERROR' })
+}
+}
+// All ok, executing the next step
+// ...
+return ok({ param: 'ok' })
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This approach works well as a first step and of course can be improved in many ways e.g. using the functional programming tools that the library gave us, and sure there will be cases when some errors are expected and even desired and the function logic will translate them into behaviors instead of another errors, but this should wrap the main idea.
+While one might think it's simpler to combine the error types and just propagate the error, this can lead to confusing and meaningless errors in the upper layers of the application. For instance, returning a GROUP_NOT_FOUND error from a function that's supposed to get purchasable items for an e-commerce platform, it really doesn't provide useful context to the calling function
+The Problem
+Looking at the code we can imagine how complex error handling can get, especially in complex services that implement business logic, a method can turn into 80% repetitive error handling where we have to take into account: when to log, what to log and try to be consistent over all the services, something that even with a LLM code assistant helping us in the code editor, we can get it wrong.
+The Solution
+Wouldn't it be nice if we had a helper that implements a consistent set of rules, and it required us to handle all the posible error cases, with type safety and autocompletion. Well I've developed a helper for this exact purpose, which you can find in this GitHub gist:
+How to use it
+The idea with this helper is managing a consistent logging policy and an error handling methodology similar in what is found in the Rust programming language, where we split the error in expected workable errors, and critical errors that should halt program execution, and cause a system redeployment.
+To achieve this, the helper performs three main functions:
+It enforces a consistent error type across all methods. We should use the errorBuilder helper to construct the specific error type that must be returned by all functions that could fail. In essence, this helper standardizes the error type for all our "Result" functions.
+It provides a Panic function to force the process to stop when necessary. The primary use case for this is identifying situations that make your application unable to function and getting this information as soon as possible in a production environment. For example, if a fundamental configuration variable or a database connection string is missing during the application's startup validation, we can immediately call Panic. This stops the process, allowing developers to be notified through observability tools or cloud alarms that something has gone critically wrong, triggering an automatic redeployment of the last working version of the service.
+Remember to use this function with caution. It's probably not a good idea to trigger a panic for a temporary failure like a third-party API or database connection issue. Depending on the context, these might be normal or even scheduled events, such as a cloud provider performing database maintenance and updates at 3:00 a.m.
+Using some TypeScript magic, it includes the errorHandler helper. This allows us to directly map all possible error codes, eliminating repetitive boilerplate code. It also automatically handles logging and constructs an error object that conforms to the expected return type.
+The handler implements the next set of rules
+All the reservedErrorCodes get automatically translated to UNEXPECTED_ERROR, they are treated as non critical unexpected errors, that means that when this error is returned, let say in the catch in a query function, we must log all the failure details, and the error will propagate as UNEXPECTED_ERROR over all the function calls, that way the error is logged only once.
+When the error is translated to the same error or another expected error, it just log with log level, that way it help us to follow the execution trace.
+When the expected error is translated to UNEXPECTED_ERROR meaning that when an error that should not occur is detected, (e.g. USER_ALREADY_EXIST when we just deleted the user so probably a bug), the error is logged with error level, including all the data given to the handler.
+When the error is translated to PANIC the handler calls the Panic function to log the cause of the critical error and finalize the process, which should trigger a server redeployment. Depending on the project and framework, we may need to modify this function.
+The next example include all the mentioned cases
+import { ok, Result } from 'neverthrow'
+import { genericFunction } from './genericFunction'
+import { Logger } from '../logger'
+import { ErrorBuilder, errorHandlerResult } from 'src/utils/error'
+// Build the function error using the ErrorBuilder type
+type UpperFunctionError = ErrorBuilder<{ code: 'UPPER_ERROR' | 'NOT_FOUND' }>
+export function upperFunction(input: { param: string }):
+Result<{ param: string }, UpperFunctionError> {
+const res = genericFunction(input)
+if (res.isErr()) {
+return errorHandlerResult(res.error, Logger, {
+// The compiler force us to managing all the posible error
+// codes, getting autocompletion for all the input and
+// output codes
+// This detects a unmanageable error and crash the app, so
+// we add all the posible info to log, PANIC doesn't need to
+// be defined in the returnable errors, the handler knows
+// that this will throw
+GENERIC_ERROR_1: {
+code: 'PANIC',
+message: 'This should not happen',
+extraParams: input
+},
+// Translation to UNEXPECTED_ERROR so include all the posible
+// data and log as error, when the error is non critical.
+// Note that UNEXPECTED_ERROR is always defined for all the
+// error types generated by the ErrorBuilder helper
+GENERIC_ERROR_2: {
+code: 'UNEXPECTED_ERROR',
+message: 'This should not happen nut is not critical',
+extraParams: input
+},
+// Either the same error or another expected error is
+// mapped so just log as log level without message
+NOT_FOUND: { code: 'NOT_FOUND' }
+})
+}
+// Everything ok and typescript knows
+// ...
+return ok({ param: 'ok' })
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Applying this, we can reduce the error handling code in our service, and avoid the manual logging, not only that but we can changue the logging rules in any moment (modifying the provided handler) without having to changue that in every service.
+This helper includes both a raw errorHandler and a errorHandlerResult so we can directly construct the result error object or not, depending on the case, e.g. we can use the standalone errorHandler inside a map like method from neverthrow Result, that automatically transforms the returned value into a result value.
+Extra Recommendations
+The handler always receives the logger instance that should be used to log the error, This way it's easy to integrate with custom logging solutions such as pino logger. Is recommended to implement a correlationId to follow the execution trace for each service call.
+About another logs cases, that of course depend on the project, but a reasonable rule of thumb is to log with log level, all the mutations in a consistent format like
+logger.log('', {
+param1: '123',
+param2: 123
+})
+Enter fullscreen mode
+Exit fullscreen mode
+Conclusion
+I think that using this helper customized for you project needs, and following the extra recommendations, is a good start point that
+will help you to make your system more robust and observable.
+If you like the idea and have another log policies in mind, let me known in the comments, maybe I can make this into a npm package if another rules and cases come to the discussion, otherwise just take the helper and use it directly in your project.
+Hope it helps.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Camilo Andres Vera Ruiz
+Follow
+Software developer - Backend
+Joined
+Sep 11, 2025
+Trending on DEV Community
+Hot
+I built a voice AI agent to clean my emails, meetings, and Slack DMs (Composio, Vapi, OpenAI TTS) 🪄
+#webdev
+#programming
+#ai
+#javascript
+Meme Monday
+#discuss
+#watercooler
+#jokes
+Boost Your Workflow: 12 Free Figma Plugins That Save Hours of Design & Dev Time
+#figma
+#design
+#webdev
+#productivity
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

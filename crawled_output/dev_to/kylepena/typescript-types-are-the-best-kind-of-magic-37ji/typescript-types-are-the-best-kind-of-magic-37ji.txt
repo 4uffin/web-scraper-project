@@ -1,4 +1,4 @@
-TypeScript Types Are The Best Kind Of Magic - DEV Community
+When ‘Magic’ Works: Type-Level Tricks in TypeScript - DEV Community
 Forem Feed
 Follow new Subforems to improve your feed
 DEV Community
@@ -13,12 +13,12 @@ News and discussion of science and technology such as AI, VR, cryptocurrency, qu
 Music Forem
 Follow
 From composing and gigging to gear, hot music takes, and everything in between.
-DUMB DEV Community
-Follow
-Memes and software development shitposting
 Vibe Coding Forem
 Follow
 Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
 Popcorn Movies and TV
 Follow
 Movie and TV enthusiasm, criticism and everything in-between.
@@ -75,49 +75,60 @@ Share to Mastodon
 Report Abuse
 Kyle Pena
 Posted on Sep 19
-• Edited on Sep 22
-TypeScript Types Are The Best Kind Of Magic
+• Edited on Sep 24
+When ‘Magic’ Works: Type-Level Tricks in TypeScript
 #typescript
 #programming
+#javascript
 Sufficiently Advanced Technology
-The received wisdom among developers is to avoid magic: magic numbers, magic strings, and framework-flavored "auto-magic".
+The received wisdom among developers is to avoid magic: magic numbers, magic strings, and especially framework-flavored "auto-magic".
 It's brittle, it's unpredictable, and it's not explicit.
 On the other hand, Arthur C. Clarke stated that any sufficiently advanced technology is indistinguishable from magic.
-So: Is some bit of magic code a hand grenade with the pin pulled, or are we just not clever enough to get it?
-Is there any way to tell the difference?
-It Depends
-I once worked with a team which was building a Bun-compatible auto-instrumentation framework.
-The goal was to provide a mechanism to instrument a wide variety of ES2020 features - method calls, property access, yields from a generator, and so on.
-After two months of effort, we struggled with edge cases and memory leaks.
-By our own admission, we had relied on "too much auto-magic".
-So, magic strikes again - but what was the deeper reason the project didn't pan out? I think it boils down to scope.
-In this case, the "thing" that the magic was wrangling was an entire language.
-And ES2020 is one of the more complicated language specifications out there.
-Check out these obscure corners.
-For "magic" to work reliably, a restricted domain of operation seems necessary.
-And ES2020's runtime is a huge domain.
-However, a language's type system is simpler than the runtime.
-This makes type-driver auto-magic very doable.
-However, TypeScript's advanced type system seems designed to encourage magic.
-Zod, Prisma, and Hono all use auto-magic typing tricks and are resounding successes.
+I think the operative difference between harmful magic and sufficiently advanced technology is how well it works.
+And I think that TypeScript type tricks are an excellent platform for building the latter.
+Bad Magic: An Anecdote
+I once worked with a team which was building an auto-instrumentation framework for ES2020.
+The goal was to provide a low-friction mechanism (i.e.; an attribute) to instrument a wide variety of language features - method calls, property access, yields from a generator, and so on.
+After two months, we were still struggling with edge cases and memory leaks.
+We ultimately pulled the plug.
+Why wasn't this project successful? Without itemizing the individual technical shortcomings that made up the failure, I think the root cause was that the scope was too large.
+The ES2020 runtime is very complicated.
+For example, check out these obscure corners.
+But a foolproof auto-instrumentation tool must handle all of these language features correctly.
+Here's my takeaway: for "magic" to work reliably and without enormous engineering effort, a restricted scope seems necessary.
+Type Tricks Have Limited Scope
+Type systems are declarative and finite; runtimes are dynamic and stateful. This makes type-based auto-magic much simpler to pull off.
+This is where TypeScript really shines.
+Zod, Prisma, and Hono all use extensive auto-magic typing tricks and are resounding successes.
 Zod, for example, is widely adopted.
-I'd like to demonstrate how you can build similar type auto-magic as they frameworks in order to improve the developer experience.
-Quick Case Study
+Indeed, TypeScript's advanced type system seems designed to encourage magic.
+Good Magic: Quick Case Study
 Suppose we have some unmanaged resource that we retrieve by scoped ID:
 employee/543293 represents Employee 543293.
 department/55 represents Department 55.
 building/3 represents Building 3.
-Because the resource is ingested into the runtime as some kind of untyped "thing" (bytes, JSON, database record, etc.) we have to parse and then cast with as (if we want to avoid unknown or any).
-Writing as Employee, as Department, or as Building - even within dedicated methods like getEmployee - makes my skin crawl a little.
-That looks like an opportunity for a late-night miscast with no compile error.
-But thankfully it is possible (through the kind of magic that I think Arthur C. Clarke would smile upon) to write the code very cleanly:
-const employee : Employee = retrieve(`employee/${key}`);
-const department : Department = retrieve(`department/${employee.departmentId}`);
-const building : Building = retrieve(`building/${department.buildingId}`);
+The resource is ingested into the runtime as some kind of untyped "thing" (bytes, JSON, database record, etc.).
+So we have to cast with as.
+For example, we might write:
+const employee = (await retrieve(`employee/543293`)) as Employee;
 Enter fullscreen mode
 Exit fullscreen mode
-Notice how that the signature for retrieve is the same for every line, yet we get correctly typed results.
-The magic is that the return type of retrieve automatically varies depending on which keyword precedes / in the object identifier : employee, department, or building.
+Or, if we don't want to do that, we could write a special-built method per entity:
+function retrieveEmployee(identifier : string) : Promise<Employee> {
+return retrieve(identifier) as Promise<Employee>;
+}
+const employee : Employee = await retrieveEmployee(`employee/543293`);
+Enter fullscreen mode
+Exit fullscreen mode
+Both patterns do not scale well with the number of entities - we either have a proliferation of per-entity methods, or a proliferation of usages of as.
+Is there a better way?
+Thankfully yes. It is possible to write the code very cleanly:
+const employee : Employee = await retrieve(`employee/${key}`);
+const department : Department = await retrieve(`department/${employee.departmentId}`);
+const building : Building = await retrieve(`building/${department.buildingId}`);
+Enter fullscreen mode
+Exit fullscreen mode
+Notice how that the call-site signature for retrieve is the same for every line (no generic types supplied in angle brackets, for example).
 TypeScript is automatically inferring the return type based on the contents of a template literal!!!
 Here's the source, followed by an explanation:
 type Employee = {
@@ -157,13 +168,13 @@ return retrievedValue as TypeForObjectIdentifier<T>;
 }
 Enter fullscreen mode
 Exit fullscreen mode
-Here's a step-by-step breakdown.
 Generic Types As "Functions On Types"
 Note the return type of retrieve: TypeForObjectIdentifier<T>.
 It's helpful to think of TypeForObjectIdentifier<T> as a "function on type T", rather than a generic type in the traditional sense.
 Therefore the declaration of TypeForObjectIdentifier<T> amounts to a simple "type program" which accepts an object identifier T and returns the appropriate object type. For example, by mapping building/3 to object type Building.
 Template Literal Parsing
-One of the most powerful features in TypeScript is the ability to perform type inference on template literals - even if some portions of which may have values that are only known at runtime!
+Type-level parsing of string template literals is the heart of the entire trick. It is what allows TypeScript to infer the return type based on the first portion of the object identifier.
+TypeScript has the ability to perform type inference on template literals - even if some portions of which may have values that are only known at runtime!
 In our declaration of ExtractKeyword<T>, we ask TypeScript to match T to the template literal ${infer K extends Keyword}/${string}, otherwise return never (which can trigger a compiler failure).
 type ExtractKeyword<T> = T extends `${infer K extends Keyword}/${string}` ?
 K :
@@ -234,7 +245,7 @@ return parsed as TypeForObjectIdentifier<T>;
 }
 Enter fullscreen mode
 Exit fullscreen mode
-Runtime Validation Refactor Step by Step
+The Runtime Validation Refactor - Step by Step
 First, we redefined our types as Zod schemas.
 import z from "zod"
 const Employee = z.object({
@@ -281,7 +292,7 @@ Enter fullscreen mode
 Exit fullscreen mode
 And finally, we re-implemented retrieve to perform runtime validation with Zod.
 First, we extract the keyword from the identifier.
-Then, we index into KeywordToZodSchema to select the appropriate Zod schema.
+Then, we index into KeywordToZodSchema to select the appropriate Zod schema object.
 Finally, we parse and return the result.
 export async function retrieve<T extends ObjectIdentifier>(identifier: T) :
 Promise<TypeForObjectIdentifier<T>> {
@@ -321,44 +332,35 @@ Joined
 Oct 27, 2024
 Trending on DEV Community
 Hot
-Why Are You Not Reading My Post?
-#tutorial
-#discuss
-#productivity
-#career
-What was your win this week?!
-#weeklyretro
-#discuss
-All I need is ... the laptop screen!
+The 90-Day Coding Routine That Made Me Think Like An Architect
+#webdev
 #programming
 #ai
+#discuss
+🚀 Introducing Code-Tree.dev — My New Side Project!
+#programming
 #webdev
+#php
+#laravel
+"Your Profile Doesn't Match the Role" and Other Interview Horror Stories
 #watercooler
+#career
+#interview
+#discuss
 💎 DEV Diamond Sponsors
 Thank you to our Diamond Sponsors for supporting the DEV Community
 Google AI is the official AI Model and Platform Partner of DEV
 Neon is the official database partner of DEV
 Algolia is the official search partner of DEV
 DEV Community — A space to discuss and keep up software development and manage your software career
-Página Inicial
-DEV++
+Home
 Welcome Thread
-Podcasts
-Videos
 Tags
-DEV Education Tracks
-DEV Challenges
-DEV Help
-Advertise on DEV
-DEV Showcase
-Sobre
-Contato
-Free Postgres Database
-Software comparisons
-Forem Shop
-Código de Conduta
-Política de Privacidade
-Termos de Uso
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
 Built on Forem — the open source software that powers DEV and other inclusive communities.
 Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
 We're a place where coders share, stay up-to-date and grow their careers.

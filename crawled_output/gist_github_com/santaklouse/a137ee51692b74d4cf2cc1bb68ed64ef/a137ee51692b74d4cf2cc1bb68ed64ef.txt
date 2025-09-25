@@ -1,0 +1,759 @@
+unlimited CrossOver trial (MacOS) · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+santaklouse/CrossOver.sh
+Last active
+September 25, 2025 00:37
+Show Gist options
+Download ZIP
+Star
+526
+(526)
+You must be signed in to star a gist
+Fork
+94
+(94)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/santaklouse/a137ee51692b74d4cf2cc1bb68ed64ef.js&quot;&gt;&lt;/script&gt;
+Save santaklouse/a137ee51692b74d4cf2cc1bb68ed64ef to your computer and use it in GitHub Desktop.
+Code
+Revisions
+20
+Stars
+524
+Forks
+94
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/santaklouse/a137ee51692b74d4cf2cc1bb68ed64ef.js&quot;&gt;&lt;/script&gt;
+Save santaklouse/a137ee51692b74d4cf2cc1bb68ed64ef to your computer and use it in GitHub Desktop.
+Download ZIP
+unlimited CrossOver trial (MacOS)
+Raw
+README.md
+Run it in console for permanent install :
+bash -c "$(curl -fsSL https://gist.github.com/santaklouse/a137ee51692b74d4cf2cc1bb68ed64ef/raw/install.sh?token=$(date +%s))"
+After install script will fix crossover as well as expired bottles (Thanks to @djsmax).
+Raw
+CrossOver.sh
+#!/usr/bin/env bash
+# checck if pidof exists
+PIDOF="$(which pidof)"
+# and if not - install it
+(test "${PIDOF}" && test -f "${PIDOF}") || brew install pidof
+# find app in default paths
+CO_PWD=~/Applications/CrossOver.app/Contents/MacOS
+test -d "${CO_PWD}" || CO_PWD=/Applications/CrossOver.app/Contents/MacOS
+test -d "${CO_PWD}" || (echo 'unable to detect app path. exiting...' && exit)
+PWD="${CO_PWD}"
+cd "${PWD}"
+PROC_NAME='CrossOver'
+# get all pids of CrossOver
+pids=(`pgrep "${PROC_NAME}"`, `pidof "${PROC_NAME}"`, `ps -Ac | grep -m1 "${PROC_NAME}" | awk '{print $1}'`)
+pids=`echo ${pids[*]}|tr ',' ' '`
+# kills CrossOver process if it is running
+[ "${pids}" ] && kill -9 `echo "${pids}"` > /dev/null 2>&1
+# wait until app finish
+sleep 3
+# make the current date RFC3339-encoded string representation in UTC time zone
+DATETIME=`date -u -v -3H
+'+%Y-%m-%dT%TZ'`
+# modify time in order to reset trial
+plutil -replace FirstRunDate -date "${DATETIME}" ~/Library/Preferences/com.codeweavers.CrossOver.plist
+plutil -replace SULastCheckTime -date "${DATETIME}" ~/Library/Preferences/com.codeweavers.CrossOver.plist
+# show tooltip notification
+/usr/bin/osascript -e "display notification \"trial fixed: date changed to ${DATETIME}\""
+# reset all bottles
+for file in ~/Library/Application\ Support/CrossOver/Bottles/*/.{eval,update-timestamp}; do rm -rf "${file}";done
+# and after this execute original crossover
+echo "${PWD}" > /tmp/co_log.log
+"$($PWD/CrossOver.origin)" >> /tmp/co_log.log
+Raw
+install.sh
+#!/usr/bin/env bash
+# find app in default paths
+CO_PWD=~/Applications/CrossOver.app/Contents/MacOS
+test -d "${CO_PWD}" || CO_PWD=/Applications/CrossOver.app/Contents/MacOS
+test -d "${CO_PWD}" || (echo 'unable to detect app path. exiting...' && exit)
+PWD="${CO_PWD}"
+cd "${PWD}"
+PROC_NAME='CrossOver'
+# get all pids of CrossOver
+pids=(`pgrep "${PROC_NAME}"`, `pidof "${PROC_NAME}"`, `ps -Ac | grep -m1 "${PROC_NAME}" | awk '{print $1}'`)
+pids=`echo ${pids[*]}|tr ',' ' '`
+# kills CrossOver process if it is running
+[ "${pids}" ] && kill -9 `echo "${pids}"` > /dev/null 2>&1
+TIMESTAMP=$(date +%s)
+FIX_FILE_LINK="https://gist.github.com/santaklouse/a137ee51692b74d4cf2cc1bb68ed64ef/raw/CrossOver.sh?token=${TIMESTAMP}"
+if [ -f CrossOver.origin ]; then
+echo 'already installed. update and exit.'
+echo "$(curl -fsSL ${FIX_FILE_LINK})" > CrossOver
+exit
+fi;
+test -f CrossOver.origin || mv CrossOver CrossOver.origin
+echo "$(curl -fsSL ${FIX_FILE_LINK})" > CrossOver
+chmod +x CrossOver
+echo 'Done. Please open CrossOver '
+Raw
+uninstall.sh
+#!/usr/bin/env bash
+# find app in default paths
+CO_PWD=~/Applications/CrossOver.app/Contents/MacOS
+test -d "${CO_PWD}" || CO_PWD=/Applications/CrossOver.app/Contents/MacOS
+test -d "${CO_PWD}" || (echo 'unable to detect app path. exiting...' && exit)
+PWD="${CO_PWD}"
+cd "${PWD}"
+PROC_NAME='CrossOver'
+# get all pids of CrossOver
+pids=(`pgrep "${PROC_NAME}"`, `pidof "${PROC_NAME}"`, `ps -Ac | grep -m1 "${PROC_NAME}" | awk '{print $1}'`)
+pids=`echo ${pids[*]}|tr ',' ' '`
+# kills CrossOver process if it is running
+[ "${pids}" ] && kill -9 `echo "${pids}"` > /dev/null 2>&1
+if [ -f CrossOver.origin ]; then
+echo 'original file found. Roll it back and exit.'
+mv CrossOver.origin CrossOver
+exit
+fi;
+echo 'original file not found.'
+Load earlier comments...
+Copy link
+Nygosaki
+commented
+May 26, 2025
+@xVc323 I was snooping with wireshark for a while and crossover still doesn't validate trials with their servers. IMO it's overkill and doesen't treat the actual issues causing things to fail, trying to treat the symptoms instead with a wide spray, but as long as it helps someone I'm glad.
+The actual reason why it stopped working I wrote about in an earlier comment here
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+romthebom7
+commented
+May 27, 2025
+how does it work when i paste it into terminal but it doesn't work nothing happens
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+xVc323
+commented
+May 27, 2025
+@Nygosaki You’re absolutely right. I set up a testing environment and didn’t find any obvious network traffic to CodeWeavers that looked related to trial validation. That said, I’m no expert in network analysis so I can’t be 100% certain. The traffic I did see seemed to be tied to things like TIE files and software downloads. I'll simplify my script accordingly.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+UrkiMimi
+commented
+May 28, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+If anyone needs it, I'll drop the Python script I made in like 5 minutes that I've been using for little over a month.
+All this does is set the FirstRunDate to the current time. This doesn't fix effected bottles.
+import plistlib
+import os
+from datetime import datetime
+# set os path
+userPath = os.path.expanduser('~')
+# open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# set first run date to correct time
+pl['FirstRunDate'] = datetime.utcnow()
+# save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+proffsmoke
+commented
+May 29, 2025
+If anyone needs it, I'll drop the Python script I made in like 5 minutes that I've been using for little over a month. All this does is set the FirstRunDate to the current time. This doesn't fix effected bottles.
+import plistlib
+import os
+from datetime import datetime
+# set os path
+userPath = os.path.expanduser('~')
+# open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# set first run date to correct time
+pl['FirstRunDate'] = datetime.utcnow()
+# save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+works for me, very thx
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+romthebom7
+commented
+May 29, 2025
+If anyone needs it, I'll drop the Python script I made in like 5 minutes that I've been using for little over a month. All this does is set the FirstRunDate to the current time. This doesn't fix effected bottles.
+import plistlib
+import os
+from datetime import datetime
+# set os path
+userPath = os.path.expanduser('~')
+# open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# set first run date to correct time
+pl['FirstRunDate'] = datetime.utcnow()
+# save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+Where exactly would I use this code? I’m kinda dumb around software stuff
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+DakshG07
+commented
+Jun 1, 2025
+Here's a Python script that should completely reset the trial (I basically just put together what everyone has already sent before):
+#!/usr/bin/env python3
+import os
+import shutil
+import re
+import plistlib
+from datetime import datetime
+print("Resetting Crossover FirstRunDate...")
+# Set os path
+userPath = os.path.expanduser('~')
+# Open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# Set first run date to correct time
+pl['FirstRunDate'] = datetime.utcnow()
+# Save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+print("Resetting Crossover bottles...")
+while True:
+# Get bottle name
+bottle_name = input("Enter the bottle name: ")
+# Define paths
+regfile = os.path.expanduser(f"~/Library/Application Support/CrossOver/Bottles/{bottle_name}/system.reg")
+bakfile = regfile + ".bak"
+# Create backup
+shutil.copy2(regfile, bakfile)
+print(f"Backup created: {bakfile}")
+# Compile the regex pattern
+pattern = re.compile(r"\[Software\\\\CodeWeavers\\\\CrossOver\\\\cxoffice\] [0-9]*")
+# Read the file and search for match line
+with open(regfile, 'r') as f:
+lines = f.readlines()
+match_line_num = None
+for i, line in enumerate(lines):
+if pattern.search(line):
+match_line_num = i
+break
+# If match is found
+if match_line_num is not None:
+print(f"Match found at line {match_line_num + 1}.")
+for line in lines[match_line_num:match_line_num + 5]:
+print(line, end='')
+resp = input("Do you want to delete these lines (delete to reset bottle)? (y/n): ").strip().lower()
+if resp == 'y':
+new_lines = lines[:match_line_num] + lines[match_line_num + 5:]
+with open(regfile, 'w') as f:
+f.writelines(new_lines)
+print("Lines deleted.")
+else:
+print("Deletion canceled.")
+else:
+print("No match found.")
+# Ask if we should continue
+resp = input("Do you want to reset another bottle? (y/n): ").strip().lower()
+if resp != 'y':
+print("CrossOver trial reset.")
+break
+This will reset the Crossover trial and all the bottles. You should know the names of your bottles. To run it, save it as reset_crossover.py in a folder, and then open a terminal there and run python3 reset_crossover.py (the script should walk you through the rest).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+HarshitVarma737
+commented
+Jun 4, 2025
+You sir are a Legend!! Love you for doing this Godly work for this community.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Nygosaki
+commented
+Jun 4, 2025
+could someone try if the latest commit of this script works?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+supahfox
+commented
+Jun 6, 2025
+could someone try if the latest commit of this script works?
+it does work
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Green4ek
+commented
+Jun 18, 2025
+I keep on getting this error, can anyone help?:
+zsh: event not found: /usr/bin/env
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+proffsmoke
+commented
+Jun 22, 2025
+Here's a Python script that should completely reset the trial (I basically just put together what everyone has already sent before):
+#!/usr/bin/env python3
+import os
+import shutil
+import re
+import plistlib
+from datetime import datetime
+print("Resetting Crossover FirstRunDate...")
+# Set os path
+userPath = os.path.expanduser('~')
+# Open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# Set first run date to correct time
+pl['FirstRunDate'] = datetime.utcnow()
+# Save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+print("Resetting Crossover bottles...")
+while True:
+# Get bottle name
+bottle_name = input("Enter the bottle name: ")
+# Define paths
+regfile = os.path.expanduser(f"~/Library/Application Support/CrossOver/Bottles/{bottle_name}/system.reg")
+bakfile = regfile + ".bak"
+# Create backup
+shutil.copy2(regfile, bakfile)
+print(f"Backup created: {bakfile}")
+# Compile the regex pattern
+pattern = re.compile(r"\[Software\\\\CodeWeavers\\\\CrossOver\\\\cxoffice\] [0-9]*")
+# Read the file and search for match line
+with open(regfile, 'r') as f:
+lines = f.readlines()
+match_line_num = None
+for i, line in enumerate(lines):
+if pattern.search(line):
+match_line_num = i
+break
+# If match is found
+if match_line_num is not None:
+print(f"Match found at line {match_line_num + 1}.")
+for line in lines[match_line_num:match_line_num + 5]:
+print(line, end='')
+resp = input("Do you want to delete these lines (delete to reset bottle)? (y/n): ").strip().lower()
+if resp == 'y':
+new_lines = lines[:match_line_num] + lines[match_line_num + 5:]
+with open(regfile, 'w') as f:
+f.writelines(new_lines)
+print("Lines deleted.")
+else:
+print("Deletion canceled.")
+else:
+print("No match found.")
+# Ask if we should continue
+resp = input("Do you want to reset another bottle? (y/n): ").strip().lower()
+if resp != 'y':
+print("CrossOver trial reset.")
+break
+This will reset the Crossover trial and all the bottles. You should know the names of your bottles. To run it, save it as reset_crossover.py in a folder, and then open a terminal there and run python3 reset_crossover.py (the script should walk you through the rest).
+works very well, thxx
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+george-593
+commented
+Jul 7, 2025
+I improved the python script by DakshG07 to automatically detect all bottles, but it will still ask for confirmation before it deletes any files
+#!/usr/bin/env python3
+import os
+import shutil
+import re
+import plistlib
+from datetime import datetime
+print("Resetting Crossover FirstRunDate...")
+# Set os path
+userPath = os.path.expanduser('~')
+# Open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# Set first run date to correct time
+pl['FirstRunDate'] = datetime.now()
+# Save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+print("Resetting Crossover bottles...")
+# Get all of the bottles in the bottles directory
+path = os.path.expanduser("~/Library/Application Support/CrossOver/Bottles/")
+bottles = [ f.name for f in os.scandir(path) if f.is_dir() ]
+for bottle in bottles:
+# Define paths
+regfile = os.path.expanduser(f"~/Library/Application Support/CrossOver/Bottles/{bottle}/system.reg")
+bakfile = regfile + ".bak"
+# Create backup
+shutil.copy2(regfile, bakfile)
+print(f"Backup created: {bakfile}")
+# Compile the regex pattern
+pattern = re.compile(r"\[Software\\\\CodeWeavers\\\\CrossOver\\\\cxoffice\] [0-9]*")
+# Read the file and search for match line
+with open(regfile, 'r') as f:
+lines = f.readlines()
+match_line_num = None
+for i, line in enumerate(lines):
+if pattern.search(line):
+match_line_num = i
+break
+# If match is found
+if match_line_num is not None:
+print(f"Match found at line {match_line_num + 1}.")
+for line in lines[match_line_num:match_line_num + 5]:
+print(line, end='')
+resp = input("Do you want to delete these lines (delete to reset bottle)? (y/n): ").strip().lower()
+if resp == 'y':
+new_lines = lines[:match_line_num] + lines[match_line_num + 5:]
+with open(regfile, 'w') as f:
+f.writelines(new_lines)
+print("Lines deleted.")
+else:
+print("Deletion canceled.")
+else:
+print("No match found.")
+print("CrossOver trial reset.")
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+fleetimee
+commented
+Jul 8, 2025
+I improved the python script by DakshG07 to automatically detect all bottles, but it will still ask for confirmation before it deletes any files
+#!/usr/bin/env python3
+import os
+import shutil
+import re
+import plistlib
+from datetime import datetime
+print("Resetting Crossover FirstRunDate...")
+# Set os path
+userPath = os.path.expanduser('~')
+# Open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# Set first run date to correct time
+pl['FirstRunDate'] = datetime.now()
+# Save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+print("Resetting Crossover bottles...")
+# Get all of the bottles in the bottles directory
+path = os.path.expanduser("~/Library/Application Support/CrossOver/Bottles/")
+bottles = [ f.name for f in os.scandir(path) if f.is_dir() ]
+for bottle in bottles:
+# Define paths
+regfile = os.path.expanduser(f"~/Library/Application Support/CrossOver/Bottles/{bottle}/system.reg")
+bakfile = regfile + ".bak"
+# Create backup
+shutil.copy2(regfile, bakfile)
+print(f"Backup created: {bakfile}")
+# Compile the regex pattern
+pattern = re.compile(r"\[Software\\\\CodeWeavers\\\\CrossOver\\\\cxoffice\] [0-9]*")
+# Read the file and search for match line
+with open(regfile, 'r') as f:
+lines = f.readlines()
+match_line_num = None
+for i, line in enumerate(lines):
+if pattern.search(line):
+match_line_num = i
+break
+# If match is found
+if match_line_num is not None:
+print(f"Match found at line {match_line_num + 1}.")
+for line in lines[match_line_num:match_line_num + 5]:
+print(line, end='')
+resp = input("Do you want to delete these lines (delete to reset bottle)? (y/n): ").strip().lower()
+if resp == 'y':
+new_lines = lines[:match_line_num] + lines[match_line_num + 5:]
+with open(regfile, 'w') as f:
+f.writelines(new_lines)
+print("Lines deleted.")
+else:
+print("Deletion canceled.")
+else:
+print("No match found.")
+print("CrossOver trial reset.")
+thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+grrrrrrrrlklklklklk
+commented
+Jul 8, 2025
+Alternatively if you dont want to use scripts, you can just download "prefs editor", open it, search for crossover, click on it, and change "first run date" to whenever you want it to and the trial will start on that day.
+Beware that your bottles will have to be redownloaded, at least from my very basic knowledge
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+DevanshIcarus
+commented
+Jul 13, 2025
+Beware that your bottles will have to be redownloaded, at least from my very basic knowledge
+Well then how to save bottles then 😄
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+xVc323
+commented
+Jul 15, 2025
+Script here — resets trial, bottle reset included (experimental).
+Still works 👀
+Resets bottles and everything.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MPT109
+commented
+Jul 31, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Script here — resets trial, bottle reset included (experimental).
+Still works 👀 Resets bottles and everything.
+this works way better than other ones listed here, just one command for it all, not saying that the other ones here are bad, just because i'm not experienced and i think this is good for getting it done quickly
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Nygosaki
+commented
+Jul 31, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+imo this one's still the best. Resets everything with one command + if you have games on a different drive or path it allows you to config it if you want
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MPT109
+commented
+Aug 1, 2025
+imo this one's still the best. Resets everything with one command + if you have games on a different drive or path it allows you to config it if you want
+the command doesnt work for me, i can also edit the resetcrossover.sh to configure the path anyways
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Nygosaki
+commented
+Aug 1, 2025
+@MPT109 what specifically doesent work for you? For me it resets it permanently. As in, I need to run it once and never again (the free trial stays at 14 days)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MPT109
+commented
+Aug 2, 2025
+the command just doesn't run
+@MPT109 what specifically doesent work for you? For me it resets it permanently. As in, I need to run it once and never again (the free trial stays at 14 days)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Udalin
+commented
+Aug 3, 2025
+This is working :) thank you guys! Just a quick question regarding the firewall, do you guys always have the firewall enabled all the time while using CrossOver?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+supahfox
+commented
+Aug 3, 2025
+This is working :) thank you guys! Just a quick question regarding the firewall, do you guys always have the firewall enabled all the time while using CrossOver?
+I do. I had no problems while it was off tho
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+phantomanton
+commented
+Aug 4, 2025
+Did not work for me, running the script in terminal, it still counts down on the trial period days. Can anyone elaborate on how to do it correctly? what I did was put copy paste the link/line from the main post and put it into terminal, hit enter. Also tried this "Script here — resets trial, bottle reset included (experimental)." but it still counts down on the trial period. Im 100% doing something wrong
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MPT109
+commented
+Aug 7, 2025
+Did not work for me, running the script in terminal, it still counts down on the trial period days. Can anyone elaborate on how to do it correctly? what I did was put copy paste the link/line from the main post and put it into terminal, hit enter. Also tried this "Script here — resets trial, bottle reset included (experimental)." but it still counts down on the trial period. Im 100% doing something wrong
+try to download and run it locally: curl -fsSL "https://raw.githubusercontent.com/xVc323/crossover-trial/main/reset_crossover_fully.sh" -o reset_crossover_fully.sh
+chmod +x reset_crossover_fully.sh
+./reset_crossover_fully.sh
+after that, just run this command to reset: ./reset_crossover_fully.sh
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+themadhuramdhawan
+commented
+Sep 13, 2025
+So I have to install Crossover, use the trial, and then run that command once the trial’s over, right?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+HotWordland
+commented
+Sep 21, 2025
+#!/usr/bin/env python3
+import os
+import shutil
+import re
+import plistlib
+from datetime import datetime
+print("Resetting Crossover FirstRunDate...")
+# Set os path
+userPath = os.path.expanduser('~')
+# Open plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'rb') as f:
+pl = plistlib.load(f)
+# Set first run date to correct time
+pl['FirstRunDate'] = datetime.utcnow()
+# Save plist
+with open(f'{userPath}/Library/Preferences/com.codeweavers.CrossOver.plist', 'wb') as f:
+plistlib.dump(pl, f)
+print("Resetting Crossover bottles...")
+while True:
+# Get bottle name
+bottle_name = input("Enter the bottle name: ")
+# Define paths
+regfile = os.path.expanduser(f"~/Library/Application Support/CrossOver/Bottles/{bottle_name}/system.reg")
+bakfile = regfile + ".bak"
+# Create backup
+shutil.copy2(regfile, bakfile)
+print(f"Backup created: {bakfile}")
+# Compile the regex pattern
+pattern = re.compile(r"\[Software\\\\CodeWeavers\\\\CrossOver\\\\cxoffice\] [0-9]*")
+# Read the file and search for match line
+with open(regfile, 'r') as f:
+lines = f.readlines()
+match_line_num = None
+for i, line in enumerate(lines):
+if pattern.search(line):
+match_line_num = i
+break
+# If match is found
+if match_line_num is not None:
+print(f"Match found at line {match_line_num + 1}.")
+for line in lines[match_line_num:match_line_num + 5]:
+print(line, end='')
+resp = input("Do you want to delete these lines (delete to reset bottle)? (y/n): ").strip().lower()
+if resp == 'y':
+new_lines = lines[:match_line_num] + lines[match_line_num + 5:]
+with open(regfile, 'w') as f:
+f.writelines(new_lines)
+print("Lines deleted.")
+else:
+print("Deletion canceled.")
+else:
+print("No match found.")
+# Ask if we should continue
+resp = input("Do you want to reset another bottle? (y/n): ").strip().lower()
+if resp != 'y':
+print("CrossOver trial reset.")
+break
+this is works for me
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tadonagiren
+commented
+Sep 22, 2025
+Can I use it with Crossover 25.1.1?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+fmPeretti
+commented
+Sep 25, 2025
+reset_crossover_fully.sh
+chmod +x reset_crossover_fully.sh
+yes
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

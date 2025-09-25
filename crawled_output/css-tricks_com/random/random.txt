@@ -1,4 +1,4 @@
-Atomic OOBEMITSCSS | CSS-Tricks
+Rethinking Twitter as a Serverless App | CSS-Tricks
 Skip to main content
 CSS-Tricks
 Articles
@@ -9,16 +9,410 @@ Almanac
 Picks
 Shuffle
 Search
-Atomic OOBEMITSCSS
-Chris Coyier
-on
-Jul 9, 2015
-Get affordable and hassle-free WordPress hosting plans with Cloudways — start your free trial today.
-It sounds tounge-in-cheek, but it’s not. As Una Kravets says:
-That sounds crazy, but it makes sense when you break it down.
-You (usually) need a naming strategy, abstractions, and a plan to keep specificity in check, so these ideas all together make sense.
-Direct Link →
+cloud functions cloudinary fauna react twitter
+Rethinking Twitter as a Serverless App
+❥ Sponsor
+In a previous article, we showed how to build a GraphQL API with FaunaDB. We’ve also written a series of articles [1, 2, 3, 4] explaining how traditional databases built for global scalability have to adopt eventual (vs. strong) consistency, and/or make compromises on relations and indexing possibilities. FaunaDB is different since it does not make these compromises. It’s built to scale so it can safely serve your future startup no matter how big it gets, without sacrificing relations and consistent data.
+In this article, we’re very excited to start bringing all of this together in a real-world app with highly dynamic data in a serverless fashion using React hooks, FaunaDB, and Cloudinary. We will use the Fauna Query Language (FQL) instead of GraphQL and start with a frontend-only approach that directly accesses the serverless database FaunaDB for data storage, authentication, and authorization.
+The golden standard for example applications that feature a specific technology is a todo app–mainly because they are simple. Any database out there can serve a very simple application and shine.
+And that is exactly why this app will be different! If we truly want to show how FaunaDB excels for real world applications, then we need to build something more advanced.
+Introducing Fwitter
+When we started at Twitter, databases were bad. When we left, they were still badEvan Weaver
+Since FaunaDB was developed by ex-Twitter engineers who experienced these limitations first-hand, a Twitter-like application felt like an appropriately sentimental choice. And, since we are building it with FaunaDB, let’s call this serverless baby ‘Fwitter’.
+Below is a short video that shows how it looks, and the full source code is available on GitHub.
+When you clone the repo and start digging around, you might notice a plethora of well-commented example queries not covered in this article. That’s because we’ll be using Fwitter as our go-to example application in future articles, and building additional features into it with time.
+But, for now, here’s a basic rundown of what we’ll cover here:
+Modeling the data Setup the projectCreating the front endThe FaunaDB JavaScript driverCreating dataSecuring your data with UDFs and ABAC rolesHow to implement authenticationAdding Cloudinary for mediaRetrieving dataMore in the code base
+We build these features without having to configure operations or set up servers for your database. Since both Cloudinary and FaunaDB are scalable and distributed out-of-the-box, we will never have to worry about setting up servers in multiple regions to achieve low latencies for users in other countries.
+Let’s dive in!
+Modeling the data
+Before we can show how FaunaDB excels at relations, we need to cover the types of relations in our application’s data model. FaunaDB’s data entities are stored in documents, which are then stored in collections–like rows in tables. For example, each user’s details will be represented by a User document stored in a Users collection. And we eventually plan to support both single sign-on and password-based login methods for a single user, each of which will be represented as an Account document in an Accounts collection.
+At this point, one user has one account, so it doesn’t matter which entity stores the reference (i.e., the user ID). We could have stored the user ID in either the Account or the User document in a one-to-one relation:
+One-to-one
+However, since one User will eventually have multiple Accounts (or authentication methods), we’ll have a one-to-many model.
+One-to-many
+In a one-to-many relation between Users and Accounts, each Account points to only one user, so it makes sense to store the User reference on the Account:
+We also have many-to-many relations, like the relations between Fweets and Users, because of the complex ways users interact with each other via likes, comments, and refweets.
+Many-to-many
+Further, we will use a third collection, Fweetstats, to store information about the interaction between a User and a Fweet.
+Fweetstats’ data will help us determine, for example, whether or not to color the icons indicating to  the user that he has already liked, commented, or refweeted a Fweet. It also helps us determine what clicking on the heart means: unlike or like.
+The final model for the application will look like this:
+The application model of the fwitter application
+Fweets are the center of the model, because they contain the most important data of the Fweet such as the information about the message, the number of likes, refweets, comments, and the Cloudinary media that was attached. FaunaDB stores this data in a json format that looks like this:
+As shown in the model and in this example json, hashtags are stored as a list of references. If we wanted to, we could have stored the complete hashtag json in here, and that is the preferred solution in more limited document-based databases that lack relations. However, that would mean that our hashtags would be duplicated everywhere (as they are in more limited databases) and it would be more difficult to search for hashtags and/or retrieve Fweets for a specific hashtag as shown below.
+Note that a Fweet does not contain a link to Comments, but the Comments collection contains a reference to the Fweet. That’s because one Comment belongs to one Fweet, but a Fweet can have many comments–similar to the one-to-many relation between Users and Accounts.
+Finally, there is a FollowerStats collection which basically saves information about how much users interact with each other in order to personalize their respective feeds. We won’t cover that much in this article, but you can experiment with the queries in the source code and stay tuned for a future article on advanced indexing.
+Hopefully, you’re starting to see why we chose something more complex than a ToDo app. Although Fwitter  is nowhere near the complexity of the real Twitter app on which it’s based, it’s already becoming apparent that implementing such an application without relations would be a serious brainbreaker.
+Now, if you haven’t already done so from the github repo, it’s finally time to get our project running locally!
+Setup the project
+To set up the project, go to the FaunaDB dashboard and sign up. Once you are in the dashboard, click on New Database, fill in a name, and click Save. You should now be on the “Overview” page of your new database.
+Next, we need a key that we will use in our setup scripts. Click on the Security tab in the left sidebar, then click the New key button.
+In the “New key” form, the current database should already be selected. For “Role”, leave it as “Admin”. Optionally, add a key name. Next, click Save and copy the key secret displayed on the next page. It will not be displayed again.
+Now that you have your database secret, clone the git repository and follow the readme. We have prepared a few scripts so that you only have to run the following commands to initialize your app, create all collections, and populate your database. The scripts will give you further instructions:
+// install node modules
+npm install
+// run setup, this will create all the resources in your database
+// provide the admin key when the script asks for it.
+// !!! the setup script will give you another key, this is a key
+// with almost no permissions that you need to place in your .env.local as the
+// script suggestions
+npm run setup
+npm run populate
+// start the frontend
+After the script, your .env.local file should contain the bootstrap key that the script provided you (not the admin key)
+REACT_APP_LOCAL___BOOTSTRAP_FAUNADB_KEY=<bootstrap key>
+You can optionally create an account with Cloudinary and add your cloudname and a public template (there is a default template called ‘ml_default’ which you can make public) to the environment to include images and videos in the fweets.
+REACT_APP_LOCAL___CLOUDINARY_CLOUDNAME=<cloudinary cloudname>
+REACT_APP_LOCAL___CLOUDINARY_TEMPLATE=<cloudinary template>
+Without these variables, the include media button will not work, but the rest of the app should run fine:
+Creating the front end
+For the frontend, we used Create React App to generate an application, then divided the application into pages and components. Pages are top-level components which have their own URLs. The Login and Register pages speak for themselves. Home is the standard feed of Fweets from the authors we follow; this is the page that we see when we log into our account. And the User and Tag pages show the Fweets for a specific user or tag in reverse chronological order.
+We use React Router to direct to these pages depending on the URL, as you can see in the src/app.js file.
+<Router>
+<SessionProvider value={{ state, dispatch }}>
+<Layout>
+<Switch>
+<Route exact path="/accounts/login">
+<Login />
+</Route>
+<Route exact path="/accounts/register">
+<Register />
+</Route>
+<Route path="/users/:authorHandle" component={User} />
+<Route path="/tags/:tag" component={Tag} />
+<Route path="/">
+<Home />
+</Route>
+</Switch>
+</Layout>
+</SessionProvider>
+</Router>
+The only other thing to note in the above snippet is the SessionProvider, which is a React context to store the user’s information upon login. We’ll revisit this in the authentication section. For now, it’s enough to know that this gives us access to the Account (and thus User) information from each component.
+Take a quick look at the home page (src/pages/home.js) to see how we use a combination of hooks to manage our data. The bulk of our application’s logic is implemented in FaunaDB queries which live in the src/fauna/queries folder. All calls to the database pass through the query-manager, which in a future article, we’ll refactor into serverless function calls. But for now these calls originate from the frontend and we’ll secure the sensitive parts of it with FaunaDB’s ABAC security rules and User Defined Functions (UDF). Since FaunaDB behaves as a token-secured API, we do not have to worry about a limit on the amount of connections as we would in traditional databases.
+The FaunaDB JavaScript driver
+Next, take a look at the src/fauna/query-manager.js file to see how we connect FaunaDB to our application using FaunaDB’s JavaScript driver, which is just a node module we pulled with `npm install`. As with any node module, we import it into our application as so:
+import faunadb from 'faunadb'
+And create a client by providing a token.
+this.client = new faunadb.Client({
+secret: token || this.bootstrapToken
+})
+We’ll cover tokens a little more in the Authentication section. For now, let’s create some data!
+Creating data
+The logic to create a new Fweet document can be found in the src/fauna/queries/fweets.js file. FaunaDB documents are just like JSON, and each Fweet follows the same basic structure:
+const data = {
+data: {
+message: message,
+likes: 0,
+refweets: 0,
+comments: 0,
+created: Now()
+}
+}
+The Now() function is used to insert the time of the query so that the Fweets in a user’s feed can be sorted chronologically. Note that FaunaDB automatically places timestamps on every database entity for temporal querying. However, the FaunaDB timestamp represents the time the document was last updated, not the time it was created, and the document gets updated every time a Fweet is liked; for our intended sorting order, we need the created time.
+Next, we send this data to FaunaDB with the Create() function. By providing Create() with the reference to the Fweets collection using Collection(‘fweets’), we specify where the data needs to go.
+const query = Create(Collection('fweets'), data )
+We can now wrap this query in a function that takes a message parameter and executes it using client.query() which will send the query to the database. Only when we call client.query() will the query be sent to the database and executed. Before that, we combine as many FQL functions as we want to construct our query.
+function createFweet(message, hashtags) {
+const data = …
+const query = …
+return client.query(query)
+}
+Note that we have used plain old JavaScript variables to compose this query and in essence just called functions. Writing FQL is all about function composition; you construct queries by combining small functions into larger expressions. This functional approach has very strong advantages. It allows us to use native language features such as JavaScript variables to compose queries, while also writing higher-order FQL functions that are protected from injection.
+For example, in the query below, we add hashtags to the document with a CreateHashtags() function that we’ve defined elsewhere using FQL.
+const data = {
+data: {
+// ...
+hashtags: CreateHashtags(tags),
+likes: 0,
+// ...
+}
+The way FQL works from within the driver’s host language (in this case, JavaScript) is what makes FQL an eDSL (embedded domain-specific language). Functions like CreateHashtags() behave just like a native FQL function in that they are both just functions that take input. This means that we can easily extend the language with our own functions, like in this open source FQL library from the Fauna community.
+It’s also important to notice that we create two entities in two different collections, in one transaction. Thus, if/when things go wrong, there is no risk that the Fweet is created yet the Hashtags are not. In more technical terms, FaunaDB is transactional and consistent whether you run queries over multiple collections or not, a property that is rare in scalable distributed databases.
+Next, we need to add the author to the query. First, we can use the Identity() FQL function to return a reference to the currently logged in document. As discussed previously in the data modeling section, that document is of the type Account and is separated from Users to support SSO in a later phase.
+Then, we need to wrap Identity() in a Get() to access the full Account document and not just the reference to it.
+Get(Identity())
+Finally, we wrap all of that in a Select() to select the data.user field from the account document and add it to the data JSON.
+const data = {
+data: {
+// ...
+hashtags: CreateHashtags(tags),
+author: Select(['data', 'user'], Get(Identity())),
+likes: 0,
+// ...
+}
+}
+Now that we’ve constructed the query, let’s pull it all together and call client.query(query) to execute it.
+function createFweet(message, hashtags) {
+const data = {
+data: {
+message: message,
+likes: 0,
+refweets: 0,
+comments: 0,
+author: Select(['data', 'user'], Get(Identity())),
+hashtags: CreateHashtags(tags),
+created: Now()
+}
+}
+const query = Create(Collection('fweets'), data )
+return client.query(query)
+}
+By using functional composition, you can easily combine all your advanced logic in one query that will be executed in one transaction. Check out the file src/fauna/queries/fweets.js to see the final result which takes even more advantage of function composition to add rate-limiting, etc.
+Securing your data with UDFs and ABAC roles
+The attentive reader will have some thoughts about security by now. We are essentially creating queries in JavaScript and calling these queries from the frontend. What stops a malicious user from altering these queries?
+FaunaDB provides two features that allow us to secure our data: Attribute-Based Access Control (ABAC) and User Defined Functions (UDF). With ABAC, we can control which collections or entities that a specific key or token can access by writing Roles.
+With UDFs, we can push FQL statements to the database by using the CreateFunction().
+CreateFunction({
+name: 'create_fweet',
+body: <your FQL statement>,
+})
+Once the function is in the database as a UDF, where the application can’t alter it anymore, we then call this UDF from the front end.
+client.query(
+Call(Function('create_fweet'), message, hashTags)
+)
+Since the query is now saved on the database (just like a stored procedure), the user can no longer manipulate it.
+One example of how UDFs can be used to secure a call is that we do not pass in the author of the Fweet. The author of the Fweet is derived from the Identity() function instead, which makes it impossible for a user to write a Fweet on someone’s behalf.
+Of course, we still have to define that the user has access to call the UDF. For that, we will use a very simple ABAC role that defines a group of role members and their privileges. This role will be named logged_in_role, its membership will include all of the documents in the Accounts collection, and all of these members will be granted the privilege of calling the create_fweet UDF.
+CreateRole(
+name: 'logged_in_role',
+privileges: [
+{
+resource: q.Function('create_fweet'),
+actions: {
+call: true
+}
+}
+],
+membership: [{ resource: Collection('accounts') }],
+)
+We now know that these privileges are granted to an account, but how do we ‘become’ an Account? By using the FaunaDB Login() function to authenticate our users as explained in the next section.
+How to implement authentication in FaunaDB
+We just showed a role that gives Accounts the permissions to call the create_fweets function. But how do we “become” an Account?.
+First, we create a new Account document, storing credentials alongside any other data associated with the Account (in this case, the email address and the reference to the User).
+return Create(Collection('accounts'), {
+credentials: { password: password },
+data: {
+email: email,
+user: Select(['ref'], Var('user'))
+}
+})
+}
+We can then call Login() on the Account reference, which retrieves a token.
+Login(
+Match( < Account reference > ,
+{ password: password }
+)
+)
+We use this token in the client to impersonate the Account. Since all Accounts are members of the Account collection, this token fulfills the membership requirement of the logged_in_role and is granted access to call the create_fweet UDF.
+To bootstrap this whole process, we have two very important roles.
+bootstrap_role: can only call the login and register UDFslogged_in_role: can call other functions such as create_fweet
+The token you received when you ran the setup script is essentially a key created with the bootstrap_role. A client is created with that token in src/fauna/query-manager.js which will only be able to register or login. Once we log in, we use the new token returned from Login() to create a new FaunaDB client which now grants access to other UDF functions such as create_fweet. Logging out means we just revert to the bootstrap token. You can see this process in the src/fauna/query-manager.js, along with more complex role examples in the src/fauna/setup/roles.js file.
+How to implement the session in React
+Previously, in the “Creating the front end” section, we mentioned the SessionProvider component. In React, providers belong to a React Context which is a concept to facilitate data sharing between different components. This is ideal for data such as user information that you need everywhere in your application. By inserting the SessionProvider in the HTML early on, we made sure that each component would have access to it. Now, the only thing a component has to do to access the user details is import the context and use React’s ‘useContext’ hook.
+import SessionContext from '../context/session'
+import React, { useContext } from 'react'
+// In your component
+const sessionContext = useContext(SessionContext)
+const { user } = sessionContext.state
+But how does the user end up in the context? When we included the SessionProvider, we passed in a value consisting of the current state and a dispatch function.
+const [state, dispatch] = React.useReducer(sessionReducer, { user: null })
+// ...
+<SessionProvider value={{ state, dispatch }}>
+The state is simply the current state, and the dispatch function is called to modify the context. This dispatch function is actually the core of the context since creating a context only involves calling React.createContext() which will give you access to a Provider and a Consumer.
+const SessionContext = React.createContext({})
+export const SessionProvider = SessionContext.Provider
+export const SessionConsumer = SessionContext.Consumer
+export default SessionContext
+We can see that the state and dispatch are extracted from something that React calls a reducer (using React.useReducer), so let’s write a reducer.
+export const sessionReducer = (state, action) => {
+switch (action.type) {
+case 'login': {
+return { user: action.data.user }
+}
+case 'register': {
+return { user: action.data.user }
+}
+case 'logout': {
+return { user: null }
+}
+default: {
+throw new Error(`Unhandled action type: ${action.type}`)
+}
+}
+}
+This is the logic that allows you to change the context. In essence, it receives an action and decides how to modify the context given that action. In my case, the action is simply a type with a string. We use this context to keep user information, which means that we call it on a successful login with:
+sessionContext.dispatch({ type: 'login', data: e })
+Adding Cloudinary for media
+When we created a Fweet, we did not take into account assets yet. FaunaDB is meant to store application data, not image blobs or video data. However, we can easily store the media on Cloudinary and just keep a link in FaunaDB. The following inserts the Cloudinary script (in app.js):
+loadScript('https://widget.cloudinary.com/v2.0/global/all.js')
+We then create a Cloudinary Upload Widget (in src/components/uploader.js):
+window.cloudinary.createUploadWidget(
+{
+cloudName: process.env.REACT_APP_LOCAL___CLOUDINARY_CLOUDNAME,
+uploadPreset: process.env.REACT_APP_LOCAL___CLOUDINARY_TEMPLATE,
+},
+(error, result) => {
+// ...
+}
+)
+As mentioned earlier, you need to provide a Cloudinary cloud name and template in the environment variables (.env.local file) to use this feature. Creating a Cloudinary account is free and once you have an account you can grab the cloud name from the dashboard.
+You have the option to use API keys as well to secure uploads. In this case, we upload straight from the front end so the upload uses a public template. To add a template or modify it to make it public, click on the gear icon in the top menu, go to Upload tab, and click Add upload preset.
+You could also edit the ml_default template and just make it public.
+Now, we just call widget.open() when our media button is clicked.
+const handleUploadClick = () => {
+widget.open()
+}
+return (
+<div>
+<FontAwesomeIcon icon={faImage} onClick={handleUploadClick}></FontAwesomeIcon>
+</div>
+)
+This provides us with a small media button that will open the Cloudinary Upload Widget when it’s clicked.
+When we create the widget, we can also provide styles and fonts to give it the look and feel of our own application as we did above (in src/components/uploader.js):
+const widget = window.cloudinary.createUploadWidget(
+{
+cloudName: process.env.REACT_APP_LOCAL___CLOUDINARY_CLOUDNAME,
+uploadPreset: process.env.REACT_APP_LOCAL___CLOUDINARY_TEMPLATE,
+styles: {
+palette: {
+window: '#E5E8EB',
+windowBorder: '#4A4A4A',
+tabIcon: '#000000',
+// ...
+},
+fonts: {
+Once we have uploaded media to Cloudinary, we receive a bunch of information about the uploaded media, which we then add to the data when we create a Fweet.
+We can then simply use the stored id (which Cloudinary refers to as the publicId) with the Cloudinary React library (in src/components/asset.js):
+import { Image, Video, Transformation } from 'cloudinary-react'
+To show the image in our feed.
+<div className="fweet-asset">
+<Image publicId={asset.id}
+cloudName={cloudName} fetchFormat="auto" quality="auto" secure="true" />
+</div>
+When you use the id, instead of the direct URL, Cloudinary does a whole range of optimizations to deliver the media in the most optimal format possible. For example when you add a video image as follows:
+<div className="fweet-asset">
+<Video playsInline autoPlay loop={true} controls={true} cloudName={cloudName} publicId={publicId}>
+<Transformation width="600" fetchFormat="auto" crop="scale" />
+</Video>
+</div>
+Cloudinary will automatically scale down the video to a width of 600 pixels and deliver it as a WebM (VP9) to Chrome browsers (482 KB), an MP4 (HEVC) to Safari browsers (520 KB), or an MP4 (H.264) to browsers that support neither format (821 KB). Cloudinary does these optimizations server-side, significantly improving page load time and the overall user experience.
+Retrieving data
+We have shown how to add data. Now we still need to retrieve data. Getting the data of our Fwitter feed has many challenges. We need to:
+Get fweets from people you follow in a specific order (taking time and popularity into account)Get the author of the fweet to show his profile image and handleGet the statistics to show how many likes, refweets and comments it hasGet the comments to list those beneath the fweet. Get info about whether you already liked, refweeted, or commented on this specific fweet. If it’s a refweet, get the original fweet.
+This kind of query fetches data from many different collections and requires advanced indexing/sorting, but let’s start off simple. How do we get the Fweets? We start off by getting a reference to the Fweets collection using the Collection() function.
+Collection('fweets')
+And we wrap that in the Documents() function to get all of the collection’s document references.
+Documents(Collection('fweets'))
+We then Paginate over these references.
+Paginate(Documents(Collection('fweets')))
+Paginate() requires some explanation. Before calling Paginate(), we had a query that returned a hypothetical set of data. Paginate() actually materializes that data into pages of entities that we can read. FaunaDB requires that we use this Paginate() function to protect us from writing inefficient queries that retrieve every document from a collection, because in a database built for massive scale, that collection could contain millions of documents. Without the safeguard of Paginate(), that could get very expensive!
+Let’s save this partial query in a plain JavaScript variable references that we can continue to build on.
+const references = Paginate(Documents(Collection('fweets')))
+So far, our query only returns a list of references to our Fweets. To get the actual documents, we do exactly what we would do in JavaScript: map over the list with an anonymous function. In FQL, a Lambda is just an anonymous function.
+const fweets = Map(
+references,
+Lambda(['ref'], Get(Var('ref')))
+)
+This might seem verbose if you’re used to declarative query languages like SQL that declare what you want and let the database figure out how to get it. In contrast, FQL declares both what you want and how you want it which makes it more procedural. Since you’re the one defining how you want your data, and not the query engine, the price and performance impact of your query is predictable. You can exactly determine how many reads this query costs without executing it, which is a significant advantage if your database contains a huge amount of data and is pay-as-you-go. So there might be a learning curve, but it’s well worth it in the money and hassle it will save you. And once you learn how FQL works, you will find that queries read just like regular code.
+Let’s prepare our query to be extended easily by introducing Let. Let will allow us to bind variables and reuse them immediately in the next variable binding, which allows you to structure your query more elegantly.
+const fweets = Map(
+references,
+Lambda(
+['ref'],
+Let(
+{
+fweet: Get(Var('ref'))
+},
+// Just return the fweet for now
+Var('fweet')
+)
+)
+)
+Now that we have this structure, getting extra data is easy. So let’s get the author.
+const fweets = Map(
+references,
+Lambda(
+['ref'],
+Let(
+{
+fweet: Get(Var('ref')),
+author: Get(Select(['data', 'author'], Var('fweet')))
+},
+{ fweet: Var('fweet'), author: Var('author') }
+)
+)
+)
+Although we did not write a join, we have just joined Users (the author) with the Fweets. We’ll expand on these building blocks even further in a follow up article. Meanwhile, browse src/fauna/queries/fweets.js to view the final query and several more examples.
+More in the code base
+If you haven’t already, please open the code base for this Fwitter example app. You will find a plethora of well-commented examples we haven’t explored here, but will in future articles. This section touches on a few files we think you should check out.
+First, check out the src/fauna/queries/fweets.js file for examples of how to do complex matching and sorting with FaunaDB’s indexes (the indexes are created in src/fauna/setup/fweets.js). We implemented three different access patterns to get Fweets by popularity and time, by handle, and by tag.
+Getting Fweets by popularity and time is a particularly interesting access pattern because it actually sorts the Fweets by a sort of decaying popularity based on users’ interactions with each other.
+Also, check out src/fauna/queries/search.js, where we’ve implemented autocomplete based on FaunaDB indexes and index bindings to search for authors and tags. Since FaunaDB can index over multiple collections, we can write one index that supports an autocomplete type of search on both Users and Tags.
+We’ve implemented these examples because the combination of flexible and powerful indexes with relations is rare for scalable distributed databases. Databases that lack relations and flexible indexes require you to know in advance how your data will be accessed and you will run into problems when your business logic needs to change to accommodate your clients’ evolving use cases.
+In FaunaDB, if you did not foresee a specific way that you’d like to access your data, no worries — just add an Index! We have range indexes, term indexes, and composite indexes that can be specified whenever you want without having to code around eventual consistency.
+A preview of what’s to come
+As mentioned in the introduction, we’re introducing this Fwitter app to demonstrate complex, real-world use cases. That said, a few features are still missing and will be covered in future articles, including streaming, pagination, benchmarks, and a more advanced security model with short-lived tokens, JWT tokens, single sign-on (possibly using a service like Auth0), IP-based rate limiting (with Cloudflare workers), e-mail verification (with a service like SendGrid), and HttpOnly cookies.
+The end result will be a stack that relies on services and serverless functions which is very similar to a dynamic JAMstack app, minus the static site generator. Stay tuned for the follow-up articles and make sure to subscribe to the Fauna blog and monitor CSS-Tricks for more FaunaDB-related articles.
 Psst! Create a DigitalOcean account and get $200 in free credit for cloud-based hosting and services.
+Comments
+yaron Permalink to comment# April 23, 2020
+I think there is a typo “user”:
+const fweets = Map(
+references,
+Lambda(
+['ref'],
+Let(
+{
+fweet: Get(Var('ref')),
+author: Get(Select(['data', 'author'], Var('fweet')))
+},
+{ fweet: Var('fweet'), author: Var('user') }
+)
+)
+)
+Brecht De Rooms Permalink to comment# April 27, 2020
+Thanks man! Updated it
+Brian Webster Permalink to comment# April 23, 2020
+This is flat out incredible!!! Thank you, looking forward to the follow ups :)
+Brecht De Rooms Permalink to comment# April 28, 2020
+Thanks Brian!
+Stay tuned and help us spread the word if you liked it :)
+Derry Permalink to comment# April 28, 2020
+Found this really cool to read through. Have played around with Fauna quite a bit for a finance tool at work but found myself scratching my head at a lot of it. This explained a lot of stuff with an example that, for once, isn’t a Todo list. Looking forward to the next!
+Brecht De Rooms Permalink to comment# May 1, 2020
+Much appreciated! :)
+If you ever find yourself scratching your head again, join us on our community slack: http://community.fauna.com/
+You’ll notice our community is quite helpful.
+Denis Permalink to comment# May 8, 2020
+Great job, can’t describe how much the article helped me. I’m so looking forward to the follow-ups!
+Brecht De Rooms Permalink to comment# May 11, 2020
+Thanks! This kind of comment is what makes it all worthwhile! :)
+EricY Permalink to comment# May 27, 2020
+Nice article!
+Looking forward to the sso integration.
+Nachiket Permalink to comment# June 28, 2020
+Excellent post. Waiting for the promised next post which includes Cloudflare workers.
+databrecht Permalink to comment# June 29, 2020
+Thanks, and my apologies about that. That was supposed to happen MUCH faster!
+It’s still planned though! I’m trying to stay finish other work and then get back to it :)
+Neil Permalink to comment# July 23, 2020
+Hey Brecht
+Thank you for this. I learned a lot about Fauna here. I can’t wait to see the follow ups !
+Brecht De Rooms Permalink to comment# February 12, 2021
+Thank you for reading. The follow ups are still coming. They are progressing slowly though and might slightly change since there is much other work to be done.
+Thanh Permalink to comment# July 31, 2020
+Unbelievable material. Been trying to learn Fauna to tie with my React app. Thank you. Can’t wait for more.
+Brecht De Rooms Permalink to comment# February 12, 2021
+Thaaaaaanks! :)
+Dzmitry Sviryn Permalink to comment# February 11, 2021
+Much appreciated!
+Just finish a project similar to yours (except Next.js for React and useSWR+Graphql-request instead of FQL).
+Thank’s for sharing this and respect
+Brecht De Rooms Permalink to comment# February 12, 2021
+Awesome, I should dive into that.
+Dave Mathews Permalink to comment# December 2, 2021
+Awesome Article!!!
+MY biggest question here is , what did you use to produce those amazing db diagrams
 This comment thread is closed. If you have important information to share, please contact us.
 CSS-Tricks is powered by DigitalOcean.
 Keep up to date on web dev

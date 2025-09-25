@@ -1,0 +1,245 @@
+Using MCP to Access Smart Contracts and Oracles - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Om Shree
+Posted on Sep 24
+• Originally published at glama.ai
+Using MCP to Access Smart Contracts and Oracles
+#ai
+#beginners
+#productivity
+#discuss
+As artificial intelligence (AI) models like large language models (LLMs) evolve, their utility extends beyond information retrieval to active participation in real-world systems. However, a significant technical hurdle remains: enabling these models to securely and reliably interact with dynamic, external environments, particularly those as complex as a blockchain. The Model Context Protocol (MCP) provides a standardized solution to this challenge by defining a universal interface for AI agents to access tools and data sources. This article will focus on the practical implementation of an MCP server designed to interact with Web3 endpoints, such as smart contracts and decentralized oracles. We will explore the core technical components, from authentication and request routing to essential error handling, ensuring transactional integrity and consistency. The goal is to provide a clear, actionable guide for developers looking to bridge their AI applications with the decentralized world of Web3.
+Setting Up a Web3 MCP Server
+An MCP server acts as an intermediary, translating standardized MCP requests from an AI client into specific, low-level calls for an external system. For Web3, this means taking an AI's high-level request (e.g., "What's the balance of this wallet?") and converting it into a blockchain RPC call. This abstraction is critical, as it shields the AI from the complexities of different blockchain networks and their respective APIs (e.g., Ethereum's JSON-RPC, Solana's gRPC).
+Core Components and Tool Manifest
+To get started, a Web3 MCP server must define its capabilities in a manifest.json file. This is how the AI client "discovers" what it can do. The core capabilities for Web3 interaction are typically structured as tools—invocable functions that perform an action.
+Here's a sample manifest.json for a server that can query a smart contract and an oracle:
+{
+"name": "Web3Query",
+"description": "An MCP server for querying smart contracts and oracles.",
+"version": "1.0.0",
+"tools": [
+{
+"name": "getContractValue",
+"description": "Reads a public variable from a smart contract.",
+"parameters": {
+"type": "object",
+"properties": {
+"contractAddress": { "type": "string" },
+"abi": { "type": "array" },
+"functionName": { "type": "string" },
+"args": { "type": "array" }
+},
+"required": ["contractAddress", "abi", "functionName"]
+}
+},
+{
+"name": "getOracleData",
+"description": "Fetches data from a decentralized oracle (e.g., Chainlink).",
+"parameters": {
+"type": "object",
+"properties": {
+"oracleAddress": { "type": "string" },
+"functionName": { "type": "string" },
+"args": { "type": "array" }
+},
+"required": ["oracleAddress", "functionName"]
+}
+}
+]
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This manifest provides a machine-readable schema for each tool, telling the AI exactly what parameters it needs to provide.
+Authentication and Security
+Security is paramount when an AI has the potential to interact with financial assets and sensitive data on a blockchain. MCP provides a flexible framework for authentication, with a key tenet being that the MCP server, not the AI agent, holds the critical, private credentials.
+Environment Variables: For simple setups or development, credentials like private keys or API keys can be stored in environment variables. This is a common practice to avoid hardcoding sensitive information. For instance, the server would access a private key from process.env.PRIVATE_KEY rather than having it in the source code. While convenient, this approach is not recommended for production environments.
+OAuth 2.1: For production-grade security, the MCP specification supports OAuth 2.1. In this model, the AI agent is not directly given credentials. Instead, it initiates an authorization flow with a separate identity provider (IDP). The IDP authenticates the user and provides a short-lived access token to the AI. The MCP server then validates this token, ensuring the AI has the proper permissions to execute the requested tool or access a resource on behalf of the user1. This decouples authentication from the AI's core logic and enables granular, user-specific access controls.
+A key security guideline is to never expose a private key to the AI agent. The MCP server should be the only entity with access to the private key and should use it to sign transactions only after robust validation checks. Furthermore, for production, developers should implement safeguards like transaction limits, multi-signature wallets, and whitelisting of authorized smart contracts to mitigate risks2.
+Request Routing and Error Handling
+Once an MCP server is running, it must handle incoming requests, route them to the correct tool logic, and manage potential errors. The process typically follows this flow:
+Request Reception: The server receives a standardized request, usually a JSON-RPC payload, containing the tool_name and args (parameters).
+Tool Lookup: It looks up the requested tool_name in its manifest to find the corresponding handler function.
+Input Validation: The server validates the provided args against the tool's defined schema to ensure they are well-formed and meet any requirements. This is a critical step to prevent malformed or malicious inputs from reaching the underlying blockchain APIs.
+Action Execution: The server executes the tool's logic. For a getContractValue tool, this means using a Web3 library like ethers.js or web3.py to make a read-only call to a smart contract. For a state-changing transaction, the server would construct, sign, and broadcast the transaction to a node.
+Response Formatting: The result from the blockchain API is formatted into a structured response that the AI can easily parse and understand.
+Response Return: The formatted response is sent back to the AI client.
+Error Handling is an essential part of this process. The MCP specification defines a structured approach to errors. If a request fails, the server should return a JSON-RPC error response with a clear error code and message. This allows the AI agent to understand the nature of the failure (e.g., InvalidArguments, TransactionFailed, ServerError) and potentially take corrective action, such as re-prompting the user or trying a different tool3.
+A robust error handling mechanism for a Web3 MCP server would:
+Catch RPC errors from the blockchain node (e.g., "insufficient funds," "gas limit exceeded").
+Return a standardized MCP error with a descriptive message.
+Log the error for debugging purposes.
+Here's a simplified TypeScript snippet demonstrating a getContractValue tool with basic error handling:
+// Using ethers.js for a more complete example.
+import { Contract, JsonRpcProvider } from 'ethers';
+const provider = new JsonRpcProvider('https://mainnet.infura.io/v3/YOUR_API_KEY');
+const getContractValue: Tool = {
+name: 'getContractValue',
+description: 'Reads a public variable from a smart contract.',
+async run({ contractAddress, abi, functionName, args }) {
+try {
+const contract = new Contract(contractAddress, abi, provider);
+const result = await contract[functionName](...args);
+return { value: result.toString() }; // Return as string for simplicity
+} catch (error) {
+// Catch specific errors if possible, otherwise return a general error
+console.error(`Error in getContractValue: ${error.message}`);
+return { success: false, error: error.message };
+}
+}
+};
+Enter fullscreen mode
+Exit fullscreen mode
+This example shows how the server catches an exception from the ethers.js call and returns a structured error to the AI, ensuring transactional integrity by not proceeding with a faulty operation.
+My Thoughts
+The implementation of MCP for Web3 is a critical step toward a more integrated, autonomous digital ecosystem. By abstracting the complexities of blockchain interaction behind a standardized protocol, MCP empowers AI agents to become active participants in dApps, DeFi, and other Web3 applications. This approach directly contrasts with less-structured methods, such as prompting an LLM with raw API documentation, which can be prone to hallucination, security vulnerabilities, and unpredictable behavior. The structured nature of MCP tools provides a clear, reliable contract for AI-to-tool communication.
+A significant challenge that remains is the management of stateful operations. While querying on-chain data is straightforward, handling state-changing transactions requires a robust mechanism for ensuring transactional integrity and consistency. For example, an AI might decide to perform a series of related actions (e.g., approve a token, then swap it). If a transaction in the middle fails, the entire sequence must be managed correctly. This necessitates a more advanced MCP server design that can track multi-step operations, provide roll-back capabilities, and handle network congestion or nonce management seamlessly4. A promising area of research is a decentralized MCP network, where multiple servers could work in concert to provide redundancy and censorship resistance, further aligning with Web3's core principles.
+References
+MCP server auth implementation guide: using the latest spec
+Web3 Beginner Series: MCP completes the transaction in one sentence!
+Tools - Model Context Protocol
+The MCP Protocol Advantage for Cross-Chain Scalability
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Om Shree
+Follow
+Open-Source Contributor Shinzo Labs | MCP Blog Author Glama AI | Full-Stack Developer
+Location
+India
+Education
+Jaypee University Of Information Technology
+Pronouns
+He/Him
+Joined
+Feb 27, 2025
+More from Om Shree
+Nanobot by Obot.ai: Architecting Real MCP Agents with MCP-UI, Stateful Threads & Agent-to-Agent Patterns
+#ai
+#beginners
+#tutorial
+#discuss
+Agent Identity for MCP: Prefactor's Approach to Secure, Auditable AI Agents
+#ai
+#beginners
+#tutorial
+#discuss
+Bridging AI and Blockchain: MCP’s Role
+#ai
+#beginners
+#tutorial
+#machinelearning
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

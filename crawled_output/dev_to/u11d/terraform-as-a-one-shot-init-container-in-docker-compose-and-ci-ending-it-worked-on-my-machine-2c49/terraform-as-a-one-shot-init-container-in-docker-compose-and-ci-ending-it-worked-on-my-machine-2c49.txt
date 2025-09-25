@@ -1,0 +1,337 @@
+Terraform as a One-Shot Init Container in Docker Compose and CI: Ending "It Worked On My Machine" - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Daniel Kraszewski
+for u11d
+Posted on Sep 24
+• Originally published at u11d.com
+Terraform as a One-Shot Init Container in Docker Compose and CI: Ending "It Worked On My Machine"
+#docker
+#terraform
+#devops
+#testing
+Picture this: It's Friday afternoon. Your pull request looks perfect locally - tests green, endpoints responsive, everything just works. You push to GitHub, confident it'll sail through CI. Twenty minutes later: red build. An Elasticsearch error pops up: "no such index [blog_posts]". This all-too-common 'it worked on my machine' problem highlights the dangers of environment drift - exactly what Terraform as a one-shot init container in Docker Compose and CI is designed to solve.
+You scramble to check. Locally? Index exists. CI logs? Nothing obvious. You spend an hour discovering that your local Docker setup manually created that index months ago, while CI starts fresh every time. The infrastructure your app depends on exists in your head, not in code.
+If this sounds familiar, you're not alone. Most of us have lived through the pain of environment drift - where your local development setup slowly becomes a unique snowflake that no one else can reproduce. Your docker compose up works, but only because of that one-off curl command you ran three sprints ago to "fix" an index mapping.
+This post shows you a pattern that eliminates this drift entirely: treat infrastructure setup as code that runs automatically in every environment. We'll use Terraform as a one-shot initialization container that provisions Elasticsearch indices before your app even starts. The same container that sets up your local dev environment also runs in CI and can deploy to production. No more manual steps, no more "works on my machine," no more Friday afternoon mysteries.
+The Problem: Infrastructure Assumptions Hidden in Plain Sight
+Before diving into the solution, let's get concrete about what goes wrong. Consider a typical FastAPI application that needs Elasticsearch. Most tutorials show you this:
+@app.post("/blogs")
+async def create_blog(blog: BlogCreate):
+es.index(index="blog_posts", document=blog.dict())
+Enter fullscreen mode
+Exit fullscreen mode
+Looks simple, right? But this code makes a critical assumption: the blog_posts index exists and has the right mapping. In development, you probably created it once with a curl command:
+curl -X PUT "localhost:9200/blog_posts" -H 'Content-Type: application/json' -d'
+{
+"mappings": {
+"properties": {
+"title": {"type": "text"},
+"content": {"type": "text"},
+"author": {"type": "keyword"}
+}
+}
+}'
+Enter fullscreen mode
+Exit fullscreen mode
+Your app works perfectly... until a new team member clones the repo, runs docker compose up, and gets index errors. Or until CI runs in a clean environment. Or until you deploy to production and forget to create the index there too.
+The real problem isn't that you forgot to document the setup step (though that happens). It's that the setup step exists outside your application's deployment process. Your app code and your infrastructure setup live in separate worlds, creating countless opportunities for them to drift apart.
+The Solution: Infrastructure as Code, Everywhere
+Here's the key insight: if your app needs infrastructure to exist, that infrastructure should be created by code, not by hand. And that code should run automatically in every environment where your app runs.
+We'll build a FastAPI blog application that needs:
+Elasticsearch indices with specific mappings
+An API key with limited permissions
+Audit logging that writes to a separate index
+Instead of hoping these exist, we'll use Terraform to create them. But here's the twist: Terraform runs as a container in our Docker Compose stack, not as a separate manual step.
+Let's look at how this works in practice. Our compose.yaml defines a terraform service that runs once and exits:
+terraform:
+image: hashicorp/terraform:1.13.1
+restart: no
+working_dir: /workspace/terraform
+entrypoint: ["/bin/sh", "-ec"]
+command: |
+terraform init -backend-config=local.s3.tfbackend
+terraform apply -var-file=local.tfvars -auto-approve
+volumes:
+- .:/workspace
+- terraform_data:/workspace/terraform/.terraform
+depends_on:
+minio:
+condition: service_healthy
+elasticsearch:
+condition: service_healthy
+Enter fullscreen mode
+Exit fullscreen mode
+This container waits for MinIO and Elasticsearch to be healthy, then runs terraform apply to create our indices and API key. It uses MinIO instance as an S3 backend for state storage, making the whole setup self-contained.
+The magic is in the ordering guarantees. With depends_on and healthchecks, we get a deterministic startup sequence:
+MinIO starts and becomes healthy (S3 backend ready)
+Elasticsearch starts and becomes healthy (database ready)
+Terraform runs and provisions indices/API key (infrastructure ready)
+Only then can your application start or tests run
+What Terraform Actually Creates
+Let's look at the concrete infrastructure our application needs. Here's the Terraform configuration that runs in that container:
+resource "elasticstack_elasticsearch_index" "blog_posts" {
+name = "blog_posts"
+mappings = jsonencode({
+properties = {
+title
+= { type = "text" }
+content
+= { type = "text" }
+author
+= { type = "keyword" }
+created_at = { type = "date" }
+updated_at = { type = "date" }
+version
+= { type = "integer" }
+}
+})
+}
+resource "elasticstack_elasticsearch_index" "blog_logs" {
+name = "blog_posts_log"
+mappings = jsonencode({
+properties = {
+action
+= { type = "keyword" }
+blog_id
+= { type = "keyword" }
+timestamp = { type = "date" }
+version
+= { type = "integer" }
+data
+= { type = "object" }
+}
+})
+}
+resource "elasticstack_elasticsearch_security_api_key" "backend" {
+name = "backend"
+role_descriptors = jsonencode({
+blog_backend = {
+indices = [{
+names = ["blog_posts", "blog_posts_log"]
+privileges = ["create", "index", "read", "maintenance"]
+}]
+}
+})
+}
+Enter fullscreen mode
+Exit fullscreen mode
+This is infrastructure as code at its best. Every field mapping, every privilege, every index name is explicitly defined. No assumptions, no manual steps, no tribal knowledge. When you change a mapping, you update this file and redeploy. When you add a new index, it's defined here first.
+The beautiful part? This exact same Terraform code can run against a local Elasticsearch instance, a staging cluster, or production. The only thing that changes is the connection configuration.
+Local ↔ CI Parity: The Same Flow Everywhere
+Now here's where this approach really shines: the exact same workflow runs locally and in CI. No special CI scripts, no different Docker configurations, no "it works locally but not in CI" mysteries.
+Locally, you run:
+docker compose up -d
+# Wait for terraform container to exit successfully
+pytest -v
+Enter fullscreen mode
+Exit fullscreen mode
+In GitHub Actions, the workflow does this:
+- name: Start compose stack
+run: docker compose -p blog up -d
+- name: Wait for terraform to finish
+run: |
+while [ "$(docker inspect -f '{{.State.Status}}' blog-terraform-1)" != "exited" ]; do
+sleep 1
+done
+terraform_exit_code=$(docker inspect -f '{{.State.ExitCode}}' blog-terraform-1)
+if [ "$terraform_exit_code" != "0" ]; then
+echo "Terraform failed with exit code $terraform_exit_code"
+docker logs blog-terraform-1
+exit 1
+fi
+- name: Run tests
+run: pytest -v
+Enter fullscreen mode
+Exit fullscreen mode
+The CI workflow is just the automated version of what you do locally. Same containers, same Terraform, same tests. If it works locally, it works in CI. If it fails in CI, you can reproduce the failure locally by running the exact same commands.
+This eliminates the most frustrating class of CI failures: the ones that only happen "in the cloud" because the environment is subtly different from your local setup.
+Testing Against Real Infrastructure (Not Mocks)
+Here's where this approach gets really powerful for testing. Instead of mocking Elasticsearch calls, our tests run against the real thing:
+def test_create_blog_and_log():
+client = TestClient(app)
+elasticsearch = get_elasticsearch_client()
+# This hits real Elasticsearch indices created by Terraform
+response = client.post("/blogs", json={
+"title": "First post",
+"content": "Hello world",
+"author": "tester"
+})
+assert response.status_code == 201
+# Verify the audit log was created
+elasticsearch.indices.refresh(index="blog_posts_log")
+log_count = elasticsearch.count(index="blog_posts_log")["count"]
+assert log_count >= 1
+Enter fullscreen mode
+Exit fullscreen mode
+These aren't unit tests, they're integration tests that validate your entire stack. They catch problems that mocks can't:
+Wrong field mappings (Elasticsearch rejects documents)
+Missing indices (immediate failure, not silent bugs)
+Permission issues (API key lacks required privileges)
+Data type mismatches (string where integer expected)
+When your tests pass, you know your application actually works with your infrastructure, not just with your assumptions about it.
+The confidence boost is enormous. Instead of wondering "will this work in production?", you know it will because it's already working against the same infrastructure patterns that production uses.
+From Local to Production: The Path Forward
+The beauty of this approach becomes clear when you need to deploy to production. You're not rewriting infrastructure setup - you're just pointing the same Terraform code at different targets.
+For local development, our local.tfvars file might look like:
+elasticsearch_url = "http://host.docker.internal:9200"
+elasticsearch_indices = {
+blog_posts = "blog_posts"
+blog_logs
+= "blog_posts_log"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+For production, you'd have a prod.tfvars that points to your actual Elasticsearch cluster:
+elasticsearch_url = "https://your-elasticsearch.cloud.es.io:443"
+elasticsearch_indices = {
+blog_posts = "prod_blog_posts"
+blog_logs
+= "prod_blog_posts_log"
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Same Terraform code, same index definitions, same API key privileges. The only difference is where it runs and what it connects to.
+You can also run this pattern for ephemeral preview environments. Each pull request gets its own namespace in Kubernetes, with its own Elasticsearch indices created by the same Terraform container. Perfect isolation, perfect consistency.
+Why This Matters Beyond Just "Working"
+This isn't just about avoiding Friday afternoon debugging sessions (though that's nice). This pattern gives you something more valuable: confidence in your entire development workflow.
+When you can run docker compose up and get a perfect replica of your production infrastructure, you catch problems early. When your CI tests run against real services, you catch integration issues before they reach users. When your deployment process is identical across environments, you eliminate a huge class of production surprises.
+Most importantly, when a new team member joins, they don't need to run seven manual setup commands from a README that might be outdated. They run docker compose up, wait for the terraform container to exit, and they have a working development environment that matches everyone else's.
+Getting Started: Your Next Steps
+Ready to try this pattern? Start simple:
+Identify your manual setup steps - What curl commands, database migrations, or configuration tweaks does your local environment need?
+Convert one step to Terraform - Pick the simplest infrastructure dependency (maybe an index or a queue) and define it in Terraform.
+Add it to your Docker Compose - Create a terraform service that runs your configuration and exits.
+Test the flow - Run docker compose up from a clean checkout. Does everything work without manual intervention?
+Expand gradually - Add more infrastructure components to Terraform as you build confidence.
+You don't need to solve everything at once. Even converting one manual setup step eliminates a whole class of "works on my machine" problems.
+The Bigger Picture
+This pattern is about more than just Terraform and Elasticsearch. It's about treating infrastructure as an integral part of your application, not as an afterthought. It's about making your development environment as reproducible as your CI pipeline. It's about catching problems early, when they're cheap to fix.
+In a world where microservices depend on dozens of backing services, and where a single misconfigured index can bring down a feature, this kind of deterministic infrastructure setup isn't just nice to have - it's essential.
+The next time you hear "it worked on my machine," you'll know exactly how to fix it. Not with documentation or Slack messages, but with code that runs the same way everywhere.
+Want to see this in action? Check out the complete example repository with a working FastAPI + Elasticsearch + Terraform setup you can run locally.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+u11d
+Follow
+More from u11d
+Secure AWS Access in Kubernetes: Transitioning from Secrets to IRSA or Pod Identity
+#kubernetes
+#aws
+#terraform
+#security
+Secure AWS Access in Kubernetes: Transitioning from Secrets to IRSA or Pod Identity
+#aws
+#kubernetes
+#devops
+#infrastructureascode
+Configuring EKS Managed Node Groups to Use a Proxy with Terraform
+#eks
+#terraform
+#devops
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

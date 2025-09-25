@@ -1,0 +1,319 @@
+isolate vscode bash history from user bash history. · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+djeddi-yacine/vscode-bash.md
+Created
+September 24, 2025 00:38
+Show Gist options
+Download ZIP
+Star
+1
+(1)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/djeddi-yacine/17adb4bda6269a14bf10a93c4d16c685.js&quot;&gt;&lt;/script&gt;
+Save djeddi-yacine/17adb4bda6269a14bf10a93c4d16c685 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+1
+Stars
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/djeddi-yacine/17adb4bda6269a14bf10a93c4d16c685.js&quot;&gt;&lt;/script&gt;
+Save djeddi-yacine/17adb4bda6269a14bf10a93c4d16c685 to your computer and use it in GitHub Desktop.
+Download ZIP
+isolate vscode bash history from user bash history.
+Raw
+vscode-bash.md
+VSCode Isolated Bash History
+Got tired of VSCode terminal polluting your main bash history? This script creates workspace-specific bash history that's completely isolated from your system terminal.
+What it does
+Workspace mode: Creates .vscode/.workspace_bash_history for each project
+Temporary mode: Uses /tmp history when not in a workspace
+Real-time sync: Commands are shared between all terminals in the same workspace instantly
+Auto gitignore: Automatically adds history files to .gitignore
+Smart detection: Recognizes workspaces by common project files (go.mod, package.json, etc.)
+Setup
+1. Create the script
+First, create the directory and file:
+mkdir -p ~/.local/bin
+nano ~/.local/bin/vscode-bash
+Make sure ~/.local/bin is in your PATH. Add this to your ~/.bashrc if needed:
+export PATH="$HOME/.local/bin:$PATH"
+2. Paste the script content
+Copy and paste this entire script into the file:
+#!/bin/bash
+# Function to generate a unique session ID
+generate_session_id() {
+echo "vscode_$(date +%s)_$$"
+}
+# Function to get workspace root
+get_workspace_root() {
+local current_dir="$PWD"
+# Look for common workspace indicators going up the directory tree
+while [[ "$current_dir" != "/" ]]; do
+if [[ -d "$current_dir/.vscode" ]] || \
+[[ -f "$current_dir/.vscode/settings.json" ]] || \
+[[ -f "$current_dir/go.mod" ]] || \
+[[ -f "$current_dir/requirements.txt" ]] || \
+[[ -f "$current_dir/pyproject.toml" ]] || \
+[[ -f "$current_dir/pubspec.yaml" ]] || \
+[[ -f "$current_dir/Cargo.toml" ]] || \
+[[ -f "$current_dir/package.json" ]] || \
+[[ -f "$current_dir/composer.json" ]] || \
+[[ -f "$current_dir/Makefile" ]] || \
+[[ -f "$current_dir/CMakeLists.txt" ]] || \
+[[ -d "$current_dir/.git" ]]; then
+echo "$current_dir"
+return 0
+fi
+current_dir="$(dirname "$current_dir")"
+done
+return 1
+}
+# Function to create workspace history directory
+setup_workspace_history() {
+local workspace_root="$1"
+local history_dir="$workspace_root/.vscode"
+# Create .vscode directory if it doesn't exist
+[[ ! -d "$history_dir" ]] && mkdir -p "$history_dir"
+# Set appropriate permissions (readable/writable by owner only)
+chmod 700 "$history_dir" 2>/dev/null
+echo "$history_dir/.workspace_bash_history"
+}
+# Function to create temporary history
+setup_temp_history() {
+local session_id=$(generate_session_id)
+local temp_history="/tmp/${session_id}_history"
+# Cleanup function for temporary files
+trap "rm -f '$temp_history'" EXIT
+echo "$temp_history"
+}
+# Function to get or create appropriate gitignore
+setup_gitignore() {
+local workspace_root="$1"
+local gitignore_file="$workspace_root/.gitignore"
+# Check if .workspace_bash_history is already ignored
+if [[ -f "$gitignore_file" ]]; then
+if ! grep -q "\.vscode/\.workspace_bash_history" "$gitignore_file" 2>/dev/null; then
+echo "" >> "$gitignore_file"
+echo "" >> "$gitignore_file"
+echo "# VSCode terminal history" >> "$gitignore_file"
+echo ".vscode/.workspace_bash_history" >> "$gitignore_file"
+fi
+else
+# Create gitignore if it doesn't exist and we're in a git repo
+if [[ -d "$workspace_root/.git" ]]; then
+cat > "$gitignore_file" << 'EOF'
+# VSCode terminal history
+.vscode/.workspace_bash_history
+EOF
+fi
+fi
+}
+# Function to setup history configuration
+setup_history_config() {
+local histfile="$1"
+# Export the history file
+export HISTFILE="$histfile"
+# Enhanced history settings for better experience
+export HISTSIZE=10000
+export HISTFILESIZE=20000
+export HISTCONTROL=ignoreboth:erasedups
+export HISTTIMEFORMAT="%Y-%m-%d %H:%M:%S "
+# Enable immediate history writing and sharing between terminals
+shopt -s histappend
+# Set up PROMPT_COMMAND for real-time history sync
+export PROMPT_COMMAND="history -a; history -c; history -r${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+# Load existing history if it exists
+[[ -f "$HISTFILE" ]] && history -r "$HISTFILE"
+# Ensure history is saved on exit
+trap 'history -a' EXIT
+# Create the history file if it doesn't exist
+touch "$HISTFILE"
+}
+# Function to setup history in current shell
+setup_history_in_shell() {
+local histfile
+local workspace_root
+# Try to detect workspace
+if workspace_root=$(get_workspace_root); then
+# We're in a workspace
+histfile=$(setup_workspace_history "$workspace_root")
+setup_gitignore "$workspace_root"
+# Set workspace environment variable for potential use by Starship or other tools
+export VSCODE_WORKSPACE_ROOT="$workspace_root"
+export VSCODE_WORKSPACE_NAME=$(basename "$workspace_root")
+echo "🔧 VSCode workspace detected: $VSCODE_WORKSPACE_NAME"
+echo "📁 History file: $histfile"
+else
+# No workspace detected, use temporary history
+histfile=$(setup_temp_history)
+# Set environment variable to indicate temporary session
+export VSCODE_WORKSPACE_NAME="temp"
+unset VSCODE_WORKSPACE_ROOT
+echo "⚠️
+No workspace detected - using temporary history"
+echo "📁 Temp history: $histfile"
+fi
+# Setup history configuration
+setup_history_config "$histfile"
+}
+# Main logic
+main() {
+# Check if VSCode is calling us with --init-file (shell integration)
+local has_init_file=false
+local init_file=""
+local other_args=()
+# Parse arguments to find --init-file
+while [[ $# -gt 0 ]]; do
+case $1 in
+--init-file)
+has_init_file=true
+init_file="$2"
+shift 2
+;;
+*)
+other_args+=("$1")
+shift
+;;
+esac
+done
+if [[ "$has_init_file" == true ]]; then
+# VSCode shell integration mode
+# First, setup our history
+setup_history_in_shell
+# Create a wrapper that preserves our settings after VSCode's init
+local temp_wrapper="/tmp/vscode_wrapper_$$"
+cat > "$temp_wrapper" << 'EOF'
+# Preserve our history settings
+SAVED_HISTFILE="$HISTFILE"
+SAVED_PROMPT_COMMAND="$PROMPT_COMMAND"
+SAVED_HISTSIZE="$HISTSIZE"
+SAVED_HISTFILESIZE="$HISTFILESIZE"
+SAVED_HISTCONTROL="$HISTCONTROL"
+SAVED_HISTTIMEFORMAT="$HISTTIMEFORMAT"
+# Source VSCode's init file
+EOF
+echo "source \"$init_file\"" >> "$temp_wrapper"
+cat >> "$temp_wrapper" << 'EOF'
+# Restore our history settings
+export HISTFILE="$SAVED_HISTFILE"
+export HISTSIZE="$SAVED_HISTSIZE"
+export HISTFILESIZE="$SAVED_HISTFILESIZE"
+export HISTCONTROL="$SAVED_HISTCONTROL"
+export HISTTIMEFORMAT="$SAVED_HISTTIMEFORMAT"
+# Restore PROMPT_COMMAND with history sync
+if [[ -z "$SAVED_PROMPT_COMMAND" ]]; then
+export PROMPT_COMMAND="history -a; history -c; history -r"
+else
+export PROMPT_COMMAND="history -a; history -c; history -r; $SAVED_PROMPT_COMMAND"
+fi
+# Re-enable histappend
+shopt -s histappend
+# Clean up temp file
+rm -f "$temp_wrapper" 2>/dev/null
+EOF
+# Execute bash with our wrapper as init file
+exec bash --init-file "$temp_wrapper" "${other_args[@]}"
+else
+# Normal execution mode
+setup_history_in_shell
+# Execute bash with all passed arguments
+exec bash "${other_args[@]}"
+fi
+}
+# Run main function
+main "$@"
+3. Make it executable
+chmod +x ~/.local/bin/vscode-bash
+4. Configure VSCode
+Open your VSCode settings file. You can find it at:
+Linux: ~/.config/Code/User/settings.json
+macOS: ~/Library/Application Support/Code/User/settings.json
+Add or merge this configuration:
+{
+"terminal.integrated.defaultProfile.linux": "Smart VSCode Bash",
+"terminal.integrated.profiles.linux": {
+"bash": {
+"path": "bash",
+"icon": "terminal-bash"
+},
+"Smart VSCode Bash": {
+"path": "/home/YOUR_USERNAME/.local/bin/vscode-bash",
+"icon": "terminal-bash",
+"args": []
+}
+},
+"workbench.settings.applyToAllProfiles": [
+"terminal.integrated.defaultProfile.linux",
+"terminal.integrated.profiles.linux"
+]
+}
+Important: Replace YOUR_USERNAME with your actual username!
+5. Restart VSCode
+That's it! Restart VSCode and open a terminal. You should see either:
+🔧 VSCode workspace detected: project-name (in a workspace)
+⚠️ No workspace detected - using temporary history (outside workspace)
+How it works
+The script detects if you're in a project by looking for common files like package.json, go.mod, .git, etc. Each workspace gets its own isolated history file that's automatically added to .gitignore.
+When you run commands in one terminal, they instantly appear in other terminals within the same workspace. Your system bash history stays completely clean.
+Supported project types
+The script automatically detects these project types:
+Go (go.mod)
+Node.js (package.json)
+Python (requirements.txt, pyproject.toml)
+Rust (Cargo.toml)
+Flutter/Dart (pubspec.yaml)
+PHP (composer.json)
+C/C++ (Makefile, CMakeLists.txt)
+Any Git repository (.git)
+Existing VSCode workspace (.vscode/)
+Works great with different VSCode profiles too! but if your stack is different from this, add it's special files to the script for correct detection.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

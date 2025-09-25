@@ -1,0 +1,335 @@
+Por que você deveria auditar binários no seu repositório Git (e como fazer isso) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Valdemar Arantes Neto
+Posted on Sep 24
+Por que você deveria auditar binários no seu repositório Git (e como fazer isso)
+#architecture
+#devops
+#git
+O problema que me motivou
+Como arquiteto de software, estou iniciando um levantamento de espaço em disco ocupado por arquivos indevidamente versionados no Bitbucket da empresa. Não estou falando de senhas ou chaves de API — esses são problemas óbvios. Estou falando de binários como DLLs, arquivos .so, executáveis e até bibliotecas como jquery.js commitadas diretamente no repositório.
+Antes de iniciar o trabalho prático, precisei construir o embasamento técnico para justificar o esforço. Este artigo documenta a pesquisa que realizei para fundamentar essa decisão — e que pode ser útil para outros que enfrentam situação similar.
+Vale a pena fazer o levantamento?
+Na maioria dos casos, sim — mas com nuances importantes.
+O esforço de identificar e remover binários pode trazer ganhos significativos em performance, custo e manutenibilidade. Porém, há cenários específicos onde o versionamento de binários pode ser aceitável ou até necessário.
+Eficiência e Performance
+Impacto técnico:
+Cada versão de um binário cria um novo blob completo no histórico
+Git não faz delta compression eficiente em binários
+Operações (clone, fetch, push) ficam proporcionalmente mais lentas
+Exemplo mensurável:
+Binário de 50MB versionado 20 vezes → ~1GB de histórico adicional
+git clone que levaria 30s pode passar para vários minutos
+Em equipes de 20+ pessoas, isso representa horas de tempo perdido por mês
+Casos documentados na literatura: repositórios com binários no histórico frequentemente apresentam degradação significativa. Um repositório de microserviço com JARs de dependências commitados pode facilmente atingir 800MB, sendo 600MB apenas de binários — impactando o tempo de clone de forma desproporcional.
+Custo de Storage
+Impactos diretos:
+Bitbucket Cloud: limites de 4GB por repositório (planos gratuitos)
+Servidores self-hosted: custo de storage cresce indefinidamente
+CI/CD: checkout mais lento aumenta tempo e custo de builds
+Exemplo prático:
+Um repositório com 500MB de binários no histórico pode custar 10-15min extras por build em CI/CD
+Em 100 builds/dia = ~25 horas/mês de tempo desperdiçado de máquina
+Manutenibilidade
+Problemas concretos:
+Binários não produzem diffs legíveis para code review
+Conflitos são irrecuperáveis (binary merge conflicts = escolher uma versão)
+Bibliotecas de terceiros (jquery.js) devem vir de package managers
+Quando binários no Git podem ser aceitáveis
+Cenários válidos:
+Binários pequenos (<100KB) e raramente modificados
+Bootstrap essencial: ferramentas mínimas para setup inicial do projeto
+Compliance regulatório: artefatos imutáveis exigidos para auditoria (financeiro, saúde)
+Projetos isolados: poucos colaboradores, baixa frequência de alteração
+Trade-offs a considerar:
+Repositórios pequenos (<50MB total) com equipe reduzida (<5 pessoas): impacto pode ser marginal
+Custos de migração vs. benefícios: avaliar se o esforço justifica os ganhos
+Alternativas e suas limitações
+Git LFS (Large File Storage)
+Adequado para: assets de mídia, datasets, arquivos grandes inevitáveis
+Limitações:
+Requer configuração adicional no servidor
+Adiciona complexidade ao workflow (git lfs install, git lfs track, git lfs pull)
+Nem todo Bitbucket Cloud oferece suporte ilimitado
+Equipe precisa treinar novo fluxo de trabalho
+Package Managers
+Recomendado para: dependências de terceiros
+JavaScript: npm, yarn, pnpm
+Java: maven, gradle
+Python: pip, poetry
+C++: conan, vcpkg
+Artifact Repositories
+Adequado para: builds, releases, bibliotecas internas
+Artifactory, Nexus, Google Artifact Registry
+Integração nativa com CI/CD
+Controle de versão, segurança e auditoria
+Vantagem sobre Git LFS: melhor para pipelines automatizados
+Abordagem comum: migrar binários de build para repositórios especializados (como Nexus) e configurar ferramentas de build (Maven, Gradle) para baixá-los automaticamente pode eliminar centenas de MB de repositórios críticos.
+Container Registries
+Adequado para: binários empacotados em imagens Docker
+Docker Hub, Google Container Registry, Amazon ECR
+Versionamento via tags de imagem
+Ideal para deploys containerizados
+Como identificar arquivos problemáticos
+Comando para listar maiores blobs:
+git rev-list --objects --all |
+git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' |
+awk '/^blob/ {print $3, $2, $4}' |
+sort -rn |
+head -20
+Enter fullscreen mode
+Exit fullscreen mode
+Ferramentas especializadas:
+# Análise completa do repositório
+git-sizer --verbose
+# Limpeza segura de histórico
+git filter-repo --strip-blobs-bigger-than 10M
+# ou
+bfg --strip-blobs-bigger-than 10M
+Enter fullscreen mode
+Exit fullscreen mode
+Métricas para decisão
+Antes de iniciar o levantamento, meça:
+Baseline atual:
+# Tamanho do repositório
+du -sh .git
+# Tempo de clone
+time git clone <repo-url>
+# Maiores arquivos no histórico
+git-sizer --verbose | grep "Maximum blob size"
+Enter fullscreen mode
+Exit fullscreen mode
+Após limpeza, compare:
+Redução de tamanho (%)
+Redução no tempo de clone (segundos)
+Impacto no tempo de CI/CD
+ROI esperado:
+Repositórios >1GB: ganhos significativos em equipes médias/grandes
+Repositórios <100MB: avaliar custo vs. benefício caso a caso
+Recomendações Práticas
+Ações Imediatas:
+Configurar .gitignore adequado:
+# Build artifacts
+*.dll
+*.so
+*.exe
+*.o
+target/
+dist/
+build/
+# Dependências
+node_modules/
+vendor/
+Enter fullscreen mode
+Exit fullscreen mode
+Auditar com git-sizer:
+git-sizer --verbose
+Enter fullscreen mode
+Exit fullscreen mode
+Implementar pre-commit hooks:
+# Exemplo: bloquear arquivos >10MB
+#!/bin/bash
+MAX_SIZE=10485760
+for file in $(git diff --cached --name-only); do
+size=$(wc -c < "$file")
+if [ $size -gt $MAX_SIZE ]; then
+echo "Erro: $file excede 10MB"
+exit 1
+fi
+done
+Enter fullscreen mode
+Exit fullscreen mode
+Longo Prazo:
+Definir política clara de versionamento
+Migrar binários para solução apropriada (LFS, Artifactory, etc.)
+Documentar no README.md como obter dependências
+Medir impacto continuamente
+Alinhar com requisitos de compliance quando aplicável
+Referências Verificáveis
+Documentação Oficial
+Git SCM - Git Attributes
+https://git-scm.com/book/en/v2/Customizing-Git-Git-Attributes
+Explica como Git lida com binários e limitações de diff/merge
+Atlassian - Git LFS Tutorial
+https://www.atlassian.com/git/tutorials/git-lfs
+Guia oficial sobre quando e como usar Git LFS no Bitbucket
+GitHub - Working with Large Files
+https://docs.github.com/en/repositories/working-with-files/managing-large-files
+Práticas recomendadas para arquivos grandes
+Livros de Referência
+Pro Git (Scott Chacon & Ben Straub)
+https://git-scm.com/book
+Capítulos relevantes: 2.2 (Git Basics), 10.2 (Git Internals - Objects)
+Version Control with Git (Jon Loeliger & Matthew McCullough)
+O'Reilly Media
+Cobertura técnica sobre armazenamento de objetos e performance
+Papers Acadêmicos
+"Why Google Stores Billions of Lines of Code in a Single Repository"
+Communications of ACM, Vol. 59 No. 7, Pages 78-87 (2016)
+https://dl.acm.org/doi/10.1145/2854146
+Estratégias de monorepo e gerenciamento de assets em larga escala
+Conclusão
+O levantamento quase sempre compensa, mas o valor real está em medir o impacto para seu contexto específico:
+Cenários onde é essencial:
+Repositórios usados por equipes grandes (>10 pessoas)
+Storage >500MB com crescimento contínuo
+Tempo de clone >2 minutos
+Pipelines CI/CD lentos
+Cenários onde avaliar custo-benefício:
+Repositórios pequenos (<100MB) e isolados
+Equipes reduzidas (<5 pessoas)
+Binários necessários para compliance
+Baixa frequência de operações Git
+Abordagem recomendada:
+Piloto: escolher 1-2 repositórios críticos
+Medir: coletar métricas antes/depois
+Calcular ROI: tempo economizado × número de desenvolvedores
+Decidir: expandir política baseado em dados concretos
+Próximos passos: Este embasamento teórico será complementado com dados reais do levantamento em andamento. A prova de conceito em repositório piloto permitirá validar as premissas aqui apresentadas e quantificar ganhos específicos para nosso contexto.
+Sua experiência
+Já passou por situação similar? Está considerando fazer um levantamento na sua empresa? Compartilhe nos comentários!
+Tags: git devops productivity bestpractices tutorial
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Valdemar Arantes Neto
+Follow
+Arquiteto de software na Valid, vivendo entre Java, Kotlin e GCP. Já cantei em coral, hoje toco piano quando não estou mergulhado em código. Apaixonado por cinema, livros e filosofia — da ficção histó
+Location
+São Paulo, SP, Brazil
+Education
+Electrical Engineering graduate from POLI-USP (São Paulo)
+Work
+Software Architect at Valid
+Joined
+Nov 13, 2024
+Trending on DEV Community
+Hot
+3 Reasons You're in Tech Post-Layoff Shock (Based on personal experience)
+#career
+#beginners
+#learning
+Git: From Zero to First Commit - Developer Journey Begins
+#devops
+#git
+#beginners
+#programming
+AI Infrastructure Cloud Setup: Practical Choices That Scale
+#ai
+#architecture
+#infrastructure
+#cloud
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

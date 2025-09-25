@@ -1,0 +1,183 @@
+My First Tauri CI/CD Pipeline: Lessons from Building VaultNote with SvelteKit - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Michael Amachree
+Posted on Sep 24
+My First Tauri CI/CD Pipeline: Lessons from Building VaultNote with SvelteKit
+#tauri
+#sveltekit
+#cicd
+#crossplatform
+Building VaultNote: My Wild Ride with Tauri, SvelteKit, and a Hard-Fought CI/CD Pipeline
+Hey there, fellow devs! I'm Michael, and I’m excited to share my journey building VaultNote, a little note-taking app that’s my playground for learning cross-platform development with Tauri and SvelteKit. If you’re into JavaScript, Svelte, or just curious about building apps for desktop and mobile, this one’s for you. The app doesn’t do much yet—just basic note-taking with markdown rendering—but the real goal was figuring out how to ship it to Windows, macOS (Intel/ARM), Linux, and Android (APK/AAB) using a single codebase. Spoiler: it was a grind, but I got a working prototype!
+This isn’t a “how to build your own Tauri app” guide (maybe I’ll write one later). It’s more about my experience: the wins, the headaches (oh, the headaches), and what it took to get a CI/CD pipeline running on GitHub Actions. This was my first stab at a proper CI pipeline, built through tons of research, some AI help (spoiler: most couldn’t help), and over 60 failed runs. If you’re a JavaScript dev, a Svelte fan, or just a coder from any walk of life, I hope this saves you some pain. Since I’m new to this, I’d love your feedback—fork the repo, open issues, or send PRs. Let’s make it better!
+Why Tauri + SvelteKit?
+I picked Tauri because it’s lightweight and secure, turning web apps into native desktop/mobile binaries without Electron’s bloat. We’re talking tiny builds: ~5MB for Windows/macOS, ~80MB for Linux AppImage, ~43MB for Android APK. SvelteKit was a no-brainer for the frontend—reactive, fast, and paired with Vite and Bun for a slick dev experience. For data storage, I tried Prisma but ended up with Dexie.js for IndexedDB. No solid cross-platform DB option worked for me in JavaScript, and Rust’s DB crates felt too low-level for now, so Dexie was the sweet spot.
+Getting started was easy: grab a Tauri + SvelteKit setup (not a template, but I might make one later), tweak src-tauri/tauri.conf.json, and run bun dev for web or bun tauri dev for desktop. Android? cargo tauri android dev after wrestling with Android Studio. But automating all this in CI? That’s where the real fight started.
+The CI/CD Journey: From Mess to Success
+My goal was simple (or so I thought): push to main, auto-bump versions, build for 6 platforms (4 desktop + Android APK/AAB), sign Android builds, and drop clean artifacts in GitHub Releases. It took months, 60+ failed runs, and solving 6 major Android issues. I used GitHub Actions with release-please for versioning, tauri-action for builds, and a custom script to keep versions in sync. Here’s the rundown.
+Step 1: Version Sync or Bust
+Version mismatches are a silent killer. package.json (JavaScript) had to align with Cargo.toml (Rust) and tauri.conf.json. Early on, I hit errors like “Failed to parse version ‘2’.” My fix: a Node script (scripts/sync-versions.js) that sets package.json as the single source of truth, updates Cargo.toml, and checks tauri.conf.json points to it. I run it pre-commit and in CI.
+The workflow (.github/workflows/release.yml) starts with release-please, which bumps versions based on commits and creates tags/PRs. Each job checks out the tag and re-syncs versions. Tip: Validate versions early—saved me from broken releases.
+Step 2: Desktop Builds – The Easy Win
+Desktop builds were the calm before the storm. The publish-tauri job uses a matrix strategy: parallel builds on windows-latest, macos-latest (Intel + ARM targets), and ubuntu-22.04. Steps: install deps (like WebKit for Linux), set up Bun/Rust, cache with swatinem/rust-cache, build web assets (bun vite build), and let tauri-action bundle/upload.
+Issues were minor: macOS needed explicit --target aarch64-apple-darwin. Linux required libwebkit2gtk-4.1-dev. Builds take 4-8 minutes with >95% success. Artifacts: .msi/.exe (~5MB) for Windows, .dmg (~5.5MB) for macOS, AppImage/deb/rpm (~79MB) for Linux. Setting fail-fast: false was a lifesaver—if one platform flops, others still ship.
+Step 3: Android Builds – The Real Boss Fight
+Android was brutal. I thought “add a job” would be quick. Nope. The publish-android job on Ubuntu sets up Java 17, Android SDK/NDK, Rust Android targets (aarch64-linux-android, etc.), and runs cargo tauri android build. Sounds simple? It wasn’t. Here’s what I fought through:
+SDK PATH Chaos: apksigner kept disappearing. Fix: Install build-tools 34.0.0 via sdkmanager, add to $GITHUB_PATH, verify with which apksigner.
+Version Parsing Fails: Rust hated tauri = "2". Research (Tauri docs + some Grok/Exa help) showed I needed pins like tauri = "2.8.5".
+Keystore Signing Struggles: Base64-decode the secret, generate keystore.properties, validate file size. Tauri auto-signs APKs—no manual apksigner (that broke stuff).
+Path/Output Confusion: Expected unsigned APKs, but Tauri gives signed ones. Fixed paths to app-universal-release.apk.
+Branding Fix: Renamed generic app-universal-release.* to vaultnote-v0.21.5-universal.* post-build.
+Secrets: ANDROID_KEYSTORE* for signing, VITE_LOGIN_URL for config. Outputs: 43MB APK, 20MB AAB in 10-15 mins. AI wasn’t great at first—generic answers until I dug into Tauri forums. Trial-and-error? Over 60 failed runs.
+What’s Working Now
+As of v0.21.5 (Sept 23, 2025), pushing to main:
+Triggers release-please: Syncs versions, makes tags/PRs.
+If a release is created: Runs publish-tauri (matrix) + publish-android.
+Uploads branded, signed artifacts to GitHub Releases with “See assets below.”
+Success rate: >95%. Total time: 15-25 mins. The app runs on all platforms, storing notes locally with Dexie.js and rendering markdown via Carta-MD. Full pipeline code, desktop/Android guides, and a merged report live in progress/ci-cd-documentation in the repo.
+Lessons I Learned the Hard Way
+Start Small: Desktop first, mobile later. Android’s toolchain is a monster—plan for it.
+One Version Source: package.json rules. Scripts beat manual edits.
+Dig Deep: Tauri Discord + docs > generic AI. Grok/Exa helped with specific Rust pins.
+Log Everything: cat configs, ls -la outputs, set -euo pipefail in bash—saved my debugging.
+Break It Down: Tackled Android’s 6 issue buckets one at a time, week by week.
+Lean on Community: Tauri templates and Actions community carried me.
+What’s missing? No iOS yet—I don’t have a Mac or Apple dev account. Desktop signing is TBD. Build times could drop with better caching.
+Your Turn: Make It Better!
+VaultNote’s a learning project to push Tauri and SvelteKit to their limits. The app’s basic, but the pipeline’s a beast I’m proud of. Want to poke around? Head to github.com/Michael-Obele/VaultNote, especially progress/ci-cd-documentation for the full code time capsule and guides. Fork it, try it, break it. Got ideas for iOS, faster builds, or better signing? Open issues or PRs—I’d love to learn from you. Devs of all kinds, let’s connect and keep building! 🚀
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Michael Amachree
+Follow
+Full-stack web developer specializing in Svelte, Nextjs, and Prisma. I focus on innovation, UI/UX, and open-source tools. Passionate about web tech, networking, and learning.
+Location
+Wherever home is
+Pronouns
+He/Him
+Work
+Network engineer by day, freelance web developer by night—building open-source tools with Svelte.
+Joined
+Mar 12, 2021
+More from Michael Amachree
+Streamlining Scheduling: Integrating Cal.com with SvelteKit & Svelte 5
+#svelte
+#sveltekit
+#webdev
+#scheduling
+Why You Should Avoid Using `try...catch` in SvelteKit Actions
+#sveltekit
+#errors
+#webdev
+#javascript
+Login Magic for Your SvelteKit App (It's Easier Than You Think!)
+#sveltekit
+#prisma
+#tailwindcss
+#webdev
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

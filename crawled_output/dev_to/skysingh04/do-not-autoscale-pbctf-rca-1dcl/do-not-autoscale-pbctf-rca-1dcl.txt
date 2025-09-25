@@ -1,0 +1,223 @@
+DO NOT AUTOSCALE : PBCTF RCA - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Akash Singh
+Posted on Sep 24
+DO NOT AUTOSCALE : PBCTF RCA
+#devops
+#kubernetes
+#programming
+#cybersecurity
+The Incident
+On 02.08.25, during PBCTF 4.0 - our college club Point Blank's flagship CTF competition - we experienced what every CTF organizer fears: a complete platform outage. For 35 agonizing minutes from 10:00AM to 10:35AM IST, Me and Govind tried bringing the service back up while 45-50 of our other teammates made memes and helped calm the revolting participants.
+The incident was not a complete outage as we had a backup ctfd deployment running on our own PB Server, pointing to a different DNS, to which we directed traffic. Sadly, the PB Server was not powerful enough to handle all 400 participants but it did take care of approximately half of them while the rest of PB Members distracted the other half set of participants.
+Credits to our senior Ashutosh Pandey for the idea to keep a backup deployment ready.
+Introduction
+I am Akash Singh, a final year engineering student and Open Source Contributor from Bangalore.
+Here is my LinkedIn, GitHub and Twitter
+I go by the name SkySingh04 online.
+Timeline of Events
+T-0: The Calm Before the Storm
+The opening ceremony went great and we were ready to get the CTF Started. Both deployments were healthy and participants were logging on and getting ready for the CTF.
+Our GCP Kubernetes cluster was a sweet deal, we spent 1000 INR to get 25000 INR in GCP credits and felt invincible with all that cloud power at our disposal.
+T+5 minutes: "Let's Scale!"
+Traffic was picking up. In a moment of what seemed like devops big brain time (it wasn't), I decided to scale up our pods. After all, who doesn't love autoscaling? 25000 INR needs to be used afterall.
+# What could possibly go wrong?
+spec:
+replicas: 2
+# YOLO
+Enter fullscreen mode
+Exit fullscreen mode
+Me Chilling after ""AutoSCAllINg""
+T+10 minutes: The First Signs of Trouble
+New pods started spinning up. They attempted to run database migrations - standard procedure, right? Wrong. The pods immediately crashed with migration errors.
+T+15 minutes: Panic Mode Activated
+Our initial hypothesis: "Must be a migration issue!"
+The night before, Govind said he ran some custom migrations. Maybe something was incompatible? In my big brain, I decided to delete all pods and start fresh.
+kubectl delete pods --all -n ctfd
+# Famous last words: "This will fix it"
+Enter fullscreen mode
+Exit fullscreen mode
+T+16 minutes: Full Outage
+Congratulations, we played ourselves. All pods gone. CTFd completely down on k8s deployment and then all of PB started calling at the same time :
+The Backup That Saved Us
+Here's where we owe a massive thank you to Ashutosh bhaiya for his prescient advice: "Always keep a backup deployment ready."
+We had a secondary CTFd instance running on our PB server - completely separate from the Kubernetes cluster but connected to the same database. While Govind and I battled with the K8s deployment, this backup instance kept serving traffic to some participants.
+The Real Culprit
+After 30 minutes of debugging, checking migration scripts and nearly crying to claude for a fix, I saw one emergency pod created after some random claude commands finally healthy.
+After everything settled down and we sat down for the RCA, we found out the real issue.
+"We were using two different versions of CTFd from two different servers"
+Lavi's deployment : On PB Server: Latest CTFd version
+Govind's deployment : On GCP K8S: CTFd 3.7.2
+Both connecting to the same database. Both trying to run different migration schemas. Both convinced they were right.
+And in honour of this moment, This meme was born :
+What We Should Have Done
+1. Proper Load Balancing Architecture
+Instead of our ad-hoc "some users go here, some go there" approach, we should have implemented:
+# Ideal setup with external load balancer
+External DNS (Cloudflare/Route53)
+|
+Load Balancer
+/
+\
+K8s Cluster
+PB Server
+\
+/
+Shared Database
+Enter fullscreen mode
+Exit fullscreen mode
+This would have:
+Automatically distributed traffic between both deployments
+Provided seamless failover when K8s went down
+Prevented the full outage scenario
+2. Test Your Autoscaling (Or Don't Use It)
+Let's be honest - we enabled autoscaling because it sounded cool. Did we need it? Probably not. Did we test it? Definitely not.
+Lessons learned:
+Autoscaling is not a silver bullet
+Test scaling behaviors in staging first
+Sometimes, vertical scaling > horizontal scaling for stateful apps
+Post-Mortem Action Items
+[ ] Apologise to Cyber Team
+[ ] Gaslight the participants that it wasn't a server issue, it was their internet that was flaky
+[ ] Remind myself to always use the latest version everywhere
+[ ] Beat up Govind for not telling me about the custom migration script he ran last night secretly until the autoscale pods crashed.
+Past the memes
+PBCTF 4.0 taught us that running a CTF competition is as much about infrastructure resilience as it is about challenge quality. While our participants experienced 35 minutes of downtime, I think it was their internet at fault afterall.
+To all future CTF organizers: Learn from our mistakes. Pin your versions. Test your scaling. And maybe, just maybe, don't autoscale unless you really need to.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Akash Singh
+Follow
+Devops @FinalRoundAI | LFX'25 LitmusChaos | GSoC'24 Keploy | LIFT '25 | Finalist HackGlobal 🇸🇬 | Lead at Point Blank | 6x Hackathon Winner | Ex-Aspora, CloudSek, Embeddings Co, BoleSale, SwipeGen
+Location
+Banglore, India
+Education
+Dayananda Sagar College Of Engineering, Banglore
+Pronouns
+He/Him
+Work
+SDE at Finalroundai
+Joined
+Oct 30, 2024
+More from Akash Singh
+Kubernetes on the cloud vs on bare metal : Deception 101
+#kubernetes
+#cloud
+#aws
+#programming
+Argo, Flux, Kustomize, Helm and all the fancy stuff about GitOps
+#devops
+#cncf
+#beginners
+#cloud
+DreamOps: The AI Agent That Fixes the Oncall Circus
+#ai
+#devops
+#programming
+#python
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

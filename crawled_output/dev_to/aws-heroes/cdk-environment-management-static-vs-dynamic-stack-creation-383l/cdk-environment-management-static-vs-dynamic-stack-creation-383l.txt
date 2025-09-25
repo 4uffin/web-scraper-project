@@ -1,0 +1,628 @@
+CDK Environment Management: Static vs Dynamic Stack Creation - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Thorsten Hoeger
+for AWS Heroes
+Posted on Sep 25
+CDK Environment Management: Static vs Dynamic Stack Creation
+#aws
+#cdk
+#devops
+A comprehensive guide to choosing the right environment strategy for your CDK applications
+1. Introduction: The Environment Management Dilemma
+If you're building applications with AWS CDK, you've faced this question: how should you structure your code to deploy to multiple environments? This fundamental architectural decision sparked an interesting discussion in the CDK community, leading us - Thorsten Höger and Kenta Goto - to collaborate on this comprehensive guide.
+Between us, we've reviewed hundreds of CDK projects and noticed a pattern: about 90% of teams choose their environment management approach without fully understanding its implications. The decision seems simple at first: you need dev, staging, and production environments. But the way you structure your CDK code to achieve this has far-reaching consequences for your team's productivity, deployment pipeline, and application reliability.
+What makes this topic particularly interesting is that both approaches we'll discuss are valid and widely used in production. There's no universal "right" answer. Instead, each approach offers distinct advantages that align with different team needs and project requirements. Through this collaboration, we aim to present both perspectives fairly, helping you make an informed decision based on your specific context.
+This guide examines the two primary patterns for managing CDK environments, their trade-offs, and when to use each. By the end, you'll have a clear framework for making this architectural decision intentionally rather than defaulting to what seems easiest initially.
+2. The Two Approaches at a Glance
+2.1 Variant A: Dynamic Stack Creation
+The dynamic approach uses runtime configuration to determine which environment to synthesize. You pass a context variable during synthesis, and your code branches based on this value:
+// app.ts
+const app = new cdk.App();
+const stageName = app.node.tryGetContext('stage') || 'dev';
+let config: EnvironmentConfig;
+switch (stageName) {
+case 'dev':
+config = {
+account: '111111111111',
+instanceType: 't3.micro',
+minCapacity: 1,
+maxCapacity: 2,
+domainName: 'dev.example.com'
+};
+break;
+case 'prod':
+config = {
+account: '222222222222',
+instanceType: 'm5.large',
+minCapacity: 3,
+maxCapacity: 10,
+domainName: 'example.com'
+};
+break;
+default:
+throw new Error(`Unknown stage: ${stageName}`);
+}
+new ApplicationStack(app, `MyApp-${stageName}`, {
+env: { account: config.account, region: 'eu-central-1' },
+config
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Teams typically reach for this approach because it feels intuitive. You run cdk deploy -c stage=prod when you want production, and cdk deploy -c stage=dev for development. The mental model is straightforward: one command, one environment.
+2.2 Variant B: Static Stack Creation ("Synthesize Once")
+The static approach instantiates all environments during synthesis, creating multiple stack instances with different configurations:
+// app.ts
+const app = new cdk.App();
+// Development environment
+new ApplicationStack(app, 'MyApp-dev', {
+env: { account: '111111111111', region: 'eu-central-1' },
+config: {
+instanceType: 't3.micro',
+minCapacity: 1,
+maxCapacity: 2,
+domainName: 'dev.example.com'
+}
+});
+// Production environment
+new ApplicationStack(app, 'MyApp-prod', {
+env: { account: '222222222222', region: 'eu-central-1' },
+config: {
+instanceType: 'm5.large',
+minCapacity: 3,
+maxCapacity: 10,
+domainName: 'example.com'
+}
+});
+Enter fullscreen mode
+Exit fullscreen mode
+This approach synthesizes all environments into a single CDK assembly with multiple CloudFormation templates. You deploy specific stacks with cdk deploy MyApp-prod. The key insight: synthesis happens once, producing artifacts for all environments simultaneously.
+3. Key Trade-offs: A Practical Comparison
+3.1 Development Experience
+Variant A: Dynamic Stack Creation
+The dynamic approach offers flexibility that feels natural during development. Each developer can spin up their personal stack by simply changing the stage name:
+switch (stageName) {
+case 'dev':
+config = {
+account: '111111111111',
+instanceType: 't3.micro',
+minCapacity: 1,
+maxCapacity: 2,
+domainName: 'dev.example.com'
+};
+break;
+case 'prod':
+config = {
+account: '222222222222',
+instanceType: 'm5.large',
+minCapacity: 3,
+maxCapacity: 10,
+domainName: 'example.com'
+};
+break;
+default:
+// for each developer
+config = {
+account: process.env.CDK_DEFAULT_ACCOUNT,
+instanceType: 't3.nano',
+minCapacity: 1,
+maxCapacity: 1,
+domainName: `${stageName}.example.com`
+};
+}
+Enter fullscreen mode
+Exit fullscreen mode
+# Developer Alice's stack
+cdk deploy -c stage=alice
+# Developer Bob's stack
+cdk deploy -c stage=bob
+Enter fullscreen mode
+Exit fullscreen mode
+This flexibility extends to configuration. Developers can override settings through context without modifying code, making experimentation straightforward.
+For example, this approach allows each developer to create not just one but multiple personal stacks. They can freely create, update, and even destroy these stacks, enabling them to conduct multiple experiments concurrently.
+Another benefit is that developers can create temporary environments for experimenting with application code, such as Lambda functions, and freely deploy and test their functionality. Since they don't have to worry about affecting a shared development environment used by multiple developers, this enables faster rapid prototyping.
+Variant B: Static Stack Creation
+The static approach provides immediate feedback about all environments during development. When you run cdk synth, TypeScript validates your configuration for every environment. You catch production issues during development, not during the production deployment.
+For example, the following code allows you to also catch errors in the dev configuration when synthesizing for prod.
+// Stack
+export interface ApplicationStackProps extends cdk.StackProps {
+enforceSSL?: boolean;
+minimumTLSVersion?: number;
+}
+export class ApplicationStack extends cdk.Stack {
+constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+super(scope, id, props);
+new Bucket(this, 'MyBucket', {
+enforceSSL: props.enforceSSL,
+minimumTLSVersion: props.minimumTLSVersion,
+});
+}
+}
+// App
+const app = new cdk.App();
+new ApplicationStack(app, 'MyApp-dev', {
+// ValidationError: 'enforceSSL' must be enabled for 'minimumTLSVersion' to be applied
+enforceSSL: false,
+minimumTLSVersion: 1.2,
+});
+new ApplicationStack(app, 'MyApp-prod', {
+enforceSSL: true,
+minimumTLSVersion: 1.2,
+});
+Enter fullscreen mode
+Exit fullscreen mode
+3.2 CI/CD Pipeline Design
+Variant A: Dynamic Stack Creation
+The dynamic approach allows CI/CD pipelines to perform only what's necessary for each environment. For instance, in a development environment pipeline, only that environment's synthesis is performed, without synthesizing the production environment. This minimizes synthesis time. Furthermore, if errors occur only in the development environment, they won't affect other environments, ensuring that production CI/CD won't fail as a result.
+A notable advantage is also the ability to build separate environments for each developer's feature branch using CI/CD pipelines without modifying configurations.
+Variant B: Static Stack Creation
+The static approach enables true "synthesize once, deploy many" pipelines. Your CI/CD pipeline synthesizes once at the beginning, creating a single artifact that progresses through environments:
+# GitHub Actions example
+jobs:
+synthesize:
+runs-on: ubuntu-latest
+steps:
+- run: npm ci
+- run: npx cdk synth
+- uses: actions/upload-artifact@v3
+with:
+name: cdk-out
+path: cdk.out
+deploy-dev:
+needs: synthesize
+steps:
+- uses: actions/download-artifact@v3
+- run: npx cdk --app cdk.out deploy MyApp-dev
+deploy-prod:
+needs: deploy-dev
+steps:
+- uses: actions/download-artifact@v3
+- run: npx cdk --app cdk.out deploy MyApp-prod
+Enter fullscreen mode
+Exit fullscreen mode
+This approach guarantees that what you tested in dev is exactly what deploys to production. No re-synthesis means no opportunity for environmental differences to creep in.
+3.3 Team Collaboration
+Variant A: Dynamic Stack Creation
+The dynamic approach allows each developer to deploy their own personal stack. This gives them the freedom to use their environments independently, enabling them to test various scenarios without causing configuration conflicts with one another.
+Variant B: Static Stack Creation
+The static approach forces teams to think about all environments holistically. Code reviews naturally include production considerations because production configuration is always present in the changeset. This visibility helps junior developers understand production requirements from day one.
+4. When to Use Each Approach
+4.1 Variant A Shines When:
+Multiple Developer Stacks in Single Account
+When your team needs numerous ephemeral environments in a shared AWS account, the dynamic approach excels. Consider a team of 10 developers, each needing their own stack for testing. In the previous code example, we passed the developer's name as the stage. To enable more flexible combinations, let's now specify the stage and owner separately:
+// app.ts
+const app = new cdk.App();
+const stage = app.node.tryGetContext('stage') || 'dev';
+const owner = app.node.tryGetContext('owner');
+const stackName = owner
+? `MyApp-${stage}-${owner}`
+: `MyApp-${stage}`;
+let config: EnvironmentConfig;
+switch (stage) {
+case 'dev':
+config = { ... }; // If necessary, change a value such as the domain name depending on whether the `owner` is specified.
+break;
+case 'prod':
+config = { ... };
+break;
+default:
+throw new Error(`Unknown stage: ${stage}`);
+}
+new ApplicationStack(app, stackName, {
+// Stack configuration
+});
+Enter fullscreen mode
+Exit fullscreen mode
+# Developer Alice's stack
+cdk deploy -c stage=dev -c owner=alice
+# Developer Bob's stack
+cdk deploy -c stage=dev -c owner=bob
+Enter fullscreen mode
+Exit fullscreen mode
+With this approach, multiple developers can create their own instance of the same stack within a single AWS account. Since there is no need to hardcode the stack owner's information in the configuration beforehand, this enables more flexible testing for teams that share an account.
+Rapid Prototyping
+During early development, when environment requirements are fluid, the dynamic approach allows quick iteration without constant code changes.
+Synthesis Performance Matters
+For large applications where synthesis takes significant time, synthesizing only the needed environment can speed up development cycles.
+4.2 Variant B Excels When:
+Enterprise Applications
+Production applications with strict compliance requirements benefit from the static approach's determinism. You know exactly what will deploy because you've already synthesized it.
+Cross-Environment Dependencies
+When your architecture includes dependencies between environments, the static approach makes these relationships explicit:
+const devStack = new ApplicationStack(app, 'MyApp-dev', devConfig);
+const prodStack = new ApplicationStack(app, 'MyApp-prod', prodConfig);
+// Production monitoring stack depends on both environments
+new MonitoringStack(app, 'MyApp-monitoring', {
+devApiUrl: devStack.apiUrl,
+prodApiUrl: prodStack.apiUrl
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Explicit Multi-Account Deployments
+When environments span different AWS accounts, the static approach makes account boundaries explicit:
+new ApplicationStack(app, 'MyApp-dev', {
+env: { account: '111111111111', region: 'eu-central-1' },
+// ...
+});
+new ApplicationStack(app, 'MyApp-prod', {
+env: { account: '222222222222', region: 'eu-central-1' },
+// ...
+});
+Enter fullscreen mode
+Exit fullscreen mode
+5. Real-World Implementation Tips
+5.1 Handling Context and Lookups
+Regardless of your approach, context lookups should happen before the final synthesis and not during the deployment in your CI/CD pipeline. Never perform VPC lookups or other AWS API calls inside environment-specific code, this could lead to delayed detection of errors and missing lookup of values:
+// ❌ Wrong: Lookup inside conditional
+if (stageName === 'prod') {
+const vpc = Vpc.fromLookup(this, 'VPC', { vpcId: 'vpc-123' });
+}
+// ✅ Right: Lookup once, use configuration
+const vpcId = props.vpcId;
+const vpc = Vpc.fromLookup(this, 'VPC', { vpcId });
+Enter fullscreen mode
+Exit fullscreen mode
+Store lookup results in cdk.context.json and commit them to version control. This ensures consistent synthesis across team members and CI/CD environments.
+5.2 Migration Considerations
+Moving from Variant A to Variant B requires careful planning. Start by extracting configuration:
+The original code (Variant A)
+const app = new cdk.App();
+const stage = app.node.tryGetContext('stage') || 'dev';
+interface EnvironmentConfig {
+account: string;
+region: string;
+exampleName: string;
+}
+let config: EnvironmentConfig;
+switch (stage) {
+case 'dev':
+config = {
+account: '111111111111',
+region: 'eu-central-1',
+exampleName: 'This is dev',
+};
+break;
+case 'prod':
+config = {
+account: '222222222222',
+region: 'eu-central-1',
+exampleName: 'This is prod',
+};
+break;
+default:
+throw new Error(`Unknown stage: ${stage}`);
+}
+new ApplicationStack(app, `MyApp-${stage}`, {
+env: { account: config.account, region: config.region },
+...config,
+});
+Migration steps from Variant A to Variant B
+// Step 1: Extract configuration from switch statements
+const configs = {
+dev: {
+account: '111111111111',
+region: 'eu-central-1',
+exampleName: 'This is dev',
+},
+prod: {
+account: '222222222222',
+region: 'eu-central-1',
+exampleName: 'This is prod',
+},
+};
+// Step 2: Define stacks with the same stack names using static approach
+new ApplicationStack(app, `MyApp-dev`, {
+env: { account: configs.dev.account, region: configs.dev.region },
+...configs.dev,
+});
+new ApplicationStack(app, `MyApp-prod`, {
+env: { account: configs.prod.account, region: configs.prod.region },
+...configs.prod,
+});
+// Step 3: Remove the old stack definition and unnecessary code such as the switch statements and `tryGetContext`
+// new ApplicationStack(app, `MyApp-${stage}`, {
+//
+env: { account: config.account, region: config.region },
+//
+...config,
+// });
+// Step 4: Run `cdk diff --all` and confirm there are no differences
+// Migration from dynamic approach to static approach is complete when there are no differences
+6. Conclusion: Making the Right Choice
+Quick Decision Matrix:
+Choose Variant A (Dynamic) if:
+Choose Variant B (Static) if:
+Many ephemeral environments needed
+Fixed set of environments
+Team uses a shared development account
+Multi-account strategy with explicit account config
+Synthesis performance is critical
+Deployment determinism is critical
+Team prefers runtime flexibility
+Team values compile-time checks of all environments at the same time
+Key Questions for Your Team:
+Do we need unlimited ephemeral environments, or is our environment set fixed?
+How important is deployment determinism versus development flexibility?
+Are our environments truly independent, or do they share dependencies?
+What's our team's experience level with CDK and TypeScript?
+Both approaches are valid tools in your CDK toolkit. The key is choosing intentionally based on your specific requirements rather than defaulting to what seems simplest initially. Start with your deployment pipeline requirements and work backward to the code structure that best supports them.
+Code Examples Appendix
+Complete Variant A Example
+// app.ts
+import * as cdk from 'aws-cdk-lib';
+import { ApplicationStack } from './stacks/application-stack';
+const app = new cdk.App();
+const stage = app.node.tryGetContext('stage') || 'dev';
+const owner = app.node.tryGetContext('owner');
+interface StageConfig {
+account: string;
+region: string;
+instanceType: string;
+minCapacity: number;
+maxCapacity: number;
+domainName: string;
+certificateArn?: string;
+}
+const baseConfigs: Record<string, StageConfig> = {
+dev: {
+account: '111111111111',
+region: 'eu-central-1',
+instanceType: 't3.micro',
+minCapacity: 1,
+maxCapacity: 2,
+domainName: owner ? `${owner}.example.com` : 'dev.example.com'
+},
+staging: {
+account: '111111111111',
+region: 'eu-central-1',
+instanceType: 't3.small',
+minCapacity: 2,
+maxCapacity: 4,
+domainName: 'staging.example.com'
+},
+prod: {
+account: '222222222222',
+region: 'eu-central-1',
+instanceType: 'm5.large',
+minCapacity: 3,
+maxCapacity: 10,
+domainName: 'example.com',
+certificateArn: 'arn:aws:acm:...'
+}
+};
+const config = baseConfigs[stage];
+if (!config) {
+throw new Error(`Unknown stage: ${stage}`);
+}
+const stackName = owner
+? `MyApp-${stage}-${owner}`
+: `MyApp-${stage}`;
+new ApplicationStack(app, stackName, {
+env: { account: config.account, region: config.region },
+description: `Application stack for ${stage} environment${owner ? ` (${owner})` : ''}`,
+...config
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Complete Variant B Example
+// app.ts
+import * as cdk from 'aws-cdk-lib';
+import { ApplicationStack } from './stacks/application-stack';
+import { MonitoringStack } from './stacks/monitoring-stack';
+import { Stage } from 'aws-cdk-lib';
+const app = new cdk.App();
+class ApplicationStage extends Stage {
+public readonly apiUrl: string;
+constructor(scope: Construct, id: string, props: StageProps) {
+super(scope, id, props);
+const stack = new ApplicationStack(this, 'AppStack', props.config);
+this.apiUrl = stack.apiUrl;
+}
+}
+// Development Stage
+const devStage = new ApplicationStage(app, 'Dev', {
+env: { account: '111111111111', region: 'eu-central-1' },
+config: {
+instanceType: 't3.micro',
+minCapacity: 1,
+maxCapacity: 2,
+domainName: 'dev.example.com'
+}
+});
+// Staging Stage
+const stagingStage = new ApplicationStage(app, 'Staging', {
+env: { account: '111111111111', region: 'eu-central-1' },
+config: {
+instanceType: 't3.small',
+minCapacity: 2,
+maxCapacity: 4,
+domainName: 'staging.example.com'
+}
+});
+// Production Stage
+const prodStage = new ApplicationStage(app, 'Prod', {
+env: { account: '222222222222', region: 'eu-central-1' },
+config: {
+instanceType: 'm5.large',
+minCapacity: 3,
+maxCapacity: 10,
+domainName: 'example.com',
+certificateArn: 'arn:aws:acm:...'
+}
+});
+// Centralized monitoring for all environments
+new MonitoringStack(app, 'CentralMonitoring', {
+env: { account: '333333333333', region: 'eu-central-1' },
+environments: [
+{ name: 'dev', apiUrl: devStage.apiUrl },
+{ name: 'staging', apiUrl: stagingStage.apiUrl },
+{ name: 'prod', apiUrl: prodStage.apiUrl }
+]
+});
+Enter fullscreen mode
+Exit fullscreen mode
+Side-by-Side Feature Comparison
+// Environment-specific feature flags
+type Features = {
+betaFeature: boolean;
+debugMode: boolean;
+};
+interface StackConfig {
+features: Features;
+}
+// Variant A Approach
+const features: Record<string, Features> = {
+dev: { betaFeature: true, debugMode: true },
+prod: { betaFeature: false, debugMode: false }
+};
+const config: StackConfig = {
+features: features[stage]
+};
+// Variant B Approach
+const devConfig: StackConfig = {
+features: { betaFeature: true, debugMode: true }
+};
+const prodConfig: StackConfig = {
+features: { betaFeature: false, debugMode: false }
+};
+Enter fullscreen mode
+Exit fullscreen mode
+About the Authors:
+Thorsten Höger is an AWS DevTools Hero and cloud automation consultant who has been working with AWS CDK since its early days. He regularly builds and reviews CDK architectures for enterprises.
+Kenta Goto is an AWS DevTools Hero, as well as an AWS CDK Top Contributor and Community Reviewer. Additionally, he is an OSS developer of his own AWS tools, such as cls3 and delstack.
+Have questions or want to share your approach? Reach out on SocialMedia [@hoegertn] or [@k_goto]
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+AWS Heroes
+Follow
+A vibrant, worldwide group of AWS experts.
+More from AWS Heroes
+Spring AI with Amazon Bedrock - Part 5 Spring AI meets Amazon Bedrock AgentCore
+#aws
+#java
+#agenticai
+#mcp
+Amazon Bedrock AgentCore Gateway - Part 4 AgentCore Gateway Observability
+#aws
+#serverless
+#agenticai
+#mcp
+Micronaut 4 application on AWS Lambda- Part 3 Reducing Lambda cold starts with SnapStart and DynamoDB request priming
+#aws
+#java
+#serverless
+#micronaut
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

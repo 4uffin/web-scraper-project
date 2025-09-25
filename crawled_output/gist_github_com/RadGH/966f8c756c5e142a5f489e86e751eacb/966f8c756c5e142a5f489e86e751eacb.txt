@@ -1,0 +1,517 @@
+Upload a file from a URL to the WordPress media gallery. Supports images, PDFs, and other file types. · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+RadGH/rs_upload_from_url.php
+Last active
+September 24, 2025 00:39
+Show Gist options
+Download ZIP
+Star
+37
+(37)
+You must be signed in to star a gist
+Fork
+12
+(12)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/RadGH/966f8c756c5e142a5f489e86e751eacb.js&quot;&gt;&lt;/script&gt;
+Save RadGH/966f8c756c5e142a5f489e86e751eacb to your computer and use it in GitHub Desktop.
+Code
+Revisions
+17
+Stars
+37
+Forks
+12
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/RadGH/966f8c756c5e142a5f489e86e751eacb.js&quot;&gt;&lt;/script&gt;
+Save RadGH/966f8c756c5e142a5f489e86e751eacb to your computer and use it in GitHub Desktop.
+Download ZIP
+Upload a file from a URL to the WordPress media gallery. Supports images, PDFs, and other file types.
+Raw
+rs_upload_from_url.php
+<?php
+/**
+* This function uploads a file from a URL to the media library, designed to be placed in your own theme or plugin.
+* Metadata will be generated and images will generate thumbnails automatically.
+*
+* HOW TO USE:
+*
+1. Add the function below to your theme or plugin
+*
+2. Call the function and provide the URL to an image or other file.
+*
+3. If successful, the attachment ID will be returned.
+*
+* BASIC USAGE:
+*
+$attachment_id = rs_upload_from_url( "https://www.gstatic.com/webp/gallery/1.jpg" );
+*
+if ( $attachment_id ) echo wp_get_attachment_image( $attachment_id, 'large' );
+*
+* DOWNLOAD AS A PLUGIN (optional):
+*
+Below is a link to a separate plugin you can upload to your site to help get started.
+*
+It is a fully-functional example and demonstrates upload both JPG and WEBP image by using a "secret" url.
+*
+It also provides an easy way to delete the test images that were created.
+*
+@see https://gist.github.com/RadGH/be30af96617b13e7848a4626ef179bbd
+*
+* To upload from a *LOCAL FILE PATH* instead of a URL:
+* @see: https://gist.github.com/RadGH/3b544c827193927d1772
+*/
+/**
+* Upload a file to the media library using a URL.
+*
+* @version 1.4
+* @author
+Radley Sustaire
+* @see
+https://gist.github.com/RadGH/966f8c756c5e142a5f489e86e751eacb
+*
+* @param string $url
+URL to be uploaded
+* @param null|string $title
+Override the default post_title
+* @param null|string $content
+Override the default post_content (Added in 1.3)
+* @param null|string $alt
+Override the default alt text (Added in 1.3)
+* @param null|string $caption
+Override the default caption / post excerpt (Added in 1.4)
+*
+* @return int|false
+*/
+function rs_upload_from_url( $url, $title = null, $content = null, $alt = null, $caption = null ) {
+require_once( ABSPATH . "/wp-load.php");
+require_once( ABSPATH . "/wp-admin/includes/image.php");
+require_once( ABSPATH . "/wp-admin/includes/file.php");
+require_once( ABSPATH . "/wp-admin/includes/media.php");
+// Download url to a temp file
+$tmp = download_url( $url );
+if ( is_wp_error( $tmp ) ) return false;
+// Ignore query params to fix issues with certain URLS
+// @see https://gist.github.com/RadGH/966f8c756c5e142a5f489e86e751eacb?permalink_comment_id=5626880#gistcomment-5626880
+$url_path
+= parse_url($url, PHP_URL_PATH);
+// Get the filename and extension ("photo.png" => "photo", "png")
+$filename
+= pathinfo($url_path, PATHINFO_FILENAME);
+$extension = pathinfo($url_path, PATHINFO_EXTENSION);
+// An extension is required or else WordPress will reject the upload
+if ( ! $extension ) {
+// Look up mime type, example: "/photo.png" -> "image/png"
+$mime = mime_content_type( $tmp );
+$mime = is_string($mime) ? sanitize_mime_type( $mime ) : false;
+// Only allow certain mime types because mime types do not always end in a valid extension (see the .doc example below)
+$mime_extensions = array(
+// mime_type
+=> extension (no period)
+'text/plain'
+=> 'txt',
+'text/csv'
+=> 'csv',
+'application/msword' => 'doc',
+'image/jpg'
+=> 'jpg',
+'image/jpeg'
+=> 'jpeg',
+'image/gif'
+=> 'gif',
+'image/png'
+=> 'png',
+'video/mp4'
+=> 'mp4',
+);
+if ( isset( $mime_extensions[$mime] ) ) {
+// Use the mapped extension
+$extension = $mime_extensions[$mime];
+}else{
+// Could not identify extension. Clear temp file and abort.
+wp_delete_file($tmp);
+return false;
+}
+}
+// Upload by "sideloading": "the same way as an uploaded file is handled by media_handle_upload"
+$args = array(
+'name' => "$filename.$extension",
+'tmp_name' => $tmp,
+);
+// Post data to override the post title, content, and alt text
+$post_data = array();
+if ( $title )
+$post_data['post_title'] = $title;
+if ( $content ) $post_data['post_content'] = $content;
+if ( $caption ) $post_data['post_excerpt'] = $caption;
+// Do the upload
+$attachment_id = media_handle_sideload( $args, 0, null, $post_data );
+// Clear temp file
+wp_delete_file($tmp);
+// Error uploading
+if ( is_wp_error($attachment_id) ) return false;
+// Save alt text as post meta if provided
+if ( $alt ) update_post_meta( $attachment_id, '_wp_attachment_image_alt', $alt );
+// Success, return attachment ID
+return (int) $attachment_id;
+}
+Load earlier comments...
+Copy link
+heyjoecampbell
+commented
+Jul 29, 2022
+Thank you @RadGH
+I am not a proficient developer. I simply utilize and do basic modifications to code snippets I am able to find online.
+I've been looking for a snippet to add the Alt Text field in the media upload, but have not been able to find such a snippet.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mendelsphotography
+commented
+Sep 14, 2022
+Hi there How do I use this PHP file? where does it go? I am looking to Import bulk URLs from a gallery service. Then take those images and use a plugin to make a gallery from them.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Sep 15, 2022
+@mendelsphotography It can basically go anywhere, most people suggest functions.php. The rest is explained in the comments. The rest of your project you'll have to come up with on your own I'm afraid
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Sep 15, 2022
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I've updated this function to use media_handle_sideload and other things. It's almost entirely rewritten and much less complicated.
+For uploading a local file path instead, consider my other function:
+rs_upload_from_path( $path )
+https://gist.github.com/RadGH/3b544c827193927d1772
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+greenlevel
+commented
+Sep 18, 2022
+Hi, I am testing this function and put rs_upload_from_url funtion in functions.php
+and for now call directly in a page template like below
+$url = "https://dummyimage.com/600x400/000/fff";
+$result = rs_upload_from_url( $url );
+But it's not uploading the dummy image. It calls the function, but it goes through ( is_wp_error($attachment_id) ) { }
+Am I using it wrong? Thanks in advance
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Sep 18, 2022
+@greenlevel Thanks for catching that! It was because the URL did not have an extension. I updated the function to get the extension by mime type as a fallback. Now it should work with your URL and correctly identifies the image as a .png
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mendelsphotography
+commented
+Sep 18, 2022
+@RadGH Thanks. After a lot of searching, I found a plugin that fits what I wanted.
+https://wordpress.org/plugins/exmage-wp-image-links/ it allows you to upload images to WordPress media as links plus paste multiple links at once each on its own line. That's what I was looking for. Thanks so much again for your quick and prompt response.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+greenlevel
+commented
+Sep 20, 2022
+@greenlevel Thanks for catching that! It was because the URL did not have an extension. I updated the function to get the extension by mime type as a fallback. Now it should work with your URL and correctly identifies the image as a .png
+Haha, no problem :) Thanks for making this function and making the quick fix!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+kathrynherod
+commented
+Oct 17, 2022
+Thanks for this! Just a minor note - I don't think the file cleanup was actually happening. I have this inside of a recursive API and kept running into critical errors. I removed the @ from line 78 @unlink($tmp); and changed it to unlink($tmp); and it stopped timing out.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+julian-stark
+commented
+Nov 24, 2022
+Great, thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+bhavinp311
+commented
+Jan 20, 2023
+Thank you so much @RadGH !
+It's really really helpful!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+hassan-hossini
+commented
+Jun 14, 2023
+Still working 2023! Thank you!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+aspnarola
+commented
+Jun 15, 2023
+@RadGH It's not working for image URL like this. https://www.futurepedia.io/_next/image?url=https%3A%2F%2Fcdn.sanity.io%2Fimages%2Fu0v1th4q%2Fproduction%2F7ef56859f0951a3d7382a37487aa80c8fba2ef0e-694x340.jpg%3Frect%3D21%2C0%2C652%2C340%26w%3D1680%26h%3D876%26auto%3Dformat&w=3840&q=75
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Jun 15, 2023
+@aspnarola It's hard to say for sure but looking at that URL it doesn't have a filename and extension. The filename would probably be considered "image" because it ends in "/_next/image?url=".
+You'll want to do some debugging and see what is happening with the variables $tmp, $filename, and $extension.
+If the problem is with $tmp and it bails at line 31, you'll want to look at the documentation for download_url() here:
+https://developer.wordpress.org/reference/functions/download_url/
+If the problem is with the filename/extension and it bails at line 62, you'll want to modify the function to work for that URL. In your case there is a $_GET parameter in your link that is called "url" which points to a separate link. In that case you can parse the URL to get the link to sanity.io and then use the filename "7ef56859f0951a3d7382a37487aa80c8fba2ef0e-694x340.jpg" instead.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+LeninZapata
+commented
+Aug 7, 2023
+It works!, but I would like to be able to convert a JPG image to WEBP with this same process, is it possible?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Aug 7, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@LeninZapata You could look at using imagewebp() after you download the file. Some examples can be seen on Stack Overflow. When dealing with wp_handle_sideload(), you might need to fake the path in $_FILES['tmp_name'] to point to the converted file.
+You might also want to use wp_generate_attachment_metadata() afterward so that the thumbnails are generated, assuming that works with webp images.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+LeninZapata
+commented
+Aug 7, 2023
+@LeninZapata You could look at using imagewebp() after you download the file. Some examples can be seen on Stack Overflow. When dealing with wp_handle_sideload(), you might need to fake the path in $_FILES['tmp_name'] to point to the converted file.
+You might also want to use wp_generate_attachment_metadata() afterward so that the thumbnails are generated, assuming that works with webp images.
+Thank you so much!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+GalinaBublik
+commented
+Aug 16, 2023
+ThankS!!!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+tuanbeplus
+commented
+Sep 21, 2023
+Nice, thanks you!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+vdjaguar
+commented
+Dec 9, 2023
+Yeh! Still working 09.12.2023 ;) Thanks a lot!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+gilangramadhan
+commented
+Dec 12, 2023
+Hello, how can I use this snippet? I mean I have put the code in the functions.php and tried to upload the media by going to Media > Library page, where's the button to upload from a URL? Am I missing something... Sorry I'm no code developer. Thanks!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Dec 12, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@gilangramadhan There is no interface. You'll need to do some coding to make use of this. I'm sure there is a plugin out there that will let you upload files by url using the media uploader. What would work best for what you are trying to do?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+philbirnie
+commented
+Jan 29, 2024
+Thanks for this! This is great, @RadGH!
+-- one minor suggestion:
+switch the @unlink's with wp_delete_file; this will allow you to remove silence operators from your code (and, more importantly, allow the path to be filterable via the wp_delete_file filter)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Jan 29, 2024
+@philbirnie Great suggestion, thanks! I updated the script to use wp_delete_file instead of @unlink.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mdbadsha
+commented
+Feb 2, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Dose it support .webp format like this one?
+https://a2zaitools.com/wp-content/uploads/2024/02/Drafts-AI-1024x501.webp
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Feb 2, 2024
+@mdbadsha Yep, I just tested and webp images work just fine.
+To anyone else interested, I created a plugin to test this function which is available at another gist URL:
+https://gist.github.com/RadGH/be30af96617b13e7848a4626ef179bbd
+Instructions and a screenshot of the results are displayed on the first comment:
+https://gist.github.com/RadGH/be30af96617b13e7848a4626ef179bbd#gistcomment-4870147
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+acot123
+commented
+Mar 10, 2025
+Hi,
+The script works perfectly for URLs that have extensions like .jpg.
+Can the code be adjusted for images from a URL that doesn’t have an extension, but the image can still be downloaded in jpg format?
+An example is a Hikvision camera with the URL: http://user:password@publicIP/ISAPI/Streaming/channels/101/picture.
+As you can see, the URL doesn’t have an extension at the end, but when the link is opened, the image is displayed and can be downloaded as a jpg.
+another example is: https://unsplash.com/photos/woman-with-dslr-camera-e616t35Vbeg
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Mar 10, 2025
+@acot123 There is very basic support for that, but you will probably have to customize this part further: if ( ! $extension ) { ... }
+You'll need to verify the mime_content_type is loading correctly and adjust the array of extensions if necessary.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+brickup-de
+commented
+Jun 22, 2025
+Thanks a lot for this code! :) Two tweaks I needed in case you need them too:
+Ignore query params so that URLs like this won't create a broken file.
+// Get the filename and extension (".../folder/photo.png?query=..." => "photo", "png")
+$url_path
+= parse_url($url, PHP_URL_PATH);
+$filename
+= pathinfo($url_path, PATHINFO_FILENAME);
+$extension = pathinfo($url_path, PATHINFO_EXTENSION);
+Set image caption if you need it.
+function bc_upload_from_url([...], $caption = null ) {
+[...]
+if ( $caption ) $post_data['post_excerpt'] = $caption;
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+RadGH
+commented
+Jun 23, 2025
+@brickup-de Thanks for the contribution! I've added those to the original function, I think they are both useful additions.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

@@ -1,0 +1,271 @@
+Modify MS Teams Android app to use different User-Agent on login page · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+johan12345/teams_android_useragent.md
+Last active
+September 24, 2025 12:05
+Show Gist options
+Download ZIP
+Star
+4
+(4)
+You must be signed in to star a gist
+Fork
+0
+(0)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/johan12345/7e2a0373a076ce72adec0e380e462e92.js&quot;&gt;&lt;/script&gt;
+Save johan12345/7e2a0373a076ce72adec0e380e462e92 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+12
+Stars
+4
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/johan12345/7e2a0373a076ce72adec0e380e462e92.js&quot;&gt;&lt;/script&gt;
+Save johan12345/7e2a0373a076ce72adec0e380e462e92 to your computer and use it in GitHub Desktop.
+Download ZIP
+Modify MS Teams Android app to use different User-Agent on login page
+Raw
+teams_android_useragent.md
+How to modify the MS Teams Android app to use a different User-Agent on its login page
+Tools needed
+apktool
+zipalign and apksigner and from the Android SDK Build Tools
+keytool from a Java JRE or JDK
+Instructions
+Get the APK of the current MS Teams app (e.g. by copying it from your phone or downloading from APKMirror). These instructions were tested with version 1416/1.0.0.2022394701, and assume it is saved as teams.apk.
+Extract the APK:
+apktool -r d teams.apk
+Find the WebViewAuthorizationFragment class. In the current version it is under smali_classes3/com/microsoft/identity/common/internal/providers/oauth2/WebViewAuthorizationFragment.smali.
+In this class, in the setUpWebView function, the User-Agent for the WebView is set like this:
+invoke-virtual {v0, p1}, Landroid/webkit/WebSettings;->setUserAgentString(Ljava/lang/String;)V
+Right before this, add the following line to override the User-Agent:
+const-string p1, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36"
+(or another recent desktop User-Agent)
+In the res/raw directory, in each of the files msal_config.json, msal_config_opt_disabled.json, msal_enterprise_config.json and msal_enterprise_config_opt_disabled.json, set the broker_redirect_uri_registered setting to false. This is needed because the modified APK will be signed with a different key.
+This seems to be no longer necessary in the newest version of the Teams app. Yay! 🥳
+Rebuild the APK:
+apktool b teams -o teams_mod.apk
+If you need to install the app alongside the official Teams app, change the package name now and rename conflicting content providers in the Manifest (e.g. using this tool):
+git clone git@github.com:johan12345/ApkRename.git
+ApkRename/apkRename.sh teams_mod.apk com.microsoft.teams.mod!
+Zipalign:
+zipalign -f -p 4 teams_mod.apk teams_mod_zipalign.apk
+Sign the APK:
+keytool -genkey -keystore keys.keystore -keyalg RSA -keysize 2048 -validity 10000 -alias Teams
+apksigner sign --ks keys.keystore
+--out teams_mod_signed.apk teams_mod_zipalign.apk
+Install the resulting teams_mod_signed.apk on your Android device. If you did not change the package name above, you will need to uninstall the official version of Teams first due to the different signature.
+Copy link
+esackbauer
+commented
+Sep 28, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Thanks, exactly what I was looking for. However, after installing that signed APK, the App crashes on my Samsung S21 with Android 14 as soon as started.
+I used the apktools that you linked, however it seems with my Linux Mint there are more recent packages. Should I use them?
+Keytool is also asking for -keyalg parameter. I gave it -keyalg RSA -keysize 2048
+Edit: Got the build process working with a recent version of apktools.
+However, when trying to sign in, after entering my email address it gives me "Unfortunately there are problems, please try again..."
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+johan12345
+commented
+Sep 29, 2024
+Hmm, maybe something has changed in newer versions of the Teams app, I have not updated for a while. Did you try if it works for you with the older version that I listed above (1416/1.0.0.2022394701)?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+esackbauer
+commented
+Oct 4, 2024
+Unfortunately that does not work either.
+Still I get the error after entering my email address.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+johan12345
+commented
+Oct 9, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+I just re-tested the instructions with the APK downloaded from here:
+https://www.apkmirror.com/apk/microsoft-corporation/microsoft-teams/microsoft-teams-1416-1-0-0-2022394701-release/microsoft-teams-1416-1-0-0-2022394701-android-apk-download/
+and don't get any crash after entering my email address. Can you check Android logs (e.g., adb logcat "*:E") to see why it's crashing?
+With the newest Teams version, I was able to reproduce the crash right after starting the app. The log in this case is:
+FATAL EXCEPTION: pool-19-thread-1
+Process: com.microsoft.teams.mod, PID: 25045
+java.lang.IncompatibleClassChangeError: Found interface io.opentelemetry.context.Context, but class was expected (declaration of 'io.opentelemetry.context.Context' appears in /data/app/~~wqguCam3Xc9MlW2qSJdUGw==/com.microsoft.teams.mod-WEYtdUEwcp76rJJybHQrgA==/base.apk!classes7.dex)
+at io.opentelemetry.context.Context.$r8$lambda$3Y-T3eyWgYoNX58Un4uW3R7nekc(Unknown Source:0)
+at io.opentelemetry.context.Context$$ExternalSyntheticLambda4.run(Unknown Source:1951)
+That seems to be related to this bug in apktool: iBotPeaches/Apktool#3616. A workaround might be to remove all references to OpenTelemetry, but that would take some time...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+esackbauer
+commented
+Oct 9, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+The reason why I want to try this is with our teams deployment, authentication works only from within Intranet. With my smartphone I cannot enter Intranet (no VPN). I can do a trick with a proxy running on my company laptop. It accepts http requests from my mobile (in the same Wifi network) and forwards it via VPN to companies proxy. So theoretically (and in the past practically as well) I can log in. After successful login a token is created and Teams will work without any connection to companies Intranet.
+However what company has changed is that during login, untouched Teams app notices that I am coming from a mobile device and claims I need to install Intune etc. which I do not want...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+colyro
+commented
+Nov 16, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+i've tried to follow this path of having ms teams user agent changed but the new modded apk crashes on opening(android 14).
+tried with the latest info but also with the older one posted above by Johann.
+with latest apk tool and zipaling from 29.0.3 build.
+anyhow, really appreciate and thanks Johann for your work and sharing this info with community.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+johan12345
+commented
+Nov 16, 2024
+@colyro have you managed to check the logs (as mentioned above) to see why the new APK crashes?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+colyro
+commented
+Nov 17, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+sure.
+below is the feedback per each package:
+apktool 2.10 - older version(your initial version tested in 2022) 1416/1.0.0.2022394701 build 2022394713
+crashing after email address introduction when selcting work ors school account with message: Sorry, but we're having trouble signing you in, please try again.
+apktool 2.10 - latest teams version - 1416/1.0.0.2024053003 build 2024453030
+java.lang.IncompatibleClassChangeError: Found interface io.opentelemetry.context.Context,but class was expected (declaration of 'io.opentelemetry.context.Context' appears in
+/data/app/~~ggT7Gk-rcl94g4-E0rxjNA==/com.microsoft.teams-aMLmJd723kVwJm8XfYVcyQ==/base.apk!classes7.dex)
+at io.opentelemetry.context.Context.
+$r8$lambda$3Y-T3eyWgYoNX58Un4uW3R7nekc(Unknown Source:0)
+at io.opentelemetry.context.ContextS$ExternalSyntheticLambda4.run(Unknown Source:2040) at
+java.util.concurrent. ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+at java.util.concurrent. ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+at java.lang.Thread.run(Thread.java:1012)
+apktool 2.93 - older version(your initial version tested in 2022) 1416/1.0.0.2022394701 build 2022394713
+crashing after email address introduction when selcting work ors school account with message: Sorry, but we're having trouble signing you in, please try again.
+apktool 2.93 - latest teams version 1416/1.0.0.2024053003 build 2024453030
+Error: java.lang.IncompatibleClassChangeError: Found interface io.opentelemetry.context.Context,but class was expected (declaration of 'io.opentelemetry.context.Context' appears in /data/app/~~gLPi7Tpazv70MehlqloPKA==/com.microso ft.teams-wOX8yn38FzQ-bNKlau4x5g==/base.apk!classes7.dex)at io.opentelemetry.context.Context.
+$r8$lambda$3Y-T3eyWgYoNX58Un4uW3R7nekc(Unknown Source:0)
+at io.opentelemetry.context.Context$SExternalSyntheticLambda4.run(Unknown Source:2040)
+at
+java.util.concurrent. ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)at
+Phone Android version: 14
+Build-tools version: 29.0.3 of zipalign/apksigner
+OS used for apktool/zipalign/apksigner: Centos 9 x64
+Source of apk for latest Teams version: https://apkpure.com/microsoft-teams/com.microsoft.teams
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+johan12345
+commented
+Nov 17, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+crashing after email address introduction when selcting work ors school account with message: Sorry, but we're having trouble signing you in, please try again.
+Well, that is not a crash, just an error message from Microsoft - so likely your company's MS sign-in page does not like the modified Teams app. In my company's case, it would directly redirect to the company's own sign-in page after entering the email address (and that just identifies mobile devices based on their User-Agent), so maybe that is why I haven't encountered this? 🤔
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+colyro
+commented
+Nov 18, 2024
+oh I forgot to mention, I did not modify/alter anything especially to see if this is happening only if I touch the original apk.
+I just decompiled original apk, recompiled, zipaling and sign.
+So it is due to original apk manipulation
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+veganvelociraptor
+commented
+May 9, 2025
+I share the same issue as @colyro. On my Android 13 phone, the app just quits less than a second after starting it if I change the user agent. I tried several user agents in case that would make any difference, but nope.
+Any ideas?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

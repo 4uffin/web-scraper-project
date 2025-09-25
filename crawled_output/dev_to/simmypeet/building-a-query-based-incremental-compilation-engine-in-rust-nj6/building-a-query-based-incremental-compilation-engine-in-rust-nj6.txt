@@ -1,0 +1,347 @@
+Building a Query-Based Incremental Compilation Engine in Rust - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Simmypeet
+Posted on Sep 23
+Building a Query-Based Incremental Compilation Engine in Rust
+#rust
+#opensource
+#architecture
+#tutorial
+Building an incremental compiler is a challenging task, and there are many possible architectures to go with. One of the recently popular architectures I've seen is the "Query-Based Architecture". This is the architecture that I believe the Rust compiler and LSP use.
+In this blog, I'll share my experience of writing a query-based incremental compilation engine in Rust. I'll show my approach and implementation of this architecture.
+Note that this is part of the implementation for my custom programming language, called "Pernix". The source code can be found at this GitHub link.
+From Traditional Pipeline Compiler
+This will briefly introduce the concept of "Query-Based Architecture". There are lots of great articles online explaining how it works, but in this section, we'll briefly go through how this approach works.
+The most intuitive way to architect a compiler is a pipeline-based one. It easily maps well to each of the compilation phases. For example, the pipeline will be from lexing, parsing, type-checking, IR generation, to code generation. Each stage output is the input for the next step and is done sequentially. For instance, the token stream from lexing will be the input for the parser in the next step.
+Typically, the whole compiler operates in each stage at a time. For example, the compiler has to build the whole one big symbol table artifact first before it can proceed to the type-checking or IR generation.
+To Query-Based Compiler
+In this architecture, every compiler knowledge is represented as a query and each query is very fine-grained; in contrast with the traditional pipeline, each step is very coarse-grained.
+To illustrate the coarse vs fine-grain, in query-based architecture, we typically have a query like "the return type of function X", whereas the pipeline would be "build the whole one big symbol table" and then access the function X defined in that table and return its return type.
+The above image shows how coarse-grained each step in the pipeline is; it has to build the whole symbol table even though we might only need some of the information.
+Whereas, in query-based architecture, each of information is represented as a very fine-grained query, it's possible to query for only specific information without having to deal with other irrelevant information.
+Query Dependency Graph
+It's common that to compute one query, it requires other queries in the process.
+The above diagram shows how one query can depend on another query. For example, if the compiler wants to know the return type of function "X", the query that computes the return type runs, and that particular query requires the abstract syntax tree of the function "X" in the process.
+In this query-based architecture, another crucial information for incremental invalidation is the dependency graph. The dependency graph is represented as a "Directed Acyclic Graph" (DAG) showing what depends on what. When the incremental compiler starts, it will use this dependency graph to determine what queries can be reused and what needs to be recomputed.
+In this blog, we'll not dive deep into the invalidation algorithm. This great article from Medium explains the algorithms in detail.
+Implementing the Query Engine
+In this section, we'll dive into how I implement the query-based architecture. I'll assume that you have a basic idea of how the algorithm works. If not, I strongly suggest this great article Salsa Algorithm Explained.
+In my compiler, everything is done through the central Engine. It's a mediator for executing a query. For example, if I need to know the return type of a particular function.
+fn do_something(engine: &Engine, function_id: SymbolID) {
+let return_ty = engine.query(ReturnType(functino_id));
+// ...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+In my implementation, there are three main parts: the Key trait, the Executor trait, and the Engine.
+The Key trait
+The Key trait is defined simply as follows:
+pub trait Key {
+type Output
+}
+Enter fullscreen mode
+Exit fullscreen mode
+That's it, this trait is used to define what the query input is and what the output is. The type that implements the Key itself is the input, and the associated type Key::Output is the output type.
+Note that this trait doesn't specify how the query's done, we'll discuss how the query computes later.
+For the previous example, the query that defines the return type of a particular function symbol would look like this.
+pub struct ReturnTypeKey(SymbolID);
+impl Key for ReturnTypeKey {
+type Output = Type;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Executor trait
+Next, the Executor trait defines how the query is implemented. It's defined similar to this:
+pub trait Executor<K: Key> {
+pub fn execute(
+&self,
+key: &K,
+engine: &Engine
+) -> Result<K::Output, Error>;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Executor trait accepts a generic parameter K: Key -- a query that this executor implements. This Executor trait is similar to the "implementation", "definition" of the query, whereas the Key trait is similar to "interface", "declaration", "contract" for the query.
+Note that the executor function accepts an engine where you can query for another dependencies required.
+For example, to implement the Executor<ReturnTypeKey> it might look something similar to this:
+pub struct ReturnTypeExecutor;
+impl Executor<ReturnTypeKey> for ReturnTypeExecutor {
+pub fn execute(
+&self,
+key: &ReturnTypeKey,
+engine: &Engine,
+) -> Result<Type, Error> {
+// this query depends on the AST of this function
+let fn_ast = engine.query(FunctionAstKey(key.0)).await?;
+Ok(process_type_ast(fn_ast.return_type_ast))
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The Engine object
+Finally, the Engine is where everything is tied up together. This answers the question of "How the Key trait and Executor work together?".
+pub struct Engine { ... }
+impl Engine {
+pub fn query<K: Key>(&self, key: &K) -> Result<K::Output, Error> { ... }
+pub fn register_executor<K: Key, E: Executor<K>>(&self, key: &K, executor: E) { ... }
+}
+Enter fullscreen mode
+Exit fullscreen mode
+When the compiler starts, the Engine is created and every Key that will be executed is registered with the appropriate Executor.
+When the query is invoked, the executor registered will be retrieved and executed.
+Type Erasure in Engine
+In order to store an arbitrary type of executors, we use some dynamic dispatch, dyn Any, and fn pointers trick to achieve runtime type erasure. It might look similar to something like this.
+fn execute_fn<E: Executor<K>, K: Key>(
+dyn_executor: &dyn Any,
+dyn_key: &dyn Any,
+dyn_result: &mut dyn Any,
+) {
+let executor =
+dyn_executor.downcast_ref::<E>().expect("Executor type mismatch");
+let key = dyn_key.downcast_ref::<K>().expect("Key type mismatch");
+let result = dyn_result
+.downcast_mut::<Option<Result<K::Output, Error>>>()
+.expect("Result type mismatch");
+*result = Some(executor.execute(key));
+}
+pub struct Registration {
+executor_fn: fn(&dyn Any, &dyn Any, &mut dyn Any),
+executor_dyn: Box<dyn Any + Send + Sync>,
+}
+pub struct Registry {
+executors: HashMap<TypeId, Registration>,
+}
+impl Registry {
+pub fn register<E: Executor<K> + 'static, K: Key + 'static>(&mut self) {
+let executor = E::new();
+self.executors.insert(TypeId::of::<K>(), Registration {
+executor_fn: execute_fn::<E, K>,
+executor_dyn: Box::new(executor),
+});
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+As shown above, it heavily uses dyn Any and downcasting in order to achieve executor registration and retrieval. Every executor is boxed and turned into a Box<dyn Any>, and the executor's fn pointer is stored alongside for further execution.
+To compute a query, the engine will retrieve the Registration using the TypeId of the query and use the executor_fn to compute.
+pub struct Engine {
+registry: Registry,
+query_states: HashMap<BoxedKey, QueryResult>,
+version: Version,
+}
+impl Engine {
+pub fn query<K: Key>(&self, key: &K) -> Result<K::Output, Error> {
+let registration =
+self.registry.executors.get(&TypeId::of::<K>()).ok_or_else(
+|| Error::msg("No executor for the given key type"),
+)?;
+let mut result: Option<Result<K::Output, Error>> = None;
+(registration.executor_fn)(
+&*registration.executor_dyn,
+key,
+&mut result,
+);
+let result = result.expect("Executor did not set the result")
+self.query_states.insert(
+key.boxed(),
+QueryResult::Computed(result, self.version)
+);
+result
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The above code snippets should give you the simple idea of how to implement the Engine for the incremental compiler. There are some concepts that I've not shown in the above code snippets.
+Supporting Infrastructure
+These three main components discussed are the heart of the incremental compilation. However, these are not all; there are several components needed in order to build a fully functional incremental compiler.
+Versioning and Dependency Tracking
+The Engine maintains a version counter that will be incremented each time the compiler runs. The first run of the compiler sets the version to 0, and the next run increments it to 1, and so on.
+Every time the query is computed, the Engine saves the result of the query along with this three information: "when it was last updated/created", "when it was last verified", "the unique fingerprint", and "what are the dependencies".
+pub struct QueryResult {
+pub query_result: DynResult,
+pub last_updated: VersionNumber,
+pub last_verified: VersionNumber,
+pub fingerprint: Hash128,
+pub dependencies: Vec<DynQuery>
+}
+pub struct Engine {
+...
+query_states: HashMap<DynQuery, QueryResult>
+...
+}
+Enter fullscreen mode
+Exit fullscreen mode
+These are the crucial information needed for determining what queries need to be recomputed. I'll briefly explain each of these fields.
+last_updated and last_verified are used to determine whether the query is "stale" or not by comparing them with the current Engine's global version counter.
+fingerprint is a 128-bit hash used to determine whether or not the query result computed each time has changed.
+dependencies is used when the query is "stale" and has to verify whether or not its dependencies have updated.
+To track the dependencies of each query, every time the executor is retrieved and executed, the Engine can maintain something like current_executing_queries stack. Soon, when the executor depends on other queries via engine.query(QueryKey) interface, the engine can observe that there's a dependency between queries and therefore, can build a dependency list based on that.
+impl Engine {
+pub fn query<K: Key>(&self, key: &K) -> Result<K::Output, Error> {
+let source = self.get_currently_executing_query();
+let source_query_state = self.query_states.get(source);
+source_query_state.add_dependency(key);
+// ....
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Cyclic Tracking
+Cyclic Queries are not allowed in this implementation; the Engine has to maintain some sort of "Query Call Stack" to detect the cyclic. The default behavior when detecting the cyclic is up to the implementation. In my implementation, when a cyclic dependency is detected, the Engine returns Err(CyclicDependency) and the error is propagated up through the query call stack.
+Fingerprinting
+As mentioned earlier, after the query result is computed, the Engine calculates the 128-bit hash to compare the equality of the query results between each version.
+For instance, the query was computed at version 1 and had a fingerprint of "0xABC". When the query was invalidated and recomputed at version 3, and the fingerprint turns out to be "0xXYZ". As a result, the fingerprint between two version mismatches. The Engine now has to update the last_updated to 3 and fingerprint to "0xXYZ".
+In my implementation, the fingerprint mechanism is done via a StableHash trait similar to what std::hash::Hash and what the "rustc" compiler internally uses for its fingerprinting.
+The StableHash has a similar interface to std::hash::Hash except that it produces a 128-bit hash, works on HashMap and HashSet, and is consistent between each run.
+Note that you might need an extra proc-macro has to be written to generate a StableHash implementation for each type automatically.
+Persistence
+In order to reuse the result for the next compilation run, the query results and all of their metadata need to be saved to disk.
+I've tried to serialize and deserialize one big HashMap before, and it results in very poor performance. In the later iteration, I ended up using the Key-Value store database for saving and retrieving query results from disk. This has several advantages:
+The compiler doesn't have to deserialize one big Engine at startup, requiring a very long time to deserialize all the data. Each query can be retrieved from the KV database at a time.
+The process of saving the query result can be sent to the background thread. The background thread can serialize and save the query to the KV database without blocking the main compiler sequence.
+Multithreading Synchronization
+To take advantage of this architecture to its fullest potential, you need to implement the Engine that allows the queries to be invoked from multiple threads. This is no easy task; I've encountered lots of problems while trying to implement multithreading support for it.
+Lock Contention: The Engine has to have as few locks as possible. dashmap crate is an excellent choice for a concurrent map compared to RwLock<HashMap> counterparts. It's also a good idea to separate the fast path and slow path in the query. To illustrate, the Engine always obtains the read (shared) lock to the dashmap first to determine whether or not the query has been computed (the fast path). Subsequently, if the query hasn't yet been computed or is staled, the write (unique) lock is obtain in order to save result (the slow path).
+Unique Execution: Imagine a scenario where there are queries A and B executed on different threads, and both of them require query C. The Engine must only allow one thread to execute query C and has to block all other threads until query C is computed.
+Suppose the Thread Green (from query A) got to compute the query C.
+The Thread Blue (from query B) has to wait.
+Thread Pool Starvation: I initially used rayon as a thread pool. However, the scenarios described earlier, where there are some blocking/locking in the Engine, are a big performance killer in the thread pool. Even worse, it could result in a very difficult-to-debug deadlock. Due to this reason, I decided to go with async. Using async allows the thread to yield its execution when it's waiting for another thread to finish computing the query. This not only solves the thread pool starvation problem, but also increases the throughput of the Engine.
+Pros and Cons
+"Everything is a trade off"
+- Software Design and Architecture Prof.
+Pros
+Ease of Testing: The Engine resembles the DI container that you might've seen in popular web frameworks. It's very easy to implement a unit test by swapping out the executor for the mock ones in order to achieve isolation.
+Easy Parallelization: Due to the nature of "input-output" with minimal mutable state, it's easy to create multiple threads to query specific information (once your Engine is implemented to support multithreading).
+On Demand: Since each of the queries is fine-grained, only the needed queries are run without having to invoke the whole compiler pipeline.
+Cons
+Infrastructure Setup: This requires an effort to set up a query engine before you implement any other compiler-specific logic. Though there are lots of library that implements this for you.
+Boilerplate: This implementation can suffer from requiring lots of boilerplate: having to define a query key, executor, and then register the executor to the engine. However, the macro can help with these issues, but it comes at a cost of less readable code.
+Memory Consumption: The Engine has to keep track of the query dependencies and states, which use lots of memory. In a large source file, the number of queries in the program can easily go to hundreds of thousands and up to millions.
+Conclusion
+We've explored the basic components of building the incremental query engine. There are still lots of details that have not been covered, but this should have given you a basic idea to build your own query engine.
+You can see the exact implementation of my query engine in my GitHub Repository with the in-depth Architecture Doc for my specific implementation.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Simmypeet
+Follow
+A student who has a particular interest in Computer Science
+Joined
+Dec 8, 2022
+More from Simmypeet
+Crafting a Compiler in Rust: Syntactic Analysis
+#rust
+#compiler
+#tutorial
+#computerscience
+Crafting a Compiler in Rust: Introduction
+#rust
+#compilers
+#tutorial
+#computerscience
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

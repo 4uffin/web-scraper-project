@@ -1,0 +1,249 @@
+Performance Tuning for Nginx: 7 Tips to Slash TTFB and Boost Speed - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ramer Labs
+Posted on Sep 23
+Performance Tuning for Nginx: 7 Tips to Slash TTFB and Boost Speed
+#nginx
+#performance
+#linux
+Introduction
+Time To First Byte (TTFB) is the single most visible metric for a site’s perceived speed. Even if your HTML, CSS, and JavaScript are minified, a sluggish Nginx front‑end can add hundreds of milliseconds before the browser sees any data. In this tutorial we’ll walk through seven concrete steps you can apply on a typical Ubuntu 22.04 server to bring TTFB down to single‑digit milliseconds while keeping the configuration readable and maintainable.
+1. Install and Enable Brotli Compression
+Brotli often outperforms gzip for text‑based assets (HTML, CSS, JS) while consuming comparable CPU. Ubuntu’s official repositories ship the ngx_brotli module as a dynamic loadable module.
+# Install prerequisites
+sudo apt-get update && sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g-dev libssl-dev git
+# Clone the module source
+git clone https://github.com/google/ngx_brotli.git
+cd ngx_brotli && git submodule update --init
+# Build Nginx with the module (replace <nginx-version> with your installed version)
+cd /usr/src/nginx-
+./configure --add-dynamic-module=../ngx_brotli
+make modules
+sudo cp objs/ngx_http_brotli_filter_module.so /etc/nginx/modules/
+sudo cp objs/ngx_http_brotli_static_module.so /etc/nginx/modules/
+# Enable the module in nginx.conf
+sudo bash -c 'cat <<EOF >> /etc/nginx/nginx.conf
+load_module modules/ngx_http_brotli_filter_module.so;
+load_module modules/ngx_http_brotli_static_module.so;
+EOF'
+Enter fullscreen mode
+Exit fullscreen mode
+Add a simple Brotli block to your server configuration:
+server {
+listen 443 ssl http2;
+# ... SSL settings ...
+brotli on;
+brotli_comp_level 5;
+brotli_types text/plain text/css application/javascript application/json image/svg+xml;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The brotli_comp_level of 5 gives a good CPU‑to‑compression ratio. Test with curl -H "Accept-Encoding: br" -I https://example.com and verify the content-encoding: br header.
+2. Fine‑Tune Gzip as a Fallback
+Not all browsers support Brotli, so keep gzip as a safety net. The default Nginx gzip settings are conservative.
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 4;
+gzip_min_length 256;
+gzip_types
+application/json
+application/javascript
+text/css
+text/plain
+text/xml
+image/svg+xml;
+Enter fullscreen mode
+Exit fullscreen mode
+Lower gzip_comp_level to 4 to reduce CPU spikes while still achieving ~70% size reduction for most assets.
+3. Optimize SSL/TLS Handshake
+A heavy TLS handshake can dominate TTFB, especially on first connections. Use modern ciphers and enable session tickets.
+ssl_protocols TLSv1.3 TLSv1.2;
+ssl_prefer_server_ciphers on;
+ssl_ciphers
+"TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256";
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 1d;
+ssl_session_tickets on;
+Enter fullscreen mode
+Exit fullscreen mode
+TLS 1.3 eliminates the RSA key exchange round‑trip, shaving ~30 ms off the handshake on most clients.
+4. Leverage Cache‑Control Headers
+Tell browsers and CDNs what to cache. Over‑caching can cause stale content; under‑caching forces unnecessary re‑validation.
+location ~* \.(css|js|svg|png|jpg|jpeg|gif|webp)$ {
+expires 30d;
+add_header Cache-Control "public, immutable";
+}
+location / {
+try_files $uri $uri/ /index.html;
+expires -1;
+add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate";
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Static assets get a long max‑age while dynamic pages stay fresh.
+5. Disable Unused Modules
+Every compiled‑in module adds overhead to the request processing pipeline. On a lean LEMP stack you can safely drop mail, stream, and geoip modules.
+# List currently loaded modules
+nginx -V 2>&1 | grep -- '--add-dynamic-module'
+# Re‑compile Nginx without the unwanted ones (example)
+./configure \
+--without-http_mail_module \
+--without-http_stream_module \
+--without-http_geoip_module
+make && sudo make install
+Enter fullscreen mode
+Exit fullscreen mode
+A slimmer binary reduces memory footprint and speeds up worker startup.
+6. Tune Worker Processes and Connections
+Match Nginx workers to the number of CPU cores and set an appropriate worker_connections limit.
+worker_processes auto;
+# Uses all available cores
+worker_rlimit_nofile 65535;
+events {
+worker_connections 8192;
+# 8k concurrent connections per worker
+multi_accept on;
+use epoll;
+}
+Enter fullscreen mode
+Exit fullscreen mode
+The auto directive ensures Nginx scales automatically when you add more cores in a cloud VM.
+7. Continuous Monitoring and Load Testing
+After each change, benchmark with wrk or hey and monitor real‑world latency with Grafana + Prometheus.
+# Simple load test (10 seconds, 200 connections, 2 threads)
+wrk -t2 -c200 -d10s https://example.com/
+Enter fullscreen mode
+Exit fullscreen mode
+Collect the http_request_duration_seconds metric from the Nginx exporter and set alerts for any 95th‑percentile spike above 100 ms.
+Conclusion
+By installing Brotli, fine‑tuning gzip, tightening TLS, using precise cache headers, stripping unused modules, aligning workers with hardware, and keeping an eye on metrics, you can reliably bring TTFB into the low‑digit range. The steps above are incremental—apply them one at a time, verify with a tool like webpagetest.org, and roll back if you see regressions.
+If you’re looking for a reliable partner to audit your Nginx setup or need help with a migration to a more scalable architecture, consider checking out https://lacidaweb.com for practical guidance and managed services.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Ramer Labs
+Follow
+Joined
+Sep 19, 2025
+More from Ramer Labs
+7 Tips for Securing Nginx with TLS and Fail2Ban on Production Servers
+#nginx
+#security
+#linux
+#devops
+Myth-Busting: Common TLS Misconceptions That Slow Down Your Site
+#security
+#linux
+#devops
+7 Tips for Securing Nginx with TLS and Firewall Rules Today
+#nginx
+#security
+#devops
+#linux
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+Welcome Thread
+Reading List
+Tags
+About
+Contact
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
