@@ -105,7 +105,7 @@ def main():
     # Use a ThreadPoolExecutor for concurrent crawling
     # Adjust max_workers as needed. A good starting point is 5-10 times the number of CPU cores.
     # We will use 32 as a robust starting point to ensure fast crawling.
-    with ThreadPoolExecutor(max_workers=32) as executor:
+    with ThreadPoolExecutor(max_workers=64) as executor:
         results = executor.map(crawl_url, urls_to_crawl)
         
         for result in results:
