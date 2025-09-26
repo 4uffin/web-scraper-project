@@ -57,12 +57,12 @@ Learn more about Teams
 Logging out from a blazor app and also at the authority
 Ask Question
 Asked
-3 days ago
+8 days ago
 Modified
 2 days ago
 Viewed
-31 times
-0
+41 times
+1
 I've got a Blazor app set up with an external oidc authority
 builder.Services.AddAuthentication(options =>
 {
@@ -98,13 +98,53 @@ await HttpContext.SignOutAsync("oidc", new AuthenticationProperties { RedirectUr
 NavigationManager.NavigateTo("/");
 I expect it to redirect to the authority and log out there and then return to /signout-callback-oidc but nothing happens.
 How do I get it to trigger the logout?
+Update: start over
+Visual Studio 2022.
+New BlazorWebApp in net8. Rendermode server. No authentication.
+Add package Microsoft.AspNetCore.Authentication.OpenIdConnect and add builder.Services.AddAuthentication and app.UseAuthentication and app.UseAuthorization
+as above.
+Add @attribute [Authorize] to the Counter.razor page.
+Change Routes.razor to
+@using Microsoft.AspNetCore.Components.Authorization
+<CascadingAuthenticationState>
+<Router AppAssembly="typeof(Program).Assembly">
+<Found Context="routeData">
+<AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+<FocusOnNavigate RouteData="routeData" Selector="h1" />
+</Found>
+</Router>
+</CascadingAuthenticationState>
+The counter page now shows not authorised, but doesn't trigger the login like my real project. Why?
+Need to remove @rendermode="InteractiveServer" from <Routes in App.razor.
+Add code
+@code {
+[CascadingParameter]
+private HttpContext HttpContext { get; set; } = default!;
+private int currentCount = 0;
+private ClaimsPrincipal User { get; set; }
+protected async override Task OnInitializedAsync()
+{
+AuthenticationState authstate = await _AuthenticationStateProvider.GetAuthenticationStateAsync();
+User = authstate.User;
+if (HttpContext.User.Identity?.IsAuthenticated ?? false)
+{
+if (HttpContext.Request.Query.ContainsKey("Logout"))
+{
+await HttpContext.SignOutAsync("Cookies");
+await HttpContext.SignOutAsync("oidc", new AuthenticationProperties { RedirectUri = "/" });
+NavigationManager.NavigateTo("/");
+}
+}
+Requesting /counter?Logout does not redirect to IdentityServer, but does log out locally which therefore causes redirect to IdentityServer when accessing /counter again.
 openid-connectidentity
 Share
 Improve this question
 Follow
+edited 2 days ago
+Richard BarracloughRichard Barraclough
 asked Sep 17 at 16:39
 Richard BarracloughRichard Barraclough
-3,08255 gold badges4949 silver badges8080 bronze badges
+3,09255 gold badges5050 silver badges8080 bronze badges
 Add a comment
 |
 1 Answer
@@ -177,7 +217,7 @@ See if the above code works for you. If not, then let me know your environment a
 Share
 Improve this answer
 Follow
-answered 2 days ago
+answered Sep 18 at 7:24
 Gary ArcherGary Archer
 30.1k22 gold badges1717 silver badges3636 bronze badges
 Comments
@@ -208,60 +248,58 @@ Explore related questions
 openid-connectidentity
 See similar questions with these tags.
 The Overflow Blog
-Stack Overflow is helping you learn to code with new resources
-Off with your CMS’s head! Composability and security in headless CMS
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
 Featured on Meta
 Spevacus has joined us as a Community Manager
 Introducing a new proactive anti-spam measure
-New comment UI experiment graduation
 New and improved coding challenges
+New comment UI experiment graduation
 Policy: Generative AI (e.g., ChatGPT) is banned
 Related
 1192
 What's the difference between OpenID and OAuth?
 794
 What is the difference between == and equals() in Java?
-2
-identity server 4 + oidc-client-js logout redirect
+289
+What is the difference between Scope_Identity(), Identity(), @@Identity, and Ident_Current()?
 0
-OpenIddict/OIDC Logout Infinite Loop
-1
-Redirect after sign-out through OpenID Connect not working
+Blazor WASM authentication not properly logging out Google user
+3
+Blazor Web Assembly, FIDO2 and Identity Server
+3
+Keycloak not logging out when logged out from identity provider
+2
+How to sign out successfully from a Blazor server-side app?
 1
 Sign Out of a Blazor App using the OIDC Authentication Scheme
-0
-Using Identity Server for Authentication with ASP.NET Web App and .NET 6
-0
-Sometimes a 404 on /signin-oidc
-6
-Express request.isAuthenticated
-1
-I can't get email or profile scopes for an Azure B2C application, nor can I call the OIDC UserInfo endpoint
+25
+How can I set the Authority on OpenIdConnect middleware options dynamically?
 Hot Network Questions
-Clarification of "Trautes Heim, Glück allein"
-How to justify a mass hierarchal administrative demotion without causing a coup/civil war
-Unable to Access CPU Model Name in Debian VMWare
-Can I ask to postpone publication after acceptance?
-What was the first video game to feature a fake credits sequence?
-What is the probe like structure next to the static port on this cessna 172?
-Can customers receive partial refunds on their taxi trip if the driver took suboptimal routes?
-Making `apt-get` read answers from stdin on graphical Ubuntu
-Why is my battery being zapped?
-Analyzing test result using test statistic vs p-value?
-How to add more drives to a sambashare and also best arrangement for multiple drives of different sizes in a RAID setup
-Can I use Heroic Inspiration on a natural 1 on an Attack roll?
-What happens when a creature with the See Invisibility spell is blinded?
-Strongly-typed CUDA device memory
-Was it normal to refer to God as 'the Father' during the time of Jesus?
-How could triangles exist?
-What does, "as having nothing" mean in 2 Corinthians 6:10?
-Do the Matrix movies take place in our present or our future?
-How should we understand **God is Just** in relation to him killing Davids child due to his sins?
-Ever in an affirmative context?
-Update docker service volume
-Make all frame titles shift 22mm to the right
-In Much Ado About Nothing, why aren't the lines: "...live in THINE heart ... buried in THINE eyes"? (V.2.102-3)
-Linear rheostat - where lies a trick of a sliding contact with isolated wire?
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+What happens when the jewels run out?
+Could our telescopes detect a type I civilisation
+How to use cursed items without upsetting the player?
+What does "my left a** cheek" mean?
+What qualifies to be a "family of statistical tests" for Bonferroni corrections?
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+What happened to all of the energy created at the Big Bang when the matter and antimatter annihilated each other?
+Short story about a metal-eating alien
+Are there any problems with mastering my own music?
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Can the price of a gap option be negative?
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+How to crack ECC using halving
+What conditions on an Earthlike planet would allow for a massive, Pando-esque forest that’s a single organism?
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+What does it mean for a museum exhibit "not to have a Soviet anniversary"?
+Yet Another Python Weather Visualizer using Open-Meteo
+What is an aggravating factor and why is kinship considered one?
+How to design a circuit that outputs the binary position of the 3rd set bit from the right in an 8-bit input?
+In Justice Kagan's "Congress, as everyone agrees, prohibited each of those presidential removals." who exactly is "everyone"?
+List of crowdsourced math projects actively seeking participants
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+Simplification of an analytically evaluated integral expressed in terms of elliptic integrals
 more hot questions
 Question feed
 Subscribe to RSS
@@ -303,4 +341,4 @@ Site design / logo © 2025 Stack Exchange Inc;
 user contributions licensed under
 CC BY-SA
 .
-rev 2025.9.19.34211
+rev 2025.9.25.34480

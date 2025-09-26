@@ -1,0 +1,322 @@
+Free & Secure API Key Rotator for Google Gemini 2.5 Pro (Deno Edge Functions) · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+ruvnet/Gemini.md
+Last active
+September 26, 2025 00:32
+Show Gist options
+Download ZIP
+Star
+25
+(25)
+You must be signed in to star a gist
+Fork
+6
+(6)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ruvnet/811aeab1aea67eb49ddf9c4b860c5f7b.js&quot;&gt;&lt;/script&gt;
+Save ruvnet/811aeab1aea67eb49ddf9c4b860c5f7b to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+25
+Forks
+6
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/ruvnet/811aeab1aea67eb49ddf9c4b860c5f7b.js&quot;&gt;&lt;/script&gt;
+Save ruvnet/811aeab1aea67eb49ddf9c4b860c5f7b to your computer and use it in GitHub Desktop.
+Download ZIP
+Free & Secure API Key Rotator for Google Gemini 2.5 Pro (Deno Edge Functions)
+Raw
+Gemini.md
+Great. I’ll develop a phased implementation plan, edge function code, deployment strategy, user guide, and full documentation for a key rotator using Deno Edge Functions. This will focus on rotating Gemini 2.5 Pro API keys to handle 429 rate limits efficiently.
+I’ll return with a clear breakdown of components, including a secure architecture, key storage and cycling logic, usage limits, and guidance for setup and customization.
+Secure API Key Rotator for Google Gemini 2.5 Pro (Deno Edge Functions)
+Overview: This solution is an edge-deployed proxy that securely rotates through a pool of Google Gemini 2.5 Pro API keys to avoid hitting per-key rate limits (e.g. free-tier limit of ~2 requests/minute (Gemini 2.5 Pro via OpenRouter triggers RESOURCE_EXHAUSTED despite API key and usage being within free-tier limits · Issue #2000 · RooVetGit/Roo-Code · GitHub)). By distributing requests across multiple API keys (from multiple Google accounts or providers), it mitigates 429 “Too Many Requests” errors during high-frequency usage. Key features include secure key storage, round-robin key selection with smart fallback (skip exhausted keys), and optional logging/alerts when keys are depleted.
+Phased Implementation Plan
+Phase 1: Design & Setup – Define requirements and choose storage for API keys. Decide how to manage keys securely. For simplicity and security, store keys as environment variables (or in a secrets manager) so they aren’t hard-coded (Environment variables). Define the Deno Deploy Edge Function interface (HTTP proxy) and the key rotation strategy (initially round-robin). Outcome: architectural design, list of environment vars (e.g. API_KEYS list), and a stub Deno function that reads a key from env and forwards a request.
+Phase 2: Basic Implementation – Implement the edge function with round-robin key rotation. Use a simple algorithm to cycle through the keys on each incoming request (e.g. maintain an index that moves to the next key for each request). In this phase, assume keys have infinite quota and focus on correct request forwarding. The function should accept incoming API calls (e.g. chat completions or content generation) and inject the selected API key into the request to Google’s API. Use secure HTTPS fetch calls from Deno. Test with a single key first, then with multiple keys to ensure rotation works.
+Phase 3: Quota Exhaustion Handling – Extend the logic to detect quota limits. If a request returns an HTTP 429 (rate limit) or related error (e.g. 401/403 indicating an exhausted or invalid key), mark that key as “exhausted” and retry the request with the next key. This may involve an in-memory status map for keys (and optionally a timestamp to re-enable a key after some cooldown). If all keys are exhausted, the function should return an error response (429 or 503) to the client indicating no capacity, and possibly trigger an alert. Outcome: robust key rotation that reacts to quota errors by skipping or pausing keys.
+Phase 4: Security Enhancements – Improve secure management of keys and access. Instead of plain env variables, consider using Deno KV (Deno’s globally replicated key-value store) or an external secrets manager to store keys (encrypted) (api key - Architecture: managing pool of api keys - Stack Overflow). This allows updating keys without code changes and could enable tracking usage counts. Ensure that keys and sensitive info are never logged or exposed in responses. Additionally, implement access control to the edge function (for example, require a custom header or token for requests) so that only authorized clients (like your environment or app) can use the proxy – this prevents others from abusing your key pool.
+Phase 5: Monitoring & Alerts – Add logging for key usage and failures. For example, log (to Deno Deploy logs or an external service) whenever a key is rotated due to a 429 response, including which key index was exhausted. Implement optional alerting: if all keys become exhausted or a key fails, send a notification (e.g. via webhook or email). This phase may also include tracking usage metrics (how many calls per key) using Deno KV or an analytics service. Test the system under high load to verify that rotation and fallback work as expected.
+Phase 6: Documentation & Optimization – Write comprehensive docs (user guide, API reference, examples) and create diagrams of the architecture. Optimize performance (the edge function should add minimal latency – Deno Deploy edge locations help keep it low). Also, review and address any edge cases (e.g. what if Google’s API changes or returns non-429 errors). Prepare the solution for deployment with instructions.
+Deno Edge Function Source Code
+Below is the source code for the Deno Edge Function that implements the API key rotator. This code is written in TypeScript for Deno Deploy:
+// deno-lint-ignore-file no-explicit-any
+import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
+// --- Configuration ---
+// Expect API keys in an environment variable (comma-separated or JSON array)
+const KEY_ENV = Deno.env.get("API_KEYS") || "";
+const API_KEYS: string[] = KEY_ENV.startsWith("[")
+? JSON.parse(KEY_ENV)
+: KEY_ENV.split(",").map(k => k.trim()).filter(k => k);
+// Base URL for the Google Gemini API (adjust if needed)
+const DEFAULT_BASE = "https://generativelanguage.googleapis.com/v1beta2";
+const API_BASE_URL = Deno.env.get("GEMINI_API_BASE_URL") || DEFAULT_BASE;
+// Optional: protect the edge function with a required header token (to prevent public abuse)
+const ACCESS_TOKEN = Deno.env.get("ACCESS_TOKEN");
+// if set, incoming requests must have X-Access-Token header matching this
+// Rotation state
+let currentKeyIndex = 0;
+interface KeyState { exhaustedUntil?: number; }
+const keyStates: KeyState[] = API_KEYS.map(() => ({}));
+// Utility: get next active key index (skips keys marked exhausted)
+function getNextKeyIndex(): number | null {
+const now = Date.now();
+for (let i = 0; i < API_KEYS.length; i++) {
+const idx = (currentKeyIndex + i) % API_KEYS.length;
+const state = keyStates[idx];
+if (!state.exhaustedUntil || state.exhaustedUntil < now) {
+// Use this key (either not exhausted or cooldown expired)
+currentKeyIndex = (idx + 1) % API_KEYS.length;
+// advance index for next time
+return idx;
+}
+}
+return null; // all keys exhausted currently
+}
+// Serve HTTP requests
+serve(async (req: Request) => {
+try {
+// Optionally enforce access token
+if (ACCESS_TOKEN) {
+const provided = req.headers.get("X-Access-Token");
+if (provided !== ACCESS_TOKEN) {
+return new Response("Unauthorized", { status: 401 });
+}
+}
+// Determine target URL (combine base URL + request path + query, then add API key)
+const reqUrl = new URL(req.url);
+const targetUrl = new URL(reqUrl.pathname + reqUrl.search, API_BASE_URL);
+let keyIndex = getNextKeyIndex();
+if (keyIndex === null) {
+console.error("All API keys are exhausted – cannot fulfill request");
+return new Response(`All API keys exhausted (quota exceeded).`, { status: 429 });
+}
+let apiKey = API_KEYS[keyIndex];
+targetUrl.searchParams.set("key", apiKey);
+// Prepare headers for forwarding (copy all except hop-by-hop and restricted headers)
+const forwardHeaders = new Headers();
+for (const [h, v] of req.headers) {
+const lower = h.toLowerCase();
+if (["host", "cookie", "authorization"].includes(lower)) continue;
+forwardHeaders.set(h, v);
+}
+// Set content type if not already (to handle body passthrough correctly)
+if (!forwardHeaders.has("content-type") && req.headers.has("content-type")) {
+forwardHeaders.set("content-type", req.headers.get("content-type")!);
+}
+// Forward the request to the Google API
+let response = await fetch(targetUrl.toString(), {
+method: req.method,
+headers: forwardHeaders,
+body: req.body,
+});
+// If response indicates quota issue, try other keys
+let attemptCount = 1;
+while ([401, 403, 429].includes(response.status) && attemptCount < API_KEYS.length) {
+console.warn(`Key ${keyIndex} returned status ${response.status}. Switching API key...`);
+// Mark current key as exhausted (cooldown: e.g. 1 hour from now)
+keyStates[keyIndex] = { exhaustedUntil: Date.now() + 60 * 60 * 1000 };
+// Choose next key and retry
+keyIndex = getNextKeyIndex();
+if (keyIndex === null) break; // no available key
+apiKey = API_KEYS[keyIndex];
+targetUrl.searchParams.set("key", apiKey);
+attemptCount++;
+response = await fetch(targetUrl.toString(), {
+method: req.method,
+headers: forwardHeaders,
+body: req.body,
+});
+}
+if ([401, 403, 429].includes(response.status)) {
+// All keys exhausted or all attempts failed
+console.error("All API keys exhausted or invalid. Returning error to client.");
+// (Optional: trigger alert webhook or email here)
+return new Response(`Error: All API keys exhausted or invalid. (${response.status})`, { status: 429 });
+}
+// Forward the successful (or non-quota-error) response back to client
+// Copy response headers and status
+const resHeaders = new Headers(response.headers);
+// Allow CORS (if needed for web clients)
+resHeaders.set("Access-Control-Allow-Origin", "*");
+// Return response with original status and headers
+return new Response(response.body, {
+status: response.status,
+headers: resHeaders
+});
+} catch (err: any) {
+console.error("Edge function error:", err);
+return new Response("Internal error in key rotator", { status: 500 });
+}
+});
+How it works: The function uses Deno’s serve to handle requests. It maintains an in-memory list of API keys (API_KEYS) loaded from an environment variable (which could be defined in Deno Deploy’s project settings). On each request, it picks the next available key (skipping any marked as exhausted due to prior 429 errors). The incoming request’s path and query string are appended to the Google API base URL, and the chosen API key is added as a query parameter (?key=...). The request (method, headers, body) is then forwarded via fetch to the Google Gemini API. If a 429/401/403 status is returned (indicating rate limit or auth issue), the function logs a warning, marks that key as unavailable for a cooldown period (here 1 hour by default), and automatically retries the request with the next key. This loop continues until either a successful response is obtained or all keys are tried. When all keys are exhausted, it returns a 429 error to the client after logging an error (this is the “fallback” when no more capacity is left). The code also includes an optional access token check – if you set an ACCESS_TOKEN env var, the function will require callers to include that token in an X-Access-Token header (simple way to restrict usage to yourself). CORS is enabled on responses (Access-Control-Allow-Origin: *) to make it easier to call this from various environments (if not needed, it can be removed).
+Security Note: The API keys are loaded from environment variables (which Deno Deploy keeps secure per deployment) (Environment variables). They are not exposed to the client; the client never sees the keys – they only communicate with the edge function. The code avoids logging the keys themselves (it logs indices/status only). In a production setting, you might store keys in Deno KV with encryption for an extra layer of security, or integrate with a secrets manager. The Stack Overflow community suggests using a fast in-memory store (like Redis) for API keys and tracking usage counts to decide which key to use (api key - Architecture: managing pool of api keys - Stack Overflow) – here we use a simple round-robin approach combined with on-the-fly adjustment when a key hits its quota.
+Deployment Instructions (Deno Deploy)
+Follow these steps to deploy the key rotator to Deno Deploy (Deno’s global edge runtime):
+Prepare the Code: Save the above TypeScript code to a file (e.g., mod.ts). Adjust the API_BASE_URL if necessary (the default targets Google’s Generative Language API endpoint). Ensure the code is properly formatted and contains your desired configurations.
+Create a Deno Deploy Project: Log in to the Deno Deploy dashboard and create a new project. You can import from a GitHub repo or use the CLI. For a quick deploy via CLI, you can use the deployctl tool:
+# Install deployctl if not already
+deno install -A -fg https://deno.land/x/deploy/deployctl.ts
+# Deploy to Deno (replace <project-name> with your Deno Deploy project name)
+deployctl deploy --project=<project-name> --prod mod.ts
+Alternatively, link your GitHub repository containing the mod.ts via the Deploy dashboard for continuous deployment.
+Set Environment Variables: In your Deno Deploy project settings, configure the environment variables that hold your API keys and any optional settings. At minimum, set API_KEYS to your keys:
+API_KEYS: A comma-separated list or JSON array of your Google Gemini API keys. (Example: AI_KEY_1, AI_KEY_2, AI_KEY_3 ). Ensure no extra spaces unless comma-separated (the code trims spaces).
+GEMINI_API_BASE_URL: (Optional) Base URL for the Gemini API. By default, it uses Google’s generativelanguage.googleapis.com/v1beta2 endpoint which is suitable for the free experimental API. If Google updates the endpoint (or if using a different gateway), you can override it here.
+ACCESS_TOKEN: (Optional) A secret token string. If set, the edge function will require every request to include X-Access-Token: <this value>. Use this to restrict access to your rotator. Set a long, random value and keep it secret (share it only with your trusted client or environment).
+(If using an alert webhook, you could also set a URL environment variable for that.)
+Once these env vars are set, Deno Deploy will attach them to your deployment (Environment variables). (Remember that if you update environment variables later, you should redeploy or use the Deploy UI to refresh, because deployments are immutable with their env vars.)
+Deploy the Function: If you used deployctl, the above command already deployed it. If using the dashboard, trigger a deployment (e.g., by pushing to GitHub or using the “Deploy” button). Wait for Deno Deploy to build and deploy your code. You should see logs indicating a successful start (and you can view live logs in the dashboard).
+Testing: Once deployed, you will have a public endpoint, e.g. https://<project>.deno.dev. You can test it with a simple curl command or via your application:
+# Example test (assuming a POST request for text generation)
+curl -X POST "https://<project>.deno.dev/v1beta2/models/gemini-2.5-pro-exp-03-25:generateText" \
+-H "Content-Type: application/json" \
+-d '{"prompt": {"text": "Hello, world!"}}'
+This should proxy the request to Google’s API using one of your keys. If the request succeeds, you’ll get a JSON response from the Gemini model. If it hits a rate limit on one key, the function will automatically retry with another key (you might notice a slight delay if a retry occurred). Check the function’s logs for messages about key switching or errors.
+Monitoring: Use the Deno Deploy dashboard to monitor logs. You will see console outputs for each request. On any 429 from Google, the log will show “Switching API key…” and on final exhaustion “All API keys exhausted”. Verify that rotation works by perhaps deliberately sending a number of requests to exceed one key’s quota (if possible).
+End-User Setup Guide
+This guide explains how to integrate and use the API key rotator in your development environment or application (e.g., in Cline or a similar VSCode extension, or any app calling the Gemini API):
+Obtain Multiple API Keys: Ensure you have multiple Google Gemini 2.5 Pro API keys ready. For example, you might create API keys with different Google accounts via Google AI Studio (How to Use Gemini 2.5 Pro for Free with Cline). Each key will have its own usage quota. (Using 2–3 keys from separate accounts is a common approach to extend usage (How to Use Gemini 2.5 Pro for Free with Cline).) Caution: Make sure this doesn’t violate Google’s terms of service for the API.
+Deploy the Rotator Service: (Follow the deployment instructions above to set up the service on Deno Deploy with your keys.) Once deployed, you’ll have a URL for the service. Keep the URL and any access token handy.
+Configure Your Environment/App: Instead of pointing directly to Google’s API, you will point to the rotator’s URL. In Cline (the VSCode AI extension), this might involve setting a “custom API endpoint” if available, or potentially using the OpenRouter option but replacing the URL (if the tool allows custom base URL). For example, if previously Cline was calling the Google endpoint directly with your key, you can configure it to call https://<your-project>.deno.dev/... (the rest of the path being the same as Google’s API path). Ensure that Cline does not append its own API key in the request – it should treat your proxy as the endpoint. (If Cline doesn’t support a custom endpoint, an alternative is to modify the hosts or a local proxy, but that’s advanced usage outside this guide’s scope.)
+Alternative (generic usage): If you are writing a custom script or application, simply direct your HTTP requests to the rotator’s URL. For instance, with cURL or fetch:
+// Pseudocode example in JS/TS
+const res = await fetch("https://<your-project>.deno.dev/v1beta2/models/gemini-2.5-pro-exp-03-25:generateText", {
+method: "POST",
+headers: { "Content-Type": "application/json" /*, "X-Access-Token": "your_token_if_set" */ },
+body: JSON.stringify({ prompt: { text: "Your query here" } })
+});
+const data = await res.json();
+console.log(data);
+This mirrors the Google API call format, but you’re using the proxy URL. The response data will be exactly what Google’s API returns (e.g., the model’s output), just as if you called the Gemini API directly.
+Using the Service: Make requests to the rotator as needed. The rotator will handle key selection automatically. You can send requests just as you normally would to the Google API (same method, path, and request body). For example:
+To generate text or code: send a POST to the appropriate /models/...:generateText or :generateMessage endpoint with the prompt in the JSON body.
+To use other features (if any supported via API), do the same but through the rotator’s URL.
+Rate Limiting Behavior: Under the hood, the first few high-frequency requests will each use a different key in round-robin fashion. If one key’s quota is hit, the service will log a warning and route subsequent calls to the next key. This is seamless to you as the user – you may only notice fewer rate-limit errors. If all keys run out of quota (e.g. you hit the rate limit on every provided key), the service will return a 429 error to you. At that point, you should stop or slow your requests (or add more keys). The response will indicate exhaustion. Typically, free keys might reset daily, or you may have to wait (the service by default will try a “cooldown” of 1 hour for exhausted keys).
+Managing Keys: You can add or remove API keys without altering the code by updating the API_KEYS environment variable in Deno Deploy and redeploying. For example, if you obtain a new key, add it to the list; if one gets revoked, remove it. The service will automatically include the new keys on the next deployment. Always redeploy (or trigger the deploy hook) after changing env vars so the changes take effect.
+Monitoring Usage: Use whatever logging or analytics you set up. If using Deno Deploy’s built-in logs, watch for messages about key exhaustion. If an alert webhook was configured (not in the base code but possible to add), pay attention to notifications. This will help you know when to add keys or when you’re pushing the limits.
+Fallback Plan: If the rotator service itself starts returning All API keys exhausted frequently, it means you have exhausted the combined quota of all provided keys (for the time window). At that point, you have a few options:
+Scale up: add more API keys (more Google accounts).
+Wait for quota reset: e.g., if it’s a daily quota, wait until the next day.
+Throttle your usage: introduce client-side rate limiting so you don’t burn through all keys so quickly.
+Consider paid options: If available, upgrading to a paid plan or a higher quota might be preferable to continually adding keys.
+Technical Documentation
+Architecture & Flow
+The API Key Rotator acts as an API gateway or proxy at the edge. The client (e.g. Cline or any app) sends API requests to the rotator instead of directly to Google. The rotator forwards the request to the Google Gemini API using one of the stored keys. The response from Google is relayed back to the client. This is transparent to the end-user, except requests now go through the edge function. The system can be visualized as:
+Client → Edge Function (Rotator) → Google Gemini API → Edge Function → Client
+Each incoming request triggers the following sequence:
+Routing & Auth: The edge function receives the request. If an ACCESS_TOKEN is required (set by user), it verifies the client provided the correct token in headers. This ensures only authorized requests proceed.
+Key Selection: The function selects an API key from its pool. By default it rotates sequentially (round-robin), ensuring distribution of load. It also checks if a key was recently marked “exhausted” (due to hitting quota) and skips it if its cooldown period is still active.
+Request Forwarding: The function constructs a request to the Gemini API. It uses the chosen key – attaching it as a query param (?key=XYZ) in the URL (or it could use an Authorization/x-api-key header depending on API requirements). It copies relevant headers and the body from the client’s request to the new request, and uses fetch to call the external API.
+Response Handling: When the Gemini API responds, the edge function checks the status:
+Success (2xx): The function simply forwards the response (status code, headers, body) back to the client. From the client’s perspective, it’s as if the Gemini API responded (except the domain is the proxy’s).
+Client Error (4xx other than rate-limit): If the error is not a rate-limit or auth issue (e.g. 400 Bad Request due to invalid input), the function will return that error as-is to the client (because switching keys won’t help a bad request). This way, the client gets the appropriate error to fix.
+Rate Limit Hit (429 or quota exceeded error): The function recognizes this as a key exhaustion. It will mark the current key as exhausted and retry the request with the next key in the pool immediately. This happens within the same client request – the client doesn’t need to do anything. The function can attempt as many times as there are keys:
+If another key succeeds, the client gets a normal successful response (they might not even realize a rotation happened behind the scenes, aside from maybe a slight delay).
+If all keys fail (all are exhausted or produce errors), the function sends a 429 response back to the client indicating that no keys remain (our code returns a message “All API keys exhausted or invalid.”). This is the worst-case fallback.
+Server/Network Error (5xx or network failure): Such errors (e.g. if Google endpoint is down) are passed back to the client as well, since the proxy can’t recover from them. The function may log them. The client should handle these as they would any server outage.
+Cooldown and Recovery: Any key marked as exhausted is effectively taken out of rotation for a period. In code we set 1 hour by default (this could be adjusted based on Google’s quota window; for instance, if it’s a per-minute limit, a shorter cooldown like a minute or 5 minutes might suffice, whereas if it’s a daily cap, you might mark it until next day). After the cooldown, that key becomes eligible again. (In a more advanced setup, you might check a clock or external signal for when quotas reset.)
+This design means that as long as at least one key has available quota, the client’s request will succeed. Only when all are out (or the usage is too high at that moment) will the client see a rate-limit error.
+API Reference (Proxy Interface)
+The rotator does not expose a new complex API; rather, it mirrors the Google Gemini API endpoints. Essentially, any endpoint supported by the Gemini 2.5 Pro API can be accessed through the same path on the proxy. For example:
+POST /v1beta2/models/gemini-2.5-pro-exp-03-25:generateText – Generate text or code completion from the Gemini model.
+POST /v1beta2/models/gemini-2.5-pro-exp-03-25:generateChat or :generateMessage – (If applicable for conversational prompts).
+.../embedding or other endpoints – if Gemini API supports them, the proxy can forward them as well.
+The base URL for the proxy will be the Deno Deploy domain you have (e.g., https://your-project.deno.dev). All requests should be prefixed with this base instead of the Google base. The request and response formats, methods, and status codes remain identical to the official API. This means you can use Google’s Gemini API documentation for request/response structure and just change the URL to go through your service.
+Custom Headers: The proxy might add an Access-Control-Allow-Origin: * to responses to facilitate use in web applications (CORS). It also requires an X-Access-Token header if you enabled the access token check. Other than that, you should not need to send any special header – specifically do not include your Google API key in the request to the proxy (the proxy will use its internal keys). If you accidentally include an Authorization or key param, the proxy will strip those to avoid confusion.
+Rate Limit Behavior: From the client perspective, the proxy may sometimes delay or throttle responses slightly when rotating keys. If a request triggers a rotation, you might experience a few hundred milliseconds of extra latency (due to the failed attempt and retry). There is no explicit rate limit enforced by the proxy itself on clients (other than exhausting the keys). However, you could implement a simple client-side throttle if needed. If you start getting 429 from the proxy itself, it indicates all keys are saturated – treat it as you would a 429 from the original API (back off or try later). The proxy doesn’t currently communicate which key was used or how many attempts were made, as that’s internal – it simply gives you the final result or error.
+Security Considerations
+API Key Secrecy: All API keys are kept server-side (in Deno Deploy env vars or Deno KV). Clients never see the keys. Even if a client decompiled the code, they wouldn’t find keys there (unless one foolishly hard-coded them). Make sure to set proper permissions on your Deno project and keep the deployment URL private if you don’t want others discovering it.
+Environment Variables vs. KV: The simplest secure approach is environment variables provided at deploy time (Environment variables). Deno Deploy encrypts these at rest and only your function can read them. If you have many keys or need to update them without a redeploy, you can use Deno KV (which is a globally replicated database for Deno Deploy) (Building Serverless Functions with Deno). You would store the keys in KV (possibly encrypted with a master key from env). This adds complexity but could allow dynamic updates (for example, an admin route to add/remove keys on the fly). For most cases, environment variables are sufficient and very straightforward.
+Avoiding Key Leakage: The code is careful not to log sensitive info. When logging events like “Key X exhausted”, it uses the index (X) and status code, not the key string. Be careful if you modify the code not to accidentally log the keys or include them in response messages. Also, ensure the forwarded headers do not include anything sensitive from the client that shouldn’t go to Google. We strip Authorization and Cookie headers from the client request (since those might belong to your app’s context, not meant for Google).
+Access Control: If your rotator URL is public, anyone who finds it could potentially use it and drain your API quotas. To mitigate this, it’s recommended to restrict access. We provided a simple token check (which is like a primitive API key for your service). You set ACCESS_TOKEN to some secret value, and only clients that know it can use the service. This isn’t 100% foolproof (security through obscurity), but it will stop casual misuse. For stronger security, you could implement a more complex auth (e.g., require OAuth or verify a signature in requests), but that might be overkill for a personal tool. At minimum, do use the token if there’s any risk of others hitting your endpoint. Also consider limiting by origin or IP if applicable (though Deno Deploy might not easily allow IP allowlisting since it’s truly public serverless).
+TLS and Data Security: All communication is over HTTPS – Deno Deploy provides HTTPS for your endpoint, and the function makes HTTPS requests to Google’s API. This ensures API keys and data are encrypted in transit. Within Deno’s environment, data stays in memory or secure storage. Be mindful that any large prompts or responses will flow through the proxy – ensure you’re okay with that (Deno Deploy and Google will see the traffic, as usual for any proxy).
+Quota and Abuse: Rotating API keys to circumvent rate limits can be seen as a ToS violation by providers. Use this responsibly. Do not use it to excessively overload Google’s systems; the intention is to smooth out usage for legitimate purposes (e.g., you are hitting 2 req/min limit while coding, so you use 2 keys to get ~4 req/min). Google’s free tier is meant for limited personal use – using multiple accounts might breach terms if done in an automated or heavy way. There is also a note that OpenRouter (an alternative provider) had their own limits (e.g. ~200 calls/day for free usage) (Gemini 2.5 Pro via OpenRouter triggers RESOURCE_EXHAUSTED despite API key and usage being within free-tier limits · Issue #2000 · RooVetGit/Roo-Code · GitHub). With multiple keys, you might bypass one account’s daily cap, but eventually you could hit another limit or be flagged. Use at your own risk, and consider an official solution (like a paid quota) if scaling up beyond a point.
+Error Handling: The edge function is designed to handle specific known cases (quota errors). If Google changes their error format (for instance, using a different status code or error message for quota exhaustion), you’d need to update the logic to detect that. In testing, monitor what error comes back when you hit a limit – adjust the [401,403,429] list or even inspect the response body for specific error codes/messages if necessary. (For example, Google might return a JSON with "status": "RESOURCE_EXHAUSTED" (Gemini 2.5 Pro via OpenRouter triggers RESOURCE_EXHAUSTED despite API key and usage being within free-tier limits · Issue #2000 · RooVetGit/Roo-Code · GitHub); you could parse the JSON and act on that if needed, though typically it coincides with a 429/403.)
+Performance: Deno Edge Functions are quite fast and globally distributed. The overhead of the proxy is minimal (a few milliseconds plus any retry if needed). Still, it introduces an extra network hop. If your client is also on a fast connection, the latency increase is usually negligible, especially with Deno’s edge network (requests will be served from a region close to you). Ensure the Deploy project is set to auto-regions or a specific region that suits your location for optimal latency. The code streams the response back (it doesn’t parse or buffer it unnecessarily), so large responses should pass through efficiently.
+Possible Extensions
+Usage Tracking: We could enhance the rotator to track how many requests have been sent with each key (e.g., using a counter in Deno KV or in-memory). This would allow smarter rotation – e.g., always pick the key with the most remaining quota (if we know the limits). However, since Google’s free limit is often time-based (X per minute/day) rather than a fixed count we control, reactive handling (on error) is usually sufficient. But if one wanted, they could integrate with Google’s usage monitoring APIs or parse response headers if any indicate remaining quota.
+Dynamic Key Management: Provide an admin interface (could be another endpoint or UI) to add/remove keys at runtime. For example, a protected endpoint /admin/addKey that only you can call to insert a new key into the pool (stored in KV). For now, updating env vars and redeploying is the approach.
+Multi-Provider Support: The current design assumes all keys are for the same API (Google’s direct Gemini API). Another concept (as hinted by Cline’s guide (How to Use Gemini 2.5 Pro for Free with Cline)) is to alternate between providers – e.g., use Google’s API and OpenRouter’s API as backups for each other. You could extend the logic to have different endpoint bases for different keys (since an OpenRouter key wouldn’t work on Google endpoint). This basically turns the rotator into a multi-endpoint load balancer. Implementation-wise, you’d store not just keys but perhaps objects like { baseUrl, key } for each provider, and when rotating, apply the appropriate base. If a Google key hits limit, maybe try an OpenRouter key (with a different model ID or route). This is more complex but could increase reliability. In practice, you might simply deploy two separate functions (one for Google, one for OpenRouter) and let your client pick one or the other in case of errors.
+Testing & Debugging: For confidence, test the edge function with dry-runs. You can simulate the Google API with a mock endpoint that deliberately returns 429 after N calls to test the rotation logic. Since this is a critical piece in your development workflow, ensure to write down any assumptions (like the status codes to catch) and update them if the provider changes their API.
+By following this plan and using the provided code, you set up a robust system to transparently rotate API keys and thus bypass strict per-key rate limits. This allows longer coding or usage sessions with Gemini 2.5 Pro without interruptions, while still keeping the process secure and manageable. Always keep an eye on the system’s behavior and adapt as needed – and of course, use this increased power responsibly within the provider’s acceptable use policies. Happy coding!
+Sources: Key rotation strategies are commonly recommended to distribute load across credentials (api key - Architecture: managing pool of api keys - Stack Overflow). In fact, users have noted that using 2–3 keys from multiple accounts can help sustain longer sessions with Gemini 2.5 Pro (How to Use Gemini 2.5 Pro for Free with Cline). The free experimental Gemini API enforces low rate limits (about 2 requests/minute) (Gemini 2.5 Pro via OpenRouter triggers RESOURCE_EXHAUSTED despite API key and usage being within free-tier limits · Issue #2000 · RooVetGit/Roo-Code · GitHub), making such rotation necessary for high-frequency use. Deno Deploy provides secure environment variable storage for API keys (Environment variables) and a globally distributed runtime to run this edge function close to users.
+Copy link
+seedlord
+commented
+Apr 9, 2025
+How can this be used with the GCP Vertex AI Api?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+mondweep
+commented
+Apr 11, 2025
+I have specified --entrypoint = mod.ts in the deployctl command; but the curl command still picks up the content of the main.ts file. I have tried debugging but haven't been successful. I was wondering if you may have faced this issue?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+0x4007
+commented
+Apr 16, 2025
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Found this from a Perplexity search
+If you wanna collaborate on essentially creating a communal provider message me at t.me/pavlovcik
+My vision is to fork Cline and then add this provider in. We can post on Hackernews etc to get people to submit keys, and my friend said he's ready to manually seed some to get it up and running.
+I made a web3 RPC that aggregates free RPCs and caches performance using Deno KV. It's an excellent starting point for this new project. https://github.com/ubiquity/permit2-rpc-manager/blob/main/packages/permit2-rpc-server/src/deno-server.ts
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

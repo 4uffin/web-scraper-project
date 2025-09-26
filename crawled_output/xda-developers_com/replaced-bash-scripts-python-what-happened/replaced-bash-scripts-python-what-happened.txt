@@ -1,0 +1,208 @@
+I replaced all my bash scripts with Python, and here’s what happened
+Menu
+Sign in now
+Close
+News
+PC Hardware
+Submenu
+CPU
+GPU
+Storage
+Monitors
+Keyboards & Mice
+Software
+Submenu
+Productivity
+Other Software
+Operating Systems
+Submenu
+Windows
+Linux
+macOS
+Devices
+Submenu
+Single-Board Computers
+Laptops
+Gaming Handheld
+Prebuilt PC
+Home
+Submenu
+Networking
+Smart Home
+Gaming
+Submenu
+Game Reviews
+Sign in
+Newsletter
+Menu
+Follow
+Followed
+Like
+Threads
+More Action
+Summary
+Generate a summary of this story
+Sign in now
+Switch 2
+RTX 5060
+Windows 11
+Gaming
+Forums
+Close
+I replaced all my bash scripts with Python, and here’s what happened
+By
+Jeff Butts
+Published 12 hours ago
+Jeff's been involved in the IT industry since before the Internet and spent more than 20 years working in technical support, system administration, network administration, and consulting roles. He holds an undergraduate degree in English, a Master's degree in English with a focus on professional writing and editing, and another Master's degree in Computing & Information Systems.
+After teaching university English and computer science for a few years, Jeff launched his writing career. He's written for Macworld, Tom's Hardware, groovyPost, The Mac Observer, and more before beginning here at XDA.
+Sign in to your XDA account
+Summary
+Generate a summary of this story
+follow
+Follow
+followed
+Followed
+Like
+Like
+Thread
+Log in
+Here is a fact-based summary of the story contents:
+Try something different:
+Show me the facts
+Explain it like I’m 5
+Give me a lighthearted recap
+I have used bash scripts for years because they are ubiquitous and fast to prototype. Over time, my small helpers turned into a tangle of chained commands and fragile pipes. I finally decided to migrate everything to Python to see whether the maintenance headaches would ease. I expected a few niceties, maybe better error messages, and not much else. What I got was a fundamental change in how I write and reason about my tools.
+For me, the balance came out clearly in favor of Python, and I would make the same choice again.
+This is not a language war, and I still use the shell for one-liners and quick tests. The bigger picture is that Python gave me structure without slowing me down. It also forced me to confront silent failures I had been ignoring. I will walk through what improved, what broke, what I needed to get started, and the path I used to migrate safely. If you are sitting on a pile of bash scripts, this should help you choose a direction.
+Why I moved from Bash to Python
+The problems my shell scripts created over time
+My bash scripts evolved from simple helpers into complex programs with numerous edge cases. As they grew, quoting rules, globbing, and subshell behavior caught me off guard in subtle ways. A simple refactor could change how variables are expanded or how a loop captures output. Debugging often meant sprinkling set -x and echo statements everywhere. I realized I was spending more time patching cracks than solving actual problems. Portability became another tax on my time, even across Linux hosts with slightly different tools installed. Flags for sed, awk, and find vary more than we like to admit, and container images did not always include what I needed. Error handling also felt thin, since exit codes and || true band-aids hid real issues. Logging was inconsistent, which made root cause analysis more challenging than it should have been. The result was code that worked, but only if you handled it carefully. Testing never felt natural in bash, so I rarely did it well. I wrote ad hoc harnesses and manual checks, but they soon became outdated. Any change risked breaking some path I had forgotten to retest. When teammates asked how something worked, I had to explain a web of pipes, environment variables, and here-docs. It was a sign the tools had outgrown their original home.
+What improved after the switch
+Cleaner code and fewer surprising failures in production
+The first win was readability, as Python allowed me to model problems directly with functions and modules. Data that bounced around as strings in bash became typed objects and dictionaries. Instead of guarding a dozen external commands, I could rely on batteries-included libraries. Clear exceptions replaced cryptic exit codes that required context to decode. I felt safer making changes because the code communicated its intent. The second win was proper error handling with try and except blocks. I could attach context to failures, then bubble them up with useful messages. Retries, backoff, and partial rollbacks were easy to implement in a single location. Structured logging landed naturally alongside that handling. My logs shifted from scattered echoes to consistent records I could search and filter.
+Being able to test my scripts before putting them into production use is crucial to reaping the most rewards from this migration. Including a function call to perform a dry run, explaining precisely what the script would do if called "for real" is an incredible time-saver over trying the script, undoing its actions when something doesn't do what I intended, revising the script, and then trying again.
+Testing flipped from chore to habit because pytest made it quick to cover tricky paths. Mocking external calls lets me verify behavior without touching real systems. I started writing tests before refactors, which gave me confidence to simplify tangled logic. That confidence spread to teammates, who began proposing changes without fear. Collaboration improved because the codebase felt like a shared asset instead of a collection of personal shortcuts.
+What broke and surprised me
+Migration pain points I did not expect
+Startup time for tiny utilities is higher in Python, which surprised me on very short tasks. A few commands that printed one line felt sluggish compared to a pure shell. I solved most of this by batching work and reducing process churn. Where speed truly mattered, I left well-scoped one-liners in bash. That compromise kept the overall experience snappy. Dependency management introduced friction on minimal hosts and containers. I had to standardize on virtual environments and pin versions to avoid drift. Packaging private utilities for colleagues required a small internal index and a bit of process. None of this is hard, but it is more ceremony than dropping a script into /usr/local/bin. The trade-off pays off in stability once you fully embrace it. The final surprise was how much implicit behavior my bash relied on. Environment variables, current working directories, and path assumptions were everywhere. Making those explicit in Python exposed hidden coupling between scripts. I ended up extracting shared helpers and documenting expectations in README files. That work felt tedious, but it prevented a category of bugs from returning.
+What you need to start your transition from Bash to Python
+A minimal toolkit that covers essentials for daily scripting
+You can move a lot of value with a simple, consistent toolkit. Start by picking a recent Python version and deciding how you will isolate dependencies. Add a test runner and a logging pattern, then standardize code style. Finally, choose a packaging approach that enables teammates to install your tools easily. With those decisions made, the rest becomes routine.
+Install Python 3.11 or newer on your target hosts, then enable venv for isolation.
+Adopt uv or pipx for installing CLI tools, and pip with a requirements.txt or pyproject.toml for libraries.
+Use pytest for tests, ruff for linting, and black for formatting to keep diffs small.
+Standardize logging with the built-in logging module, and emit structured JSON if you have centralized logs.
+Package internal tools with a simple pyproject.toml, and publish to a private index or use pipx run from a Git tag.
+For CLI ergonomics, use argparse or typer to provide help, defaults, and clear subcommands.
+How to migrate safely today
+A practical path to phased replacement without breaking your system
+Jumping all at once is risky, so treat this as a rolling refactor. Begin by cataloging scripts, their owners, and the environments in which they run. Group them by complexity and blast radius, then start at the edges. Replace helpers first, and let the core depend on those new pieces. The early wins will build momentum and surface unknowns.
+Inventory scripts and note inputs, outputs, environment assumptions, and schedules.
+Wrap each bash script with a thin Python CLI that calls the original, then log arguments and outcomes.
+Move logic piece by piece into Python modules, keeping the old interface stable for callers.
+Add tests as you port functions, recording sample inputs and expected outputs from real runs.
+Deploy behind a feature flag or environment variable, and fall back to bash on errors while you watch logs.
+When confidence is high, flip the default to Python and archive the bash script with a clear pointer.
+Along the way, document how to run, test, and recover each tool. Keep a concise checklist for reviews so that every migration appears uniform. Invite teammates to open small pull requests rather than big rewrites. The consistency reduces surprises and makes onboarding easier. You will end the process with fewer one-offs and a healthier toolbox.
+Should you rewrite your scripts now?
+If your scripts are tiny and rarely change, bash is still a fine home. If they have grown into utilities with options, state, and side effects, Python will likely save you time. The gains show up in readability, testing, and error handling, which protect you from accidental breakage. The costs are real, particularly in terms of startup time and dependency management, but they are predictable and solvable. For me, the balance came out clearly in favor of Python, and I would make the same choice again.
+Ubuntu Cinnamon
+Out of the box, Ubuntu Cinnamon includes everything you need to migrate from Bash shell scripts to Python.
+Ubuntu Cinnamon Official Site
+Expand
+Collapse
+Software and Services
+Linux Distro
+Home Lab
+Follow
+Followed
+Like
+Share
+Facebook
+X
+LinkedIn
+Reddit
+Flipboard
+Copy link
+Email
+Close
+Thread
+Sign in to your XDA account
+We want to hear from you! Share your opinions in the thread below and remember to keep it respectful.
+Be the first to post
+Images
+Attachment(s)
+Please respect our community guidelines. No links, inappropriate language, or spam.
+Your comment has not been saved
+Send confirmation email
+Sort by:
+Popular
+Oldest
+Newest
+Pandu
+Pandu
+Pandu
+#CU895465
+Member since 2025-09-25
+0
+Threads
+1
+Posts
+Following
+0
+Stories
+0
+Topics
+0
+Authors
+0
+Users
+Follow
+Followed
+0
+Followers
+View
+i have been doing this as well. Python's standard library is so feature-complete that nearly everything you want for CLI tools are already available.The challenge is, of course, that the Python version available on different systems might differ significantly. If they even exist. And if the system is not allowed to access the Internet, then the usual tools won't work.I managed to sidestep this challenge by leveraging SalStack; every install of SaltStack brings its own Python infra, which I can either use directly by pointing the shebang to SaltStack's Python... or by using SaltStack's Python to spin up a virtual env (with the help of "virtualenv.pyz" from PyPA, and a set of wheels I downloaded on an Internet-enabled system) _then_ referencing the virtual env's interpreter in the shebang.
+2025-09-25 18:12:10
+Upvote
+Downvote
+Reply
+Copy
+Terms
+Privacy
+Feedback
+Recommended
+2 days ago
+The minds behind NotebookLM just launched their first tool since leaving Google, and it already feels like a hit
+3 days ago
+Got a new OLED monitor? Grab these 10 Wallpaper Engine wallpapers right now
+2 days ago
+I’m building a privacy-focused life, and these Docker containers are non-negotiable
+2 days ago
+5 diagnostic tools I always keep on a bootable USB drive
+Today's best deals
+This retro-inspired mechanical keyboard is all vibes and now just $44
+1 hour ago
+This rare discount makes the AMD Ryzen 7 9800X3D the ultimate CPU for your next gaming PC build
+4 hours ago
+This legendary triple-A FPS series is currently $10 for six games on Steam
+21 hours ago
+See More
+Trending Now
+4 problems with Borderlands 3 that Borderlands 4 fixes
+5 problems you didn't know a CMOS reset could fix
+5 reasons my VLANs only separate wired devices from wireless
+Join Our Team
+Our Audience
+About Us
+Press & Events
+Contact Us
+Follow Us
+Advertising
+Careers
+Terms
+Privacy
+Policies
+XDA is part of the
+Valnet Publishing Group
+Copyright © 2025 Valnet Inc.

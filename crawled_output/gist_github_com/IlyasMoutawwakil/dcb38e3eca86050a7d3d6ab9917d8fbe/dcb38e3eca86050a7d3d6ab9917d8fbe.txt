@@ -15,7 +15,7 @@ Dismiss alert
 Instantly share code, notes, and snippets.
 IlyasMoutawwakil/openvino-vlm-benchmark.py
 Last active
-September 24, 2025 07:42
+September 25, 2025 07:24
 Show Gist options
 Download ZIP
 Star
@@ -38,7 +38,7 @@ Clone this repository at &lt;script src=&quot;https://gist.github.com/IlyasMouta
 Save IlyasMoutawwakil/dcb38e3eca86050a7d3d6ab9917d8fbe to your computer and use it in GitHub Desktop.
 Code
 Revisions
-14
+15
 Stars
 1
 Embed
@@ -61,6 +61,12 @@ openvino-vlm-benchmark.py
 "optimum-benchmark[openvino]@git+https://github.com/huggingface/optimum-benchmark.git@main",
 #
 "optimum-intel@git+https://github.com/huggingface/optimum-intel.git@main",
+#
+"transformers==4.55.*",
+#
+"torchvision",
+#
+"num2words",
 # ]
 # ///
 from argparse import ArgumentParser
@@ -82,13 +88,13 @@ parser = ArgumentParser()
 parser.add_argument(
 "--model_id",
 type=str,
-default="HuggingFaceTB/SmolLM2-360M-Instruct",
+default="HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
 help="The model to benchmark.",
 )
 parser.add_argument(
 "--benchmark_repo_id",
 type=str,
-default="optimum-benchmark/OpenVINO-LLM-Benchmark",
+default="optimum-benchmark/OpenVINO-VLM-Benchmark",
 help="The repository to store the benchmark results. Pass an empty string to disable pushing to the hub.",
 )
 args = parser.parse_args()
@@ -99,17 +105,28 @@ create_repo(benchmark_repo_id, repo_type="dataset", exist_ok=True)
 # Defining benchmark configurations
 launcher_config = ProcessConfig()
 scenario_config = InferenceConfig(
+memory=True,
 latency=True,
-input_shapes={"batch_size": 1, "sequence_length": 16},
 generate_kwargs={"max_new_tokens": 16, "min_new_tokens": 16},
+input_shapes={"batch_size": 1, "sequence_length": 16, "num_images": 1},
 )
 configs = {
 "pytorch": PyTorchConfig(device="cpu", model=model_id, no_weights=True),
 "openvino": OpenVINOConfig(device="cpu", model=model_id, no_weights=True),
-"openvino-8bit-woq": OpenVINOConfig(device="cpu", model=model_id, no_weights=True, load_in_8bit=True),
-"openvino-4bit-woq": OpenVINOConfig(device="cpu", model=model_id, no_weights=True, load_in_4bit=True),
+"openvino-8bit-woq": OpenVINOConfig(
+device="cpu",
+model=model_id,
+no_weights=True,
+quantization_config={"bits": 8, "num_samples": 1, "weight_only": True},
+),
+"openvino-8bit-static": OpenVINOConfig(
+device="cpu",
+model=model_id,
+no_weights=True,
+quantization_config={"bits": 8, "num_samples": 1, "weight_only": False, "dataset": "contextual"},
+),
 }
-# Running benchmarks (saved locally and pushed to the hub if benchmark_repo_id is not None)
+# Running benchmarks (saved locally or pushed to the hub if benchmark_repo_id is not None)
 for config_name, backend_config in configs.items():
 benchmark_config = BenchmarkConfig(
 name=f"{config_name}",
@@ -136,22 +153,22 @@ repo_id=benchmark_repo_id, filename=f"{config_name}_report.json"
 else:
 reports[config_name] = BenchmarkReport.from_json(f"{config_name}_report.json")
 # Plotting results (saved locally and uploaded to the hub if benchmark_repo_id is not None)
-fig1, ax1 = plot_latencies(
+fig, ax = plot_latencies(
 reports,
 target_name="prefill",
-title=f"{model_id} - Prefill Latencies",
+title=f"{model_id} - Prefill Latencies (TTFT)",
 xlabel="Configurations",
 ylabel="Latency",
 )
-fig1.savefig("prefill_latencies_boxplot.png")
-fig2, ax2 = plot_throughputs(
+fig.savefig("prefill_latencies_boxplot.png")
+fig, ax = plot_throughputs(
 reports,
 target_name="decode",
-title=f"{model_id} - Decode Throughput",
+title=f"{model_id} - Decode Throughput (TPS)",
 xlabel="Configurations",
 ylabel="Throughput",
 )
-fig2.savefig("decode_throughput_barplot.png")
+fig.savefig("decode_throughput_barplot.png")
 if benchmark_repo_id:
 upload_file(
 path_or_fileobj="prefill_latencies_boxplot.png",

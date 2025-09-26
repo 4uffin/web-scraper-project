@@ -1,0 +1,241 @@
+How I Exported and Re-Imported a netcup Server Snapshot (raw.zst qcow2) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Mohammed AlShannaq
+Posted on Sep 25
+How I Exported and Re-Imported a netcup Server Snapshot (raw.zst qcow2)
+#cloudcomputing
+#devops
+#virtualization
+#virtualmachine
+When you run servers on netcup (VPS or root Servers), one of the features you get is the ability to take snapshots of your VM. These snapshots can be downloaded as a file and stored locally or on object storage like S3, so you always have a backup you control.
+In fact, one of the neat features netcup provides is the option to export snapshots as downloadable files. For many plans, a limited number of exports are included for free, and if you need more, you can purchase additional exports as an add-on.
+This gives you the ability to keep offline or external copies of your VM state without relying solely on the built-in snapshot system — especially useful if you ever optimize storage or lose the snapshots stored within netcup’s platform.
+🐛 But here’s the catch:
+netcup lets you download snapshots in a compressed format:
+vda_snapshot.raw.zst
+Enter fullscreen mode
+Exit fullscreen mode
+However, when you try to re-upload the same .raw.zst back into netcup’s Server Control Panel (SCP), it fails. Why? Because netcup does not support .zst uploads — only raw, qcow, and qcow2 formats are officially supported and accepted.
+In this article explains how I hit this problem, the dead ends I faced, and the working solution to restore my server successfully from a snapshot that I have created before for the server and downloaded it locally on my pc (or store it in AWS S3)
+The Problem
+I downloaded my snapshot from netcup: vda_alma10readysam1.raw.zst.
+I wanted to re-import it via Upload Image → Generate Upload URL. (using netcup SCP) or even upload the image from my pc.
+But when I tried to use it directly, and start the server after I receive email says that image installed, the server wouldn’t boot: “no boot device found.”
+Why? After couple of tries I see that it happens because .raw.zst is only useful for downloading. netcup won’t accept it as an upload format.
+Step 1: Decompress the Snapshot
+First, you need to decompress the .zst file into a raw image. Install zstd if it’s missing:
+💡 Note: The decompressed raw file will be the same size as your original VM disk (e.g. a 250 GB VM will produce a 250 GB raw file). Make sure you have enough free space on your system before starting the decompression.
+First of all make sure zstd is insalled:
+# AlmaLinux / Rocky
+dnf install -y zstd
+# Ubuntu / Debian
+apt install -y zstd
+Enter fullscreen mode
+Exit fullscreen mode
+Then decompress the .raw.zst file:
+unzstd vda_alma10readysam1.raw.zst -o vda_alma10readysam1.raw
+Enter fullscreen mode
+Exit fullscreen mode
+Now you have a .raw file.
+⚠️ Warning: The raw file size always equals the full disk size of your VM. For example, if your VM had a 250 GB disk, the exported .raw file will be 250 GB — even if you only used 5 GB of actual data.
+Trying to upload that 250 GB raw file would be a huge mistake: most of it is just empty space (zeros), so you’d be wasting time, bandwidth, and money moving around data that doesn’t really exist.
+That’s exactly why converting to qcow2 is the smarter approach
+Step 2: Convert Raw → qcow2
+To save space and make uploads feasible, convert the raw image to qcow2. Install qemu-img if not already installed:
+# AlmaLinux / Rocky
+dnf install -y qemu-img
+# Ubuntu / Debian
+apt install -y qemu-utils
+Enter fullscreen mode
+Exit fullscreen mode
+Convert the raw file:
+qemu-img convert -p -O qcow2 vda_alma10readysam1.raw vda_alma10readysam1.qcow2
+Enter fullscreen mode
+Exit fullscreen mode
+Now check the result:
+qemu-img info vda_alma10readysam1.qcow2
+Enter fullscreen mode
+Exit fullscreen mode
+Example output:
+image: vda_alma10readysam1.qcow2
+file format: qcow2
+virtual size: 256 GiB (274877906944 bytes)
+disk size: 7.01 GiB
+cluster_size: 65536
+Format specific information:
+compat: 1.1
+compression type: zlib
+lazy refcounts: false
+refcount bits: 16
+corrupt: false
+extended l2: false
+Child node '/file':
+filename: vda_alma10readysam1.qcow2
+protocol type: file
+file length: 7.01 GiB (7531462656 bytes)
+disk size: 7.01 GiB
+Enter fullscreen mode
+Exit fullscreen mode
+💡 Notice how the virtual size is still 256 GB, but the actual file size is just 7 GB. That’s the power of qcow2.
+Step 3: Upload to netcup
+Log into SCP → Media → Upload Image.
+Click Generate Upload URL. (enter the file name for example vda_alma10readysam1.qcow2 ) and generate Upload Url, and the portal will give you Pre-signed URL to upload the file into using curl
+Use curl or aws s3 cp to upload your qcow2 file:
+url --progress-bar 'https://upload.url.from.netcup...fullurlofuploadurl...' --upload-file vda_alma10readysam1.qcow2 | cat
+Enter fullscreen mode
+Exit fullscreen mode
+Once uploaded, select the image and deploy it to a new server.
+After this, my server booted normally again 🎉.
+👉 Note: You don’t have to use the Generate Upload URL method if you don’t want to. netcup’s SCP also allows you to upload the image directly from your local machine — simply browse for the .qcow2 file and upload it through the web interface. This can be easier for smaller images, but for larger files I still recommend using the upload URL approach.
+Step 4: Store Your Snapshots Safely
+Instead of keeping snapshots only in netcup, you can store them externally (after you export it)
+This way, you can always re-import the image later, or even run it on another virtualization platform that supports qcow2 (Proxmox, KVM, etc.).
+Lessons Learned
+.raw.zst is download-only. You can’t re-import it to netcup.
+You must convert it to raw, qcow, or qcow2 — with qcow2 being my most efficient choice.
+Always verify your qcow2 image with qemu-img info before uploading.
+Storing qcow2 snapshots externally (S3, local disk, NAS) makes disaster recovery much easier.
+Conclusion
+What started as a frustrating “no boot device 🤯” error turned into a neat learning experience. By decompressing and converting the snapshot, I was able to restore my VM cleanly and keep smaller, portable backups for the future.
+To give you a sense of the savings:
+The original snapshot (.raw.zst) was 4.6 GB.
+After decompression to raw, it exploded to 256 GB (matching the full disk size).
+Once converted to qcow2, it shrank back down to just 7.4 GB — small enough to store and upload efficiently.
+If you’re running servers on netcup, don’t just rely on downloading .raw.zst snapshots. Convert them, back them up properly, and make sure you can re-import them when needed. Your future self will thank you.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Mohammed AlShannaq
+Follow
+Joined
+Sep 25, 2025
+Trending on DEV Community
+Hot
+Either You Die a Developer, or Live Long Enough to See Yourself Become a Product Manager
+#webdev
+#ai
+#career
+#discuss
+Boost Your Workflow: 12 Free Figma Plugins That Save Hours of Design & Dev Time
+#figma
+#design
+#webdev
+#productivity
+Let’s Talk About Our Struggles in Learning and Building Confidence😉
+#learning
+#community
+#career
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

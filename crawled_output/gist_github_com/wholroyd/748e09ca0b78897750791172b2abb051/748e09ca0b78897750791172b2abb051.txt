@@ -1,0 +1,770 @@
+Getting Minikube on WSL2 Ubuntu working · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+wholroyd/preparations.md
+Last active
+September 25, 2025 12:10
+Show Gist options
+Download ZIP
+Star
+86
+(86)
+You must be signed in to star a gist
+Fork
+38
+(38)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/wholroyd/748e09ca0b78897750791172b2abb051.js&quot;&gt;&lt;/script&gt;
+Save wholroyd/748e09ca0b78897750791172b2abb051 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+15
+Stars
+86
+Forks
+38
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/wholroyd/748e09ca0b78897750791172b2abb051.js&quot;&gt;&lt;/script&gt;
+Save wholroyd/748e09ca0b78897750791172b2abb051 to your computer and use it in GitHub Desktop.
+Download ZIP
+Getting Minikube on WSL2 Ubuntu working
+Raw
+preparations.md
+Windows Preparation
+Ensure hypervisor functionality is enabled in BIOS.
+I know it sounds stupid, but if you already have it enabled, disable it, restart the machine, and enable it again.
+Otherwise you will hit microsoft/WSL#5363
+Launch a PowerShell prompt in Administrator mode [Win+X > Windows PowerShell (Admin)]
+dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+bcdedit /set hypervisorlaunchtype auto
+Install the Linux kernel update package and install it
+x86/x64 - https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi
+arm64 - https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_arm64.msi
+Restart machine
+Launch a PowerShell prompt in Administrator mode [Win+X > Windows PowerShell (Admin)]
+wsl --set-default-version 2
+Install Ubuntu Linux distribution of your choice from the Windows Store (not the one with the version in the names)
+Verify WSL version is set correctly
+wsl --list --verbose
+Ubuntu Preparation
+Run series of commands to get right build of Docker installed
+Removes the old crap, gets the dependencies right, adds Docker key, adds Docker repo, installs the new hotness
+sudo apt-get remove docker docker-engine docker.io containerd runc
+sudo apt-get update
+sudo apt-get install \
+apt-transport-https \
+ca-certificates \
+curl \
+gnupg-agent \
+software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo add-apt-repository \
+"deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+$(lsb_release -cs) \
+stable"
+sudo apt-get update
+sudo apt-get upgrade -y
+sudo apt-get install docker-ce docker-ce-cli containerd.io -y
+Run series of commands to ensure you can interact with Docker without root
+Third command here is a trick to reload your profile without actually logging out
+Closing out Ubuntu shell and starting over instead of third command is an option
+sudo groupadd docker
+sudo usermod -aG docker ${USER}
+su -s ${USER}
+Test the Docker configuration
+sudo service docker start
+docker run hello-world
+If you have issues with the docker run hello-world command, see the troubleshooting.md on this gist.
+Minikube Preparation
+Install Minikube
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube_latest_amd64.deb
+sudo apt install ./minikube_latest_amd64.deb -y
+rm minikube_latest_amd64.deb
+Start it
+minikube start
+Get the dashboard going
+The dashboard will continue to run and does not return back to a prompt here
+You will need to kill the dashboard to continue in the guide
+minikube dashboard
+Open the dashboard in your favorite browser (in Windows)
+Port is dynamic, so can't document it well - you'll just have to be good at reading directions
+The port will be in output of step 3 command
+Should look something like this...
+http://127.0.0.1:[PORT GOES HERE]/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/#/workloads?namespace=default
+This process is going to block you from the finishing this guide, but to keep it running, do the following...
+Perform "CTRL+Z" on the keyboard to send the process into paused state
+Execute the following command to resume the paused process in the background
+bg
+Kubectl Preparation
+Install Kubectl
+Adds k8s key, adds k8s repo, installs the new hotness
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list
+sudo apt-get update
+sudo apt-get install -y kubectl
+Use it
+kubectl get po -A
+Helm Preparation
+Install Helm
+curl --output helm-linux-amd64.tar.gz https://get.helm.sh/helm-v3.4.2-linux-amd64.tar.gz
+tar -zxvf helm-linux-amd64.tar.gz
+sudo mv linux-amd64/helm /usr/local/bin/helm
+rm helm-linux-amd64.tar.gz
+rm -rf linux-amd64
+Use it
+helm version
+Raw
+troubleshooting.md
+Docker Start Failure
+When using the preparations.md instructions...
+--- If you get an [OK] message when doing sudo service docker start, but the docker run hello-world command fails:
+Run the docker daemon on the terminal directly in debug mode
+dockerd -D
+If you get this message at the end of the output, this means we need the legacy iptables...
+DEBU[2023-05-30T11:13:13.522324640-04:00] sd notification
+error="<nil>" notified=false state="STOPPING=1"
+failed to start daemon: Error initializing network controller: error obtaining controller instance: unable to add return rule in DOCKER-ISOLATION-STAGE-1 chain:
+(iptables failed: iptables --wait -A DOCKER-ISOLATION-STAGE-1 -j RETURN: iptables v1.8.7 (nf_tables):
+RULE_APPEND failed (No such file or directory): rule in chain DOCKER-ISOLATION-STAGE-1
+(exit status 4))
+This can be fixed by running these commands...
+sudo update-alternatives --set iptables /usr/sbin/iptables-legacy
+sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+Once complete, start #3 on the preparations.md instructions over again.
+Thank you to coarsehorse for identifying the resolution for this problem.
+Load earlier comments...
+Copy link
+jdhom
+commented
+Aug 30, 2022
+Thanks!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+svabra
+commented
+Nov 26, 2022
+Works on Win11 Home, WSL2. That was a shortcut. Thank you for documenting it.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+cezarymostowiec
+commented
+Dec 8, 2022
+Thank you :)
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+magnem66
+commented
+Jan 9, 2023
+Awesome! Thank you.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+raleik-pl
+commented
+Feb 13, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Is it ok if I get this error related to virtualbox?
+Setting up virtualbox (6.1.38-dfsg-3~ubuntu1.20.04.1) ...
+Job for virtualbox.service failed because the control process exited with error code.
+See "systemctl status virtualbox.service" and "journalctl -xe" for details.
+invoke-rc.d: initscript virtualbox, action "restart" failed.
+* virtualbox.service - LSB: VirtualBox Linux kernel module
+Loaded: loaded (/etc/init.d/virtualbox; generated)
+Active: failed (Result: exit-code) since Mon 2023-02-13 13:11:18 CET; 4ms ago
+Docs: man:systemd-sysv-generator(8)
+Process: 10472 ExecStart=/etc/init.d/virtualbox start (code=exited, status=1/FAILURE)
+Feb 13 13:11:18 raleik-laptop systemd[1]: Starting LSB: VirtualBox Linux kernel module...
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+* Loading VirtualBox kernel modules...
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+* No suitable module for running kernel found
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+...fail!
+Feb 13 13:11:18 raleik-laptop systemd[1]: virtualbox.service: Control process exited, code=exited, status=1/FAILURE
+Feb 13 13:11:18 raleik-laptop systemd[1]: virtualbox.service: Failed with result 'exit-code'.
+Feb 13 13:11:18 raleik-laptop systemd[1]: Failed to start LSB: VirtualBox Linux kernel module.
+Should I ignore it or something's wrong? Despite I got this, everything seems to work fine.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wholroyd
+commented
+Feb 13, 2023
+Is it ok if I get this error related to virtualbox?
+Setting up virtualbox (6.1.38-dfsg-3~ubuntu1.20.04.1) ...
+Job for virtualbox.service failed because the control process exited with error code.
+See "systemctl status virtualbox.service" and "journalctl -xe" for details.
+invoke-rc.d: initscript virtualbox, action "restart" failed.
+* virtualbox.service - LSB: VirtualBox Linux kernel module
+Loaded: loaded (/etc/init.d/virtualbox; generated)
+Active: failed (Result: exit-code) since Mon 2023-02-13 13:11:18 CET; 4ms ago
+Docs: man:systemd-sysv-generator(8)
+Process: 10472 ExecStart=/etc/init.d/virtualbox start (code=exited, status=1/FAILURE)
+Feb 13 13:11:18 raleik-laptop systemd[1]: Starting LSB: VirtualBox Linux kernel module...
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+* Loading VirtualBox kernel modules...
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+* No suitable module for running kernel found
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+...fail!
+Feb 13 13:11:18 raleik-laptop systemd[1]: virtualbox.service: Control process exited, code=exited, status=1/FAILURE
+Feb 13 13:11:18 raleik-laptop systemd[1]: virtualbox.service: Failed with result 'exit-code'.
+Feb 13 13:11:18 raleik-laptop systemd[1]: Failed to start LSB: VirtualBox Linux kernel module.
+Should I ignore it or something's wrong? Despite I got this, everything seems to work fine.
+This sounds like an issue with a Linux kernel upgrade and the VirtualBox kernel driver not existing for the version of kernel you're running.
+Although, I'm not sure how you would be getting this unless you're attempting to run VirtualBox from within the WSL environment. This should be possible in the latest versions of WSL2, but not sure why you'd be doing this - unless you're using Vagrant?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+akshayVGS
+commented
+Mar 1, 2023
+thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+network-charles
+commented
+Mar 26, 2023
+tar -zxvf helm-linux-amd64.tar.gz
+tar (child): helm-linux-amd64.tar.gz: Cannot open: No such file or directory
+tar (child): Error is not recoverable: exiting now
+tar: Child returned status 2
+tar: Error is not recoverable: exiting now
+helm version
+Segmentation fault
+I got the above error
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Author
+wholroyd
+commented
+Mar 27, 2023
+@network-charles - Did the command immediately before the tar -zxvf helm-linux-amd64.tar.gz complete successfully?
+curl --output helm-linux-amd64.tar.gz https://get.helm.sh/helm-v3.4.2-linux-amd64.tar.gz
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+network-charles
+commented
+Mar 29, 2023
+@wholroyd I just retried it again and the helms' installation was successful.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+coarsehorse
+commented
+Apr 25, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Getting docker: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?. after running docker run hello-world.
+Edit: this was the issue. To fix, run:
+sudo update-alternatives --set iptables /usr/sbin/iptables-legacy
+sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+sudo service docker start
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+nagarjuna831
+commented
+May 30, 2023
+very helpful, nice documentation
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+igor-korotkov
+commented
+Jul 28, 2023
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube_latest_amd64.deb
+sudo apt install ./minikube_latest_amd64.deb -y
+rm minikube_latest_amd64.deb
+this leads to apt trying to install a whole bunch of dependencies including ubuntu-mono virtualbox
+virtualbox-qt x11-common
+This is also why a person above was messaging about virtualbox issues
+Obviously we don't want to also be getting virtualbox in our wsl2 if we're already using hyperv
+I saw people using pre-compiled minucube in wsl2, but that required manually installing some dependencies, and also seems pretty unstable...
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+sangrepura
+commented
+Aug 6, 2023
+@igor-korotkov I saw the same and just performed these steps in my WSL2 Ubuntu 22.04.
+No additional dependencies needed:
+curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+chmod +x ./minikube
+sudo mv ./minikube /usr/local/bin/
+minikube config set driver docker
+❗
+These changes will take effect upon a minikube delete and then a minikube start
+minikube start
+-- truncated for brevity
+🏄
+Done! kubectl is now configured to use "minikube" cluster and "default" namespace by default
+minikube kubectl -- get pods -A
+NAMESPACE
+NAME
+READY
+STATUS
+RESTARTS
+AGE
+kube-system
+coredns-5d78c9869d-46fkz
+1/1
+Running
+0
+14s
+kube-system
+etcd-minikube
+1/1
+Running
+0
+25s
+kube-system
+kube-apiserver-minikube
+1/1
+Running
+0
+28s
+kube-system
+kube-controller-manager-minikube
+1/1
+Running
+0
+28s
+kube-system
+kube-proxy-cfbvl
+1/1
+Running
+0
+14s
+kube-system
+kube-scheduler-minikube
+1/1
+Running
+0
+28s
+kube-system
+storage-provisioner
+1/1
+Running
+0
+24s
+Hope this helps!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+igor-korotkov
+commented
+Aug 8, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+@igor-korotkov I saw the same and just performed these steps in my WSL2 Ubuntu 22.04. No additional dependencies needed:
+curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+chmod +x ./minikube
+sudo mv ./minikube /usr/local/bin/
+minikube config set driver docker
+❗
+These changes will take effect upon a minikube delete and then a minikube start
+minikube start
+-- truncated for brevity
+🏄
+Done! kubectl is now configured to use "minikube" cluster and "default" namespace by default
+minikube kubectl -- get pods -A
+NAMESPACE
+NAME
+READY
+STATUS
+RESTARTS
+AGE
+kube-system
+coredns-5d78c9869d-46fkz
+1/1
+Running
+0
+14s
+kube-system
+etcd-minikube
+1/1
+Running
+0
+25s
+kube-system
+kube-apiserver-minikube
+1/1
+Running
+0
+28s
+kube-system
+kube-controller-manager-minikube
+1/1
+Running
+0
+28s
+kube-system
+kube-proxy-cfbvl
+1/1
+Running
+0
+14s
+kube-system
+kube-scheduler-minikube
+1/1
+Running
+0
+28s
+kube-system
+storage-provisioner
+1/1
+Running
+0
+24s
+Hope this helps!
+Ye, I did the same in the end, minikube seems to be working just fine in my system.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+cbolyard
+commented
+Dec 28, 2023
+Thanks for sharing!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+stephanlamoureux
+commented
+Jan 20, 2024
+Installing minikube caused my code command in WSL to stop working.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ghost
+commented
+Mar 12, 2024
+@igor-korotkov I saw the same and just performed these steps in my WSL2 Ubuntu 22.04. No additional dependencies needed:
+curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+chmod +x ./minikube
+sudo mv ./minikube /usr/local/bin/
+minikube config set driver docker
+❗
+These changes will take effect upon a minikube delete and then a minikube start
+minikube start
+-- truncated for brevity
+🏄
+Done! kubectl is now configured to use "minikube" cluster and "default" namespace by default
+minikube kubectl -- get pods -A
+NAMESPACE
+NAME
+READY
+STATUS
+RESTARTS
+AGE
+kube-system
+coredns-5d78c9869d-46fkz
+1/1
+Running
+0
+14s
+kube-system
+etcd-minikube
+1/1
+Running
+0
+25s
+kube-system
+kube-apiserver-minikube
+1/1
+Running
+0
+28s
+kube-system
+kube-controller-manager-minikube
+1/1
+Running
+0
+28s
+kube-system
+kube-proxy-cfbvl
+1/1
+Running
+0
+14s
+kube-system
+kube-scheduler-minikube
+1/1
+Running
+0
+28s
+kube-system
+storage-provisioner
+1/1
+Running
+0
+24s
+Hope this helps!
+thank you for this one!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ryankert01
+commented
+Mar 13, 2024
+Installing minikube caused my code command in WSL to stop working.
+same problem
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+ryankert01
+commented
+Mar 13, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Installing minikube caused my code command in WSL to stop working.
+@stephanlamoureux
+This can be solve by this issue.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+giffarda
+commented
+Apr 11, 2024
+this guide is unbelievable thank you so much !
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+MnisiVN
+commented
+May 24, 2024
+nice one I just followed it successfully. I had some issues with "Kubectl Preparation" package not found. but I sorted it with:
+`echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+sudo apt update
+sudo apt install -y kubelet kubeadm kubectl`
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+johnddias
+commented
+Jun 11, 2024
+nice one I just followed it successfully. I had some issues with "Kubectl Preparation" package not found. but I sorted it with:
+You are my hero!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+starkgate
+commented
+Aug 9, 2024
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Thank you for the guide. I had 3 errors:
+When running minikube start:
+😄
+minikube v1.33.1 on Ubuntu 22.04 (amd64)
+✨
+Automatically selected the docker driver. Other choices: ssh, none
+🛑
+The "docker" driver should not be used with root privileges. If you wish to continue as root, use --force.
+💡
+If you are running minikube within a VM, consider using --driver=none:
+📘
+https://minikube.sigs.k8s.io/docs/reference/drivers/none/
+❌
+Exiting due to DRV_AS_ROOT: The "docker" driver should not be used with root privileges.
+My WSL instance was using the default root user. To solve the issue, I created a new user and added it to the docker group:
+adduser user
+usermod -aG sudo user
+su - user
+sudo groupadd docker
+sudo usermod -aG docker $USER && newgrp docker
+When running minikube dashboard:
+🎉
+Opening http://127.0.0.1:46779/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/ in your default browser...
+/usr/bin/xdg-open: 882: www-browser: not found
+/usr/bin/xdg-open: 882: links2: not found
+/usr/bin/xdg-open: 882: elinks: not found
+/usr/bin/xdg-open: 882: links: not found
+/usr/bin/xdg-open: 882: lynx: not found
+/usr/bin/xdg-open: 882: w3m: not found
+xdg-open: no method available for opening 'http://127.0.0.1:46779/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/'
+❌
+Exiting due to HOST_BROWSER: failed to open browser: exit status 3
+The solution was to install wslu and set the env variable BROWSER to wslview:
+sudo apt install wslu
+In ~/.bashrc:
+export BROWSER=wslview
+Don't forget to source ~/.bashrc to update your shell, or open a new shell.
+Repository not found in Kubectl Preparation:
+Hit:7 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Ign:8 https://packages.cloud.google.com/apt kubernetes-xenial InRelease
+Err:9 https://packages.cloud.google.com/apt kubernetes-xenial Release
+404
+Not Found [IP: 142.250.179.174 443]
+Reading package lists... Done
+W: https://download.docker.com/linux/ubuntu/dists/jammy/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+E: The repository 'https://apt.kubernetes.io kubernetes-xenial Release' does not have a Release file.
+N: Updating from such a repository can't be done securely, and is therefore disabled by default.
+N: See apt-secure(8) manpage for repository creation and user configuration details.
+The issue here seems to be that the guide assumes an installation of ubuntu xenial (16.04), I have version 22.04 installed. To fix this I instead followed the installation instructions for Debian in the Kubernetes documentation: https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/#kubectl-install-0
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+starkgate
+commented
+Aug 9, 2024
+I would also suggest using the Helm installation script to get the latest version, the instructions here are hardcoded to install version 3.4.2 (latest at the time of writing is 3.15.3): https://helm.sh/docs/intro/install/#from-script
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Srivardhan-T
+commented
+Sep 3, 2024
+Thank you
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Srivardhan-T
+commented
+Sep 7, 2024
+Can anyone point me to clean up steps. cluster messed up with labs practice and wanted to reinstall it with clean setup again.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+morvanabonin
+commented
+Oct 30, 2024
+Thanks for sharing!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+Wishmaster2017
+commented
+Apr 25, 2025
+Thanks for the detailed explanation :-)!
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+alexzh3
+commented
+May 9, 2025
+Is it ok if I get this error related to virtualbox?
+Setting up virtualbox (6.1.38-dfsg-3~ubuntu1.20.04.1) ...
+Job for virtualbox.service failed because the control process exited with error code.
+See "systemctl status virtualbox.service" and "journalctl -xe" for details.
+invoke-rc.d: initscript virtualbox, action "restart" failed.
+* virtualbox.service - LSB: VirtualBox Linux kernel module
+Loaded: loaded (/etc/init.d/virtualbox; generated)
+Active: failed (Result: exit-code) since Mon 2023-02-13 13:11:18 CET; 4ms ago
+Docs: man:systemd-sysv-generator(8)
+Process: 10472 ExecStart=/etc/init.d/virtualbox start (code=exited, status=1/FAILURE)
+Feb 13 13:11:18 raleik-laptop systemd[1]: Starting LSB: VirtualBox Linux kernel module...
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+* Loading VirtualBox kernel modules...
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+* No suitable module for running kernel found
+Feb 13 13:11:18 raleik-laptop virtualbox[10472]:
+...fail!
+Feb 13 13:11:18 raleik-laptop systemd[1]: virtualbox.service: Control process exited, code=exited, status=1/FAILURE
+Feb 13 13:11:18 raleik-laptop systemd[1]: virtualbox.service: Failed with result 'exit-code'.
+Feb 13 13:11:18 raleik-laptop systemd[1]: Failed to start LSB: VirtualBox Linux kernel module.
+Should I ignore it or something's wrong? Despite I got this, everything seems to work fine.
+This sounds like an issue with a Linux kernel upgrade and the VirtualBox kernel driver not existing for the version of kernel you're running.
+Although, I'm not sure how you would be getting this unless you're attempting to run VirtualBox from within the WSL environment. This should be possible in the latest versions of WSL2, but not sure why you'd be doing this - unless you're using Vagrant?
+Hey, I ran into the same problem and I am indeed using Vagrant on wsl2 with VirtualBox as a provider on Windows, is there any solution for this or simply not possible to run Minikube together with Vagrant on wsl?
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

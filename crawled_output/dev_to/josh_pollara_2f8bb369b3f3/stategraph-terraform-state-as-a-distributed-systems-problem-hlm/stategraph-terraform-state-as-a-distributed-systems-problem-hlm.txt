@@ -1,0 +1,255 @@
+Stategraph: Terraform state as a distributed systems problem - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Josh Pollara
+Posted on Sep 25
+• Originally published at stategraph.dev
+Stategraph: Terraform state as a distributed systems problem
+#terraform
+TL;DR
+• Terraform state shows distributed coordination issues but uses file primitives.
+• File blob (100% read/lock) vs. change cone (~3%).
+• Stategraph → graph state, ACID transactions, subgraph isolation.
+The Terraform ecosystem has spent a decade working around a fundamental architectural mismatch: we're using filesystem semantics to solve a distributed systems problem. The result is predictable and painful.
+When we started building infrastructure automation at scale, we discovered that Terraform's state management exhibits all the classic symptoms of impedance mismatch between data representation and access patterns. Teams implement increasingly elaborate workarounds: state file splitting, wrapper orchestration, external locking mechanisms. These aren't solutions; they're evidence that we're solving the wrong problem.
+Stategraph addresses this by treating state for what it actually is: a directed acyclic graph of resources with partial update semantics, not a monolithic document.
+The Pathology of File-Based State
+Terraform state, at its core, is a coordination problem. Multiple actors (engineers, CI systems, drift detection) need to read and modify overlapping subsets of infrastructure state concurrently. This is a well-studied problem in distributed systems, with established solutions around fine-grained locking, multi-version concurrency control, and transaction isolation.
+Instead, Terraform implements the simplest possible solution: a global mutex on a JSON file.
+Observation
+The probability of lock contention in a shared state file increases super-linearly with both team size and resource count. At 100 resources and 5 engineers, you're coordinating 500 potential interaction points through a single mutex.
+Consider the actual data access patterns in a typical Terraform operation:
+Current Model
+tfstate.json (2.3MB)
+Read: 100%
+Lock: 100%
+Modify: 0.5%
+Enter fullscreen mode
+Exit fullscreen mode
+Actual Requirement
+Graph nodes: VPC → Subnet → RDS → ALB → ASG → SG
+Read: 3%
+Lock: 3%
+Modify: 3%
+Enter fullscreen mode
+Exit fullscreen mode
+This mismatch between granularity of operation and granularity of locking is the root cause of every Terraform scaling problem. It violates the fundamental principle of isolation in concurrent systems: non-overlapping operations should not block each other.
+The standard response, splitting state files, doesn't solve the problem. It redistributes it. Now you have N coordination problems instead of one, plus the additional complexity of managing cross-state dependencies. You've traded false contention for distributed transaction coordination, which is arguably worse.
+State as a Graph: The Natural Representation
+Infrastructure state is inherently a directed graph. Resources have dependencies, which form edges. Changes propagate along these edges. Terraform already knows this: the internal representation is a graph, and the planner performs graph traversal. But at the storage layer, we flatten this rich structure into a blob.
+This is akin to storing a B-tree in a CSV file. You can do it, but you're destroying the very properties that make the data structure useful.
+stategraph> -- Find resource subgraph for planned change
+WITH RECURSIVE affected AS (
+SELECT id, type, name FROM resources
+WHERE name = 'prod-api-cluster'
+UNION
+SELECT r.id, r.type, r.name FROM resources r
+JOIN dependencies d ON r.id = d.dependent_id
+JOIN affected a ON d.resource_id = a.id
+) SELECT * FROM affected;
+→ 12 resources in change scope (0.003s)
+→ Compared to: 2,847 resources in full state (1.2s)
+Enter fullscreen mode
+Exit fullscreen mode
+When state is properly normalized into a graph database, several properties emerge naturally:
+Subgraph isolation: Operations on disjoint subgraphs are inherently parallelizable. If Team A is modifying RDS instances and Team B is updating CloudFront distributions, there's no shared state to coordinate.
+Precise locking: We can implement row-level locking on resources and edge-level locking on dependencies. Lock acquisition follows the dependency graph, preventing deadlocks through consistent ordering.
+Incremental refresh: Given a change set, we can compute the minimal refresh set by traversing the dependency graph. Most changes affect a small cone of resources, not the entire state space.
+Concurrency Control Through Proper Abstractions
+The distributed systems community solved these problems decades ago. Multi-version concurrency control (MVCC) allows readers to proceed without blocking writers. Write-ahead logging provides durability without sacrificing performance. Transaction isolation levels let operators choose their consistency guarantees.
+Stategraph implements these patterns at the Terraform state layer:
+Traditional: Global Lock
+$ terraform apply
+Acquiring global lock… waiting
+Enter fullscreen mode
+Exit fullscreen mode
+All resources locked (100%)
+Stategraph: Subgraph Isolation
+$ stategraph apply
+Locking subgraph (3 resources)… ready
+Enter fullscreen mode
+Exit fullscreen mode
+Only affected resources locked (3%)
+Each operation acquires locks only on its subgraph. The lock manager uses the dependency graph to ensure consistent ordering, preventing deadlocks. Readers use MVCC to access consistent snapshots without blocking writers.
+Implementation Detail
+Lock acquisition follows a strict partial order derived from the resource dependency graph. Resources are locked in topological order, with ties broken by resource ID. This guarantees deadlock freedom without requiring global coordination.
+The result is dramatic improvement in concurrent throughput:
+Parallel Execution
+Transaction A
+Lock: RDS:prod-db
+Lock: SG:prod-db-sg
+Apply changes
+Transaction B
+Lock: CF:cdn-dist
+Lock: S3:static-assets
+Apply changes
+Transaction C
+Lock: ASG:workers
+Lock: LC:worker-config
+Apply changes
+Three teams, three transactions, zero contention. This isn't possible with file-based state, regardless of how you split it.
+The Refresh Problem
+Terraform refresh is O(n) in the number of resources, regardless of change scope. Change one security group rule and you still walk the entire state. That's an algorithmic bottleneck, not just an implementation detail.
+File-Based State
+Changing 1 resource
+Refreshing all 30
+Graph State
+Changing 1 resource
+Refreshing only 3
+With a graph representation, refresh work can be scoped to the affected subgraph instead of the entire state. Most changes touch only a small fraction of resources, not everything.
+Why We Built This
+At Terrateam, we've watched hundreds of teams struggle with the same fundamental problems. They start with a single state file, hit scaling limits, split their state, discover coordination complexity, build orchestration layers, and eventually resign themselves to living with the pain.
+This is a solvable problem. The computer science is well-understood. The implementation is straightforward once you acknowledge that state management is a distributed systems problem, not a file storage problem.
+Stategraph isn't revolutionary. It's the application of established distributed systems principles to a problem that's been mischaracterized since its inception. We're not inventing new algorithms; we're applying the right ones.
+Design Principle
+The storage layer should match the access patterns. Terraform state exhibits graph traversal patterns, partial update patterns, and concurrent access patterns. The storage layer should be a graph database with ACID transactions and fine-grained locking. Anything else is impedance mismatch.
+The infrastructure industry has accepted file-based state as an immutable constraint for too long. It's not. It's a choice, and it's the wrong one for systems at scale.
+Technical Implementation
+Stategraph is implemented as a PostgreSQL schema with a backend that speaks the Terraform/OpenTofu remote backend protocol. We chose PostgreSQL for its robust MVCC, proven scalability, and operational familiarity. The schema normalizes state into three primary relations:
+resources: one row per resource, with type, provider, and attribute columns.
+dependencies: edge table representing the resource dependency graph.
+transactions: append-only log of all state mutations with full attribution.
+The backend extends Terraform's protocol with graph-aware operations. Lock acquisition and state queries operate directly on the database representation of the graph, enabling precision and concurrency that file-based backends can't provide.
+This isn't a wrapper or an orchestrator. It's a replacement for the storage layer that preserves Terraform's execution model while fixing its coordination problems.
+Adoption Path
+Stategraph reads existing tfstate files and constructs the graph representation automatically. No changes to Terraform configurations are required. The backend protocol is unchanged. From Terraform's perspective, Stategraph is just another backend, like S3 or GCS.
+But from an operational perspective, everything changes. Lock contention disappears. Refresh times drop by orders of magnitude. Teams stop blocking each other. State becomes queryable, auditable, and comprehensible.
+We're not asking teams to rewrite their infrastructure. We're asking them to store it properly.
+The question isn't whether Terraform state should be a graph. It already is. The question is whether we'll continue pretending it's a file.
+Technical Preview
+Stategraph is in active development. We're working with design partners to validate the approach at scale.
+Get Updates at https://stategraph.dev
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+Josh Pollara
+Follow
+Joined
+Sep 11, 2025
+Trending on DEV Community
+Hot
+3 Reasons You're in Tech Post-Layoff Shock (Based on personal experience)
+#career
+#beginners
+#learning
+Let’s Talk About Our Struggles in Learning and Building Confidence😉
+#learning
+#community
+#career
+Meme Monday
+#discuss
+#watercooler
+#jokes
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

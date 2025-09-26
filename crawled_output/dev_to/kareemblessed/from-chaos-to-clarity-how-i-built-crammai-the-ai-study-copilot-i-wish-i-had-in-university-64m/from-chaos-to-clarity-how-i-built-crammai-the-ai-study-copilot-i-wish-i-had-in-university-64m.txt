@@ -1,0 +1,336 @@
+From Chaos to Clarity: How I Built CrammAI, the AI Study Copilot I Wish I Had in University - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+kareemblessed
+Posted on Sep 25
+From Chaos to Clarity: How I Built CrammAI, the AI Study Copilot I Wish I Had in University
+#showdev
+#productivity
+#ai
+#learning
+The Spark Behind CrammAI
+Back in university, my classmates probably thought I never slept 😅. I was always neck-deep in coding projects 💻, tinkering with the latest AI tools 🤖, and still somehow crushing my exams 🎯.
+But here’s the truth: my bottleneck wasn’t understanding the concepts 🧠. I could pick those up fast.
+The real struggle was wading through endless PDFs 📑, lecture notes 📝, and convoluted study guides 📘 just to find the critical info.
+I kept thinking: “_If only I had an AI that could automate this process. Something that could ingest all my materials and tell me exactly what to focus on.”
+Fast forward a few years later — I finally built it. 🎉
+Meet CrammAI — the study co-pilot I wish I had in uni 🧑‍🎓. Born out of my obsession with automation ⚡, it transforms pre-exam chaos into a clear, tactical, and automated study plan 🚀.
+Here’s how I built this personal study automation engine.
+🛠️ The Tech Stack: My Automation Pipeline
+To bring this to life, I needed a stack that was fast, modern, and could seamlessly integrate powerful AI capabilities. The goal was to build an automated content analysis and generation pipeline.
+Frontend: React with TypeScript for a dynamic and type-safe user interface.
+AI Engine: The Google Gemini API (@google/genai) is the core of the automation. It handles document analysis, topic prioritization, and content generation.
+Styling: Good old-fashioned CSS. Clean, simple, and effective.
+Step 1: 🕹️ The User Input: Setting the Automation Parameters
+Every good automation workflow starts with clear inputs. For CrammAI, the user defines the parameters by choosing a "study mode" based on their timeline. This was crucial because how you study with a week to spare is completely different from how you study the night before.
+🧘 Cruise Control (1+ week): Comprehensive, deep-dive automation.
+🚀 Turbo Mode (~2 days): Strategic automation focusing on high-impact topics.
+**⚡ Zoom Mode (Due tonight): **A tactical strike plan. The AI automates the process of finding only the absolute must-know concepts for a last-minute cram session.
+This initial choice acts as the primary instruction for the AI automation pipeline that follows.
+code
+Tsx
+// Simplified React component for mode selection
+const HomePage = ({ onSelectMode }) => (
+<div className="mode-selection">
+{/* The "Zoom Mode" card for last-minute crammers like me! */}
+<div className="mode-card zoom" onClick={() => onSelectMode('zoom')}>
+<div className="mode-icon">⚡</div>
+<h2 className="mode-title">Zoom Mode</h2>
+<p className="mode-description">Due tonight. Maximum focus, maximum efficiency.</p>
+</div>
+{/* Other modes follow the same pattern... */}
+</div>
+);
+Enter fullscreen mode
+Exit fullscreen mode
+Step 2: 📤 Automating File Ingestion and Preparation
+My AI co-pilot needed to read my study materials. The Gemini API can process various file types, but it requires them in a specific format (base64 encoded strings). To make this seamless, I wrote a helper function to automate the conversion.
+This function takes a standard File object from the browser, reads it, and automatically converts it into the JSON structure the Gemini API expects.
+Tsx
+/**
+* An automated utility to convert a browser File object
+* into the Gemini API's expected Part format.
+*/
+import { Part } from "@google/genai";
+const fileToGenerativePart = (file: File): Promise<Part> => {
+return new Promise((resolve, reject) => {
+const reader = new FileReader();
+reader.readAsDataURL(file);
+reader.onload = () => {
+// The result is a Data URL, e.g., "data:image/png;base64,iVBORw..."
+// We automate splitting and extracting the necessary base64 data.
+const base64Data = (reader.result as string).split(',')[1];
+resolve({
+inlineData: {
+mimeType: file.type,
+data: base64Data
+}
+});
+};
+reader.onerror = error => reject(error);
+});
+};
+Enter fullscreen mode
+Exit fullscreen mode
+Step 3: 🧠 The Core Automation: AI-Powered Analysis and Planning
+This is where the real magic happens. The app sends the user's files and the selected study mode to the Gemini API. The key to successful automation here is enforcing a strict output format.
+You can’t build a reliable automation pipeline if you're just hoping the AI gives you good data. The Gemini API’s responseSchema feature is a lifesaver. It forces the AI to return clean, predictable JSON every single time.
+This completely automates the data-parsing step and makes the app incredibly robust.
+Tsx
+// Inside the main plan generation function
+import { GoogleGenAI, Type } from "@google/genai";
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// 1. Get user-defined parameters (mode) and prepare files
+const prompt = getPromptForMode(mode);
+const fileParts = await Promise.all(uploadedFiles.map(fileToGenerativePart));
+// 2. Define the automation's output contract (the JSON schema)
+const responseSchema = {
+type: Type.OBJECT,
+properties: {
+study_these: {
+type: Type.ARRAY,
+description: "A list of the most critical topics to study.",
+items: { /*... topic, reason, key_points ...*/ }
+}
+}
+};
+// 3. Trigger the AI automation pipeline
+const response = await ai.models.generateContent({
+model: 'gemini-2.5-flash',
+contents: [prompt, ...fileParts],
+config: {
+responseMimeType: 'application/json',
+responseSchema: responseSchema, // Enforce the contract!
+},
+});
+// 4. The result is clean, structured data, ready for the UI. No messy parsing needed.
+const result = JSON.parse(response.text);
+setAnalysisResult(result); %}
+Enter fullscreen mode
+Exit fullscreen mode
+Step 4: ⚡ Automating Active Recall: Flashcards & AI Grading
+A study plan is just the start 📅. To really learn, you need active recall 💡. CrammAI automates this by generating “Flashcard Sprints” for each topic 🃏.
+But the coolest automation? The grading ✅.
+When a user submits an answer, I don’t just do a basic string comparison. Instead, I send both the user’s answer and the correct answer to the Gemini API 🌐, asking it to grade for conceptual correctness. This makes the system feel way more intelligent — almost human 🤖.
+And yes, this is fully automated with a response schema 📐 to guarantee a simple true/false plus clear feedback 📝.
+Tsx
+// The prompt for the automated AI grader
+const prompt = `You are an AI grader. Be lenient with phrasing but strict on the core concept.
+**Question:** ${currentCard.question}
+**Correct Answer:** ${currentCard.answer}
+**User's Answer:** ${userAnswer}
+Is the user's answer substantially correct?`;
+// The schema for a simple, automated response
+const evaluationSchema = {
+type: Type.OBJECT,
+properties: {
+is_correct: { type: Type.BOOLEAN },
+feedback: { type: Type.STRING }
+}
+};
+// The API call uses this prompt and schema to automate the grading process.
+const response = await ai.models.generateContent({ /* ... */ });
+const result = JSON.parse(response.text); // e.g., { is_correct: true, feedback: "Spot on!" }
+Enter fullscreen mode
+Exit fullscreen mode
+🧠 CrammAI Features That Make Learning Stick
+📝✨ AI-Generated Cram Notes
+Forget dull summaries — this is next-level note-taking. For every high-priority topic, CrammAI creates study notes engineered for rapid learning and retention. Each note is crafted with:
+🔎 Quick Summary: The big idea in just a few sentences.
+🚀 Key Breakdowns: Complex concepts split into bite-sized, structured chunks.
+💡 Real-World Examples: See how theories work in practice for easier understanding.
+**🧠 Memory Hooks: **Clever metaphors, visuals, or “Remember tips” to make facts stick.
+It’s like having a world-class tutor turn dense material into simple, usable cheat sheets.
+🎨 The Mnemonic Studio – Learning Made Fun
+Tricky topic? No problem. The Mnemonic Studio creates catchy, memorable acronyms using famous names — cities 🗽, brands 🏷️, even celebrities 🌟.
+Instead of random letters, think TESLA ⚡ for the principles of electromagnetism. Don’t like the first idea? Just say, “Make it based on a movie character!”
+🎬 You’ll always get a version that sticks.
+💬 The Chat Studio – Your 24/7 AI Tutor
+This is your always-available study buddy 🤓. Right under your notes, you can ask:
+“What were the three main points from the Cellular Respiration lecture?”
+“Can you explain this concept in simpler words?”
+The AI only pulls from the materials you uploaded 📚 — so answers are accurate, relevant, and tailored to your course.
+✅ Instant Practice Quizzes (with Explanations!)
+Skip boring flashcards — test yourself with smart, interactive quizzes 🎯. CrammAI automatically generates multiple-choice questions from your notes.
+But here’s the real game-changer: every time you answer, you get instant, clear explanations of why the correct answer is right 💡.
+It’s the fastest way to lock knowledge into long-term memory.
+🤔 Challenges & Lessons Learned
+⚡ Automation Loves Specificity
+Prompt engineering is everything. To get reliable output from the AI, I had to be super precise. My prompts are filled with rules, examples, and format instructions. The more specific the prompt, the better the AI agent performs. 🎯
+📐 Schema is Non-Negotiable
+For any serious app, responseSchema is your best friend. It turns the AI from a creative but unpredictable partner into a reliable, deterministic teammate 🤝.
+🚀 Conclusion & Next Steps
+Building CrammAI was an absolute blast 🤖💡. It’s proof that with today’s tools, you can create powerful automation pipelines for almost anything — even those frantic last-minute cram sessions before exams. 📚🔥
+So what’s next for my AI study co-pilot?
+💬 Conversational Automation – A chat interface so users can ask things like: “Explain this like I’m five.”
+🎧 Expanding the Pipeline – Support for video transcripts 🎥 and audio notes 🎙️.
+⚡ More Personalization – Tailored study strategies for different learning styles.
+At the end of the day, this project taught me one big lesson: if something feels tedious, automate it. 🛠️✨
+Ever wish AI could just tell you what to study before an exam? That’s why I built CrammAI. Check it out 👉 Here!
+So… what could you automate in your own life? 🚀
+Happy coding, and happy cramming! 😎💻📖
+AI #Automation #MachineLearning #EdTech #TypeScript #ReactJS #GeminiAPI #FrontendDevelopment #PortfolioProject
+Top comments (1)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Collapse
+Expand
+Mona Hidalgo
+Mona Hidalgo
+Mona Hidalgo
+Follow
+Software Engineer
+Email
+mona@mixithub.app
+Location
+ABQ, NM
+Joined
+Mar 5, 2024
+•
+Sep 26
+Dropdown menu
+Copy link
+Hide
+This is good. Nice work.
+Like comment:
+Like comment:
+1 like
+Like
+Comment button
+Reply
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+kareemblessed
+Follow
+I am an AI and Automations Engineer specializing in designing intelligent systems that streamline operations and enhance efficiency across industries.
+Pronouns
+He
+Joined
+May 24, 2022
+More from kareemblessed
+From PDFs to Palaces: Inside the AI That Turns Knowledge into Memory Architecture
+#devchallenge
+#googleaichallenge
+#ai
+#gemini
+🛡️ PayShield: The Voice-Powered Shield Against $2.4B Daily Invoice Fraud
+#devchallenge
+#assemblyaichallenge
+#ai
+#api
+🚨 I Built an AI Crisis Response Commander That Never Sleeps
+#devchallenge
+#runnerhchallenge
+#ai
+#machinelearning
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account

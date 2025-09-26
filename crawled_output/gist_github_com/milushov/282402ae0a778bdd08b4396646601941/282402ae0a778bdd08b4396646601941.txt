@@ -1,0 +1,330 @@
+Kamal (Ex Mrsk) deploy with Gitlab CI (docker in docker) · GitHub
+Skip to content
+Search Gists
+Search Gists
+All gists
+Back to GitHub
+Sign in
+Sign up
+Sign in
+Sign up
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
+Instantly share code, notes, and snippets.
+milushov/.gitlab-ci.yml
+Last active
+September 26, 2025 00:26
+Show Gist options
+Download ZIP
+Star
+8
+(8)
+You must be signed in to star a gist
+Fork
+1
+(1)
+You must be signed in to fork a gist
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/milushov/282402ae0a778bdd08b4396646601941.js&quot;&gt;&lt;/script&gt;
+Save milushov/282402ae0a778bdd08b4396646601941 to your computer and use it in GitHub Desktop.
+Code
+Revisions
+2
+Stars
+8
+Forks
+1
+Embed
+Embed
+Embed this gist in your website.
+Share
+Copy sharable link for this gist.
+Clone via HTTPS
+Clone using the web URL.
+Learn more about clone URLs
+Clone this repository at &lt;script src=&quot;https://gist.github.com/milushov/282402ae0a778bdd08b4396646601941.js&quot;&gt;&lt;/script&gt;
+Save milushov/282402ae0a778bdd08b4396646601941 to your computer and use it in GitHub Desktop.
+Download ZIP
+Kamal (Ex Mrsk) deploy with Gitlab CI (docker in docker)
+Raw
+.gitlab-ci.yml
+services:
+- docker:24.0.5-dind
+variables:
+DOCKER_HOST: tcp://docker:2375
+DOCKER_DRIVER: overlay2
+DOCKER_TLS_CERTDIR: "" # don't start over TLS
+meta-build-image:
+interruptible: true
+tags:
+- shared
+stage: build
+image: docker:24.0.5
+before_script:
+- docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+script:
+- docker build -t "$CI_REGISTRY_IMAGE/meta" .meta
+- docker push "$CI_REGISTRY_IMAGE/meta"
+only:
+changes:
+- ".meta/Dockerfile"
+deploy:
+interruptible: true
+tags:
+- shared
+only:
+- main
+stage: deploy
+image: "$CI_REGISTRY_IMAGE/meta"
+before_script:
+- docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+script:
+- docker pull "$CI_REGISTRY_IMAGE" || true
+- echo "SECRET_KEY_BASE=$SECRET_KEY_BASE" >> .env # From CI/CD Variables
+- echo "RAILS_MASTER_KEY=$RAILS_MASTER_KEY" >> .env # From CI/CD Variables
+- eval $(ssh-agent -s)
+- mkdir -p ~/.ssh && chmod 700 ~/.ssh
+- echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa # From CI/CD Variables
+- chmod 600 ~/.ssh/id_rsa
+- cat ~/.ssh/id_rsa | tr -d '\r' | ssh-add -
+- ssh-keyscan your.ip.here > ~/.ssh/known_hosts
+- kamal version
+- kamal lock release
+- kamal deploy
+Raw
+.meta Dockerfile
+# https://github.com/jdrouet/docker-with-buildx/blob/master/Dockerfile
+# https://gist.github.com/nzwsch/a6112fa1a0ff8a383f6ec9716fe8bdb6
+# Start from the ruby base image
+ARG RUBY_VERSION=3.2.2
+FROM ruby:${RUBY_VERSION}
+# Fetcher stage
+FROM alpine AS fetcher
+# Add curl to fetch buildx
+RUN apk add curl
+ARG BUILDX_VERSION=0.11.2
+RUN curl -L \
+--output /docker-buildx \
+"https://github.com/docker/buildx/releases/download/v${BUILDX_VERSION}/buildx-v${BUILDX_VERSION}.linux-amd64"
+# Make the downloaded buildx file executable
+RUN chmod a+x /docker-buildx
+# Get back to the ruby image and copy the buildx file
+FROM ruby:${RUBY_VERSION}
+# Copy docker-buildx from the fetcher stage
+COPY --from=fetcher /docker-buildx /usr/lib/docker/cli-plugins/docker-buildx
+# Install necessary packages
+RUN apt-get update -qq && \
+apt-get install -yq docker.io && \
+apt-get clean && \
+rm -rf /var/lib/apt/lists/*
+# Install the kamal gem
+RUN gem install kamal --without document
+Raw
+config deploy.yml
+service: awesome
+image: milushov/awesome
+# Before initial Traefik setup:
+# https://github.com/mrsked/mrsk/discussions/112#discussioncomment-5332424
+# mkdir -p /letsencrypt && touch /letsencrypt/acme.json && chmod 600 /letsencrypt/acme.json
+traefik:
+options:
+publish:
+- "443:443"
+volume:
+- "/letsencrypt/acme.json:/letsencrypt/acme.json"
+args:
+entryPoints.web.address: ":80"
+entryPoints.websecure.address: ":443"
+entryPoints.web.http.redirections.entryPoint.to: websecure
+entryPoints.web.http.redirections.entryPoint.scheme: https
+entryPoints.web.http.redirections.entrypoint.permanent: true
+entrypoints.websecure.http.tls: true
+entrypoints.websecure.http.tls.domains[0].main: "example.com"
+certificatesResolvers.letsencrypt.acme.email: "real_email@example.com"
+certificatesResolvers.letsencrypt.acme.storage: "/letsencrypt/acme.json"
+certificatesResolvers.letsencrypt.acme.httpchallenge: true
+certificatesResolvers.letsencrypt.acme.httpchallenge.entrypoint: web
+servers:
+web:
+hosts:
+- example.com
+labels:
+traefik.http.routers.awesome.rule: Host(`example.com`)
+traefik.http.routers.awesome_secure.entrypoints: websecure
+traefik.http.routers.awesome_secure.rule: Host(`example.com`)
+traefik.http.routers.awesome_secure.tls: true
+traefik.http.routers.awesome_secure.tls.certresolver: letsencrypt
+job:
+hosts:
+- example.com
+cmd: bundle exec sidekiq -C config/sidekiq.yml
+registry:
+server: registry.gitlab.com
+username: milushov
+password:
+- KAMAL_REGISTRY_PASSWORD
+# These ENVs required for runtime
+env:
+clear:
+REDIS_URL: redis://{Droplet Private IP}:6379/0
+secret:
+- SECRET_KEY_BASE
+- RAILS_MASTER_KEY
+builder:
+dockerfile: Dockerfile.production
+multiarch: false
+secrets:
+- SECRET_KEY_BASE
+- RAILS_MASTER_KEY
+accessories:
+redis:
+image: redis:7.0
+roles:
+- web
+port: 6379
+volumes:
+- /var/lib/redis:/data
+Raw
+Dockerfile.production
+# syntax = docker/dockerfile:1
+# Make sure it matches the Ruby version in .ruby-version and Gemfile
+ARG RUBY_VERSION=3.2.2
+FROM ruby:$RUBY_VERSION-slim as base
+# Rails app lives here
+WORKDIR /rails
+# Set production environment
+ENV RAILS_ENV="production" \
+NODE_ENV="production" \
+BUNDLE_DEPLOYMENT="1" \
+BUNDLE_PATH="/usr/local/bundle" \
+BUNDLE_WITHOUT="development"
+# Throw-away build stage to reduce size of final image
+FROM base as build
+# Install packages need to build gems and node modules
+RUN apt-get update -qq && \
+apt-get install -yq --no-install-recommends \
+build-essential \
+curl \
+default-libmysqlclient-dev \
+git \
+libpq-dev \
+libvips \
+node-gyp \
+pkg-config \
+python-is-python3 \
+;
+# Install JavaScript dependencies
+ARG NODE_VERSION=20.4.0
+ARG YARN_VERSION=1.22.19
+ENV PATH=/usr/local/node/bin:$PATH
+RUN curl -sL https://github.com/nodenv/node-build/archive/master.tar.gz | tar xz -C /tmp/ && \
+/tmp/node-build-master/bin/node-build "${NODE_VERSION}" /usr/local/node && \
+npm install -g yarn@$YARN_VERSION && \
+rm -rf /tmp/node-build-master
+# Install application gems
+COPY --link Gemfile Gemfile.lock ./
+RUN gem install bundler:"$(tail -n 1 Gemfile.lock)" && \
+bundle install && \
+rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
+bundle exec bootsnap precompile --gemfile
+# Copy application code
+COPY --link . .
+# Precompile bootsnap code for faster boot times
+RUN bundle exec bootsnap precompile app/ lib/
+RUN --mount=type=secret,id=SECRET_KEY_BASE \
+SECRET_KEY_BASE=$(grep SECRET_KEY_BASE .env | cut -d '=' -f2) \
+RAILS_MASTER_KEY=$(grep RAILS_MASTER_KEY .env | cut -d '=' -f2) \
+./bin/rails assets:precompile
+RUN cd ./telegram_web_app && npm install --force && npm run build
+# Final stage for app image
+FROM base
+RUN apt-get update -qq && \
+apt-get install -yq --no-install-recommends \
+default-mysql-client \
+libsqlite3-0 \
+libvips \
+postgresql-client \
+curl \
+ffmpeg \
+libvips \
+wget && \
+rm -rf /var/lib/apt/lists /var/cache/apt/archives
+# Run and own the application files as a non-root user for security
+RUN useradd rails
+USER rails:rails
+# Copy built artifacts: gems, application
+COPY --from=build --chown=rails:rails /usr/local/bundle /usr/local/bundle
+COPY --from=build --chown=rails:rails /rails /rails
+# Entrypoint prepares the database.
+ENTRYPOINT ["/rails/bin/docker-entrypoint"]
+# Start the server by default, this can be overwritten at runtime
+EXPOSE 3000
+CMD ["./bin/rails", "server", "-e", "production"]
+Copy link
+Author
+milushov
+commented
+Oct 17, 2023
+•
+edited
+Loading
+Uh oh!
+There was an error while loading. Please reload this page.
+Aliases:
+# https://github.com/mrsked/mrsk/discussions/383#discussioncomment-6449756
+define_kamal() {
+unalias mrsk 2>/dev/null
+unalias kamal 2>/dev/null
+alias mrsk="docker run -it --rm -v '${PWD}:/workdir' -v /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock -e SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/basecamp/kamal:latest"
+alias kamal="docker run -it --rm -v '${PWD}:/workdir' -v /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock -e SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/basecamp/kamal:latest"
+}
+define_kamal
+cd() {
+builtin cd "$@"
+define_kamal
+}
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+fwolfst
+commented
+Jun 6, 2025
+Thanks! I believe with Kamal2 the config/deploy looks a bit different, but I will give it a try.
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Copy link
+fwolfst
+commented
+Jun 8, 2025
+Certainly lacking and somewhat hacky, but conceptionally easier (no meta container) https://gitlab.com/fwolfst/araru/-/blob/792ce1f68101576bcdf5494874b791c9a70624b4/.gitlab-ci.yml . Just if you came here for kamal 2 (and buildx in docker in docker might be new).
+Sorry, something went wrong.
+Uh oh!
+There was an error while loading. Please reload this page.
+Sign up for free
+to join this conversation on GitHub.
+Already have an account?
+Sign in to comment
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+You can’t perform that action at this time.

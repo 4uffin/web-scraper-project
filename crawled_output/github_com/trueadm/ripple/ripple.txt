@@ -140,9 +140,9 @@ Notifications
 You must be signed in to change notification settings
 Code
 Issues
-26
+27
 Pull requests
-5
+6
 Discussions
 Actions
 Projects
@@ -161,7 +161,7 @@ Projects
 Security
 Insights
 trueadm/ripple
-mainBranchesTagsGo to fileCodeOpen more actions menuFolders and filesNameNameLast commit messageLast commit dateLatest commit History497 Commits.github.github  .livecodes.livecodes  .vscode.vscode  assetsassets  packagespackages  playgroundplayground  templates/basictemplates/basic  websitewebsite  .editorconfig.editorconfig  .gitignore.gitignore  .prettierrc.prettierrc  CONTRIBUTING.mdCONTRIBUTING.md  LICENSELICENSE  README.mdREADME.md  package.jsonpackage.json  pnpm-lock.yamlpnpm-lock.yaml  pnpm-workspace.yamlpnpm-workspace.yaml  vitest.config.jsvitest.config.js  View all filesRepository files navigationREADMEContributingMIT license
+mainBranchesTagsGo to fileCodeOpen more actions menuFolders and filesNameNameLast commit messageLast commit dateLatest commit History508 Commits.github.github  .livecodes.livecodes  .vscode.vscode  assetsassets  packagespackages  playgroundplayground  templates/basictemplates/basic  websitewebsite  .editorconfig.editorconfig  .gitignore.gitignore  .prettierrc.prettierrc  CONTRIBUTING.mdCONTRIBUTING.md  LICENSELICENSE  README.mdREADME.md  package.jsonpackage.json  pnpm-lock.yamlpnpm-lock.yaml  pnpm-workspace.yamlpnpm-workspace.yaml  vitest.config.jsvitest.config.js  View all filesRepository files navigationREADMEContributingMIT license
 What is RippleJS?
 Currently, this project is still in early development, and should not be used in production.
 Ripple is a TypeScript UI framework that takes the best parts of React, Solid and Svelte and combines them into one package.
@@ -266,21 +266,21 @@ console.log(untrack(() => @quadruple));
 })
 Note: you cannot create Tracked objects in module/global scope, they have to be created on access from an active component context.
 Split Option
-The track function also offers a split option to "split" a plain object, such as component props, into specifed tracked variables and an extra rest (can be any name) containing the remaining unspecified object properties.
+The track function also offers a split option to "split" a plain object — such as component props — into specified tracked variables and an extra rest property containing the remaining unspecified object properties.
 const [children, count, rest] = track(props, {split: ['children', 'count']});
-Frequently when processing properties passed in to a component, a destructuring is highly desirable for direct use as variablse and to apply any number of unspecified properties to an element or another child component, such as rest (could be named anything).
-To make sure that these resulting destructured variables remain reactive, applying track with the split option guarantees their reactivity.
-A full example utilizing various Ripple constructs demonstrates its usage.
+When working with component props, destructuring is often useful — both for direct use as variables and for collecting remaining properties into a rest object (which can be named arbitrarily). If destructuring happens in the component argument, e.g. component Child({ children, value, ...rest }), Ripple automatically links variable access to the original props — for example, value is compiled to props.value, preserving reactivity. However, destructuring inside the component body, e.g. const { children, value, ...rest } = props, does not preserve reactivity due to various edge cases. To ensure destructured variables remain reactive in this case, use the track function with the split option.
+A full example utilizing various Ripple constructs demonstrates the split option usage:
 import { track } from 'ripple';
 import type { PropsWithChildren, Tracked } from 'ripple';
 component Child(props: PropsWithChildren<{ count: Tracked<number> }>) {
-const [children, count, rest] = track(props, {split: ['children', 'count']});
-<button {...@rest}><@children /></button>
+const [children, count, className, rest] = track(props, {split: ['children', 'count', 'class']});
+<button class={@className} {...@rest}><@children /></button>
 <pre>{`Count is: ${@count}`}</pre>
 <button onClick={() => @count++}>{'Increment Count'}</button>
 }
 export component App() {
 let count = track(0);
+let className = track('shadow');
 let name = track('Click Me');
 function buttonRef(el) {
 console.log('ref called with', el);
@@ -289,17 +289,17 @@ console.log('cleanup ref for', el);
 };
 }
 <Child
-class="my-button"
-onClick={() => @name === 'Click Me' ? @name = 'Clicked' : @name = 'Click Me'}
+class={@className}
+onClick={() => { @name === 'Click Me' ? @name = 'Clicked' : @name = 'Click Me'; @className = ''}}
 count:={() => @count, (v) => {console.log('inside setter'); @count++}}
 {ref buttonRef}
 >{@name}</Child>;
 }
-With the regular destructuring, such as the one below, the count property would lose its reactivity:
+With the regular destructuring, such as the one below, the count and class properties would lose their reactivity:
 // ❌ WRONG Reactivity would be lost
 let { children, count, class: className, ...rest } = props;
-Note: Make sure the resulting rest if it's going to be spread onto a dom element, does not contain Tracked values.
-Otherwise, you'd be spreading not the actual values but the boxed ones which are objects that will appear as [Object object] on the dom element.
+Note: Make sure the resulting rest, if it's going to be spread onto a dom element, does not contain Tracked values.
+Otherwise, you'd be spreading not the actual values but the boxed ones, which are objects that will appear as [Object object] on the dom element.
 Transporting Reactivity
 Ripple doesn't constrain reactivity to components only. Tracked<V> objects can simply be passed by reference between boundaries:
 import { effect, track } from 'ripple';
@@ -405,8 +405,7 @@ if (x) {
 </div>
 }
 For statements
-You can render collections using a for...of block, and you don't need to specify a key prop like
-other frameworks.
+You can render collections using a for...of loop.
 component ListView({ title, items }) {
 <h2>{title}</h2>
 <ul>
@@ -415,16 +414,21 @@ for (const item of items) {
 }
 </ul>
 }
+The for...of loop has also a built-in support for accessing the loops numerical index. The label index declares a variable that will used to assign the loop's index.
+for (const item of items; index i) {
+<div>{item}{' at index '}{i}</div>
+}
 You can use Ripple's reactive arrays to easily compose contents of an array.
 import { TrackedArray } from 'ripple';
 component Numbers() {
-const items = new TrackedArray(1, 2, 3);
-for (const item of items) {
-<div>{item}</div>
+const array = new TrackedArray(1, 2, 3);
+for (const item of array; index i) {
+<div>{item}{' at index '}{i}</div>
 }
-<button onClick={() => items.push(`Item ${items.length + 1}`)}>{"Add Item"}</button>
+<button onClick={() => array.push(`Item ${array.length + 1}`)}>{"Add Item"}</button>
 }
 Clicking the <button> will create a new item.
+Note: for...of loops inside components must contain either dom elements or components. Otherwise, the loop can be run inside an effect or function.
 Try statements
 Try blocks work to build the foundation for error boundaries, when the runtime encounters
 an error in the try block, you can easily render a fallback in the catch block.
@@ -518,12 +522,12 @@ the syntax {ref fn} where fn is a function that captures the DOM element. If you
 this is identical to {@attach fn} in Svelte 5 and somewhat similar to ref in React. The hook function will receive
 the reference to the underlying DOM element.
 export component App() {
-let node = track();
+let div = track();
 const divRef = (node) => {
-@node = node;
+@div = node;
 console.log("mounted", node);
 return () => {
-@node = undefined;
+@div = undefined;
 console.log("unmounted", node);
 };
 };
@@ -531,10 +535,10 @@ console.log("unmounted", node);
 }
 You can also create {ref} functions inline.
 export component App() {
-let node = track();
+let div = track();
 <div {ref (node) => {
-@node = node;
-return () => @node = undefined;
+@div = node;
+return () => @div = undefined;
 }}>{"Hello world"}</div>
 }
 You can also use function factories to define properties, these are functions that return functions that do the same
@@ -673,6 +677,20 @@ MyContext.set(count);
 <Child />
 <button onClick={() => @count++}>{"increment count"}</button>
 }
+Testing
+We recommend using Ripple using Ripple's Vite plugin. We also recommend using Vitest for testing. When using Vitest, make sure to configure your vitest.config.js according by using this template config:
+import { configDefaults, defineConfig } from 'vitest/config';
+import { ripple } from 'vite-plugin-ripple';
+export default defineConfig({
+plugins: [ripple()],
+resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
+test: {
+include: ['**/*.test.ripple'],
+environment: 'jsdom',
+...configDefaults.test,
+},
+});
+Then you can create a example.test.ripple module and put your Vitest test assertions in that module.
 Contributing
 We are happy for your interest in contributing. Please see our contributing guidelines for more information.
 License
@@ -706,14 +724,12 @@ Packages
 No packages published
 Contributors
 32
-Uh oh!
-There was an error while loading. Please reload this page.
 + 18 contributors
 Languages
 JavaScript
-90.3%
+90.5%
 HTML
-8.8%
+8.6%
 Other
 0.9%
 Footer

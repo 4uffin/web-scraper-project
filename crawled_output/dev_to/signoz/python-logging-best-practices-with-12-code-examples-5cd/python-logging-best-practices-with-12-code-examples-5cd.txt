@@ -1,0 +1,1178 @@
+Python Logging Best Practices (with 12 Code Examples) - DEV Community
+Forem Feed
+Follow new Subforems to improve your feed
+DEV Community
+Follow
+A space to discuss and keep up software development and manage your software career
+Gamers Forem
+Follow
+An inclusive community for gaming enthusiasts
+Future
+Follow
+News and discussion of science and technology such as AI, VR, cryptocurrency, quantum computing, and more.
+Music Forem
+Follow
+From composing and gigging to gear, hot music takes, and everything in between.
+Vibe Coding Forem
+Follow
+Discussing AI software development, and showing off what we're building.
+DUMB DEV Community
+Follow
+Memes and software development shitposting
+Popcorn Movies and TV
+Follow
+Movie and TV enthusiasm, criticism and everything in-between.
+Design Community
+Follow
+Web design, graphic design and everything in-between
+Maker Forem
+Follow
+A community for makers, hobbyists, and professionals to discuss Arduino, Raspberry Pi, 3D printing, and much more.
+Scale Forem
+Follow
+For engineers building software at scale. We discuss architecture, cloud-native, and SRE—the hard-won lessons you can't just Google
+Forem Core
+Follow
+Discussing the core forem open source software project — features, bugs, performance, self-hosting.
+Security Forem
+Follow
+Your central hub for all things security. From ethical hacking and CTFs to GRC and career development, for beginners and pros alike
+Open Forem
+Follow
+A general discussion space for the Forem community. If it doesn't have a home elsewhere, it belongs here
+Crypto Forem
+Follow
+A collaborative community for all things Crypto—from Bitcoin to protocol development and DeFi to NFTs and market analysis.
+Dropdown menu
+Dropdown menu
+Skip to content
+Navigation menu
+Search
+Powered by Algolia
+Search
+Log in
+Create account
+DEV Community
+Close
+Add reaction
+Like
+Unicorn
+Exploding Head
+Raised Hands
+Fire
+Jump to Comments
+Save
+Boost
+More...
+Moderate
+Copy link
+Copy link
+Copied to Clipboard
+Share to X
+Share to LinkedIn
+Share to Facebook
+Share to Mastodon
+Report Abuse
+Ankit Anand ✨
+for SigNoz
+Posted on Sep 25
+• Originally published at signoz.io
+Python Logging Best Practices (with 12 Code Examples)
+#python
+#tutorial
+#performance
+#security
+Struggling with chaotic logs that hide critical information when you need it most? Python logging doesn't have to be a maze of duplicate messages, performance bottlenecks, and missing debug data.
+Most Python developers face these common logging challenges:
+Log floods drowning out critical errors in production
+Performance hits from expensive logging operations
+Security vulnerabilities from accidentally logging sensitive data
+Configuration complexity leading to duplicate or missing messages
+Poor debugging workflows that waste hours tracking down issues
+This guide addresses these challenges through 12 essential Python logging best practices. Each practice is grounded in real-world scenarios and includes practical code examples that you can implement immediately.
+Why Python Logging Matters More Than Print Statements
+Before exploring specific practices, it's important to understand why structured logging surpasses simple print statements. While print() might seem sufficient during development, it quickly becomes a liability in production environments where you need control, context, and searchability.
+Consider this common debugging approach that many developers start with:
+# ❌ Problematic debugging approach
+def process_payment(amount, user_id):
+print(f"Processing payment: ${amount}")
+# No context, can't be disabled
+if amount > 10000:
+print("Large payment detected")
+# No severity level
+# Process payment logic
+print("Payment completed")
+# No timestamp or source info
+Enter fullscreen mode
+Exit fullscreen mode
+The print-based approach suffers from several critical limitations:
+No Control: Print statements always execute, flooding production systems with unnecessary output
+Missing Context: No automatic timestamps, source information, or severity indicators
+Poor Searchability: Plain text without structure makes finding specific events difficult
+No Filtering: Cannot selectively enable/disable output for different components
+Compare this with a proper logging implementation that provides control, context, and structure:
+# ✅ Proper logging approach
+import logging
+logger = logging.getLogger(__name__)
+def process_payment(amount, user_id):
+logger.info("Processing payment", extra={
+"amount": amount,
+"user_id": user_id,
+"transaction_id": generate_transaction_id()
+})
+if amount > 10000:
+logger.warning("Large payment detected", extra={
+"amount": amount,
+"user_id": user_id,
+"flagged_reason": "high_value"
+})
+# Process payment logic
+logger.info("Payment processing completed", extra={
+"amount": amount,
+"user_id": user_id,
+"status": "success"
+})
+Enter fullscreen mode
+Exit fullscreen mode
+The logging approach delivers several advantages that become crucial at scale:
+Configurable Output: Enable or disable logging per module without code changes
+Automatic Metadata: Each log entry includes timestamps, module names, and line numbers
+Severity Levels: Distinguish between informational messages and critical errors
+Structured Data: The extra parameter adds searchable context for analysis
+Centralized Control: Change log behavior across your entire application from one configuration point
+When an issue occurs at 3 AM, having structured, searchable logs with proper context can mean the difference between a five-minute fix and hours of investigation.
+Now that we understand the fundamental advantages of proper logging over print statements, let's explore 12 essential best practices that will transform your Python logging from a debugging afterthought into a powerful observability tool.
+1. Choose Log Levels Based on Impact and Audience
+Selecting the right log level ensures your logs remain useful without becoming overwhelming. Each level serves a specific purpose and targets different audiences, from developers debugging issues to operations teams monitoring system health:
+Level
+Numeric Value
+When to Use
+Production Visibility
+DEBUG
+10
+Detailed diagnostic info, variable states
+Usually disabled
+INFO
+20
+General operational messages
+Selectively enabled
+WARNING
+30
+Something unexpected, but app continues
+Always enabled
+ERROR
+40
+Serious problems, functionality affected
+Always enabled
+CRITICAL
+50
+Very serious errors, app may crash
+Always enabled
+Practical Log Level Usage
+Environment-based configuration allows you to adjust verbosity without code changes. Here's how to implement dynamic log levels based on your deployment environment:
+import logging
+import os
+# Configure based on environment
+log_level = os.getenv('LOG_LEVEL', 'WARNING').upper()
+logging.basicConfig(level=getattr(logging, log_level))
+logger = logging.getLogger(__name__)
+def authenticate_user(username, password):
+logger.debug(f"Authentication attempt for user: {username}")
+user = get_user(username)
+if not user:
+logger.warning(f"Authentication failed - user not found: {username}")
+return None
+if not verify_password(user, password):
+logger.error(f"Authentication failed - invalid password for user: {username}")
+return None
+if user.is_locked:
+logger.error(f"Authentication blocked - account locked: {username}")
+return None
+logger.info(f"User authenticated successfully: {username}")
+return user
+def critical_system_check():
+try:
+database_connection = check_database()
+if not database_connection:
+logger.critical("Database connection failed - system cannot operate")
+raise SystemExit("Critical system failure")
+except Exception as e:
+logger.critical(f"Critical system check failed: {e}", exc_info=True)
+raise
+Enter fullscreen mode
+Exit fullscreen mode
+Notice how each log level serves a specific purpose: DEBUG tracks the authentication flow, WARNING alerts about missing users (potential typos or attacks), ERROR indicates authentication failures requiring investigation, and CRITICAL marks system-wide failures that demand immediate attention.
+2. Create Module-Specific Named Loggers
+Named loggers provide essential context about where log messages originate, making debugging significantly easier. The practice of using module-specific loggers instead of the root logger creates a hierarchical structure that mirrors your application's architecture.
+Here's why module-specific loggers are superior to using the root logger:
+# ❌ Avoid root logger
+import logging
+logging.error("Something went wrong")
+# No context about source
+# ✅ Use named loggers
+import logging
+# Best practice: use __name__ for automatic module naming
+logger = logging.getLogger(__name__)
+class DatabaseManager:
+def __init__(self):
+# Create component-specific loggers
+self.logger = logging.getLogger(f"{__name__}.DatabaseManager")
+def connect(self):
+self.logger.debug("Attempting database connection")
+try:
+# Connection logic
+self.logger.info("Database connection established")
+except Exception as e:
+self.logger.error("Database connection failed", exc_info=True)
+raise
+class APIHandler:
+def __init__(self):
+self.logger = logging.getLogger(f"{__name__}.APIHandler")
+def process_request(self, request):
+self.logger.info(f"Processing {request.method} request to {request.path}")
+# Request processing logic
+Enter fullscreen mode
+Exit fullscreen mode
+This hierarchical approach enables precise control over logging verbosity for different components. You can adjust log levels for specific modules without affecting others, making it easier to diagnose issues in production environments where excessive logging can impact performance.
+With named loggers established, the next step is making your logs queryable through structured formatting.
+3. Implement Structured Logging for Machine-Readable Output
+Structured logging transforms your logs from simple text messages into queryable data. By using consistent formats like JSON, you enable powerful searching and analysis capabilities that become invaluable when troubleshooting issues across distributed systems.
+Here's how to implement a custom formatter that outputs structured JSON logs:
+import logging
+import json
+from datetime import datetime
+class StructuredFormatter(logging.Formatter):
+def format(self, record):
+log_entry = {
+'timestamp': datetime.utcnow().isoformat(),
+'level': record.levelname,
+'logger': record.name,
+'message': record.getMessage(),
+'module': record.module,
+'function': record.funcName,
+'line': record.lineno
+}
+# Include extra fields if present
+if hasattr(record, 'user_id'):
+log_entry['user_id'] = record.user_id
+if hasattr(record, 'request_id'):
+log_entry['request_id'] = record.request_id
+if hasattr(record, 'duration_ms'):
+log_entry['duration_ms'] = record.duration_ms
+return json.dumps(log_entry)
+# Configure structured logging
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+handler.setFormatter(StructuredFormatter())
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+# Usage with structured data
+def process_order(order_id, user_id):
+start_time = time.time()
+logger.info("Order processing started", extra={
+'order_id': order_id,
+'user_id': user_id,
+'event_type': 'order_start'
+})
+# Processing logic
+duration_ms = (time.time() - start_time) * 1000
+logger.info("Order processing completed", extra={
+'order_id': order_id,
+'user_id': user_id,
+'duration_ms': duration_ms,
+'event_type': 'order_complete'
+})
+Enter fullscreen mode
+Exit fullscreen mode
+The extra parameter in logging calls allows you to attach arbitrary metadata to log entries. This structured approach enables queries like "show all orders that took longer than 1000ms" or "find all events for user_id 12345" - queries that would be impossible with unstructured text logs.
+While structured logging improves searchability, it also increases the risk of exposing sensitive information. Let's address this security concern next.
+4. Protect Sensitive Data with Automatic Redaction
+Security breaches through log files represent a significant risk that's often overlooked during development. Implementing automatic redaction (hiding or masking sensitive data) prevents sensitive information from ever reaching your logs, protecting both your users and your organization.
+Here's a sample custom filter that can automatically detect and redact sensitive patterns before they're written to any log destination:
+import logging
+import re
+class SensitiveDataFilter(logging.Filter):
+"""Filter to redact sensitive information from logs"""
+SENSITIVE_PATTERNS = {
+'credit_card': re.compile(r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'),
+'ssn': re.compile(r'\b\d{3}-?\d{2}-?\d{4}\b'),
+'password': re.compile(r'password["\s]*[:=]["\s]*[^"\s,}]+', re.IGNORECASE),
+'api_key': re.compile(r'api[_-]?key["\s]*[:=]["\s]*[^"\s,}]+', re.IGNORECASE),
+'email': re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
+}
+SENSITIVE_KEYS = {
+'password', 'passwd', 'secret', 'token', 'api_key',
+'private_key', 'credit_card', 'ssn', 'social_security'
+}
+def filter(self, record):
+# Redact message content
+record.msg = self._redact_text(str(record.msg))
+# Redact extra fields
+if hasattr(record, '__dict__'):
+for key, value in record.__dict__.items():
+if key.lower() in self.SENSITIVE_KEYS:
+setattr(record, key, '***REDACTED***')
+elif isinstance(value, str):
+setattr(record, key, self._redact_text(value))
+return True
+def _redact_text(self, text: str) -> str:
+"""Redact sensitive patterns in text"""
+for pattern_name, pattern in self.SENSITIVE_PATTERNS.items():
+text = pattern.sub('***REDACTED***', text)
+return text
+# Configure secure logging
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+handler.addFilter(SensitiveDataFilter())
+logger.addHandler(handler)
+# Example usage
+def process_login(username, password, user_data):
+# This will be automatically redacted
+logger.info(f"Login attempt for {username} with password {password}")
+# Structured logging with sensitive data
+logger.info("User data received", extra={
+'username': username,
+'password': password,
+# Will be redacted
+'credit_card': user_data.get('credit_card'),
+# Will be redacted
+'email': user_data.get('email')
+# Will be redacted
+})
+Enter fullscreen mode
+Exit fullscreen mode
+This filter examines both the message content and any extra fields attached to log records. Sensitive patterns are replaced with ***REDACTED***, ensuring that even if developers accidentally log sensitive information, it never reaches your log storage.
+With security addressed, let's turn our attention to another critical concern: performance.
+5. Minimize Performance Impact Through Lazy Evaluation
+Poorly implemented logging can become a performance bottleneck, especially in high-throughput applications. Lazy evaluation ensures expensive operations only execute when the log message will actually be written.
+Consider these two approaches and their performance implications:
+import logging
+import time
+from functools import wraps
+logger = logging.getLogger(__name__)
+def expensive_debug_info():
+"""Simulate expensive operation for debug info"""
+time.sleep(0.1)
+# Expensive computation
+return {"complex_data": "generated after expensive operation"}
+# ❌ Performance Problem: Always executes expensive operation
+def bad_logging_example():
+debug_info = expensive_debug_info()
+# Always executed!
+logger.debug(f"Debug info: {debug_info}")
+# ✅ Lazy evaluation: Only executes when needed
+def good_logging_example():
+if logger.isEnabledFor(logging.DEBUG):
+debug_info = expensive_debug_info()
+# Only when DEBUG enabled
+logger.debug(f"Debug info: {debug_info}")
+# Performance monitoring decorator
+def log_performance(logger):
+def decorator(func):
+@wraps(func)
+def wrapper(*args, **kwargs):
+start_time = time.time()
+try:
+result = func(*args, **kwargs)
+duration = (time.time() - start_time) * 1000
+logger.info(f"{func.__name__} completed in {duration:.2f}ms")
+return result
+except Exception as e:
+duration = (time.time() - start_time) * 1000
+logger.error(f"{func.__name__} failed after {duration:.2f}ms", exc_info=True)
+raise
+return wrapper
+return decorator
+# Usage
+@log_performance(logger)
+def process_data(data):
+# Your processing logic here
+pass
+Enter fullscreen mode
+Exit fullscreen mode
+The isEnabledFor() check prevents expensive operations from running when DEBUG logging is disabled. This pattern becomes crucial in production where DEBUG is typically off, saving significant computational resources.
+Performance optimization is important, but managing logging configuration across a large application requires equal attention.
+6. Maintain Consistency with Centralized Configuration
+Centralized logging configuration eliminates inconsistencies and simplifies maintenance across large applications. By defining your logging setup in one place, you ensure all components follow the same standards and make it easier to adjust logging behavior without code changes.
+A JSON configuration file provides a clear, version-controllable way to manage your logging setup:
+JSON Configuration File (logging_config.json)
+{
+"version": 1,
+"disable_existing_loggers": false,
+"formatters": {
+"standard": {
+"format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+},
+"detailed": {
+"format": "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s"
+},
+"json": {
+"()": "myapp.logging.StructuredFormatter"
+}
+},
+"handlers": {
+"console": {
+"class": "logging.StreamHandler",
+"level": "INFO",
+"formatter": "standard",
+"stream": "ext://sys.stdout"
+},
+"file": {
+"class": "logging.handlers.RotatingFileHandler",
+"level": "DEBUG",
+"formatter": "detailed",
+"filename": "app.log",
+"maxBytes": 10485760,
+"backupCount": 5
+},
+"json_file": {
+"class": "logging.handlers.RotatingFileHandler",
+"level": "INFO",
+"formatter": "json",
+"filename": "app.json.log",
+"maxBytes": 10485760,
+"backupCount": 5
+}
+},
+"loggers": {
+"myapp": {
+"level": "DEBUG",
+"handlers": ["console", "file", "json_file"],
+"propagate": false
+},
+"myapp.database": {
+"level": "INFO",
+"handlers": ["file"],
+"propagate": false
+},
+"requests": {
+"level": "WARNING",
+"handlers": ["file"],
+"propagate": false
+}
+},
+"root": {
+"level": "WARNING",
+"handlers": ["console"]
+}
+}
+Enter fullscreen mode
+Exit fullscreen mode
+Configuration Loader
+This configuration defines formatters, handlers, and logger-specific settings. The loader function below makes it easy to apply this configuration at application startup:
+import logging.config
+import json
+import os
+from pathlib import Path
+def setup_logging(config_path: str = None, default_level: int = logging.INFO):
+"""Setup logging configuration"""
+if config_path is None:
+config_path = os.getenv('LOG_CONFIG_PATH', 'logging_config.json')
+config_file = Path(config_path)
+if config_file.exists():
+try:
+with open(config_file, 'r') as f:
+config = json.load(f)
+logging.config.dictConfig(config)
+print(f"Logging configured from {config_path}")
+except Exception as e:
+print(f"Error loading logging config: {e}")
+logging.basicConfig(level=default_level)
+else:
+print(f"Logging config file {config_path} not found, using basic config")
+logging.basicConfig(level=default_level)
+# Use in your main application
+if __name__ == "__main__":
+setup_logging()
+logger = logging.getLogger(__name__)
+logger.info("Application starting...")
+Enter fullscreen mode
+Exit fullscreen mode
+This approach allows you to modify logging behavior through configuration files or environment variables without touching your application code - a crucial capability for production systems.
+As your application runs continuously, log files can grow without bounds. Let's address this operational challenge.
+7. Prevent Disk Space Issues with Automatic Log Rotation
+Unmanaged log files can quickly fill disk space and cause application failures. Implementing automatic rotation ensures your logs remain manageable while preserving important historical data.
+Python's logging module provides two rotation strategies: size-based and time-based:
+import logging
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
+import os
+# Size-based rotation
+def setup_rotating_logger(name: str, log_file: str, max_bytes: int = 10*1024*1024, backup_count: int = 5):
+"""Setup logger with size-based rotation"""
+logger = logging.getLogger(name)
+logger.setLevel(logging.DEBUG)
+# Create logs directory if it doesn't exist
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
+handler = RotatingFileHandler(
+log_file,
+maxBytes=max_bytes,
+# 10MB
+backupCount=backup_count
+)
+formatter = logging.Formatter(
+'%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+return logger
+# Time-based rotation
+def setup_timed_rotating_logger(name: str, log_file: str):
+"""Setup logger with time-based rotation"""
+logger = logging.getLogger(name)
+logger.setLevel(logging.DEBUG)
+# Create logs directory if it doesn't exist
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
+# Rotate daily at midnight, keep 30 days of logs
+handler = TimedRotatingFileHandler(
+log_file,
+when='midnight',
+interval=1,
+backupCount=30
+)
+formatter = logging.Formatter(
+'%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+return logger
+# Example usage
+app_logger = setup_rotating_logger('myapp', 'logs/app.log')
+access_logger = setup_timed_rotating_logger('myapp.access', 'logs/access.log')
+Enter fullscreen mode
+Exit fullscreen mode
+Size-based rotation creates new files when logs reach a specified size, while time-based rotation creates new files at regular intervals. Choose based on your application's logging volume and compliance requirements.
+Proper log management extends beyond storage - it must also capture meaningful information when errors occur.
+8. Combine Exception Handling with Contextual Logging
+Effective error handling requires more than just catching exceptions, it demands meaningful context that helps developers understand what went wrong and why. Integrating logging into your exception handling strategy creates a comprehensive error reporting system.
+Here's how to create a decorator that automatically logs exceptions with full context:
+import logging
+from functools import wraps
+from typing import Optional
+logger = logging.getLogger(__name__)
+class ApplicationError(Exception):
+"""Custom application exception with logging context"""
+def __init__(self, message: str, error_code: str = None, context: dict = None):
+self.message = message
+self.error_code = error_code or "GENERAL_ERROR"
+self.context = context or {}
+super().__init__(message)
+def log_exceptions(logger, reraise=True):
+"""Decorator to automatically log exceptions"""
+def decorator(func):
+@wraps(func)
+def wrapper(*args, **kwargs):
+try:
+return func(*args, **kwargs)
+except ApplicationError as e:
+logger.error(
+f"Application error in {func.__name__}: {e.message}",
+extra={
+'error_code': e.error_code,
+'context': e.context,
+'function': func.__name__
+},
+exc_info=True
+)
+if reraise:
+raise
+except Exception as e:
+logger.error(
+f"Unexpected error in {func.__name__}: {str(e)}",
+extra={'function': func.__name__},
+exc_info=True
+)
+if reraise:
+raise
+return wrapper
+return decorator
+@log_exceptions(logger)
+def process_user_data(user_data: dict):
+"""Example function with comprehensive error handling"""
+# Input validation with specific error logging
+if not user_data.get('email'):
+raise ApplicationError(
+"Email is required",
+error_code="VALIDATION_ERROR",
+context={'missing_field': 'email', 'user_data_keys': list(user_data.keys())}
+)
+try:
+# Database operation
+result = save_user_to_database(user_data)
+logger.info(
+"User data processed successfully",
+extra={
+'user_email': user_data['email'],
+'user_id': result.get('user_id'),
+'operation': 'create_user'
+}
+)
+return result
+except DatabaseConnectionError as e:
+# Specific database error handling
+logger.error(
+"Database connection failed during user creation",
+extra={
+'user_email': user_data['email'],
+'database_error': str(e),
+'retry_recommended': True
+},
+exc_info=True
+)
+raise ApplicationError(
+"Unable to save user data due to database issues",
+error_code="DATABASE_ERROR",
+context={'original_error': str(e), 'user_email': user_data['email']}
+)
+def safe_divide(a: float, b: float) -> Optional[float]:
+"""Example of exception handling with context"""
+try:
+result = a / b
+logger.debug(f"Division successful: {a} / {b} = {result}")
+return result
+except ZeroDivisionError:
+logger.error(
+"Division by zero attempted",
+extra={
+'dividend': a,
+'divisor': b,
+'operation': 'division'
+}
+)
+return None
+except Exception as e:
+logger.error(
+f"Unexpected error in division: {str(e)}",
+extra={
+'dividend': a,
+'divisor': b,
+'error_type': type(e).__name__
+},
+exc_info=True
+)
+return None
+Enter fullscreen mode
+Exit fullscreen mode
+The exc_info=True parameter captures the full stack trace, while custom exceptions carry additional context about what went wrong. This approach transforms cryptic error messages into actionable debugging information.
+In distributed systems, tracking errors becomes even more complex. Let's explore how to maintain context across service boundaries.
+9. Enable Request Tracing with Correlation IDs
+In distributed systems and microservices architectures, tracking a single request across multiple components becomes challenging. Correlation IDs provide a thread that connects all related log entries, making it possible to trace the complete journey of a request.
+Python's contextvars module provides thread-safe context that automatically propagates through async operations:
+import logging
+import uuid
+from contextvars import ContextVar
+from functools import wraps
+# Context variable for correlation ID
+correlation_id: ContextVar[str] = ContextVar('correlation_id', default=None)
+class CorrelationFilter(logging.Filter):
+"""Add correlation ID to all log records"""
+def filter(self, record):
+record.correlation_id = correlation_id.get() or 'no-correlation-id'
+return True
+def with_correlation_id(func):
+"""Decorator to ensure function runs with correlation ID"""
+@wraps(func)
+def wrapper(*args, **kwargs):
+# Generate new correlation ID if not present
+if correlation_id.get() is None:
+new_id = str(uuid.uuid4())
+correlation_id.set(new_id)
+return func(*args, **kwargs)
+return wrapper
+# Setup logger with correlation
+def setup_correlation_logging():
+logger = logging.getLogger('correlated_app')
+logger.setLevel(logging.DEBUG)
+# Create handler with correlation support
+handler = logging.StreamHandler()
+handler.addFilter(CorrelationFilter())
+formatter = logging.Formatter(
+'%(asctime)s [%(correlation_id)s] %(name)s - %(levelname)s - %(message)s'
+)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+return logger
+# Example usage
+logger = setup_correlation_logging()
+@with_correlation_id
+def handle_user_request(user_id: str):
+"""Simulate handling a user request"""
+logger.info(f"Processing request for user {user_id}")
+# Call other services
+fetch_user_data(user_id)
+update_user_activity(user_id)
+logger.info(f"Request completed for user {user_id}")
+def fetch_user_data(user_id: str):
+logger.debug(f"Fetching data for user {user_id}")
+# Simulate database call
+logger.info(f"User data retrieved for {user_id}")
+def update_user_activity(user_id: str):
+logger.debug(f"Updating activity for user {user_id}")
+# Simulate activity update
+logger.info(f"Activity updated for user {user_id}")
+Enter fullscreen mode
+Exit fullscreen mode
+Every log entry now includes the correlation ID, allowing you to filter all logs related to a specific request. This becomes invaluable when debugging issues that span multiple services or asynchronous operations.
+Different deployment environments have vastly different logging requirements. Let's explore how to adapt your configuration accordingly.
+10. Adapt Logging Configuration to Each Environment
+Different environments have different logging needs. Development environments benefit from verbose output for debugging, while production systems require balanced logging that provides insights without overwhelming storage or impacting performance.
+Here's a pattern for environment-specific configuration that scales from development to production:
+import logging
+import os
+from enum import Enum
+from typing import Dict, Any
+class Environment(Enum):
+DEVELOPMENT = "development"
+STAGING = "staging"
+PRODUCTION = "production"
+TESTING = "testing"
+class EnvironmentConfig:
+"""Environment-specific logging configuration"""
+@staticmethod
+def get_config() -> Dict[str, Any]:
+env = Environment(os.getenv('APP_ENV', 'development').lower())
+base_config = {
+"version": 1,
+"disable_existing_loggers": False,
+"formatters": {
+"simple": {
+"format": "%(levelname)s - %(message)s"
+},
+"detailed": {
+"format": "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+},
+"json": {
+"format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+"class": "pythonjsonlogger.jsonlogger.JsonFormatter"
+}
+},
+"handlers": {},
+"loggers": {},
+"root": {
+"level": "WARNING",
+"handlers": []
+}
+}
+if env == Environment.DEVELOPMENT:
+return EnvironmentConfig._development_config(base_config)
+elif env == Environment.STAGING:
+return EnvironmentConfig._staging_config(base_config)
+elif env == Environment.PRODUCTION:
+return EnvironmentConfig._production_config(base_config)
+elif env == Environment.TESTING:
+return EnvironmentConfig._testing_config(base_config)
+return base_config
+@staticmethod
+def _development_config(base_config):
+"""Development environment configuration"""
+base_config.update({
+"handlers": {
+"console": {
+"class": "logging.StreamHandler",
+"formatter": "detailed",
+"level": "DEBUG",
+"stream": "ext://sys.stdout"
+},
+"file": {
+"class": "logging.handlers.RotatingFileHandler",
+"formatter": "detailed",
+"filename": "logs/dev.log",
+"maxBytes": 10485760,
+"backupCount": 3,
+"level": "DEBUG"
+}
+},
+"loggers": {
+"myapp": {
+"level": "DEBUG",
+"handlers": ["console", "file"],
+"propagate": False
+}
+},
+"root": {
+"level": "DEBUG",
+"handlers": ["console"]
+}
+})
+return base_config
+@staticmethod
+def _production_config(base_config):
+"""Production environment configuration"""
+base_config.update({
+"handlers": {
+"console": {
+"class": "logging.StreamHandler",
+"formatter": "json",
+"level": "WARNING"
+},
+"file": {
+"class": "logging.handlers.RotatingFileHandler",
+"formatter": "json",
+"filename": "logs/production.log",
+"maxBytes": 104857600,
+# 100MB
+"backupCount": 20,
+"level": "INFO"
+}
+},
+"loggers": {
+"myapp": {
+"level": "INFO",
+"handlers": ["console", "file"],
+"propagate": False
+}
+},
+"root": {
+"level": "WARNING",
+"handlers": ["console"]
+}
+})
+return base_config
+# Usage
+def setup_environment_logging():
+"""Setup logging based on current environment"""
+import logging.config
+config = EnvironmentConfig.get_config()
+logging.config.dictConfig(config)
+logger = logging.getLogger(__name__)
+logger.info(f"Logging configured for environment: {os.getenv('APP_ENV', 'development')}")
+return logger
+Enter fullscreen mode
+Exit fullscreen mode
+This configuration system automatically adjusts log levels, formats, and destinations based on the environment. Development gets verbose console output, while production uses structured JSON with appropriate retention policies.
+Beyond configuration, logs can serve as an early warning system for potential issues.
+11. Implement Proactive Monitoring Through Log Analysis
+Logs contain valuable signals about system health that can predict failures before they impact users. By monitoring specific patterns and setting up intelligent alerts, you transform reactive debugging into proactive system maintenance.
+Here's how to build a real-time log monitor that detects anomalies and triggers alerts:
+import logging
+import re
+from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Dict
+import threading
+import time
+class LogMonitor:
+"""Monitor logs for specific patterns and trigger alerts"""
+def __init__(self, alert_callback=None):
+self.alert_callback = alert_callback or self._default_alert
+self.error_counts = defaultdict(int)
+self.thresholds = {
+'error_rate': 10,
+# errors per minute
+'critical_errors': 1,
+# immediate alert
+'repeated_errors': 5
+# same error repeated
+}
+self.error_patterns = {
+'database_error': re.compile(r'database.*error|connection.*failed', re.IGNORECASE),
+'authentication_error': re.compile(r'auth.*failed|unauthorized', re.IGNORECASE),
+'timeout_error': re.compile(r'timeout|timed out', re.IGNORECASE),
+}
+def _default_alert(self, alert_type: str, message: str):
+"""Default alert handler"""
+print(f"ALERT [{alert_type}]: {message}")
+def check_log_message(self, record):
+"""Check log message for alert conditions"""
+if record.levelno >= logging.ERROR:
+message = record.getMessage()
+# Check for critical errors
+if record.levelno >= logging.CRITICAL:
+self._trigger_alert('CRITICAL_ERROR', message)
+# Check for specific error patterns
+for pattern_name, pattern in self.error_patterns.items():
+if pattern.search(message):
+self.error_counts[pattern_name] += 1
+if self.error_counts[pattern_name] >= self.thresholds['repeated_errors']:
+self._trigger_alert(
+'REPEATED_ERROR',
+f"Repeated {pattern_name}: {message}"
+)
+# Reset counter after alert
+self.error_counts[pattern_name] = 0
+def _trigger_alert(self, alert_type: str, message: str):
+"""Trigger an alert"""
+self.alert_callback(alert_type, message)
+class AlertingHandler(logging.Handler):
+"""Custom logging handler that triggers alerts"""
+def __init__(self, monitor: LogMonitor):
+super().__init__()
+self.monitor = monitor
+def emit(self, record):
+"""Handle log record and check for alert conditions"""
+self.monitor.check_log_message(record)
+# Setup monitoring
+def setup_monitored_logging():
+"""Setup logging with monitoring and alerting"""
+def custom_alert_handler(alert_type: str, message: str):
+print(f"🚨 ALERT [{alert_type}]: {message}")
+monitor = LogMonitor(alert_callback=custom_alert_handler)
+# Create logger with alerting handler
+logger = logging.getLogger('monitored_app')
+logger.setLevel(logging.DEBUG)
+# Add standard handler
+console_handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+# Add alerting handler
+alerting_handler = AlertingHandler(monitor)
+logger.addHandler(alerting_handler)
+return logger, monitor
+# Example usage
+logger, monitor = setup_monitored_logging()
+def simulate_errors():
+"""Simulate various types of errors for testing"""
+logger.error("Database connection failed: timeout after 30 seconds")
+logger.error("Authentication failed for user john.doe@example.com")
+logger.critical("Out of memory: cannot allocate buffer")
+# Simulate repeated errors
+for i in range(6):
+logger.error("Database connection failed: server unavailable")
+Enter fullscreen mode
+Exit fullscreen mode
+This monitoring system watches for critical errors, repeated patterns, and error rate spikes. When thresholds are exceeded, it triggers alerts - allowing you to address issues before users notice them.
+To ensure your logging system works correctly when you need it most, testing is essential.
+12. Validate Logging Behavior Through Comprehensive Testing
+Testing your logging implementation ensures it functions correctly when you need it most. Well-tested logging prevents situations where critical information is missing during production incidents.
+Here's a sample comprehensive test suite that validates various logging behaviors:
+import logging
+import io
+import unittest
+from unittest.mock import patch
+import json
+class TestLogging(unittest.TestCase):
+def setUp(self):
+# Create a logger for testing
+self.logger = logging.getLogger('test_logger')
+self.logger.setLevel(logging.DEBUG)
+# Create a string stream to capture log output
+self.log_stream = io.StringIO()
+self.handler = logging.StreamHandler(self.log_stream)
+self.logger.addHandler(self.handler)
+def tearDown(self):
+# Clean up handlers
+self.logger.removeHandler(self.handler)
+self.handler.close()
+def test_log_levels(self):
+"""Test that different log levels work correctly"""
+self.logger.debug("Debug message")
+self.logger.info("Info message")
+self.logger.warning("Warning message")
+self.logger.error("Error message")
+self.logger.critical("Critical message")
+log_output = self.log_stream.getvalue()
+self.assertIn("Debug message", log_output)
+self.assertIn("Info message", log_output)
+self.assertIn("WARNING", log_output)
+self.assertIn("ERROR", log_output)
+self.assertIn("CRITICAL", log_output)
+def test_structured_logging(self):
+"""Test structured logging with extra fields"""
+formatter = logging.Formatter('%(message)s - %(user_id)s')
+self.handler.setFormatter(formatter)
+self.logger.info("User action", extra={'user_id': '12345'})
+log_output = self.log_stream.getvalue()
+self.assertIn("User action - 12345", log_output)
+def test_exception_logging(self):
+"""Test exception logging with stack traces"""
+try:
+raise ValueError("Test exception")
+except ValueError:
+self.logger.exception("An error occurred")
+log_output = self.log_stream.getvalue()
+self.assertIn("An error occurred", log_output)
+self.assertIn("ValueError: Test exception", log_output)
+self.assertIn("Traceback", log_output)
+def test_performance_impact(self):
+"""Test logging performance impact"""
+import time
+logger = logging.getLogger('perf_test')
+logger.setLevel(logging.INFO)
+# Test with logging disabled
+start_time = time.time()
+for i in range(1000):
+logger.debug(f"Debug message {i}")
+# Should be ignored
+disabled_time = time.time() - start_time
+# Test with logging enabled
+start_time = time.time()
+for i in range(1000):
+logger.info(f"Info message {i}")
+# Should be processed
+enabled_time = time.time() - start_time
+# Disabled logging should be much faster
+self.assertLess(disabled_time, enabled_time * 0.1)
+if __name__ == '__main__':
+unittest.main()
+Enter fullscreen mode
+Exit fullscreen mode
+These tests verify log levels, structured data, exception handling, and performance impact. Regular testing ensures your logging system remains reliable as your application evolves.
+With robust logging practices in place, let's explore how to scale beyond single-application logging.
+Implementing Centralized Logging for Production Systems
+While Python's built-in logging handles local file storage well, production applications benefit from centralized log management systems. These platforms aggregate logs from multiple sources, enabling comprehensive analysis and monitoring across distributed architectures.
+Benefits of Centralized Log Management
+Centralized logging transforms how teams interact with application logs:
+Unified Access: View logs from all services and applications through a single interface
+Powerful Search: Execute complex queries across millions of log entries in seconds
+Real-time Monitoring: Detect and respond to issues as they occur
+Cross-system Correlation: Connect related events across different services and timestamps
+Compliance and Retention: Meet regulatory requirements with automated log retention policies
+Collaborative Analysis: Share searches, dashboards, and insights across teams
+You can use OpenTelemetry with SigNoz as a centralized logging platform. Let's see how to implement it.
+Implementing OpenTelemetry for Vendor-Neutral Integration
+OpenTelemetry has emerged as the standard for observability data collection, offering vendor-neutral instrumentation. SigNoz was built with OpenTelemetry as a first-class citizen, making it easy to ingest logs, metrics, and traces without proprietary agents or lock-in. It provides a single, cohesive UI for all telemetry data, which simplifies debugging and reduces context switching, especially valuable when running distributed Python applications in production.
+This approach allows you to switch between different backends without changing your application code.
+Here's how to integrate OpenTelemetry with your Python logging:
+import logging
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.resources import Resource
+def setup_centralized_logging(
+endpoint: str = "http://localhost:4317",
+service_name: str = "python-app"
+):
+"""Setup centralized logging with OpenTelemetry"""
+# Create resource identifying your service
+resource = Resource.create({
+"service.name": service_name,
+"service.version": "1.0.0",
+"deployment.environment": "production"
+})
+# Setup log provider
+logger_provider = LoggerProvider(resource=resource)
+# Configure OTLP exporter (works with many backends)
+log_exporter = OTLPLogExporter(endpoint=endpoint, insecure=True)
+log_processor = BatchLogRecordProcessor(log_exporter)
+logger_provider.add_log_record_processor(log_processor)
+# Create handler for Python logging
+handler = LoggingHandler(logger_provider=logger_provider)
+# Add to root logger
+logging.getLogger().addHandler(handler)
+return logger_provider
+# Usage
+logger_provider = setup_centralized_logging(
+endpoint="your-backend-endpoint:4317",
+service_name="user-service"
+)
+# Your logs are now automatically exported
+logger = logging.getLogger(__name__)
+logger.info("Application started", extra={
+"user_count": 1000,
+"region": "us-west-2"
+})
+Enter fullscreen mode
+Exit fullscreen mode
+You can find detailed steps on how to implement logging in Python with OpenTelemetry and SigNoz in this documentation.
+Best Practices for Centralized Logging Implementation
+Successful centralized logging requires careful planning and implementation. Consider these key practices when setting up your centralized logging infrastructure:
+Maintain Structured Format: Use JSON formatting to enable efficient parsing and querying
+Enrich with Metadata: Include service identifiers, version numbers, and deployment environment in every log entry
+Implement Intelligent Sampling: Reduce volume by sampling verbose log levels while maintaining all WARNING and above
+Define Retention Strategies: Balance compliance requirements with storage costs through tiered retention policies
+Control Infrastructure Costs: Monitor log volume trends and implement alerts for unusual spikes
+Ensure Secure Transmission: Always use encrypted connections (TLS/SSL) for log transport
+Plan for Resilience: Implement local buffering to handle temporary network issues or service outages
+Centralized logging forms one pillar of observability alongside metrics and distributed tracing. Together, these tools provide the comprehensive visibility required for operating modern distributed systems effectively.
+With these practices in place, you're ready to transform your Python logging from a basic debugging tool into a powerful observability system.
+Conclusion
+Implementing effective Python logging transforms how you understand and maintain your applications. These 12 practices provide a foundation for building logging systems that enhance debugging capabilities while maintaining security and performance standards.
+Summary of Essential Practices
+Choose Log Levels Based on Impact: Match severity levels to their intended audience and use case
+Create Module-Specific Loggers: Establish clear ownership and control through hierarchical logger naming
+Structure Logs for Analysis: Enable powerful querying through consistent JSON formatting
+Protect Sensitive Data: Implement automatic redaction to prevent security breaches
+Minimize Performance Impact: Use lazy evaluation to avoid unnecessary computation
+Centralize Configuration: Maintain consistency through unified configuration management
+Automate Log Rotation: Prevent disk space issues while preserving important data
+Enhance Exception Context: Combine error handling with meaningful diagnostic information
+Enable Request Tracing: Use correlation IDs to follow operations across distributed systems
+Adapt to Environments: Configure logging appropriately for development, staging, and production
+Monitor Proactively: Transform logs into actionable alerts before issues impact users
+Validate Through Testing: Ensure logging reliability when you need it most
+Taking Action
+Begin your logging improvement journey by addressing the most critical gaps in your current implementation. Start with establishing proper log levels and named loggers, as these form the foundation for all other practices. Gradually introduce structured logging and security measures, then optimize for performance and operational needs.
+Implementation priority:
+Replace print statements with proper logging (immediate impact)
+Implement named loggers and appropriate log levels (foundation)
+Add structured logging for better searchability (medium-term benefit)
+Configure centralized logging for production systems (long-term scalability)
+As your application scales, consider implementing centralized logging to maintain visibility across distributed components. The investment in proper logging practices pays immediate dividends through faster debugging and long-term returns through improved system reliability and reduced operational overhead.
+FAQs
+What is the best way to log in Python?
+The best way to log in Python is using the built-in logging module with named loggers, structured formatting, and appropriate log levels. Always use logging.getLogger(__name__) instead of the root logger, and configure centralized logging with proper handlers for different environments.
+How can I improve Python logging performance?
+Improve Python logging performance by: 1) Using lazy evaluation with logger.isEnabledFor() checks 2) Implementing asynchronous logging with QueueHandler 3) Avoiding expensive operations in log messages 4) Using appropriate log levels 5) Implementing log sampling for high-volume applications.
+What are the different log levels in Python?
+Python has five standard logging levels: DEBUG (10), INFO (20), WARNING (30), ERROR (40), and CRITICAL (50). Use DEBUG for detailed diagnostic information, INFO for general messages, WARNING for unexpected situations, ERROR for serious problems, and CRITICAL for very serious errors.
+How do I implement structured logging in Python?
+Implement structured logging by creating custom formatters that output JSON, using the extra parameter in log calls, and consistently including relevant metadata like user_id, request_id, and operation context in your log entries.
+How can I prevent sensitive data from appearing in logs?
+Prevent sensitive data in logs by implementing custom filters that automatically redact patterns like credit cards, passwords, and API keys. Use regular expressions to identify and replace sensitive information with placeholder text like ***REDACTED***.
+Top comments (0)
+Subscribe
+Personal
+Trusted User
+Create template
+Templates let you quickly answer FAQs or store snippets for re-use.
+Submit
+Preview
+Dismiss
+Code of Conduct
+•
+Report abuse
+Are you sure you want to hide this comment? It will become hidden in your post, but will still be visible via the comment's permalink.
+Hide child comments as well
+Confirm
+For further actions, you may consider blocking this person and/or reporting abuse
+SigNoz
+Follow
+Open-source APM - alternative to DataDog, NewRelic
+👇
+🤓
+Check Github repo
+More from SigNoz
+How to View Docker Container Logs - A Complete Step-by-Step Guide
+#docker
+#tutorial
+#monitoring
+#devops
+7x more value for money than Datadog - SigNoz
+#devops
+#cloud
+#docker
+#performance
+Logs UI | An intuitive UI for Log Management
+#typescript
+#mcp
+#ai
+#tutorial
+💎 DEV Diamond Sponsors
+Thank you to our Diamond Sponsors for supporting the DEV Community
+Google AI is the official AI Model and Platform Partner of DEV
+Neon is the official database partner of DEV
+Algolia is the official search partner of DEV
+DEV Community — A space to discuss and keep up software development and manage your software career
+Home
+DEV++
+Welcome Thread
+Podcasts
+Videos
+Tags
+DEV Education Tracks
+DEV Challenges
+DEV Help
+Advertise on DEV
+DEV Showcase
+About
+Contact
+Forem Shop
+Code of Conduct
+Privacy Policy
+Terms of Use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+Made with love and Ruby on Rails. DEV Community © 2016 - 2025.
+We're a place where coders share, stay up-to-date and grow their careers.
+Log in
+Create account
