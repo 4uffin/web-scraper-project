@@ -1,0 +1,257 @@
+How to Align by Device and Fill `Null` Values in Apache IoTDB Tree Model? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to Align by Device and Fill `Null` Values in Apache IoTDB Tree Model?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+23 times
+1
+I have two time series in Apache IoTDB 2.0.5, both with some null values at certain timestamps:
+INSERT INTO `root.db.YJEUG88.tms.ch14.m1.DDC001`(`time`, value) VALUES (2025-09-16T14:15:28.000, 12.0), (2025-09-16T14:15:58.000, 10.0), (2025-09-16T14:16:28.000, 11.0), (2025-09-16T14:16:58.000, `NULL`), (2025-09-16T14:17:28.000, 12.0), (2025-09-16T14:17:58.000, 18.0);
+INSERT INTO `root.db.YJEUG88.tms.ch14.m2.DAV001`(`time`, value) VALUES (2025-09-16T14:15:28.000, 14.0), (2025-09-16T14:15:58.000, 20.0), (2025-09-16T14:16:28.000, `NULL`), (2025-09-16T14:16:58.000, 21.0), (2025-09-16T14:17:28.000, 22.0), (2025-09-16T14:17:58.000, 12.0);
+I want to align the data by device and fill in the null values.
+So I execute the following query,
+SELECT value FROM `root.db.YJEUG88.tms.ch14`.*.DDC001, `root.db.YJEUG88.tms.ch14`.*.DAV001 WHERE `time` >= 2025-09-16T14:15:40.000 AND `time` < 2025-09-16T14:17:40.000 align by device fill(previous)
+And it throws an error:
+Msg: org.apache.iotdb.jdbc.IoTDBSQLException: 700: Error occurred while parsing SQL to physical plan: line 1:179 mismatched input 'fill' expecting {<EOF>, ';'}
+If I remove FILL or swap the order of ALIGN and FILL, the query executes without errors, but the null values are missing:
+SELECT value FROM `root.db.YJEUG88.tms.ch14`.*.DDC001, `root.db.YJEUG88.tms.ch14`.*.DAV001 WHERE `time` >= 2025-09-16T14:15:40.000 AND `time` < 2025-09-16T14:17:40.000 align by device
+SELECT value FROM `root.db.YJEUG88.tms.ch14`.*.DDC001, `root.db.YJEUG88.tms.ch14`.*.DAV001 WHERE `time` >= 2025-09-16T14:15:40.000 AND `time` < 2025-09-16T14:17:40.000 fill(previous) align by device
++-----------------------------+----------------------------------+-----+
+| `Time`| Device|value|
++-----------------------------+----------------------------------+-----+
+|2025-09-16T14:15:58.000+08:00|`root.db.YJEUG88.tms.ch14.m1.DDC001`| 10.0|
+|2025-09-16T14:16:28.000+08:00|`root.db.YJEUG88.tms.ch14.m1.DDC001`| 11.0|
+|2025-09-16T14:17:28.000+08:00|`root.db.YJEUG88.tms.ch14.m1.DDC001`| 12.0|
+|2025-09-16T14:15:58.000+08:00|`root.db.YJEUG88.tms.ch14.m2.DAV001`| 20.0|
+|2025-09-16T14:16:58.000+08:00|`root.db.YJEUG88.tms.ch14.m2.DAV001`| 21.0|
+|2025-09-16T14:17:28.000+08:00|`root.db.YJEUG88.tms.ch14.m2.DAV001`| 22.0|
++-----------------------------+----------------------------------+-----+
+If I remove ALIGN, the query runs without errors, but the results are not aligned by device:
+SELECT value FROM `root.db.YJEUG88.tms.ch14`.*.DDC001, `root.db.YJEUG88.tms.ch14`.*.DAV001 WHERE `time` >= 2025-09-16T14:15:40.000 AND `time` < 2025-09-16T14:17:40.000 fill(previous)
++-----------------------------+----------------------------------------+----------------------------------------+
+| `Time`|`root.db.YJEUG88.tms.ch14.m1.DDC001.value`|`root.db.YJEUG88.tms.ch14.m2.DAV001.value`|
++-----------------------------+----------------------------------------+----------------------------------------+
+|2025-09-16T14:15:58.000+08:00| 10.0| 20.0|
+|2025-09-16T14:16:28.000+08:00| 11.0| 20.0|
+|2025-09-16T14:16:58.000+08:00| 11.0| 21.0|
+|2025-09-16T14:17:28.000+08:00| 12.0| 22.0|
++-----------------------------+----------------------------------------+----------------------------------------+
+I want the query result to be aligned by device while filling null values (using FILL(previous)), like this:
++-----------------------------+----------------------------------+-----+
+| `Time`| Device|value|
++-----------------------------+----------------------------------+-----+
+|2025-09-16T14:15:58.000+08:00|`root.db.YJEUG88.tms.ch14.m1.DDC001`| 10.0|
+|2025-09-16T14:16:28.000+08:00|`root.db.YJEUG88.tms.ch14.m1.DDC001`| 11.0|
+|2025-09-16T14:16:58.000+08:00|`root.db.YJEUG88.tms.ch14.m1.DDC001`| 11.0| -- Filled `null`
+|2025-09-16T14:17:28.000+08:00|`root.db.YJEUG88.tms.ch14.m1.DDC001`| 12.0|
+|2025-09-16T14:15:58.000+08:00|`root.db.YJEUG88.tms.ch14.m2.DAV001`| 20.0|
+|2025-09-16T14:16:28.000+08:00|`root.db.YJEUG88.tms.ch14.m2.DAV001`| 20.0| -- Filled `null`
+|2025-09-16T14:16:58.000+08:00|`root.db.YJEUG88.tms.ch14.m2.DAV001`| 21.0|
+|2025-09-16T14:17:28.000+08:00|`root.db.YJEUG88.tms.ch14.m2.DAV001`| 22.0|
++-----------------------------+----------------------------------+-----+
+How should I adjust the SQL query to achieve both alignment by device and null value filling?
+apache-iotdb
+Share
+Improve this question
+Follow
+asked 5 hours ago
+Tampa TommyTampa Tommy
+1122 bronze badges
+New contributor
+Tampa Tommy is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+Add a comment
+|
+Related questions
+0
+How to fill the null values within certain time range and gnerate a reasonable data curve trend in Apache IoTDB?
+0
+How to query latest value of large amount of devices that are all aligned in Apache IoTDB?
+1
+How to query the time duration of the same value within a given time range in Apache IoTDB?
+Related questions
+0
+How to fill the null values within certain time range and gnerate a reasonable data curve trend in Apache IoTDB?
+0
+How to query latest value of large amount of devices that are all aligned in Apache IoTDB?
+1
+How to query the time duration of the same value within a given time range in Apache IoTDB?
+0
+How to change and update the tree data structure of Apache IoTDB?
+0
+After updating to Version 1.0.1, how can I successfully use "fill(previous)" to fill blank values in Apache IoTDB?
+0
+How to query out the first time series data and filter the null values in Apache IoTDB?
+0
+How to name the device in Apache IoTDB that needs to be checked in tree modelling?
+0
+How can I name the device and measured value under certain measurement point of Apache IoTDB?
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+apache-iotdb
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Does clipping distortion affect the information contained within a frequency-modulated signal?
+Verify a Chinese ID Number
+Removing temporary LaTeX files
+Smoothing a triangulated surface without changing its quasi-isometry class
+Comparing a combination of data from two columns to another combination from other two columns
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+At high pressures, is aromaticity affected?
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Identifying voltage regulator on induction hob (marked FF 04)
+How can an alien symbiote coexist with the immune system long-term?
+What happened to all of the energy created at the Big Bang when the matter and antimatter annihilated each other?
+What is this glass device I found next to drinking glasses in the south of France
+Yet Another Python Weather Visualizer using Open-Meteo
+Quantizing EM field by imposing canonical commutation relations
+If 3-D is too easy, go 4-D
+What license to use when extending a pre-existing library?
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+Could our telescopes detect a type I civilisation
+Are there any alternatives to electricity that work/behave in a similar way?
+What does "transform into the character pulled into the UFO" mean?
+General inquiries about the Ersatzinfinitiv
+Using Switch to return a value depending on the sign of a real number
+What does "my left a** cheek" mean?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

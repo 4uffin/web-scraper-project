@@ -1,0 +1,310 @@
+kubernetes helm - Can't iterate through lists in scalar blocks - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Can't iterate through lists in scalar blocks
+Ask Question
+Asked
+2 days ago
+Modified
+yesterday
+Viewed
+45 times
+0
+I have a values.yaml file as follows:
+myTest: |-
+- name: app1
+url: https://example.com/app1
+- name: app2
+url: https://example.com/app2
+Now I want to deploy a Helm chart which has a template file as follows:
+{{- range $i, $item := .Values.myTest | fromYaml }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+name: config-{{ $item.name }}
+data:
+url: {{ $item.url }}
+---
+{{- end }}
+When I try deploying the chart, I get the error:
+<$item.name>: can't evaluate field name in type interface {}
+How can I resolve this error?
+kubernetes-helmgo-templates
+Share
+Improve this question
+Follow
+edited yesterday
+agilgur5
+2,03144 gold badges4444 silver badges6363 bronze badges
+asked 2 days ago
+user1657425user1657425
+311 silver badge33 bronze badges
+3
+It looks like you might want to use fromYamlArray instead of fromYaml
+agilgur5
+–
+agilgur5
+2025-09-24 07:16:03 +00:00
+Commented
+yesterday
+1
+Can you change the values format to directly contain the list of name/URL pairs, without embedding it in a string?
+This will be easier to process in your chart and easier to supply from other tools at deployment time.
+David Maze
+–
+David Maze
+2025-09-24 10:24:24 +00:00
+Commented
+yesterday
+1
+@agilgur5 Thank you for the detailed explanation. Super helpful for future debugging too.
+user1657425
+–
+user1657425
+2025-09-24 12:30:27 +00:00
+Commented
+yesterday
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1
+Per my comment, you can fix this by using fromYamlArray instead of fromYaml, since you have an array, not a map structure:
+{{- range $i, $item := .Values.myTest | fromYamlArray }}
+Debugging the error
+<$item.name>: can't evaluate field name in type interface {}
+To help you debug, you can use helm template with the --debug flag, which will print invalid YAML and a trace. For instance:
+helm template ./ --debug
+This doesn't help with your current template, but if you simplify it a bit for troubleshooting purposes, you can see some hints of the problem:
+{{- range $i, $item := .Values.myTest | fromYaml }}
+num: {{ $i }}
+item: item-{{ $item }}
+---
+{{- end }}
+Re-running the command above, you'll get output of something like:
+install.go:178: [debug] Original chart version: ""
+install.go:195: [debug] CHART PATH: path-to-your-chart-here
+---
+# Source: your-filepath-here.yaml
+num: Error
+item: item-error unmarshaling JSON: while decoding JSON: json: cannot unmarshal array into Go value of type map[string]interface {}
+---
+Error: YAML parse error on your-filepath-here.yaml: error converting YAML to JSON: yaml: line 2: mapping values are not allowed in this context
+helm.go:84: [debug] error converting YAML to JSON: yaml: line 2: mapping values are not allowed in this context
+Followed by a stack trace.
+Interestingly, you can spot an error in the output:
+error unmarshaling JSON: while decoding JSON: json: cannot unmarshal array into Go value of type map[string]interface {}
+This swallowed error is saying that your array was unable to be unmarshaled into a map[string]interface {} type that fromYaml expects, which is exactly why you need fromYamlArray instead.
+Digging deeper
+I'll dive into the output a bit further for educational and debugging purposes.
+Looking at the debug output's template closer, it looks like the error message was interpolated into the template. If you simplify the template a bit further:
+{{- $items := .Values.myTest | fromYaml }}
+items: item-{{ $items }}
+and re-run the command again, you'll see:
+# [...]
+---
+# Source: your-filepath-here.yaml
+items: items-map[Error:error unmarshaling JSON: while decoding JSON: json: cannot unmarshal array into Go value of type map[string]interface {}]
+Error: YAML parse error on your-filepath-here.yaml: error converting YAML to JSON: yaml: mapping values are not allowed in this context
+helm.go:84: [debug] error converting YAML to JSON: yaml: mapping values are not allowed in this context
+# [...]
+From this output we can infer that the type of $item is map[string]string with a key of "Error" with a value of "error unmarshaling JSON...". Or, in Go code:
+items := map[string]string{"Error": "error unmarshaling JSON..."};
+As this is a map, you actually can iterate through it with range. In Go, that would be:
+for key, value := range items {
+fmt.Println("Key:", key, "Value:", value)
+}
+So in your original line:
+{{- range $i, $item := .Values.myTest | fromYaml }}
+$i and $item are actually the key-value pair of the swallowed error that you get from .Values.myTest | fromYaml. As such, $item.name tries to access the field name in the value, which doesn't exist, resulting in your original error:
+<$item.name>: can't evaluate field name in type interface {}
+A bit confusingly, it's a broader type of interface {} instead of string as map[string]interface {} is what fromYaml returns, as mentioned at the end of the prior section.
+Parting notes
+helm template with the --debug flag can be quite helpful for understanding what went wrong during templating, and you can troubleshoot down to a more minimal template to find some swallowed errors too.
+Some knowledge of the implementation language, Go, can also be helpful for deciphering Helm's sometimes cryptic error messages as well. In particular, familiarity with some basic types and data structures as well as common types of marshaling/unmarshaling errors can make them a bit more recognizable (which I certainly learned the hard way myself, having learned Helm before any Go 😅).
+Share
+Improve this answer
+Follow
+edited yesterday
+answered yesterday
+agilgur5agilgur5
+2,03144 gold badges4444 silver badges6363 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+kubernetes-helmgo-templates
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+43
+ingress.yaml template returns error in renderring --> nil pointer evaluating interface {}.service
+0
+Kafka-exporter deployment with custom configmap
+2
+Error on Telegraf Helm Chart update: Error parsing data
+0
+Helm library chart returning can't evaluate field Values in type []interface {}
+17
+How to include nested value in helm template
+2
+helm: how to mount configMap if not supported by values.yaml?
+4
+How can I use a json file in my configmap.yaml (Helm)?
+15
+helm - programmatically override subchart values.yaml
+Hot Network Questions
+If 3-D is too easy, go 4-D
+How can blood fuel space travel?
+How does a telepathic bond work if the bondee lacks language?
+In the U.S., what protections are in place to help (under)graduate students whose entire department is removed?
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+Identifying voltage regulator on induction hob (marked FF 04)
+Short story about a metal-eating alien
+How to design a circuit that outputs the binary position of the 3rd set bit from the right in an 8-bit input?
+What "real mistakes" exist in the Messier catalog?
+Quantizing EM field by imposing canonical commutation relations
+I'm having a hard time intuiting throttle position to engine rpm consistency between gears -- why do cars behave in this observed way?
+Separating trefoil knot on torus
+In Justice Kagan's "Congress, as everyone agrees, prohibited each of those presidential removals." who exactly is "everyone"?
+What does it mean for work to be done ON a system?
+Best solution to prevent loop between tables for granular relations
+What happened to all of the energy created at the Big Bang when the matter and antimatter annihilated each other?
+What is this glass device I found next to drinking glasses in the south of France
+Could our telescopes detect a type I civilisation
+How to handle a warlock with Aspect of the Moon and Visions of Distant Realms?
+Can the price of a gap option be negative?
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+Are there any alternatives to electricity that work/behave in a similar way?
+Smoothing a triangulated surface without changing its quasi-isometry class
+How to use ≥ 16 usbip ports from one host controller on Debian?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

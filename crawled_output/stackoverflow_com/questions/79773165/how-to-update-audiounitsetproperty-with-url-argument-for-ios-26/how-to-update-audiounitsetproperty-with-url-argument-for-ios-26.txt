@@ -1,0 +1,315 @@
+swift - How to update AudioUnitSetProperty with URL argument for iOS 26? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to update AudioUnitSetProperty with URL argument for iOS 26?
+Ask Question
+Asked
+2 days ago
+Modified
+2 days ago
+Viewed
+42 times
+Part of Mobile Development Collective
+0
+My app can play Standard MIDI Files with an AVAudioUnitMIDIInstrument. I've been setting a sound font like this, where soundfontURL is a Swift URL object:
+AudioUnitSetProperty(audioUnit, kMusicDeviceProperty_SoundBankURL, kAudioUnitScope_Global, AudioUnitElement(0), &soundfontURL, UInt32(MemoryLayout.size(ofValue: soundfontURL)))
+In iOS 26, this crashes with the following backtrace:
+Crashed: com.apple.main-thread
+SIGABRT ABORT 0x00000002424200cc
+0
+libsystem_kernel.dylib
+__pthread_kill + 8
+1
+libsystem_pthread.dylib pthread_kill + 268
+2
+libsystem_c.dylib
+abort + 124
+3
+libswiftCore.dylib
+<redacted> + 142
+4
+libswiftCore.dylib
+<redacted> + 30
+5
+libswiftCore.dylib
+<redacted> + 142
+6
+CoreFoundation
+<redacted> + 1472
+7
+CoreFoundation
+_CF_forwarding_prep_0 + 96
+8
+CoreFoundation
+CFURLGetFileSystemRepresentation + 196
+9
+libEmbeddedSystemAUs.dylib
+AccessURLAsset(__CFURL const*, int)
+10
+libEmbeddedSystemAUs.dylib
+MIDISynth::SetProperty(unsigned int, unsigned int, unsigned int, void const*, unsigned int)
+11
+libEmbeddedSystemAUs.dylib
+ausdk::AUBase::DispatchSetProperty(unsigned int, unsigned int, unsigned int, void const*, unsigned int)
+12
+libEmbeddedSystemAUs.dylib
+ausdk::AUMethodSetProperty(void*, unsigned int, unsigned int, unsigned int, void const*, unsigned int)
+Xcode shows the following warning on this line of code:
+Forming 'UnsafeRawPointer' to a variable of type 'URL'; this is likely incorrect because 'URL' may contain an object reference.
+So I tried to convert the URL object to an UnsafeRawPointer explicitly rather than passing it as a reference as described in the Apple documentation, and came up with this:
+if let urlData = String.toData(soundfontURL.absoluteString) {
+urlData.withUnsafeBytes { (u8Ptr: UnsafePointer<UInt8>) in
+let urlPointer = UnsafeRawPointer(u8Ptr)
+AudioUnitSetProperty(audioUnit, kMusicDeviceProperty_SoundBankURL, kAudioUnitScope_Global, AudioUnitElement(0), urlPointer, UInt32(MemoryLayout.size(ofValue: urlPointer)))
+}
+}
+But the same line of code is still crashing, so I don't know if this isn't the right solution to the problem, or if it isn't even the right problem.
+Does anyone know how to correctly pass a URL argument in the AudioUnitSetProperty in iOS 26?
+By the way, the soundfontURL does point to a valid file and the code was working on iOS 18.
+iosswiftcore-audio
+Share
+Improve this question
+Follow
+asked 2 days ago
+arlomediaarlomedia
+9,11355 gold badges6666 silver badges115115 bronze badges
+0
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+3
+I suspect the function is expecting a pointer to a CFURLRef, but you are giving it a pointer to a Swift URL. It should work if you cast it to CFURL in Swift first,
+withUnsafePointer(to: soundfontURL as CFURL) { ptr in
+AudioUnitSetProperty(..., ptr, UInt32(MemoryLayout.size(ofValue: ptr)))
+}
+withUnsafePointer basically does the same thing as using the & prefix on a variable. The only difference is that the former doesn't produce the warning. See here for a more detailed explanation.
+Based on my investigation, what changed in iOS 26 is that the Swift URL no longer automatically becomes CFURL/NSURL when it goes to the Objective-C side. Instead, it is now a Foundation._SwiftURL.
+For example, if you call this from Swift:
+void somethingTakingURL(const void * url) {
+CFStringRef s = CFURLGetString(*(CFURLRef *)url);
+}
+withUnsafePointer(to:
+URL(string: "https://google.com")!) {
+somethingTakingURL($0)
+}
+It will produce an error
+Unrecognized selector -[Foundation._SwiftURL relativeString]
+Share
+Improve this answer
+Follow
+answered 2 days ago
+SweeperSweeper
+289k2323 gold badges257257 silver badges429429 bronze badges
+4 Comments
+Add a comment
+matt matt 2 days ago
+Seems like more a Swift language change than an iOS 26 change... 2025-09-24T02:45:03.667Z+00:00
+0
+Reply
+Copy link
+Sweeper Sweeper 2 days ago
+@matt Yeah the compiler probably needed to change as well, but IMO the more important change here is that there is now a _SwiftURL type in the iOS 26 version of Foundation. 2025-09-24T02:49:47.597Z+00:00
+0
+Reply
+Copy link
+Sweeper Sweeper 2 days ago
+@matt I think the compiler would emit code that uses Foundation._SwiftURL for pure Swift code, and would emit code that bridges it to NSURL/CFURL when it is passed to a parameter of that type. But in this case the parameter type is UnsafeRawPointer, so the _SwiftURL is passed, without bridging. 2025-09-24T02:53:09.47Z+00:00
+0
+Reply
+Copy link
+arlomedia arlomedia 2 days ago
+Your solution worked, and thanks for the additional explanation. I had tried simply casting the URL to CFURL, but Xcode still showed the same warning, so I didn't even try running it -- but I tried it now and that also works. 2025-09-24T04:33:17.66Z+00:00
+0
+Reply
+Copy link
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+iosswiftcore-audio
+See similar questions with these tags.
+Mobile Development
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Linked
+1
+Is Swift 5.10 warning about "likely incorrect" actually incorrect for optional `CFType`s?
+Related
+1413
+How can I check for an active Internet connection on iOS or macOS?
+1096
+How to change Status Bar text color in iOS
+1
+SIGABRT ABORT crash on iOS swift
+0
+Crash on iOS9 when I use xcode10
+1173
+How can I change the name of an iOS app in Xcode?
+953
+Xcode building for iOS Simulator, but linking in an object file built for iOS, for architecture 'arm64'
+909
+How to check iOS version?
+4
+App crashing immediately on start up, on device only
+3
+Unable to understand Apple Crash Log with -[NSObject(NSObject) doesNotRecognizeSelector:]
+17
+iOS uiwebview crash in WebThread
+Hot Network Questions
+What does it mean for work to be done ON a system?
+Simplification of an analytically evaluated integral expressed in terms of elliptic integrals
+Does pseudo-vitae revenants produce replenish vitae in Kindred?
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Are there injections that combine 80 different vaccines?
+In Justice Kagan's "Congress, as everyone agrees, prohibited each of those presidential removals." who exactly is "everyone"?
+Which driving direction syncs with Quebec’s and Maritime Canada’s autumn leaf colors?
+Yet Another Python Weather Visualizer using Open-Meteo
+Where was the Kenya sequence in The Crown Episode 1 filmed?
+In the U.S., what protections are in place to help (under)graduate students whose entire department is removed?
+Change the font for the dagger symbol in math mode
+Identifying a movie where a man relives the same day
+Removing temporary LaTeX files
+Prove that the sequences of numbers coincide
+Traveling by car on train in Germany
+How to draw the following graph in latex?
+How do trees drop their leaves?
+What is the exact meaning of olcAccess: {1}to dn.exact="" by * read
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+Does clipping distortion affect the information contained within a frequency-modulated signal?
+What is this glass device I found next to drinking glasses in the south of France
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+How can blood fuel space travel?
+What is the song that plays in "Highlander," season 6, episode 13?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-swift
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

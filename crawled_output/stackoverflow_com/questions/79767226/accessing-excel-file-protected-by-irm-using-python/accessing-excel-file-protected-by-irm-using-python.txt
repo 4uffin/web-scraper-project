@@ -1,0 +1,369 @@
+How to open a password protected excel file using python? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to open a password protected excel file using python?
+Ask Question
+Asked
+11 years, 11 months ago
+Modified
+3 years, 8 months ago
+Viewed
+120k times
+23
+I looked at the previous threads regarding this topic, but they have not helped solve the problem.
+how to read password protected excel in python
+How to open write reserved excel file in python with win32com?
+I'm trying to open a password protected file in excel without any user interaction.
+I searched online, and found this code which uses win32com.client
+When I run this, I still get the prompt to enter the password...
+from xlrd import *
+import win32com.client
+import csv
+import sys
+xlApp = win32com.client.Dispatch("Excel.Application")
+print "Excel library version:", xlApp.Version
+filename,password = r"\\HRA\Myfile.xlsx", 'caa team'
+xlwb = xlApp.Workbooks.Open(filename, Password=password)
+pythonexcelfile-iopasswordsprotected
+Share
+Improve this question
+Follow
+edited May 23, 2017 at 11:53
+CommunityBot
+111 silver badge
+asked Oct 18, 2013 at 13:25
+SchackSchack
+88322 gold badges77 silver badges1818 bronze badges
+Add a comment
+|
+5 Answers
+5
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+38
+I recently discovered a Python library that makes this task simple.
+It does not require Excel to be installed and, because it's pure Python, it's cross-platform too!
+msoffcrypto-tool supports password-protected (encrypted) Microsoft Office documents, including the older XLS binary file format.
+Install msoffcrypto-tool:
+pip install msoffcrypto-tool
+You could create an unencrypted version of the workbook from the command line:
+msoffcrypto-tool Myfile.xlsx Myfile-decrypted.xlsx -p "caa team"
+Or, you could use msoffcrypto-tool as a library. While you could write an unencrypted version to disk like above, you may prefer to create an decrypted in-memory file and pass this to your Python Excel library (openpyxl, xlrd, etc.).
+import io
+import msoffcrypto
+import openpyxl
+decrypted_workbook = io.BytesIO()
+with open('Myfile.xlsx', 'rb') as file:
+office_file = msoffcrypto.OfficeFile(file)
+office_file.load_key(password='caa team')
+office_file.decrypt(decrypted_workbook)
+# `filename` can also be a file-like object.
+workbook = openpyxl.load_workbook(filename=decrypted_workbook)
+Share
+Improve this answer
+Follow
+answered Mar 30, 2021 at 22:13
+eidorbeidorb
+64111 gold badge77 silver badges99 bronze badges
+2 Comments
+Add a comment
+dancow dancow Over a year ago
+I cannot upvote this solution enough. Unlike various other solutions (such as using xlwings), this method allows you to read the decrypted data with the library you're already using, e.g. pandas.read_excel(decrypted_workbook) or openpyxl.load_workbook(decrypted_workbook) 2022-03-12T00:25:22.63Z+00:00
+10
+Reply
+Copy link
+KailiC KailiC Jul 29 at 2:36
+Anyone encounters this error code msoffcrypto.exceptions.FileFormatError: Not an OLE file? 2025-07-29T02:36:43Z+00:00
+0
+Reply
+Copy link
+26
+I don't think that named parameters work in this case. So you'd have to do something like:
+xlwb = xlApp.Workbooks.Open(filename, False, True, None, password)
+See http://msdn.microsoft.com/en-us/library/office/ff194819.aspx for details on the Workbooks.Open method.
+Share
+Improve this answer
+Follow
+edited Aug 28, 2020 at 9:34
+user459872
+25.8k44 gold badges5151 silver badges7474 bronze badges
+answered Jan 21, 2014 at 13:39
+Bjoern StielBjoern Stiel
+4,19111 gold badge2424 silver badges2020 bronze badges
+Comments
+Add a comment
+1
+If your file size is small, you can probably save that as ".csv".
+and then read
+It worked for me :)
+Share
+Improve this answer
+Follow
+answered Apr 17, 2020 at 9:38
+GpandaMGpandaM
+4744 bronze badges
+Comments
+Add a comment
+-1
+Openpyxl Package works if you are using linux system. You can use secure the file by setting up a password and open the file using the same password.
+For more info:
+https://www.quora.com/How-do-I-open-read-password-protected-xls-or-xlsx-Excel-file-using-python-in-Linux
+Share
+Improve this answer
+Follow
+answered Jun 19, 2019 at 7:41
+RajRaj
+63344 gold badges1818 silver badges3232 bronze badges
+2 Comments
+Add a comment
+Chuck Chuck Over a year ago
+No, this doesn't work. I looked and found that Openpyxl cannot open a password-protected Excel. 2022-01-03T19:54:53.233Z+00:00
+1
+Reply
+Copy link
+Laszlo Marai Laszlo Marai Over a year ago
+This link doesn't point to a specific answer but to the Quora question itself and there are a bunch of guesses (and ignorant non-answers) there. There may have been only a single answer when you added the link but this is definitely not the case anymore. 2024-05-16T08:58:22.157Z+00:00
+0
+Reply
+Copy link
+-2
+Thank you so much for the great answers on this topic. Trying to collate all of it. My requirement was to open a bunch of password protected excel files ( all had same password ) so that I could do some more processing on those. Please find the code below.
+import pandas as pd
+import os
+from xlrd import *
+import win32com.client as w3c
+import csv
+import sys
+from tempfile import NamedTemporaryFile
+df_list=[]
+#
+print(len(files))
+for f in files:
+#
+print(f)
+if('.xlsx' in f):
+xlwb = xlapp.Workbooks.Open('C:\\users\\files\\'+f, False, True, None, 'password')
+temp_f = NamedTemporaryFile(delete=False, suffix='.csv')
+temp_f.close()
+os.unlink(temp_f.name)
+xlwb.SaveAs(Filename=temp_f.name, FileFormat=xlCSVWindows)
+df = pd.read_csv(temp_f.name,encoding='Latin-1')
+# Read that CSV from Pandas
+df.to_excel('C:\\users\\files\\password_removed\\'+f)
+Share
+Improve this answer
+Follow
+edited Jan 4, 2022 at 10:31
+answered Apr 9, 2021 at 5:52
+pnvpnv
+1,50933 gold badges2525 silver badges5858 bronze badges
+1 Comment
+Add a comment
+Chuck Chuck Over a year ago
+FYI this doesn't work as is, you gotta set xlapp as you did originally 2022-01-03T21:44:19.583Z+00:00
+0
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+pythonexcelfile-iopasswordsprotected
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Visit chat
+Linked
+0
+Accessing Excel File protected by IRM using Python
+22
+From password-protected Excel file to pandas DataFrame
+4
+win32com Excel.Application can't open documents anymore
+8
+Working with Password Protected Excel Sheets in Python on Linux
+2
+How to open write reserved excel file in python with win32com?
+1
+how to read password protected excel in python
+2
+Python openpyxl error: BadZipFile: File is not a zip file
+2
+How do I use py32win to automate opening powerpoint files with password?
+2
+How to open / read password protected xls or xlsx (Excel) file using python in Linux?
+0
+How to password-protect an XLSX file in Python
+See more linked questions
+Related
+1
+Code To Open Password Protected Excel File
+1
+how to read password protected excel in python
+22
+From password-protected Excel file to pandas DataFrame
+1
+Python xlrd - open_workbook method with password protected worksheets
+8
+Working with Password Protected Excel Sheets in Python on Linux
+6
+Password Protecting Excel file using Python
+3
+From Password Protected Excel File to Python Object
+2
+xlsxwriter set password to open document?
+0
+Hide the password to get data from a protected excel file without user intervention
+1
+Openpyxl password protect excel file python
+Hot Network Questions
+What license to use when extending a pre-existing library?
+Convex sets, tangent cones and convergence
+List of crowdsourced math projects actively seeking participants
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+Quantizing EM field by imposing canonical commutation relations
+Are there any problems with mastering my own music?
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+Another Slitherlink Next Step
+Traveling by car on train in Germany
+Using Switch to return a value depending on the sign of a real number
+Yet Another Python Weather Visualizer using Open-Meteo
+Woman from bubble city where all men are infertile meets fertile man from another city
+In the U.S., what protections are in place to help (under)graduate students whose entire department is removed?
+Why would disembarking a few passengers delay a flight by 3 hours?
+If 3-D is too easy, go 4-D
+How can blood fuel space travel?
+Can a state execute an ICC arrest warrant in international waters?
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+How do I make the middle of the bill curve up?
+Can I salvage this drywall patch project?
+Smoothing a triangulated surface without changing its quasi-isometry class
+How to crack ECC using halving
+In Justice Kagan's "Congress, as everyone agrees, prohibited each of those presidential removals." who exactly is "everyone"?
+Time traveler named Tom/John forgets device, Penelope Weschler, machine harvests Earth's spin
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-py
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

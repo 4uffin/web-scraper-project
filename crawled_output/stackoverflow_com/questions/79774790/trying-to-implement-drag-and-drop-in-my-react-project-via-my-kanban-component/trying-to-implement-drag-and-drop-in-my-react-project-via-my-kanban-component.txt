@@ -1,0 +1,462 @@
+typescript - Trying to implement drag and drop in my React project via my Kanban component - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Trying to implement drag and drop in my React project via my Kanban component
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+12 times
+0
+as part of a group project, I am trying to set up a kanban system similar to those used by YouTrack, Trello, and others to manage project tasks from one status to another by moving them from one column to another. To do this, I started by using << dnd-kit/core >> and its presets before discovering << dnd-kit/react >>, and more recently << Pragmatic drag and drop >>. However, I am not getting the desired result. Either the tasks are duplicated when I use the “for” loop, or there is no drag and drop, so I don't know which one would be best suited to my case between core, react, and pragmatic, whether I should change or continue with core. I am sharing the contents of these two files (Board and config) with you and, if necessary, I can provide you with more details.
+kanban view
+mesconfig:
+import type React from 'react';
+import type { MemberInterface } from '@/services/interfaces/userDataInterface';
+import {
+ClipboardCheck,
+FlaskConical,
+Loader2,
+ClipboardList,
+ClipboardClock,
+} from 'lucide-react';
+export interface ICustomStyle {
+label: string;
+backgroundColor?: string;
+color?: string;
+borderColor?: string;
+textDecoration?: string;
+icon?: React.ComponentType<{
+size?: number;
+color?: string;
+className?: string;
+}>;
+}
+export type Priority = 'HIGH' | 'MEDIUM' | 'LOW';
+export const PRIORITY_STYLES: Record<Priority, ICustomStyle> = {
+HIGH: { label: 'Haute', backgroundColor: '#f87171', color: '#fff' },
+MEDIUM: { label: 'Moyenne', backgroundColor: '#facc15', color: '#000' },
+LOW: { label: 'Basse', backgroundColor: '#34d399', color: '#000' },
+};
+export type Status = 'backlog' | 'todo' | 'in_progress' | 'to_test' | 'done';
+export const STATUS_STYLES: Record<Status, ICustomStyle> = {
+backlog: {
+label: 'Backlog',
+borderColor: '#64748b',
+color: '#64748b',
+icon: ClipboardClock,
+},
+todo: {
+label: 'À faire',
+borderColor: '#EAB308',
+color: '#EAB308',
+icon: ClipboardList,
+},
+in_progress: {
+label: 'En cours',
+borderColor: '#2563eb',
+color: '#2563eb',
+icon: Loader2,
+},
+to_test: {
+label: 'À tester',
+borderColor: '#8b5cf6',
+color: '#7c3aed',
+icon: FlaskConical,
+},
+done: {
+label: 'Terminé',
+borderColor: '#059669',
+color: '#059669',
+icon: ClipboardCheck,
+textDecoration: 'line-through',
+},
+};
+export const STATUS_LABELS: Record<Status, string> = {
+backlog: 'BACKLOG',
+todo: 'À FAIRE',
+in_progress: 'EN COURS',
+to_test: 'À TESTER',
+done: 'TERMINÉ',
+};
+export interface ITask {
+id: number;
+title: string;
+description?: string;
+priority?: Priority;
+assignees?: MemberInterface['user'][];
+status: Status;
+}
+export interface IColumn {
+id: number;
+status: Status;
+}
+export type TasksByColumn = Record<Status, ITask[]>;
+export interface KanbanProps {
+columns: IColumn[];
+tasks: TasksByColumn;
+onTaskMove: (
+taskId: number,
+from: Status,
+to: Status,
+toIndex?: number,
+) => void;
+onTaskUpdate: (taskId: number, updates: Partial<ITask>) => void;
+onTaskDelete: (taskId: number) => void;
+className?: string;
+}
+and my board:
+import { useState, useCallback, useMemo } from "react";
+import {
+DndContext,
+PointerSensor,
+useSensor,
+useSensors,
+type DragStartEvent,
+type DragEndEvent,
+DragOverlay,
+closestCorners,
+} from "@dnd-kit/core"
+import ColumnContainer from "@/components/projectLanding/kanbanComp/KanbanColumn"
+import TaskCard from "@/components/projectLanding/kanbanComp/KanbanTask"
+import type { ITask, KanbanProps, Status } from "@/services/interfaces/kanbanConfig"
+/**
+* KanbanBoard:
+* - Manages the Kanban board with drag & drop
+* - Detects movements between columns or within the same column
+* - Uses status as key to organize tasks
+*/
+const KanbanBoard = ({
+columns,
+tasks,
+onTaskMove,
+onTaskUpdate,
+onTaskDelete,
+className,
+}: KanbanProps) => {
+const sensors = useSensors(
+useSensor(PointerSensor, {
+activationConstraint: {
+distance: 10,
+},
+})
+);
+// State to track the currently active (dragged) task
+const [activeTask, setActiveTask] = useState<ITask | null>(null);
+// Memoized accessor to get tasks by status and keep stable ref between renders
+const tasksByStatus = useMemo(
+() => (s: Status) => tasks[s] || [],
+[tasks]
+);
+/**
+* Handle drag start event
+* - Retrieves the active task data from the useSortable in the TaskCard
+* - Sets the active task state to show in the DragOverlay
+*/
+const handleDragStart = useCallback((event: DragStartEvent) => {
+const { active } = event;
+// Get the active task data from the useSortable in the TaskCard
+const task = active.data.current?.task as ITask | undefined;
+if (task) setActiveTask(task);
+}, []);
+/**
+* Handle drag end event
+* - Determines source and target columns and indices
+* - Calls onTaskMove if the task was moved to a different position or column
+* - Resets the active task state to hide the DragOverlay
+*/
+const handleDragEnd = useCallback((event: DragEndEvent) => {
+const { active, over } = event;
+setActiveTask(null);
+if (!over) {
+console.log("Aucune cible n'a été détectée, le drag est annulé");
+return;
+}
+console.log(" Vérification des datas : ", {
+activeData: active.data.current,
+activeId: active.id,
+overData: over.data.current,
+overId: over.id,
+});
+const taskId = active.id as number;
+let from = active.data.current?.container as Status | undefined;
+for (const status in tasks) {
+if (tasks[status as Status].some(task => task.id === taskId)) {
+from = status as Status;
+break;
+}
+}
+if (!from) {
+console.error("Impossible de déterminer la colonne source du déplacement");
+return;
+}
+const oldIndex = active.data.current?.index as number | undefined;
+const to = over.data.current?.container as Status | undefined;
+if (!from || !to) return;
+let toIndex: number | undefined;
+if (over.data.current?.type === "column") {
+const targetList = tasks[to] || [];
+toIndex = targetList.length;
+} else {
+// Dropped on a task; compute index in target list
+const targetList = tasks[to] || [];
+const overId = over.id as number;
+// find index of the target element
+toIndex = targetList.findIndex((t) => t.id === overId);
+if (toIndex === -1) {
+// If not found, it means we dropped after the last item
+toIndex = targetList.length;
+}
+}
+// If moving within the same column and index didn't change, do nothing
+if (from === to) {
+if (
+typeof oldIndex === "number" &&
+typeof toIndex === "number" &&
+oldIndex === toIndex
+) {
+return;
+}
+}
+// Call the move handler to update state in parent
+onTaskMove(taskId, from, to, toIndex);
+},
+[onTaskMove, tasks]
+);
+return (
+<DndContext
+sensors={sensors}
+collisionDetection={closestCorners}
+onDragStart={handleDragStart}
+onDragEnd={handleDragEnd}
+>
+<div className={`flex gap-6 overflow-x-auto ${className}`}>
+{columns.map((col) => (
+<ColumnContainer
+key={col.id}
+column={col}
+tasks={tasksByStatus(col.status)}
+onTaskEdit={onTaskUpdate}
+onTaskDelete={onTaskDelete}
+activeTaskId={activeTask?.id}
+/>
+))}
+</div>
+<DragOverlay>
+{activeTask ? (
+<div className="z-50 w-72">
+<TaskCard
+task={activeTask}
+columnStatus={activeTask.status}
+index={0}
+onEdit={() => { }}
+onDelete={() => { }}
+/>
+</div>
+) : null}
+</DragOverlay>
+</DndContext>
+)
+}
+export default KanbanBoard
+typescriptdrag-and-dropreact-tsxkanbandnd-kit
+Share
+Improve this question
+Follow
+asked 16 hours ago
+s4nbr9roots4nbr9root
+111 bronze badge
+New contributor
+s4nbr9root is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+Add a comment
+|
+Related questions
+287
+How do I drag and drop files into an application?
+1
+Odoo 10 Kanban View: Ordering Kanban Items vertically with drag and drop
+140
+Drag and drop files into WPF
+Related questions
+287
+How do I drag and drop files into an application?
+1
+Odoo 10 Kanban View: Ordering Kanban Items vertically with drag and drop
+140
+Drag and drop files into WPF
+8
+Touch users can't drag and drop in React app
+77
+WPF C#: Rearrange items in listbox via drag and drop
+3
+drag and drop library dnd-kit not working in my React example
+0
+Possibility to auto-assign persons that drag and drop Kanban cards
+Load 4 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+typescriptdrag-and-dropreact-tsxkanbandnd-kit
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Using Switch to return a value depending on the sign of a real number
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+Convex sets, tangent cones and convergence
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Change the font for the dagger symbol in math mode
+What is the Occultist class in 5e?
+Why would disembarking a few passengers delay a flight by 3 hours?
+What happened to all of the energy created at the Big Bang when the matter and antimatter annihilated each other?
+3 variables cyclic rearrangement inequality.
+Can Monks use their Dex modifier to determine jump distance?
+rkhunter Updates -- "no updates" for several months now
+Comparing a combination of data from two columns to another combination from other two columns
+Can I salvage this drywall patch project?
+Another Slitherlink Next Step
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+What happens to academic grants if you leave for industry?
+Woman from bubble city where all men are infertile meets fertile man from another city
+List of crowdsourced math projects actively seeking participants
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+How big of a hole can I drill in an exterior wall's bottom plate?
+How Create a math symbol
+What is the song that plays in "Highlander," season 6, episode 13?
+Separating trefoil knot on torus
+What is this glass device I found next to drinking glasses in the south of France
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-js
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

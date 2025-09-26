@@ -1,0 +1,399 @@
+c# - IIS time-taken shows multi-second latency while ASP.NET webforms → WCF → SQL timings are sub-second (intermittent) - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+IIS time-taken shows multi-second latency while ASP.NET webforms → WCF → SQL timings are sub-second (intermittent)
+Ask Question
+Asked
+8 days ago
+Modified
+2 days ago
+Viewed
+84 times
+3
+Project flow / tech stack
+.NET Framework 4.8
+I am using ASP.NET webforms
+In the same project, I have an Ajax WCF web service
+That web service calls APIs in another .NET Framework WCF project
+The WCF backend calls SQL Server using ADO.NET
+Sometimes these APIs feel slow, but the issue goes away by itself after a while
+Logs are pushed to Kibana/Elastic via Serilog
+The issue
+Intermittently, IIS logs for
+POST /eMobilityPortal/AjaxWebService.svc/GetPartners
+show multi-second time-taken (e.g., ~4–10s).
+For the same request (correlated with CID):
+Ajax caller logs are sub-second (usually <200–300 ms)
+WCF service method + DB work is also sub-second
+SQL query store confirms stored procedures are fast
+So the gap appears occasionally and then disappears without changes.
+Ajax service class
+[ServiceBehavior(InstanceContextMode = InstanceContextMode.PerCall, ConcurrencyMode = ConcurrencyMode.Multiple)]
+[ServiceContract(Namespace = "", SessionMode = SessionMode.Allowed)]
+[AspNetCompatibilityRequirements(RequirementsMode = AspNetCompatibilityRequirementsMode.Allowed)]
+public class AjaxWebService
+{
+//code
+}
+What I did
+Timed WCF client (Ajax layer) — serialize / wire / deserialize
+public sealed class CallTiming
+{
+public string Cid = Guid.NewGuid().ToString("N");
+public Stopwatch T = new();
+public long ReqSerializeMs, WireMs, RespDeserializeMs;
+}
+public static class TimingStore
+{
+public static readonly AsyncLocal<CallTiming> Current = new();
+public static readonly AsyncLocal<CallTiming> Last = new();
+}
+public sealed class TimedClientInspector : IClientMessageInspector
+{
+private readonly Stopwatch _wire = new();
+public object BeforeSendRequest(ref Message request, IClientChannel channel)
+{
+var t = TimingStore.Current.Value;
+if (t != null && t.T.IsRunning)
+t.ReqSerializeMs = t.T.ElapsedMilliseconds;
+_wire.Restart(); return null;
+}
+public void AfterReceiveReply(ref Message reply, object state)
+{
+_wire.Stop();
+var t = TimingStore.Current.Value;
+if (t != null)
+t.WireMs = _wire.ElapsedMilliseconds;
+}
+}
+Caller wrapper & log:
+[OperationContract]
+public AdminService.OfficePartner[] GetPartners()
+{
+var stopwatch = Stopwatch.StartNew();
+var startTime = DateTime.UtcNow;
+Log.Information("GetPartners request started at {StartTime}", startTime);
+var total = Stopwatch.StartNew();
+var svc = new eMobilityService();
+Log.Information("Ajax.GetPartners ENTRY");
+var result = svc.GetPartners();
+stopwatch.Stop();
+total.Stop();
+var endTime = DateTime.UtcNow;
+var duration = endTime - startTime;
+var last = TimingStore.Last.Value;
+long req = last?.ReqSerializeMs ?? 0;
+long wire = last?.WireMs ?? 0;
+long resp = last?.RespDeserializeMs ?? 0;
+long local = Math.Max(0, total.ElapsedMilliseconds - (req + wire + resp));
+var cid = last?.Cid ?? Guid.NewGuid().ToString("N");
+Log.Information("CID={Cid} Ajax.GetPartners req_ser={Req}ms wire={Wire}ms resp_deser={Resp}ms local={Local}ms total={Total}ms. StartTime = {StartTime} EndTime = {EndTime} Duration: {Duration} ms TotalTime = {TotalTime}",
+cid, req, wire, resp, local, total.ElapsedMilliseconds, startTime, endTime, stopwatch.ElapsedMilliseconds, (long)duration.TotalMilliseconds);
+return result;
+}
+public OfficePartner[] GetPartners()
+{
+return Call(s_adminFactory,
+svc => svc.GetPartners("abc", "abc"));
+}
+Result: client totals = hundreds of ms even when IIS shows multi-seconds.
+WCF server timing — method and database:
+public List<OfficePartner> GetPartners(string abc, string abc)
+{
+var start = DateTime.Now;
+var resp = BLOfficeManagement.GetPartners(); // ADO.NET calls
+var ms = (DateTime.Now - start).TotalMilliseconds;
+BLOfficeManagement.LogMessage(4, (long)ms, $"GetPartners total {ms} ms");
+return resp;
+}
+Web.config (trimmed to relevant parts)
+<system.web>
+<compilation targetFramework="4.8" debug="true"/>
+<httpRuntime targetFramework="4.8" maxRequestLength="1024000"/>
+<sessionState mode="Custom" customProvider="RedisSessionProvider">
+<providers>
+<add name="RedisSessionProvider"
+type="Microsoft.Web.Redis.RedisSessionStateProvider"
+host="000.0.0.1"
+connectTimeout="2000"
+ssl="false"/>
+</providers>
+</sessionState>
+</system.web>
+<system.webServer>
+<modules>
+<remove name="Session"/>
+<add name="Session"
+type="Microsoft.AspNet.SessionState.SessionStateModuleAsync, Microsoft.AspNet.SessionState.SessionStateModule, Version=1.1.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35"
+preCondition="integratedMode"/>
+<add name="SerilogHttpModule" type="Portal.Logging.SerilogHttpModule, Portal"/>
+</modules>
+</system.webServer>
+<system.serviceModel>
+<behaviors>
+<serviceBehaviors>
+<behavior name="ServiceBehavior1">
+<serviceThrottling maxConcurrentCalls="400" maxConcurrentSessions="800" maxConcurrentInstances="400"/>
+<serviceDebug includeExceptionDetailInFaults="true"/>
+<serviceMetadata httpGetEnabled="true" httpsGetEnabled="true"/>
+</behavior>
+</serviceBehaviors>
+<endpointBehaviors>
+<behavior name="Portal.AjaxWebServiceAspNetAjaxBehavior">
+<enableWebScript/>
+</behavior>
+</endpointBehaviors>
+</behaviors>
+<services>
+<service name="Portal.AjaxWebService" behaviorConfiguration="ServiceBehavior1">
+<endpoint address=""
+behaviorConfiguration="Portal.AjaxWebServiceAspNetAjaxBehavior"
+binding="webHttpBinding"
+bindingConfiguration="webBinding"
+contract="Portal.AjaxWebService"/>
+</service>
+</services>
+<bindings>
+<webHttpBinding>
+<binding name="webBinding" maxReceivedMessageSize="67108864">
+<security mode="Transport">
+<transport clientCredentialType="None"/>
+</security>
+</binding>
+</webHttpBinding>
+</bindings>
+</system.serviceModel>
+Result: usually sub-second. SQL query store confirms database is fast.
+Where is the delay happening, and how do I prove it?
+I’m looking for concrete steps (code/IIS) to pinpoint which segment has the multi-second delay.
+c#asp.netperformancewcfiis
+Share
+Improve this question
+Follow
+edited 2 days ago
+GnrgyQAGnrgyQA
+asked Sep 17 at 11:10
+GnrgyQAGnrgyQA
+3111 silver badge33 bronze badges
+4
+Don't use a Stopwatch or worse DateTime for performance measuring, use a proper benchmarking tool like BenchmarkDotNet to get accurate results. That being said, are you sure it's your code/ infra that's slow? IIRC IIS' time-taken field also includes the amount of time it took for the client to ACK the last response packet, meaning it's possible that the client's slow internet is the reason.
+MindSwipe
+–
+MindSwipe
+2025-09-17 11:39:04 +00:00
+Commented
+Sep 17 at 11:39
+I haven't touch WCF in a while but it sound like cleanup task running after the result is streamed back to the client that made the request to GetPartners don't forget that since you are returning some data so there is a buffer that send packet back to the client and that all you see on your return statement this is not the end of the post ASP.net and IIS/Kestrel still have some cleanup to complete.
+Franck
+–
+Franck
+2025-09-17 11:39:38 +00:00
+Commented
+Sep 17 at 11:39
+IIS might queue requests when the load is high, which often leads to such. You can enable related performance counters to learn more. If you do want to dive deeper into it, you might want to engage Microsoft support. The troubleshooting can be difficult when the issue is intermittent.
+Lex Li
+–
+Lex Li
+2025-09-17 14:31:23 +00:00
+Commented
+Sep 17 at 14:31
+This question seems to have been generated or "improved" with help of ChatGPT or another AI. Please be aware that using LLMs or other AIs to generate content is not allowed.
+Mark Rotteveel
+–
+Mark Rotteveel
+2025-09-22 10:38:04 +00:00
+Commented
+Sep 22 at 10:38
+Add a comment
+|
+Related questions
+0
+WCF Guid DataMember not Serialized properly
+5
+Difference in time-taken in IIS and ASP.NET
+4
+After some time of work, IIS/ASP.Net fails to read the settings from the web.config file of WCF web service
+Related questions
+0
+WCF Guid DataMember not Serialized properly
+5
+Difference in time-taken in IIS and ASP.NET
+4
+After some time of work, IIS/ASP.Net fails to read the settings from the web.config file of WCF web service
+2
+Are there any guarantees about when IIS might recycle while processing a 1-way WCF operation?
+1
+I have a vendor trying to communicate with my WCF api, and they are receiving an http:500 error, but IIS logging shows no details
+0
+WCF / EF / SQL Server / VS2017 / C# : multi-tier application gets error when deployed to local IIS 10.0 as hosting server
+0
+Capturing time taken by sub components in SQL Server query
+1
+ASP.Net C# Webforms 40 second plus run time pulling from database. What is wrong?
+0
+WCF/ASP.net wen services Profilers to monitor request received, responses sent, time taken to process request, memory consumption etc...?
+Load 6 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c#asp.netperformancewcfiis
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+General inquiries about the Ersatzinfinitiv
+How to handle a warlock with Aspect of the Moon and Visions of Distant Realms?
+How does a telepathic bond work if the bondee lacks language?
+Identifying a movie where a man relives the same day
+Is there a specific term to describe someone who is religious but does not necessarily believe everything that their religion teaches, and uses logic?
+What license to use when extending a pre-existing library?
+Does illusion prevent "you can see" requirement when casting a spell?
+I'm having a hard time intuiting throttle position to engine rpm consistency between gears -- why do cars behave in this observed way?
+Do academics mind if someone outside their field critiques their work?
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+At high pressures, is aromaticity affected?
+Identifying voltage regulator on induction hob (marked FF 04)
+Time traveler named Tom/John forgets device, Penelope Weschler, machine harvests Earth's spin
+What happens to academic grants if you leave for industry?
+Quantizing EM field by imposing canonical commutation relations
+Does the Arostotelian species-genus concept apply to non-living things?
+Verify a Chinese ID Number
+What is this glass device I found next to drinking glasses in the south of France
+Are there any alternatives to electricity that work/behave in a similar way?
+3 variables cyclic rearrangement inequality.
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+How can blood fuel space travel?
+Short story about a metal-eating alien
+What is the song that plays in "Highlander," season 6, episode 13?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cs
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

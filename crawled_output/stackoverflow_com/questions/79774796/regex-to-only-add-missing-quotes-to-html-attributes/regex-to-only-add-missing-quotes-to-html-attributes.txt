@@ -1,0 +1,348 @@
+php - Regex to only add missing quotes to HTML attributes? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Regex to only add missing quotes to HTML attributes?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+78 times
+Part of PHP Collective
+-8
+The Missing
+Attribute Quotes Problem:
+I have HTML emails with clearly copy/pasted code where the original... authors, failed to add double quotes around the values of some HTML attributes. This leads to the parser disregarding those attributes and breaking the emails.
+Examples:
+border=0
+cellpadding=0
+cellspacing=0
+width=480
+An example string to be fixed:
+<table border=0 style="color: red;" title='Hello'></table>
+An example of the string after being fixed:
+<table border="0" style="color: red;" title='Hello'></table>
+Determining the Regular Expression Logic
+I know how to find and replace one or more consecutive characters. What I do not know is how to find and replace two sets of strings in a single regular expression and the whole grouping part:
+$string = str_ireplace(array('_','--'),array('-','-'), '$string');
+I believe the pattern logic should be:
+First if < been encountered but not >? (we are within an element).
+Second if the first space is encountered (the element name).
+Third if = has been encountered but also the next immediate character is not a quote.
+Fourth if after (.*?) (I think, for the value itself) is a space encountered?
+Some Attempts:
+I've been going through pages here on Stack and other websites for a few hours though no one, that I've come across, has even bothered to work out the logic forget about working on syntax. So with the logic worked out I have some small parts figured out:
+preg_replace('/<(.*?)( )/u', '', $s) will replace the element (regardless of it's tag name) but delete everything up to the first attribute. So I don't know how to write "do nothing here but make sure it exists" so we're only applying the expression to attributes assuming the HTML author at least got the < and > formatting correct.
+preg_replace('/^=(.*?)( )$/u', '', $s) was my attempt to ^ start a match at = and end $ it with a space however this just deletes the entire string.
+I can't get the second part figured out. Then I presume there is a way to group the two individual expressions together.
+Question:
+How do I update my regular expression to append double quotes to HTML attributes only if they're missing quotes?
+Clarifications:
+I absolutely do not want to do anything else with regular expressions here. I believe my goal is reasonably simple (as opposed to something very expansive like this). I figured that the pattern is established enough and possibly not too complex for others with greater experience with regular expressions than I. If I can't figure this out or get enough help I can just write my own parser just to resolve this issue.
+I attempted to use $dom = new DOMDocument; $dom->loadHTML($html); $xml = trim($dom->saveXml($dom)); and that did add the missing quotes, but this is HTML from email that triggered tons of errors from other malformed syntax problems so ultimately it was an interesting though non-viable approach.
+To keep it as simple as possible I'm content to ignore single quotes.
+If this gets figured out I should be able to easily adapt this to make a second version to replace single quotes with double quotes (or vice-versa) for parsing consistency.
+phphtmlregex
+Share
+Improve this question
+Follow
+edited 10 hours ago
+Olivier
+19.6k11 gold badge1111 silver badges3333 bronze badges
+asked 16 hours ago
+ReportsReports
+1
+New contributor
+Reports is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+8
+1
+I don't think that a good parser will be unable to parse border=0 in the table tag (please tell me the name of the parser you are using. Thanks)
+Ken Lee
+–
+Ken Lee
+2025-09-25 15:18:31 +00:00
+Commented
+13 hours ago
+1
+When you have capture groups in the matching regexp, you can use $1, $2, etc. in the replacement to copy what was captured. Does that get you going in the right direction?
+Barmar
+–
+Barmar
+2025-09-25 15:45:28 +00:00
+Commented
+13 hours ago
+1
+The problem with what you're doing is that you may have false positives. Suppose you have value="foo=bar" -- it's very difficult to keep the regexp from matching the foo=bar part, which should be left alone.
+Barmar
+–
+Barmar
+2025-09-25 15:47:10 +00:00
+Commented
+13 hours ago
+1
+border=0 is valid HTML.
+Olivier
+–
+Olivier
+2025-09-25 18:31:11 +00:00
+Commented
+10 hours ago
+1
+As mentioned in the post you linked to, parsing HTML with regex is complicated to the point that it is usually discouraged. However, as also mentioned in the second-most upvoted answer there, if you are working on a "limited, known set of HTML", regex can sometimes be a viable solution. However again, your comment "but this is HTML from email that triggered tons of errors from other malformed syntax problems" would tell me that you are not in a limited or controlled set of HTML, so we're back to regex not being a good option again. I would recommend finding a good, forgiving HTML parser.
+Chris Haas
+–
+Chris Haas
+2025-09-25 19:24:17 +00:00
+Commented
+9 hours ago
+|
+Show 3 more comments
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+You should be able to do this with a single regex, in a single pass, globally.
+Both :
+Single -> double
+Non-quoted -> double
+https://regex101.com/r/Lx5W7m/1
+(?:<[\w:]+(?=\s)|\G(?!\A))(?=((?:[^>"']|"[^"]*"|'[^']*')*?[\w:]+\s*=\s*)('([^'>]*?)'|([^'"\s>]+))(?=(?:"[\S\s]*?"|'[\S\s]*?'|[^>]?)*?>))\1\K\2
+Replace with "$3$4"
+Info
+# (?:<[\w:]+(?=\s)|\G(?!\A))(?=((?:[^>"']|"[^"]*"|'[^']*')*?[\w:]+\s*=\s*)('([^'>]*?)'|([^'"\s>]+))(?=(?:"[\S\s]*?"|'[\S\s]*?'|[^>]?)*?>))\1\K\2
+# https://regex101.com/r/Lx5W7m/1
+(?:
+< [\w:]+
+# Tag start
+(?= \s )
+|
+\G
+# Or inside a tag,
+(?! \A )
+#
+start where left off
+)
+(?=
+# Non-backtrack group
+(
+# (1), Up to attribute, matched via backref
+(?: [^>"'] | " [^"]* " | ' [^']* ' )*?
+[\w:]+ \s* = \s*
+)
+(
+# (2), matched via backref
+'
+( [^'>]*? )
+# (3), quote value
+'
+|
+( [^'"\s>]+ )
+# (4), Non-quote value
+)
+(?=
+# Insure tag closure ahead
+(?: " [\S\s]*? " | ' [\S\s]*? ' | [^>]? )*?
+>
+)
+)
+\1
+\K
+\2
+Share
+Improve this answer
+Follow
+edited 8 hours ago
+answered 8 hours ago
+slnsln
+3,52611 gold badge77 silver badges1313 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+phphtmlregex
+See similar questions with these tags.
+PHP
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Linked
+2347
+RegEx match open tags except XHTML self-contained tags
+Related
+5133
+Reference Guide: What does this symbol mean in PHP? (PHP Syntax)
+628
+How to do a regular expression replace in MySQL?
+437
+Converting user input string to regular expression
+1127
+HTML text input allow only numeric input
+920
+Difference between id and name attributes in HTML
+135
+Regex for splitting a string using space when not surrounded by single or double quotes
+622
+Regex to match only letters
+987
+How to allow only numeric (0-9) in HTML
+inputbox using jQuery?
+3
+Escape double quotes of HTML attributes output by PHP
+Hot Network Questions
+Using Switch to return a value depending on the sign of a real number
+Does clipping distortion affect the information contained within a frequency-modulated signal?
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+Smoothing a triangulated surface without changing its quasi-isometry class
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+how would you formalise in first order logic the sentence "I am a liar"?
+How to draw the following graph in latex?
+What conditions on an Earthlike planet would allow for a massive, Pando-esque forest that’s a single organism?
+What exactly makes something a "phased-out creature"
+How does a telepathic bond work if the bondee lacks language?
+Changing size of math environments
+Plotting functions without sampling artefacts
+Lock icon to convey disabled but has a clickable feature?
+What does "transform into the character pulled into the UFO" mean?
+Can I salvage this drywall patch project?
+What happens when the jewels run out?
+Is there a specific term to describe someone who is religious but does not necessarily believe everything that their religion teaches, and uses logic?
+Change the font for the dagger symbol in math mode
+What happened to all of the energy created at the Big Bang when the matter and antimatter annihilated each other?
+Marking utensils for ownership
+Ian Stewart, Definition for Primitive Root of Unity
+Prove that the sequences of numbers coincide
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+rkhunter Updates -- "no updates" for several months now
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

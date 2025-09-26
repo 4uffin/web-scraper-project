@@ -1,0 +1,436 @@
+python - DuckDB query that works with time intervals produces incorrect values - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+DuckDB query that works with time intervals produces incorrect values
+Ask Question
+Asked
+8 days ago
+Modified
+8 days ago
+Viewed
+79 times
+2
+Running through python - no tables needed. See below query and result:
+import duckdb
+sampling_period_sec = 13
+date_range = ('2023-01-01', '2023-01-02')
+db_conn = duckdb.connect()
+db_conn.query(
+f"""
+DROP TABLE IF EXISTS date_range_query;
+CREATE TEMPORARY TABLE date_range_query AS
+SELECT
+DATE_ADD(
+CAST('1970-01-01 00:00:00' AS TIMESTAMP),
+TO_SECONDS(CAST(
+CEIL(
+EXTRACT(EPOCH FROM RANGE)
+/ {sampling_period_sec}) AS INT
+) * {sampling_period_sec}
+)
+) AS ts_event
+FROM RANGE(
+TIMESTAMP '{date_range[0]}',
+TIMESTAMP '{date_range[1]}',
+INTERVAL {sampling_period_sec} SECOND);
+SELECT
+t1.ts_event
+,t2.ts_event as ts_window
+,EXP((MILLISECOND(t2.ts_event - t1.ts_event) / 10**3) / {sampling_period_sec} / {9}) as inter_decay
+FROM date_range_query t1
+JOIN date_range_query t2
+ON t2.ts_event BETWEEN t1.ts_event - INTERVAL
+{int(10 * sampling_period_sec)} SECOND AND t1.ts_event
+AND t1.ts_event in ('2023-01-01 00:01:03', '2023-01-01 00:01:16')
+ORDER BY 1, 2
+"""
+).df()
+Result:
+ts_event
+ts_window
+inter_decay
+0
+2023-01-01 00:01:03 2023-01-01 00:00:11
+0.641180
+1
+2023-01-01 00:01:03 2023-01-01 00:00:24
+0.716531
+2
+2023-01-01 00:01:03 2023-01-01 00:00:37
+0.800737
+3
+2023-01-01 00:01:03 2023-01-01 00:00:50
+0.894839
+4
+2023-01-01 00:01:03 2023-01-01 00:01:03
+1.000000
+5
+2023-01-01 00:01:16 2023-01-01 00:00:11
+0.958165
+6
+2023-01-01 00:01:16 2023-01-01 00:00:24
+0.641180
+7
+2023-01-01 00:01:16 2023-01-01 00:00:37
+0.716531
+8
+2023-01-01 00:01:16 2023-01-01 00:00:50
+0.800737
+9
+2023-01-01 00:01:16 2023-01-01 00:01:03
+0.894839
+10 2023-01-01 00:01:16 2023-01-01 00:01:16
+1.000000
+The bold-face row, 5, is the problem. The inter_decay should be lower than in row 6, but it is not. Should be 0.624949 but it is 0.958165.
+I was able to show that:
+SELECT
+MICROSECOND(TIMESTAMP '2023-01-01 00:00:24' - TIMESTAMP '2023-01-01 00:01:06'),
+MICROSECOND(TIMESTAMP '2023-01-01 00:00:11' - TIMESTAMP '2023-01-01 00:01:06')
+Produces: -52000000, -5000000
+This explains the problem. But then after playing a little with the calculations (using MICROSECONDS/MILLISECONDS and POSITIVE/NEGATIVE intervals) the values for the interval came out correct. But the main query above still produces a wrong decay. This looks like some problem with DuckDB's engine, because I can't figure out what I am doing incorrectly, if anything.
+ADDITION:
+Adding another column:
+MILLISECOND(t2.ts_event - t1.ts_event) / 10**3 as delta_time
+Results - shows my claim:
+ts_event
+ts_window
+delta_time
+inter_decay
+0
+2023-01-01 00:01:03 2023-01-01 00:00:11
+-52.0
+0.641180
+1
+2023-01-01 00:01:03 2023-01-01 00:00:24
+-39.0
+0.716531
+2
+2023-01-01 00:01:03 2023-01-01 00:00:37
+-26.0
+0.800737
+3
+2023-01-01 00:01:03 2023-01-01 00:00:50
+-13.0
+0.894839
+4
+2023-01-01 00:01:03 2023-01-01 00:01:03
+0.0
+1.000000
+5
+2023-01-01 00:01:16 2023-01-01 00:00:11
+-5.0
+0.958165
+6
+2023-01-01 00:01:16 2023-01-01 00:00:24
+-52.0
+0.641180
+7
+2023-01-01 00:01:16 2023-01-01 00:00:37
+-39.0
+0.716531
+8
+2023-01-01 00:01:16 2023-01-01 00:00:50
+-26.0
+0.800737
+9
+2023-01-01 00:01:16 2023-01-01 00:01:03
+-13.0
+0.894839
+10 2023-01-01 00:01:16 2023-01-01 00:01:16
+0.0
+1.000000
+pythonsqlduckdb
+Share
+Improve this question
+Follow
+edited Sep 17 at 12:41
+jqurious
+23.5k55 gold badges2222 silver badges4141 bronze badges
+asked Sep 17 at 12:16
+AOKAOK
+57366 silver badges1919 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+4
+I found the reason. MICROSECOND/MILLISECOND includes only up to the seconds value, so anything above a minute is removed, thus only the 5 is kept.
+As for the reason I couldn't reproduce it in the explicit time queries:
+SELECT
+MICROSECOND(TIMESTAMP '2023-01-01 00:00:24' - TIMESTAMP '2023-01-01 00:01:06'),
+MICROSECOND(TIMESTAMP '2023-01-01 00:00:11' - TIMESTAMP '2023-01-01 00:01:06')
+It's because I copied the timestamp incorrectly as 1:06, which should have been 1:16.
+The correct way to calculate the precise time difference would use the following:
+(EXTRACT(EPOCH FROM t2.ts_event) - EXTRACT(EPOCH FROM t1.ts_event))
+And this would already be in the unit of seconds.
+The full query:
+import duckdb
+db_conn = duckdb.connect()
+sampling_period_sec = 13
+date_range = ('2023-01-01', '2023-01-02')
+print(db_conn.query(
+f"""
+DROP TABLE IF EXISTS date_range_query;
+CREATE TEMPORARY TABLE date_range_query AS
+SELECT
+DATE_ADD(
+CAST('1970-01-01 00:00:00' AS TIMESTAMP),
+TO_SECONDS(CAST(
+CEIL(
+EXTRACT(EPOCH FROM RANGE)
+/ {sampling_period_sec}) AS INT
+) * {sampling_period_sec}
+)
+) AS ts_event
+FROM RANGE(
+TIMESTAMP '{date_range[0]}',
+TIMESTAMP '{date_range[1]}',
+INTERVAL {sampling_period_sec} SECOND);
+SELECT
+t1.ts_event
+,t2.ts_event as ts_window
+,(EXTRACT(EPOCH FROM t2.ts_event) - EXTRACT(EPOCH FROM t1.ts_event)) as dtime_epoch
+,EXP((EXTRACT(EPOCH FROM t2.ts_event) - EXTRACT(EPOCH FROM t1.ts_event)) / {sampling_period_sec} / {9}) as inter_decay
+FROM date_range_query t1
+JOIN date_range_query t2
+ON t2.ts_event BETWEEN t1.ts_event - INTERVAL
+{int(10 * sampling_period_sec)} SECOND AND t1.ts_event
+AND t1.ts_event in ('2023-01-01 00:01:03', '2023-01-01 00:01:16')
+ORDER BY 1, 2
+"""
+).df())
+And Result:
+ts_event
+ts_window
+dtime_epoch
+inter_decay
+0
+2023-01-01 00:01:03 2023-01-01 00:00:11
+-52.0
+0.641180
+1
+2023-01-01 00:01:03 2023-01-01 00:00:24
+-39.0
+0.716531
+2
+2023-01-01 00:01:03 2023-01-01 00:00:37
+-26.0
+0.800737
+3
+2023-01-01 00:01:03 2023-01-01 00:00:50
+-13.0
+0.894839
+4
+2023-01-01 00:01:03 2023-01-01 00:01:03
+0.0
+1.000000
+5
+2023-01-01 00:01:16 2023-01-01 00:00:11
+-65.0
+0.573753
+6
+2023-01-01 00:01:16 2023-01-01 00:00:24
+-52.0
+0.641180
+7
+2023-01-01 00:01:16 2023-01-01 00:00:37
+-39.0
+0.716531
+8
+2023-01-01 00:01:16 2023-01-01 00:00:50
+-26.0
+0.800737
+9
+2023-01-01 00:01:16 2023-01-01 00:01:03
+-13.0
+0.894839
+10 2023-01-01 00:01:16 2023-01-01 00:01:16
+0.0
+1.000000
+Share
+Improve this answer
+Follow
+answered Sep 17 at 13:04
+AOKAOK
+57366 silver badges1919 bronze badges
+1 Comment
+Add a comment
+Thorsten Kettner Thorsten Kettner 2 days ago
+You can accept your own answer, so people see that your request has been solved. 2025-09-23T11:28:20.053Z+00:00
+0
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+pythonsqlduckdb
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+561
+How to print a query string with parameter values when using Hibernate
+465
+How can I filter a Django query with a list of values?
+1
+Fill null values with linear interpolation using DuckDB
+1
+Exporting data from duckdb query composing filename with strftime
+1
+Invalid DuckDB query of Overture Maps with Geometry types
+234
+UPDATE multiple rows with different values in one query in MySQL
+Hot Network Questions
+rkhunter Updates -- "no updates" for several months now
+What "real mistakes" exist in the Messier catalog?
+How to crack ECC using halving
+Separating trefoil knot on torus
+Lock icon to convey disabled but has a clickable feature?
+At high pressures, is aromaticity affected?
+Using Switch to return a value depending on the sign of a real number
+How to draw the following graph in latex?
+What does it mean for work to be done ON a system?
+On the Subject of Switches
+How can blood fuel space travel?
+Quantizing EM field by imposing canonical commutation relations
+What does "my left a** cheek" mean?
+Changing size of math environments
+Simplification of an analytically evaluated integral expressed in terms of elliptic integrals
+Which driving direction syncs with Quebec’s and Maritime Canada’s autumn leaf colors?
+Short story about a metal-eating alien
+How to convert square wave to sine wave
+Can a state execute an ICC arrest warrant in international waters?
+Identifying a movie where a man relives the same day
+What qualifies to be a "family of statistical tests" for Bonferroni corrections?
+Marking utensils for ownership
+What is the Occultist class in 5e?
+How Create a math symbol
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+default
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

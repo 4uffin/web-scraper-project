@@ -1,0 +1,274 @@
+haskell - Parse Conduit of Contiguous Either Values - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Parse Conduit of Contiguous Either Values
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+59 times
+3
+Let's say I am receiving a streaming response from a web service. I get the response in the shape of a ConduitT () (Either a b) m (). Now, let's say I know from the API documentation that the response will first contain a contiguous stream of Left values, then a contiguous stream of Right values, and then terminate.
+I need to work on these values immediately as they arrive, but I would like to parse the stream into a stronger type so that consumers can rely on the contiguity property mentioned above. I feel like ConduitT () a m (ConduitT () b m ()) would be a good representation, but I am not sure how to get from the original conduit to the nested one. My intuition tells me that it will involve somehow saving the state of the partially-consumed original conduit to resume it in the inner result. I did look at SealedConduitT since that deals with suspend/resume, but the associated functions all seem to deal with pure consumers of type ConduitT a Void m b. I could not figure out how to use that in my case.
+My question: Is ConduitT () a m (ConduitT () b m ()) the right representation? If yes, how can I derive this from the original conduit? If no, what would be the right representation?
+haskelleitherconduitsum-type
+Share
+Improve this question
+Follow
+asked yesterday
+JulesJules
+59933 silver badges1111 bronze badges
+1
+I suspect this is not a guarantee conduit is good at communicating in types, due to the type of await. It's really intended that your conduits consume only one input type. You might be able to get something to work, but it would require peeking inside the abstraction on both the creation and consumption sides. Given that, I think it's unlikely to be practical to encode temporal properties like that in the types with conduit.
+Carl
+–
+Carl
+2025-09-25 16:22:05 +00:00
+Commented
+12 hours ago
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+Instead of converting the conduit to a source of as and bs, you want to write a connection operator that connects your ConduitT a b m (Either a b) to an appropriate consumer.
+The type of the consumer will depend on exactly how you want to process the as and bs, but assuming the consumer is performing some monadic action based on as for a while, then some other monadic action based on bs for a while, before returning an r,
+a reasonable consumer type is:
+(ConduitT a Void m s, s -> ConduitT b Void m r)
+with type s allowing transfer of state from the a consumer to the b consumer.
+The type:
+ConduitT a Void m (ConduitT b Void m r)
+is also a possibility, but is more awkward to work with.
+The definition of the connection operator is a little gross:
+connectAB :: (Monad m)
+=> ConduitT () (Either a b) m ()
+-> (ConduitT a Void m s, s -> ConduitT b Void m r)
+-> m r
+connectAB src (snk, cont) = do
+(src', (mb, s)) <- src $$+ (getAs `fuseBoth` snk)
+src' $$+- getBs mb .| cont s
+where getAs = do
+ma <- await
+case ma of
+Just (Left a) -> yield a >> getAs
+Just (Right b) -> pure (Just b)
+Nothing -> pure Nothing
+getBs (Just b) = yield b >> getBs'
+getBs Nothing
+=
+getBs'
+getBs' = do
+mb <- await
+case mb of
+Just (Left _) -> error "protocol error: Left after Right"
+Just (Right b) -> yield b >> getBs'
+Nothing -> pure ()
+The first do block is in the m monad.
+The first line runs the src of Either a b values through a getAs `fuseBoth` snk conduit.
+getAs converts Left a values to a values for snk to consume.
+If snk stops early, fuseBoth ensures that the rest of the a values are processed, so that bs can be processed next.
+If you want the whole pipe to stop in this case, use fuseBothMaybe instead.
+Once getAs is finished, it returns a Maybe b representing the first b value, if any.
+The second line pipes the resumed src' conduit through the getBs mb .| cont s, where cont s is the constructed consumer of b values, based on the s value returned from snk.
+getBs arranges to send the first b value (if any) before reading and converting Either a b values from src', passing them on to cont s.
+Here, if cons s wraps up earlier, the residual b values will be left in the src'.
+If you want them consumed unconditonally, replace the .| with fuseBoth or similar.
+Here's a test case to illustrate usage:
+main :: IO ()
+main = connectAB (yieldMany [Left "answer ", Left "is:", Right 1, Right 2, Right 3])
+(printC,
+\() -> do ans <- sumC
+liftIO $ print ans)
+Replace printC with takeC 1 .| printC to see what happens if the snk stops reading as early (i.e., leftover as are discarded and processing continues with the bs`).
+Share
+Improve this answer
+Follow
+answered 9 hours ago
+K. A. BuhrK. A. Buhr
+52.3k33 gold badges5353 silver badges8181 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+haskelleitherconduitsum-type
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+3
+Conduit: Join two sources into one
+3
+Merging sources using Haskell Conduit
+61
+One processing conduit, 2 IO sources of the same type
+2
+IO Operations in Conduit?
+0
+Conduit: How? Multiple Producers to One Consumer with Backpressure
+1
+Getting a result from a streaming network protocol with conduit
+0
+SHA256 an uploaded file in Yesod - Using Conduit and Data.Digest.Pure.SHA
+0
+Manually terminate inputs for Conduit Attoparsec
+146
+Shorthand way for assigning a single field in a record, while copying the rest of the fields?
+2
+How do I make a conduit like takeWhile but only takes at maximum a certain number of bytes?
+Hot Network Questions
+How do I make the middle of the bill curve up?
+At high pressures, is aromaticity affected?
+Do academics mind if someone outside their field critiques their work?
+Where was the Kenya sequence in The Crown Episode 1 filmed?
+What happens when the jewels run out?
+"Dubito, ergo cognosco". Could we argue that the very fact of doubting, sets a limit to the epistemological notions we can actually doubt?
+Woman from bubble city where all men are infertile meets fertile man from another city
+Short story about a metal-eating alien
+How to crack ECC using halving
+Can the price of a gap option be negative?
+Prove that the sequences of numbers coincide
+Which driving direction syncs with Quebec’s and Maritime Canada’s autumn leaf colors?
+Ian Stewart, Definition for Primitive Root of Unity
+How can blood fuel space travel?
+Does the Arostotelian species-genus concept apply to non-living things?
+Separating trefoil knot on torus
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+What is the effectiveness of using a miniature (ground) plane to route vias through as opposed to using separate paths and vias?
+Identifying a movie where a man relives the same day
+How to design a circuit that outputs the binary position of the 3rd set bit from the right in an 8-bit input?
+What does it mean for a museum exhibit "not to have a Soviet anniversary"?
+On the Subject of Switches
+How to convert square wave to sine wave
+Are there any problems with mastering my own music?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-hs
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

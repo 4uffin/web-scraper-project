@@ -1,0 +1,297 @@
+How to detect if a widget starts under the AppBar or below it in Flutter? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to detect if a widget starts under the AppBar or below it in Flutter?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+29 times
+2
+I have a Scaffold with extendBodyBehindAppBar: true because I want a blurred AppBar.
+The problem is that sometimes my body widget (inner) starts behind the AppBar instead of below it.
+Here is a simplified version of my code:
+import 'dart:ui';
+import 'package:app/src/core/extension/widget_extension.dart';
+import 'package:app/src/presentation/bloc/base/base_bloc.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+abstract class AdaptivePage extends StatefulWidget {
+const AdaptivePage({super.key});
+@override
+State<AdaptivePage> createState();
+}
+abstract class AdaptivePageState<
+T extends AdaptivePage,
+B extends BaseBloc<BaseEvent, S>,
+S extends BaseState
+>
+extends State<T>
+with AutomaticKeepAliveClientMixin {
+Widget buildBody(BuildContext context);
+PreferredSizeWidget? buildAppBar(BuildContext context) => null;
+Widget? buildBottomNavigationBar(BuildContext context) => null;
+Widget? buildFloatingActionButton(BuildContext context) => null;
+List<BlocListener<B, S>> blocListeners() => [];
+BlocListener<B, S> errorListener() {
+return BlocListener<B, S>(
+listenWhen: (prev, curr) => prev.errorMessage != curr.errorMessage && curr.hasError,
+listener: (context, state) {
+state.errorMessage!.showError(context);
+},
+);
+}
+B? createBloc() => null;
+@override
+Widget build(BuildContext context) {
+super.build(context);
+Widget inner = buildBody(context);
+if (inner is! ScrollView) {
+final topPadding = (buildAppBar(context) != null
+? kToolbarHeight + MediaQuery.of(context).padding.top
+: 0.0);
+inner = Padding(
+padding: EdgeInsets.only(top: topPadding),
+child: inner,
+);
+}
+final B? bloc = createBloc();
+final List<BlocListener<B, S>> listeners = [...blocListeners()];
+listeners.add(errorListener());
+Widget bodyWidget;
+if (bloc != null) {
+bodyWidget = BlocProvider<B>(
+create: (_) => bloc,
+child: Builder(
+builder: (context) {
+return listeners.isNotEmpty
+? MultiBlocListener(listeners: listeners, child: inner)
+: inner;
+},
+),
+);
+} else {
+bodyWidget = listeners.isNotEmpty
+? MultiBlocListener(listeners: listeners, child: inner)
+: inner;
+}
+return Scaffold(
+extendBodyBehindAppBar: true,
+appBar: buildAppBar(context) != null
+? PreferredSize(
+preferredSize: Size.fromHeight(context.isIOS ? 44 : kToolbarHeight),
+child: ClipRRect(
+child: BackdropFilter(
+filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+child: buildAppBar(context),
+),
+),
+)
+: null,
+body: bodyWidget,
+bottomNavigationBar: buildBottomNavigationBar(context),
+floatingActionButton: buildFloatingActionButton(context),
+);
+}
+@override
+bool get wantKeepAlive => false;
+}
+What I want:
+If the body already starts below the AppBar, do nothing.
+If the body starts behind the AppBar, add topPadding so that it moves down.
+Things I tried:
+Checking inner is ScrollView (doesn’t work, because the ScrollView may be nested inside other widgets).
+Wrapping in a LayoutBuilder and measuring position with RenderBox.localToGlobal (didn’t work properly with ListView, also broke gesture events).
+How can I reliably detect whether my body widget is rendered under the AppBar or below it, so that I can add padding only when needed?
+flutterflutter-appbar
+Share
+Improve this question
+Follow
+asked 16 hours ago
+Abbosbek UstaboyevAbbosbek Ustaboyev
+2111 bronze badge
+New contributor
+Abbosbek Ustaboyev is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+1
+Did you try GlobalKey ?
+rusty
+–
+rusty
+2025-09-25 12:50:35 +00:00
+Commented
+15 hours ago
+Add a comment
+|
+Related questions
+823
+How can I remove the debug banner in Flutter?
+0
+DropdownButton selection calls the onValidate functions of other fields in Flutter
+596
+How can I add a border to a widget in Flutter?
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+flutterflutter-appbar
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Marking utensils for ownership
+What license to use when extending a pre-existing library?
+What is an aggravating factor and why is kinship considered one?
+What does it mean for a museum exhibit "not to have a Soviet anniversary"?
+Yet Another Python Weather Visualizer using Open-Meteo
+How do I make the middle of the bill curve up?
+Change the font for the dagger symbol in math mode
+How to handle a warlock with Aspect of the Moon and Visions of Distant Realms?
+Do academics mind if someone outside their field critiques their work?
+Data lost/Corrupted on iCloud
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+Quantizing EM field by imposing canonical commutation relations
+Can I salvage this drywall patch project?
+How to convert square wave to sine wave
+How can blood fuel space travel?
+How do trees drop their leaves?
+Removing temporary LaTeX files
+Simplification of an analytically evaluated integral expressed in terms of elliptic integrals
+What conditions on an Earthlike planet would allow for a massive, Pando-esque forest that’s a single organism?
+Separating trefoil knot on torus
+What "real mistakes" exist in the Messier catalog?
+Why would disembarking a few passengers delay a flight by 3 hours?
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+List of crowdsourced math projects actively seeking participants
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-dart
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

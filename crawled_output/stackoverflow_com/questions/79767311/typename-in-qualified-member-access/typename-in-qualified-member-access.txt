@@ -1,0 +1,289 @@
+c++ - typename in qualified member access - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+typename in qualified member access
+Ask Question
+Asked
+8 days ago
+Modified
+8 days ago
+Viewed
+219 times
+10
+I wonder whether this piece of code should compile and what function it should call. The situation is that there is a struct whose name matches that of a template parameter. My question is, inside the definition of the f<U> specialization (where U derives from T), does T mean the template parameter or the base class?
+template<typename T>
+void f(T t) {
+t.T::~T(); // #1 should this compile?
+t.T::m(); // #2 should this compile?
+}
+struct T { ~T() {} void m(){}}; // note named like the typename parameter
+struct U : private T { ~U() {} void m(){}}; // note inherits from T
+int main()
+{
+f(U{});
+}
+Well, from naive look, it should compile #1 and #2, and find U::m(), and call the destructor of U;
+But, I tried it on compilers using Godbolt https://godbolt.org/z/3KG8M5xvb and the behavior is not as I thought.
+On Clang, it calls the destructor of U but it tries to call the base member function ::T::m()
+instead of ::U::m()
+leading to a compile error on #2.
+On GCC, it calls the destructor of the base class U and the member function ::U::m() no compiler errors which matches my expectations.
+MSVC raises errors on both lines saying it cannot access private base ::T destructor and private member function ::T::f().
+Which compiler is correct, or is this implementation defined behavior?
+I tried to read the standard to determine the answer but I don't understand it.
+c++gccvisual-c++clanglanguage-lawyer
+Share
+Improve this question
+Follow
+edited Sep 17 at 23:51
+3CEZVQ
+41.5k1111 gold badges9090 silver badges9898 bronze badges
+asked Sep 17 at 12:19
+ShadyShady
+21711 silver badge66 bronze badges
+25
+Why did you repost this question (under a new username) ?
+Pepijn Kramer
+–
+Pepijn Kramer
+2025-09-17 12:28:00 +00:00
+Commented
+Sep 17 at 12:28
+the godbolt URL link tells a different story of what you describe in a question.
+iam_ai_copy-paste
+–
+iam_ai_copy-paste
+2025-09-17 13:06:48 +00:00
+Commented
+Sep 17 at 13:06
+1
+We don't understand it either, and it seems like the compiler writers might have some problems too. The standard solution is of course to change the template parameter to something else, and avoid the problem, instead of solving it. That also helps future readers of the code, who might not know the exact rule either.
+BoP
+–
+BoP
+2025-09-17 13:31:48 +00:00
+Commented
+Sep 17 at 13:31
+1
+@TedLyngmo yeah, now i see. was making an edit same minute and did not catch up.
+iam_ai_copy-paste
+–
+iam_ai_copy-paste
+2025-09-17 14:58:28 +00:00
+Commented
+Sep 17 at 14:58
+1
+@Shady True, it won't pick up defaults. I use that as one of the reasons to not have defaults. :-)
+Ted Lyngmo
+–
+Ted Lyngmo
+2025-09-17 15:28:05 +00:00
+Commented
+Sep 17 at 15:28
+|
+Show 20 more comments
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+5
+The lookup for T in T:: is defined as happening in the class first and as an unqualified lookup only if that finds nothing ([basic.lookup.qual.general]/3).
+That rule is, however, quite unsatisfying in cases like this: a template that works with types derived from one of its template parameters has no way of referring to that base class in a way that avoids collisions with members of the same name in the derived class.
+(A non-template could always use a fully qualified name for the base class.)
+This has been the subject of a core issue for a long time, and I tried to change the rule, but it was CWG’s opinion that the adjacent . (or ->) was just too important to look past (even only for dependent names).
+The situation with ~T is even weirder, just because destructor “names” can successfully refer only to the type of the object expression or the nested name specifier.
+Here both qualified and unqualified lookup occur, but all that matters is that at least one matches that type, and obviously the qualified one will be the same as for T::.
+Share
+Improve this answer
+Follow
+answered Sep 17 at 15:29
+Davis HerringDavis Herring
+41.6k44 gold badges5858 silver badges9191 bronze badges
+2 Comments
+Add a comment
+Shady Shady Sep 17 at 17:21
+This is bonkers, I find the current behavior quite unintuitive and not what would anyone would expect from just looking at the code. is the current behavior even useful? 2025-09-17T17:21:18.3Z+00:00
+0
+Reply
+Copy link
+Shady Shady Sep 17 at 17:40
+If one wants the T to always look into the base class you would do using Base = Class::T; the opposite isn't true 2025-09-17T17:40:36.86Z+00:00
+1
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++gccvisual-c++clanglanguage-lawyer
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+1413
+Where and why do I have to put the "template" and "typename" keywords?
+799
+What is the difference between "typename" and "class" template parameters?
+11
+GCC allows access to private static member
+124
+Why is a public const member function not called when the non-const one is private?
+18
+Template dependent typename
+205
+std::enable_if to conditionally compile a member function
+0
+conversion operator which refers to class template parameters and constexpr class members
+110
+How do you define an explicit specialization for a member function of a class template?
+Hot Network Questions
+Prove that the sequences of numbers coincide
+How big of a hole can I drill in an exterior wall's bottom plate?
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Are there injections that combine 80 different vaccines?
+Ian Stewart, Definition for Primitive Root of Unity
+Correct usage of "resolution" associated with "high" and "low"
+Marking utensils for ownership
+Does pseudo-vitae revenants produce replenish vitae in Kindred?
+How to convert square wave to sine wave
+rkhunter Updates -- "no updates" for several months now
+How do I make the middle of the bill curve up?
+What conditions on an Earthlike planet would allow for a massive, Pando-esque forest that’s a single organism?
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+What exactly makes something a "phased-out creature"
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+How does a telepathic bond work if the bondee lacks language?
+General inquiries about the Ersatzinfinitiv
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+Removing temporary LaTeX files
+"Dubito, ergo cognosco". Could we argue that the very fact of doubting, sets a limit to the epistemological notions we can actually doubt?
+On the Subject of Switches
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+How can blood fuel space travel?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

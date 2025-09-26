@@ -1,0 +1,462 @@
+printing - Print Support App | How to register print support extension background task - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Print Support App | How to register print support extension background task
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+17 times
+-1
+I'm developing a Print Support App (PSA) and need to register a background task (PrintSupportExtensionBackGroundTask) to validate print configuration.
+I have declared it in the appx manifest and implemented the Run() method.
+appx manifest:
+<Extensions>
+<printsupport:Extension Category="windows.printSupportExtension" EntryPoint="Tasks.PrintSupportExtensionBackGroundTask" />
+<printsupport:Extension Category="windows.printSupportSettingsUI" EntryPoint="PsaSampleApp.App"/>
+</Extensions>
+PrintSupportExtensionBackGroundTask.cs:
+using System;
+using System.Diagnostics;
+using Windows.ApplicationModel.Background;
+using Windows.Data.Xml.Dom;
+using Windows.Devices.Printers;
+using Windows.Foundation;
+using Windows.Graphics.Printing.PrintSupport;
+using Windows.Graphics.Printing.PrintTicket;
+namespace Tasks
+{
+public sealed class PrintSupportExtensionBackGroundTask : IBackgroundTask, IStringable
+{
+private BackgroundTaskDeferral _taskInstanceDeferral;
+private IppPrintDevice ippPrintDevice;
+public BackgroundTaskDeferral TaskInstanceDeferral
+{
+get
+{
+return _taskInstanceDeferral;
+}
+set
+{
+_taskInstanceDeferral = value;
+}
+}
+public void Run(IBackgroundTaskInstance taskInstance)
+{
+try
+{
+// Take task deferral
+TaskInstanceDeferral = taskInstance.GetDeferral();
+// Associate a cancellation handler with the background task
+taskInstance.Canceled += OnTaskCanceled;
+var psaTriggerDetails = taskInstance.TriggerDetails as PrintSupportExtensionTriggerDetails;
+var serviceSession = psaTriggerDetails.Session;
+ippPrintDevice = serviceSession.Printer;
+serviceSession.PrintTicketValidationRequested += this.OnPrintTicketValidationRequested;
+//serviceSession.PrintDeviceCapabilitiesChanged += this.OnPdcChanged;
+serviceSession.Start();
+}
+catch (Exception)
+{
+throw new System.NotImplementedException();
+}
+Debug.WriteLine("register printsupport extension background task..");
+}
+private void OnTaskCanceled(IBackgroundTaskInstance sender, BackgroundTaskCancellationReason reason)
+{
+// Complete the deferral
+TaskInstanceDeferral.Complete();
+}
+private void OnPrintTicketValidationRequested(PrintSupportExtensionSession session, PrintSupportPrintTicketValidationRequestedEventArgs args)
+{
+Deferral validDeferral = args.GetDeferral();
+using (validDeferral)
+{
+// Get PrintTicket that needs needs to be validated and resolved
+var printTicket = args.PrintTicket;
+// Validate and resolve PrintTicket
+WorkflowPrintTicketValidationStatus validationStatus = this.ValidateAndResolvePrintTicket(printTicket);
+args.SetPrintTicketValidationStatus(validationStatus);
+validDeferral.Complete();
+TaskInstanceDeferral.Complete();
+}
+}
+private void OnPdcChanged(PrintSupportExtensionSession session, PrintSupportPrintDeviceCapabilitiesChangedEventArgs args)
+{
+Deferral capabilitiesChangeDeferral = args.GetDeferral();
+using (capabilitiesChangeDeferral)
+{
+var pdc = args.GetCurrentPrintDeviceCapabilities();
+// Check current PDC and make changes according to printer device capabilities
+//XmlDocument newPdc = this.CheckAndUpdatePrintDeviceCapabilities(pdc);
+//args.UpdatePrintDeviceCapabilities(newPdc);
+capabilitiesChangeDeferral.Complete();
+}
+}
+private XmlDocument CheckAndUpdatePrintDeviceCapabilities(Windows.Data.Xml.Dom.XmlDocument pdc)
+{
+throw new NotImplementedException();
+}
+private WorkflowPrintTicketValidationStatus ValidateAndResolvePrintTicket(WorkflowPrintTicket printTicket)
+{
+try
+{
+Debug.WriteLine("### ValidateAndResolvePrintTicket start ###");
+//var validationResult = printTicket.ValidateAsync().AsTask().Result;
+var validationResult = printTicket.ValidateAsync().AsTask().GetAwaiter().GetResult();
+if (!validationResult.Validated)
+{
+Debug.WriteLine("printTicket invalid");
+return WorkflowPrintTicketValidationStatus.Invalid;
+}
+Debug.WriteLine("printTicket valid");
+return WorkflowPrintTicketValidationStatus.Resolved;
+}
+catch (Exception ex)
+{
+Debug.WriteLine($"validate failed: {ex}");
+return WorkflowPrintTicketValidationStatus.Invalid;
+}
+}
+string IStringable.ToString()
+{
+return "PrintSupportExtensionBackGroundTask Instance";
+}
+public override string ToString()
+{
+return ((IStringable)this).ToString();
+}
+}
+}
+App.xaml.cs:
+using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using Tasks;
+using Windows.ApplicationModel;
+using Windows.ApplicationModel.Activation;
+using Windows.ApplicationModel.Background;
+using Windows.Graphics.Printing.PrintSupport;
+using Windows.Graphics.Printing.Workflow;
+using Windows.UI.Xaml;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Navigation;
+using Tasks;
+namespace PsaSampleApp
+{
+/// <summary>
+/// Provides application-specific behavior to supplement the default <see cref="Application"/> class.
+/// </summary>
+public sealed partial class App : Application
+{
+//private const string PrintSupportTaskName = "PrintSupportBackgroundTask";
+/// <summary>
+/// Initializes the singleton application object. This is the first line of authored code
+/// executed, and as such is the logical equivalent of main() or WinMain().
+/// </summary>
+public App()
+{
+InitializeComponent();
+Suspending += OnSuspending;
+}
+//internal void ExitSettings()
+//{
+//
+settingsDeferral.Complete();
+//}
+/// <inheritdoc/>
+protected override async void OnLaunched(LaunchActivatedEventArgs e)
+{
+// Do not repeat app initialization when the Window already has content,
+// just ensure that the window is active.
+if (Window.Current.Content is not Frame rootFrame)
+{
+System.Diagnostics.Debug.WriteLine("### Init OnLaunched ###");
+// Create a Frame to act as the navigation context and navigate to the first page
+rootFrame = new Frame();
+rootFrame.NavigationFailed += OnNavigationFailed;
+if (e.PreviousExecutionState == ApplicationExecutionState.Terminated)
+{
+// TODO: Load state from previously suspended application
+}
+// Place the frame in the current Window
+Window.Current.Content = rootFrame;
+}
+if (e.PrelaunchActivated == false)
+{
+if (rootFrame.Content == null)
+{
+// When the navigation stack isn't restored navigate to the first page, configuring
+// the new page by passing required information as a navigation parameter.
+rootFrame.Navigate(typeof(MainPage), e.Arguments);
+}
+// 注册打印支持后台任务
+//await RegisterPrintSupportBackgroundTask(GetPrintSupportTaskName());
+// Ensure the current window is active
+Window.Current.Activate();
+}
+}
+/// <summary>
+/// Invoked when Navigation to a certain page fails.
+/// </summary>
+/// <param name="sender">The Frame which failed navigation.</param>
+/// <param name="e">Details about the navigation failure.</param>
+private void OnNavigationFailed(object sender, NavigationFailedEventArgs e)
+{
+throw new Exception($"Failed to load page '{e.SourcePageType.FullName}'.");
+}
+/// <summary>
+/// Invoked when application execution is being suspended. Application state is saved
+/// without knowing whether the application will be terminated or resumed with the contents
+/// of memory still intact.
+/// </summary>
+/// <param name="sender">The source of the suspend request.</param>
+/// <param name="e">Details about the suspend request.</param>
+private void OnSuspending(object sender, SuspendingEventArgs e)
+{
+SuspendingDeferral deferral = e.SuspendingOperation.GetDeferral();
+//Tasks.PrintSupportExtensionBackGroundTask.WaitForTasks();
+// TODO: Save application state and stop any background activity
+deferral.Complete();
+}
+protected override void OnActivated(IActivatedEventArgs args)
+{
+if (args.Kind == ActivationKind.PrintSupportSettingsUI)
+{
+var settingsArgs = args as PrintSupportSettingsActivatedEventArgs;
+PrintSupportSettingsUISession session = settingsArgs.Session;
+var deferral = settingsArgs.GetDeferral();
+var rootFrame = new Frame();
+switch (session.LaunchKind)
+{
+case SettingsLaunchKind.UserDefaultPrintTicket:
+rootFrame.Navigate(typeof(MainPage), session);
+break;
+case SettingsLaunchKind.JobPrintTicket:
+rootFrame.Navigate(typeof(JobSettingsView), session);
+break;
+default:
+rootFrame.Navigate(typeof(MainPage));
+break;
+}
+Window.Current.Content = rootFrame;
+Window.Current.Activate();
+rootFrame.Navigated += (s, e) => deferral.Complete();
+}
+else
+{
+base.OnActivated(args);
+}
+}
+}
+}
+However, when I open Notepad and select a printer, the print preferences dialog fails to appear, and the following error code is returned:
+error message
+Upon checking the system debug logs, the error is:
+"The background task with entry point Tasks.PrintSupportExtensionBackGroundTask and name [blank] could not be activated. Error code: 0x800401F9.
+My understanding is that the background task for a Print Support App should be automatically registered by the system, without requiring manual creation of a BackgroundTaskBuilder or explicit trigger configuration.
+I'm uncertain what trigger should be used for the PSA background task. I also attempted to manually register the background task, but that also failed.
+What steps should I take to successfully register this background task?
+printinguwpbackgroundbackground-taskappx
+Share
+Improve this question
+Follow
+edited 16 hours ago
+Jeff325Jeff325
+asked 16 hours ago
+Jeff325Jeff325
+1133 bronze badges
+Add a comment
+|
+Related questions
+1809
+How do I print to stderr in Python?
+1635
+How can I flush the output of the print function?
+848
+How to print instances of a class using print()?
+Related questions
+1809
+How do I print to stderr in Python?
+1635
+How can I flush the output of the print function?
+848
+How to print instances of a class using print()?
+669
+How do I run a node.js app as a background service?
+702
+How to use HTML to print header and footer on every printed page of a document?
+461
+How to detect when an Android app goes to the background and come back to the foreground
+329
+Background color not showing in print preview
+363
+How set background drawable programmatically in Android
+0
+How to register for the PSA printing background task
+Load 6 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+printinguwpbackgroundbackground-taskappx
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Comparing a combination of data from two columns to another combination from other two columns
+Are there any problems with mastering my own music?
+How can blood fuel space travel?
+Verify a Chinese ID Number
+How do trees drop their leaves?
+Can a state execute an ICC arrest warrant in international waters?
+Marking utensils for ownership
+What does it mean for work to be done ON a system?
+What does "transform into the character pulled into the UFO" mean?
+Separating trefoil knot on torus
+At high pressures, is aromaticity affected?
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Are there injections that combine 80 different vaccines?
+Find non-trivial improvement after submitting
+How to use ≥ 16 usbip ports from one host controller on Debian?
+What is the Occultist class in 5e?
+On the Subject of Switches
+Woman from bubble city where all men are infertile meets fertile man from another city
+Another Slitherlink Next Step
+Prove that the sequences of numbers coincide
+Does clipping distortion affect the information contained within a frequency-modulated signal?
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

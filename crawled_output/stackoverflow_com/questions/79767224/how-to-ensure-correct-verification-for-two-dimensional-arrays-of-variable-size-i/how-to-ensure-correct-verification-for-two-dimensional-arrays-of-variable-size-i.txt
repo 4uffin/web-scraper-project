@@ -1,0 +1,299 @@
+How to Ensure Correct Verification for two-dimensional Arrays of Variable Size in Frama-C? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to Ensure Correct Verification for two-dimensional Arrays of Variable Size in Frama-C?
+Ask Question
+Asked
+8 days ago
+Modified
+8 days ago
+Viewed
+26 times
+2
+I have recently been trying to use Frama-C to verify some programs involving two-dimensional arrays, but I found that variable array lengths in C might affect the verification results. Below is my source code:
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <assert.h>
+/*@ lemma unchanged{L1,L2}: \forall int** array; \forall int* p; \forall integer begin, end;
+(\forall integer i, j; begin <= i < end ==> \at(array[begin][i],L1) == \at(array[begin][i],L2) && \at(array[i + 1][end], L1) == \at(array[i + 1][end], L2))
+&& (\forall integer i; begin <= i <= end ==> \at(p[i],L1) == \at(p[i],L2))
+==> \forall integer h; begin <= h < end ==>
+\at(array[begin][h], L1) + \at(array[h + 1][end], L1) + \at(p[begin - 1], L1) * \at(p[h], L1) * \at(p[end], L1)
+== \at(array[begin][h], L2) + \at(array[h + 1][end], L2) + \at(p[begin - 1], L2) * \at(p[h], L2) * \at(p[end], L2);
+*/
+/*@
+requires n > 0;
+requires \valid(p + (0..(n)));
+requires \valid(m + (0..(n)));
+requires \valid(m[0..(n)] + (0..(n)));
+requires \forall integer i, j; 0 <= i < n && 0 <= j < n && i != j ==> \separated(&m[i] + (0..(n)), &m[j] + (0..(n)), &p[0..(n)]);
+requires \separated(&m[0..(n)] + (0..(n)), &p[0..(n)]);
+requires \forall integer k; 0 <= k <= n ==> 0 < p[k] < 5;
+requires \forall integer r; 0 <= r <= n ==> m[r][r] == 0;
+requires \forall integer i, j; 0 <= i <= n
+&& 0 <= j <= n && i != j ==> m[i][j] == 2147483647;
+ensures \forall integer j; 2 <= j <= n ==>
+(\forall integer g; 1 <= g <= n - j + 1 ==>
+(\forall integer h; g <= h < g + j - 1 ==>
+m[g][g + j - 1] <= m[g][h] + m[h + 1][g + j - 1] + p[g - 1] * p[h] * p[g + j - 1]));
+assigns m[1..(n)][1..(n)];
+*/
+int matrix_chain_order(int p[], int** m, int n) {
+/*@
+loop invariant i1: 2 <= l <= n + 1;
+loop invariant i2: \forall integer r; 1 <= r <= n ==> m[r][r] == 0;
+loop invariant i3:\forall integer j; 2 <= j < l ==>
+(\forall integer g; 1 <= g <= n - j + 1 ==>
+(\forall integer h; g <= h < g + j - 1 ==>
+m[g][g + j - 1] <= m[g][h] + m[h + 1][g + j - 1] + p[g - 1] * p[h] * p[g + j - 1]));
+loop assigns l;
+loop assigns m[1..(n)][1..(n)];
+*/
+for (int l = 2; l <= n; l++) {
+/*@
+loop invariant i4: \forall integer r; 1 <= r <= n ==> m[r][r] == 0;
+loop invariant i5: 2 <= l <= n;
+loop invariant i6: 1 <= i <= n - l + 2;
+loop invariant i7: \forall integer g; 1 <= g < i ==>
+(\forall integer h; g <= h < g + l - 1 ==>
+m[g][g + l - 1] <= m[g][h] + m[h + 1][g + l - 1] + p[g - 1] * p[h] * p[g + l - 1]);
+loop assigns m[1..(n)][1..(n)];
+loop assigns i;
+*/
+for (int i = 1; i <= n - l + 1; i++) {
+/*@ ghost int cur = -1; */
+int end = i + l - 1;
+m[i][end] = 2147483647;
+/*@
+loop invariant i8: 2 <= l <= n;
+loop invariant i9: 1 <= i <= n - l + 1;
+loop invariant i10: i <= k <= end;
+loop invariant i11: cur == -1 || i <= cur < end;
+loop invariant i12: k - i + 1 <= l && end - k + 1 <= l;
+loop invariant i13: \forall integer r; 1 <= r <= n ==> m[r][r] == 0;
+loop invariant i14: \forall integer h; i <= h < k ==>
+m[i][end] <= m[i][h] + m[h + 1][end] + p[i - 1] * p[h] * p[end];
+loop invariant i15: m[i][end] == 2147483647 || m[i][end] == m[i][cur] + m[cur + 1][end] + p[i - 1] * p[cur] * p[end];
+loop assigns m[i][end];
+loop assigns k;
+loop assigns cur;
+*/
+for (int k = i; k < end; k++) {
+int q = m[i][k] + m[k + 1][end] + p[i - 1] * p[k] * p[end];
+if (q < m[i][end]) {
+m[i][end] = m[i][k] + m[k + 1][end] + p[i - 1] * p[k] * p[end];
+//@ ghost cur = k;
+}
+}
+}
+}
+return m[1][n];
+}
+When I used Frama-C to verify the above program, it showed that the preservation of i7 and i4 was incorrect:
+[wp] [Timeout] typed_matrix_chain_order_loop_invariant_i7_preserved (Qed 87ms) (Alt-Ergo) (Cached)
+[wp] [Timeout] typed_matrix_chain_order_loop_invariant_i14_preserved (Qed 184ms) (Alt-Ergo) (Cached)
+However, if I restrict the two-dimensional array length n to a fixed constant by adding statesment such as requires n == 10 or #define n 10, all tests pass.
+I would like to know how to properly manage the memory space for two-dimensional arrays to ensure correct verification for programs with a non-fixed n.
+My Frama-C version is 31.0 (Gallium)
+frama-c
+Share
+Improve this question
+Follow
+asked Sep 17 at 11:05
+SharkShark
+9755 bronze badges
+Add a comment
+|
+Related questions
+2
+Existential quantified assertion fails
+0
+Frama-c: Function calls and static variables
+3
+What loop invariants to use for an integer logarithm?
+Related questions
+2
+Existential quantified assertion fails
+0
+Frama-c: Function calls and static variables
+3
+What loop invariants to use for an integer logarithm?
+1
+Frama-C does not recognize valid memory access from bitwise-ANDed index
+1
+Frama-C [eva:alarm] Warning function X: postcondition 'Z' got status unknown with "ensures \forall integer i ; ..."
+4
+How to increase Frama-C's GUI font/text size?
+2
+How to specify the path for Frama-C include files?
+2
+How to control size of basic arithmetic types in Frama-C?
+0
+How can i use the modules written for Frama-C' s plugin?
+1
+How to trace a variable and slice all the code that it touches with Frama-C
+Load 7 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+frama-c
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Is there a specific term to describe someone who is religious but does not necessarily believe everything that their religion teaches, and uses logic?
+How does a telepathic bond work if the bondee lacks language?
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+On the Subject of Switches
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+Where was the Kenya sequence in The Crown Episode 1 filmed?
+Regulator circuit outputs negative current
+How to convert square wave to sine wave
+How big of a hole can I drill in an exterior wall's bottom plate?
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+Can the airline or ground staff legally stop passengers from disembarking a plane?
+How to handle a warlock with Aspect of the Moon and Visions of Distant Realms?
+Which driving direction syncs with Quebec’s and Maritime Canada’s autumn leaf colors?
+How can blood fuel space travel?
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+List of crowdsourced math projects actively seeking participants
+Are there any problems with mastering my own music?
+Convex sets, tangent cones and convergence
+Traveling by car on train in Germany
+How to crack ECC using halving
+Separating trefoil knot on torus
+Why would disembarking a few passengers delay a flight by 3 hours?
+General inquiries about the Ersatzinfinitiv
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

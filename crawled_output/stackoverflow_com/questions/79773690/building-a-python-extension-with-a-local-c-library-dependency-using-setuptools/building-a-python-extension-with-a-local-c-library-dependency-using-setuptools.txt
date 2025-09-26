@@ -1,0 +1,326 @@
+Building a Python extension with a local C++ library dependency using setuptools and build - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Building a Python extension with a local C++ library dependency using setuptools and build
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+80 times
+0
+I have a library written in C++ for which I would like to make a Python wrapper. The directory structure of my repository is similar to the following:
+.
+├── include # C++ library headers
+│   └── …
+├── Makefile
+├── python # Python package
+│
+├── wrapper-module # C++ and Python source files
+│
+│
+└── …
+│
+├── pyproject.toml
+│
+├── setup.py
+│   └── …
+├── src # C++ library source files
+│   └── …
+└── tests # C++ library tests
+└── …
+I use GNU make for building the C++ library and use Python’s C API directly to implement the wrapper. (I.e. no Boost.Python, Cython etc.)
+Building the Python package has been unsuccessful so far. Since I use the C API, I chose setuptools 80.9.0 for building the module. When running python -m build, the relevant files are copied to a separate location, even if I use --no-isolation. So far I have been unable to make the C++ library available in that location or determine their relative path with respect to that location. (I would like to avoid specifying its absolute path or installing it to e.g. /usr.) The source files for the wrapper module (or at least most of them) are copied as expected.
+So far I have attempted to solve the issue as follows:
+Checking the documentation. What I have found so far has had to do with Python dependencies, not “local” ones.
+Copying the C++ library build products to the Python directory with a build phase in the Makefile. In this case the build products are not copied to the separate build location. I have not found a configuration option to specify the directory in question as a build dependency.
+Adding a custom build phase in setup.py. In this case I have not found a function or property to retrieve the original path in order to copy the required files as part of the build process.
+Writing a custom build backend based on setuptools.build_meta. In this case I can determine the original path using os.getcwd(). However, the module that contains the custom backend is not copied to the separate build location even though I have set build-backend and backend-path in pyproject.toml. (In any case I probably would need to store the original path somehow, to which I have not paid much attention.)
+Any suggestions for making setuptools aware of the location of the built C++ library and the associated header files are appreciated.
+pythonpython-3.xsetuptoolspython-c-apipyproject.toml
+Share
+Improve this question
+Follow
+edited yesterday
+tsnorritsnorri
+asked yesterday
+tsnorritsnorri
+2,13155 gold badges2222 silver badges3232 bronze badges
+2
+1
+Not sure why this got closed as "opinion-based" of all things. It might be insufficient information to reproduce, but it's not asking for opinions, just concrete solutions.
+ShadowRanger
+–
+ShadowRanger
+2025-09-24 19:44:33 +00:00
+Commented
+yesterday
+@ShadowRanger the title originally contained “best practices”, a bad choice of words on my part. The question had only received one vote to be closed as opinion-based before I fixed it, though.
+tsnorri
+–
+tsnorri
+2025-09-24 20:29:57 +00:00
+Commented
+yesterday
+Add a comment
+|
+2 Answers
+2
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+I finally came up with a solution, although there are some reasons to consider other options: According to PEP 517, the source tree should be self-contained, so one could argue that the source code of the C++ library should be included in it. I did not want to change the directory structure or add another repository for the Python package, though. Apprently using a build backend such as scikit-build would have made it possible (easier?) to use CMake as part of the build system instead of trying to build everything with setuptools, but I did not want to switch to that either.
+The basic idea is to:
+(Ab)use Python’s build module’s configuration options to pass the current directory to the build system with a command similar to python -m build -C project-root=`pwd`. Running the command can be made easier by writing it to a Makefile.
+Write a build backend based on setuptools.build_meta that handles the configuration option.
+Write a build command based on setuptools.command.build_ext.build_ext that modifies relative header and library paths.
+Here is the directory structure.
+.
+├── Makefile
+├── pyproject.toml
+├── README.md
+├── my-python-package
+│   ├── __init__.py
+│   ├── _custom_build.py # Build backend and command
+│   ├── py.typed
+│   └── my-python-module.pyi
+└── src
+└── my-python-module.cc
+Here are the relevant parts of pyproject.toml. I used relative paths for include-dirs and library-dirs under [[tool.setuptools.ext-modules]].
+[build-system]
+requires = ["setuptools >=80.9"] # An older version might have sufficed.
+build-backend = "_custom_build"
+backend-path = ["my-python-package"]
+[tool.setuptools]
+packages = ["my-python-package"]
+[tool.setuptools.cmdclass]
+build_ext = "_custom_build.build_ext"
+Here is _custom_build.py.
+from setuptools.build_meta import *
+from setuptools.build_meta import build_wheel as build_wheel_
+from setuptools.command.build_ext import build_ext as build_ext_
+import typing
+project_root: str = ""
+def fix_path(path: str) -> str:
+if path.startswith("/"):
+return path
+return f"{project_root}/{path}"
+def build_wheel(wheel_directory, config_settings = None, metadata_directory = None):
+global project_root
+if config_settings:
+project_root = config_settings.get("project-root", "")
+return build_wheel_(wheel_directory, config_settings, metadata_directory)
+class build_ext(build_ext_):
+@typing.override
+def initialize_options(self):
+super().initialize_options()
+# Add the include and library paths outside the build directory,
+# since the library is built separately.
+for ext in self.distribution.ext_modules:
+ext.include_dirs = list(map(fix_path, ext.include_dirs))
+ext.library_dirs = list(map(fix_path, ext.library_dirs))
+Share
+Improve this answer
+Follow
+answered 8 hours ago
+tsnorritsnorri
+2,13155 gold badges2222 silver badges3232 bronze badges
+Comments
+Add a comment
+-2
+Either compile everything with setuptools or run make + tell setuptools where your library lives (libraries).
+Share
+Improve this answer
+Follow
+answered yesterday
+Purohit Mansi RajendrakumarPurohit Mansi Rajendrakumar
+1
+New contributor
+Purohit Mansi Rajendrakumar is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+1 Comment
+Add a comment
+tsnorri tsnorri yesterday
+I tried to explain why this does not work in the question: the Python package files are copied to a separate build location and hence the relative path will not work. I would like to build the C++ library separately since it does not depend on the Python library. 2025-09-24T12:18:08.263Z+00:00
+1
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+pythonpython-3.xsetuptoolspython-c-apipyproject.toml
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+1031
+Running unittest with typical test directory structure
+725
+How can I import a module dynamically given its name as string?
+1041
+Find all files in a directory with extension .txt in Python
+134
+Post-install script with Python setuptools
+3
+Python setuptools multiple extension modules with shared C source code building in parallel
+443
+How to write a Python module/package?
+2
+Build and Deliver Python modules using Cythonize in Setuptools
+206
+setuptools vs. distutils: why is distutils still a thing?
+2
+Building a PyPi package using setuptools & pyproject.toml with a custom directory tree
+Hot Network Questions
+Regulator circuit outputs negative current
+How to handle a warlock with Aspect of the Moon and Visions of Distant Realms?
+Separating trefoil knot on torus
+Are there injections that combine 80 different vaccines?
+What does it mean for work to be done ON a system?
+What license to use when extending a pre-existing library?
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+If 3-D is too easy, go 4-D
+Verify a Chinese ID Number
+On the Subject of Switches
+At high pressures, is aromaticity affected?
+What is the exact meaning of olcAccess: {1}to dn.exact="" by * read
+Changing size of math environments
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+Lock icon to convey disabled but has a clickable feature?
+How to use ≥ 16 usbip ports from one host controller on Debian?
+In the U.S., what protections are in place to help (under)graduate students whose entire department is removed?
+Does clipping distortion affect the information contained within a frequency-modulated signal?
+Find non-trivial improvement after submitting
+What happens when the jewels run out?
+Do academics mind if someone outside their field critiques their work?
+Does pseudo-vitae revenants produce replenish vitae in Kindred?
+Ian Stewart, Definition for Primitive Root of Unity
+3 variables cyclic rearrangement inequality.
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-py
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

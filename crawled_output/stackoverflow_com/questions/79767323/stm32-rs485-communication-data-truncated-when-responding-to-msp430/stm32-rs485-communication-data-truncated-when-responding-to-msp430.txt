@@ -1,0 +1,254 @@
+c - STM32 RS485 Communication: Data Truncated When Responding to MSP430 - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+STM32 RS485 Communication: Data Truncated When Responding to MSP430
+Ask Question
+Asked
+8 days ago
+Modified
+6 days ago
+Viewed
+81 times
+-1
+I am facing a data truncation issue in an RS485 communication link between an STM32 and a TI MSP430. The system operates as follows:
+Baud Rate: 19200
+Protocol: Modbus RTU
+Communication Flow: The MSP430 sends a command, and the STM32 sends a response.
+The communication from MSP430 to STM32 works perfectly. However, when the STM32 responds to the MSP430, the first few bytes of data are truncated on the MSP430 side. The sent data is not fully received.
+Expected Response (STM32 TX): 02 03 0C 42 8D 3C FD 0F CB 0B BE 03 27 4D EC B1 CD
+Actual Reception (MSP430 RX): 09 96 0E E1 15 70 1A 67 12 72 09 AF EE 0F
+As you can see, the first three bytes are missing, and the rest of the data is shifted.
+The MSP430 manually controls its RS485 DE pin (Driver Enable), while the STM32 uses the UART's automatic DE pin control feature.
+I suspect the problem is related to the timing of the DE pin. I cannot modify the MSP430's code, so the solution must be implemented on the STM32 side. I tried to insert a delay before sending data, and it partially solved the issue but introduced a new problem.
+Here is the relevant code snippet:
+// Adding this delay fixes the truncation issue, but causes the next transmission
+// to be a string of zeros.
+//HAL_Delay(1);
+for(uint8_t i=0; i<responseDataCount; i++)
+{
+LL_USART_TransmitData8(MODBUS_UART, modbus_request_buf[i]);
+while(LL_USART_IsActiveFlag_TXE(MODBUS_UART) != 1) {}
+}
+while(LL_USART_IsActiveFlag_TC(MODBUS_UART) != 1) {}
+When I uncomment HAL_Delay(1), the data is sent correctly, but the next communication cycle from the STM32 results in all-zero data. This suggests a timing issue where the UART or related buffers are not properly handled after the delay. I'm looking for a better way to manage the DE pin on the STM32, perhaps by disabling the automatic DE control and implementing a manual control with precise timing.
+cstm32uartmodbusrs485
+Share
+Improve this question
+Follow
+edited Sep 19 at 15:33
+0___________
+70.8k44 gold badges4040 silver badges8989 bronze badges
+asked Sep 17 at 12:29
+胡峻豪胡峻豪
+1
+3
+I don't see how to shift the actual received frame to match any of the expected response. Can you elaborate? Some bytes or bits are missing but which ones? Received ends with 4 1's together - the closest such bit pattern in the target data is the 0F at byte 7.
+Martin Brown
+–
+Martin Brown
+2025-09-17 14:17:20 +00:00
+Commented
+Sep 17 at 14:17
+the STM32 sensor sends data, the TI MSP430 sensor is only receiving a truncated frame.
+Missing Data: The first three bytes, 02 03 0C, are lost.
+Correct Data Frame: 02 03 0C 42 8D 3C FD 0F CB 0B BE 03 27 4D EC B1 CD
+Received Data Frame: 42 8D 3C FD 0F CB 0B BE 03 27 4D EC B1 CD (The first three bytes are missing)
+胡峻豪
+–
+胡峻豪
+2025-09-18 00:53:30 +00:00
+Commented
+Sep 18 at 0:53
+1
+That isn't what it says in the question. Please make it clear what was actually received. It looks on the face of it that you have a potential race condition where the STM32 responds before the MSP430 is ready to accept. Do the experiment with adding small delays and binary chop on the length.
+Martin Brown
+–
+Martin Brown
+2025-09-18 07:25:34 +00:00
+Commented
+Sep 18 at 7:25
+Add a comment
+|
+Related questions
+1
+dsPic33E : RS485 Communication issue
+0
+Arduino Mega and RS485 Modbus Sensor
+0
+RS485 communication between C++ and Python, message splitted and receive in multiple reception
+Related questions
+1
+dsPic33E : RS485 Communication issue
+0
+Arduino Mega and RS485 Modbus Sensor
+0
+RS485 communication between C++ and Python, message splitted and receive in multiple reception
+10
+ARM: reading modbus data through UART fails
+0
+SPI slave read data into buffer on stm32?
+Load 2 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+cstm32uartmodbusrs485
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+Regulator circuit outputs negative current
+What is an aggravating factor and why is kinship considered one?
+Using Switch to return a value depending on the sign of a real number
+Verify a Chinese ID Number
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+What is the Occultist class in 5e?
+What conditions on an Earthlike planet would allow for a massive, Pando-esque forest that’s a single organism?
+What happens when the jewels run out?
+Why weren’t Prince Philip’s sisters invited to his wedding to Princess Elizabeth?
+If 3-D is too easy, go 4-D
+Which driving direction syncs with Quebec’s and Maritime Canada’s autumn leaf colors?
+Plotting functions without sampling artefacts
+What happened to all of the energy created at the Big Bang when the matter and antimatter annihilated each other?
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+Removing temporary LaTeX files
+I'm having a hard time intuiting throttle position to engine rpm consistency between gears -- why do cars behave in this observed way?
+How to handle a warlock with Aspect of the Moon and Visions of Distant Realms?
+What happens to academic grants if you leave for industry?
+Does illusion prevent "you can see" requirement when casting a spell?
+Identifying a movie where a man relives the same day
+How Create a math symbol
+How do trees drop their leaves?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-c
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

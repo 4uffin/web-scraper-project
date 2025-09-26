@@ -1,0 +1,332 @@
+c - Can you use a pointer representing a virtual object as the key in bsearch? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Can you use a pointer representing a virtual object as the key in bsearch?
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+114 times
+4
+In C23, I have an array A sorted relative to a comparison function f. f has the property that if a certain address (say the address of a particular global variable) is passed to it, rather than dereferrencing the special address as normal, the special address is treated as an indicator for a special object. The special address is not the address of anything in A. The special address could be dereferrenced, so its not an invalid pointer or anything.
+To be more specific, say A is a sorted list of all integers from 1 to 1000 and f is regular real number comparison. If the special address is passed to f, it does not dereferrence it as an integer, instead it treats it like it is 42 regardless of what data it points to.
+I am not sure I could provide an example where the mechanism is meaningful without a lot of code, but I think this describes completely what I am doing.
+Is there any C standard violation using bsearch with this array and function, passing the special address as the key to search for?
+cc23bsearch
+Share
+Improve this question
+Follow
+asked yesterday
+KyleKyle
+1,11677 silver badges1616 bronze badges
+10
+Your description matches the strict aliasing rule violation. UB.
+0___________
+–
+0___________
+2025-09-24 23:09:21 +00:00
+Commented
+yesterday
+As I understand it, a violation of the strict aliasing rule would mean I have pointers p and q of different types that point to the same memory location. What are my p and q here?
+Kyle
+–
+Kyle
+2025-09-24 23:14:58 +00:00
+Commented
+yesterday
+The only way the comparison function could be passed the special address is if that address pointed to an array member.
+Is that the case?
+dbush
+–
+dbush
+2025-09-24 23:16:22 +00:00
+Commented
+yesterday
+1
+@Kyle: There is no aliasing violation, but the aliasing rules are not based on what you have pointers to but on what lvalue you use to access an object. That essentially requires dereferencing a pointer. (You can access an object without a pointer by using its name, but then the lvalue has the declared type of the object, so there is automatically no aliasing violation unless you already have undefined behavior from munging a declaration separately from the definition.) If the lvalue type is not one of those allowed for the object’s effective type, then there is an aliasing violation.
+Eric Postpischil
+–
+Eric Postpischil
+2025-09-24 23:59:58 +00:00
+Commented
+yesterday
+1
+It is perfectly OK for key and value arguments of the bsearch comparison function to point to objects of different types (say, the key is a string, and the array has complex data structures sorted by a string key).
+The function may also skip dereferencing key if it so wishes, in which case it doesn't have to point to any particular type. The only requirement is that the function returns results consistent with the array ordering
+(and does not produce UB on its own of course).
+n. m. could be an AI
+–
+n. m. could be an AI
+2025-09-25 06:55:21 +00:00
+Commented
+21 hours ago
+|
+Show 5 more comments
+3 Answers
+3
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+6
+As long as the results of the comparison function are consistent with whatever values are being passed in, this shouldn't be an issue.
+In particular section 7.24.5p4 states:
+When the same objects (consisting of size bytes, irrespective of their current positions in the array)
+are passed more than once to the comparison function, the results shall be consistent with one
+another. That is, for qsort they shall define a total ordering on the array, and for bsearch the same
+object shall always compare the same way with the key
+For example, this would work.
+int f(const void *k, const void *v)
+{
+int key;
+if (k == SPECIAL) {
+key = 42;
+} else {
+key = *(const int *)k;
+}
+int value = *(const int *)v;
+if (key < value) {
+return -1;
+} else if (key > value) {
+return 1;
+} else {
+return 0;
+}
+}
+Share
+Improve this answer
+Follow
+answered yesterday
+dbushdbush
+232k2626 gold badges259259 silver badges333333 bronze badges
+3 Comments
+Add a comment
+Kyle Kyle yesterday
+Thanks! Looks like you would need to check v for the special address too right? Or is there some way you can assume the key always passes as the first argument? 2025-09-24T23:55:37.21Z+00:00
+0
+Reply
+Copy link
+dbush dbush yesterday
+The first argument is always the key 2025-09-25T00:48:28.95Z+00:00
+1
+Reply
+Copy link
+Ian Abbott Ian Abbott 14 hours ago
+But if the same function is being used to sort the array (as it should be for consistency), neither pointer would be the key. There is the issue of how to sort the array in the first place. 2025-09-25T14:07:07.45Z+00:00
+0
+Copy link
+4
+Is there any C standard violation using bsearch with this array and function, passing the special address as the key to search for?
+No, I do not find any.
+C spec does have ...
+The implementation shall ensure that the second argument of the comparison function (when called from bsearch), or both arguments (when called from qsort), are pointers to elements of the array. C23dr § 7.24.5 2
+... does not impose any requirement that the first argument (in bsearch()) point to the array.
+The first argument is not even required to be the same type.
+The compare function must:
+not alter the contents of the array.
+not alter the contents of any individual element of the array.
+When the same objects (consisting of size bytes, irrespective of their current positions in the array) are passed more than once to the comparison function, the results shall be consistent with one another.
+Share
+Improve this answer
+Follow
+answered yesterday
+chuxchux
+157k1717 gold badges160160 silver badges307307 bronze badges
+Comments
+Add a comment
+3
+The specification for bsearch in C 2024 7.24.6.2 says bsearch “searches… for an element that matches the object pointed to by key” (emphasis added) and that the comparison function “shall return an integer less than, equal to, or greater than zero if the key object is considered, respectively, to be less than, to match, or to be greater than the array element.” It also specifies the array must satisfy the partial ordering determined by the comparison (lesser elements first, then matching elements, then greater elements). These words, “matches” and “considered,” are left for the caller and the comparison function to determine; the C standard states no further requirements for them.
+Nothing in this specification says the value the comparison function uses for its ordering must be determined by the value of the key object (that is, the data in the memory it points to). A comparison function that uses the address of the key object to determine the ordering satisfies the requirements stated for the key function (provided the requirements are otherwise satisfied, such as the partial ordering requirement).
+Share
+Improve this answer
+Follow
+answered yesterday
+Eric PostpischilEric Postpischil
+231k1515 gold badges196196 silver badges375375 bronze badges
+1 Comment
+Add a comment
+Kyle Kyle yesterday
+Thanks! This answer is just as selectable as the other. 2025-09-24T23:57:12.87Z+00:00
+0
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+cc23bsearch
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+0
+bsearch not searching entire array passed to it
+0
+bsearch() always returning null pointer
+0
+Search for a target string using bsearch in an array of string in a struct
+219
+How do pointer-to-pointers work in C? (and when might you use them?)
+3
+How to pass a pointer to an array without decay, and use the 'reference' in a function for barbarrians?
+31
+Is it OK to use longjmp to break out of qsort?
+25
+Stabilizing the standard library qsort?
+0
+Exact meaning of "sorted"
+1
+Is it illegal to modify the contents of the qsort's comparison function?
+1
+C qsort not sorting last item in multidimensional array
+Hot Network Questions
+Prove that the sequences of numbers coincide
+What happens to academic grants if you leave for industry?
+What is the effectiveness of using a miniature (ground) plane to route vias through as opposed to using separate paths and vias?
+Marking utensils for ownership
+What exactly makes something a "phased-out creature"
+How to handle a warlock with Aspect of the Moon and Visions of Distant Realms?
+What qualifies to be a "family of statistical tests" for Bonferroni corrections?
+If 3-D is too easy, go 4-D
+Traveling by car on train in Germany
+What is this glass device I found next to drinking glasses in the south of France
+At high pressures, is aromaticity affected?
+How to convert square wave to sine wave
+What "real mistakes" exist in the Messier catalog?
+Which driving direction syncs with Quebec’s and Maritime Canada’s autumn leaf colors?
+In Justice Kagan's "Congress, as everyone agrees, prohibited each of those presidential removals." who exactly is "everyone"?
+Where was the Kenya sequence in The Crown Episode 1 filmed?
+In the U.S., what protections are in place to help (under)graduate students whose entire department is removed?
+Smoothing a triangulated surface without changing its quasi-isometry class
+Why would disembarking a few passengers delay a flight by 3 hours?
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Do academics mind if someone outside their field critiques their work?
+Short story about a metal-eating alien
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+What happens when the jewels run out?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-c
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

@@ -1,0 +1,302 @@
+Can't Get my Python Script to log values into csv from Arduino IoT Cloud - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Can't Get my Python Script to log values into csv from Arduino IoT Cloud
+Ask Question
+Asked
+8 days ago
+Modified
+8 days ago
+Viewed
+48 times
+0
+The goal is to capture smartphone accelerometer data (X, Y, Z axes) published to the Arduino IoT Cloud by the Arduino IoT Remote mobile app, and then process it in Python and log them into three different csv files for variables (Accelerometer_X, Accelerometer_Y, Accelerometer_Z). I can connect and authenticate, but on_message never fires even though the Arduino IoT Cloud UI shows the accelerometer values updating in real time.
+To extend this functionality, I created a separate device in Arduino IoT Cloud called PythonLogger, along with a dedicated Thing that contains three float variables mirroring the accelerometer axes. These PythonLogger variables were synced with the iPhone Thing’s variables so that, in theory, they should reflect the same values that the phone is publishing. The PythonLogger device provides me with a Device ID and Secret, which I use as authentication credentials in my Python client.
+Code I used for the Python Script to log the values from IoT cloud to the csv files
+from paho.mqtt import client as mqtt
+import ssl
+from datetime import datetime, timezone
+# Credentials (from PythonLogger device)
+DEVICE_ID
+= "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+DEVICE_SECRET = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+BROKER, PORT
+= "iot.arduino.cc", 8884
+# Thing + properties (IDs from Arduino IoT Cloud dashboard)
+THING_ID = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+PROP_X
+= "propid-for-Accelerometer_X"
+PROP_Y
+= "propid-for-Accelerometer_Y"
+PROP_Z
+= "propid-for-Accelerometer_Z"
+BASE = f"/v2/things/{THING_ID}/properties"
+TOPICS = [
+f"{BASE}/{PROP_X}",
+f"{BASE}/{PROP_X}/publish",
+f"{BASE}/{PROP_Y}",
+f"{BASE}/{PROP_Y}/publish",
+f"{BASE}/{PROP_Z}",
+f"{BASE}/{PROP_Z}/publish",
+f"{BASE}/+",
+f"{BASE}/+/publish",
+]
+def ts(): return datetime.now(timezone.utc).isoformat()
+def on_connect(client, userdata, flags, rc, props=None):
+print("Connected:", rc)
+# 0 = success
+client.subscribe([(t, 0) for t in TOPICS])
+print("Subscribed to:")
+for t in TOPICS:
+print("
+", t)
+def on_message(client, userdata, msg):
+print("RX", ts(), msg.topic, "->", msg.payload.decode("utf-8", "replace"))
+client = mqtt.Client(client_id=DEVICE_ID, callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+client.username_pw_set(DEVICE_ID, DEVICE_SECRET)
+client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS_CLIENT)
+client.on_connect = on_connect
+client.on_message = on_message
+client.connect(BROKER, PORT, keepalive=60)
+try:
+client.loop_forever()
+except KeyboardInterrupt:
+print("Shutting down...")
+client.disconnect()
+With this code the client authenticates successfully but wont log data into the csv files and instead shows me this error.
+Connected: Not authorized subscribing…
+or
+Connection failed [WinError 10054] An existing connection was forcibly closed by the remote host, retrying...
+Any idea why I cant get the Script to get the values from IoT cloud?
+pythonarduinocloudmqttiot
+Share
+Improve this question
+Follow
+edited Sep 17 at 16:22
+Zeros-N-Ones
+1,2021313 gold badges5959 silver badges7272 bronze badges
+asked Sep 17 at 11:08
+Goose28Goose28
+111 bronze badge
+4
+"With this code the client authenticates successfully" are you sure? "Connected: Not authorized" indicates that the server returned 0x05 ("The Client is not authorized to connect" - on_connect is called even if the connection was unsuccessful). Have you confirmed you can connect using a tool like MQTTX?
+Brits
+–
+Brits
+2025-09-17 20:34:04 +00:00
+Commented
+Sep 17 at 20:34
+@Brits It's 50/50 sometimes I get the client to connect but I still cannot the values to be logged in the csv files that are generated. I haven't used MQTTX as this is still a uni project we are advised that this can be done without any external MQTT broker.
+Goose28
+–
+Goose28
+2025-09-18 03:20:29 +00:00
+Commented
+Sep 18 at 3:20
+2
+I suspect you are not meant to be subscribing to the topics that end /piblish
+hardillb
+–
+hardillb
+2025-09-18 05:29:22 +00:00
+Commented
+Sep 18 at 5:29
+2
+@Goose28 MQTTX is just a tool you can use to connect to an MQTT broker and publish/subscribe (if that works, then you know the issue is probably in your code).
+Brits
+–
+Brits
+2025-09-18 10:39:30 +00:00
+Commented
+Sep 18 at 10:39
+Add a comment
+|
+Related questions
+1782
+How do I get the filename without the extension from a path in Python?
+689
+Get name of current script in Python
+1
+Google Cloud IoT Subscribe to Topic Using Python
+Related questions
+1782
+How do I get the filename without the extension from a path in Python?
+689
+Get name of current script in Python
+1
+Google Cloud IoT Subscribe to Topic Using Python
+687
+How can I get list of values from dict?
+0
+Google Cloud IoT- How to publish to the same topic with multiple IoT devices and process it by cloud functions
+485
+How to get all values from python enum class?
+0
+How MQTT broker communicate to client (display device or any output device)
+11
+Must a MQTT client publish to topic(s) if there are no subscribers?
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+pythonarduinocloudmqttiot
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+What is an aggravating factor and why is kinship considered one?
+Identifying a thriller where a man is trapped in a telephone box by a sniper
+Does the Arostotelian species-genus concept apply to non-living things?
+3 variables cyclic rearrangement inequality.
+I'm having a hard time intuiting throttle position to engine rpm consistency between gears -- why do cars behave in this observed way?
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+What "real mistakes" exist in the Messier catalog?
+In Justice Kagan's "Congress, as everyone agrees, prohibited each of those presidential removals." who exactly is "everyone"?
+Why would disembarking a few passengers delay a flight by 3 hours?
+Changing size of math environments
+rkhunter Updates -- "no updates" for several months now
+How do I make the middle of the bill curve up?
+Regulator circuit outputs negative current
+What is the effectiveness of using a miniature (ground) plane to route vias through as opposed to using separate paths and vias?
+Plotting functions without sampling artefacts
+What happened to all of the energy created at the Big Bang when the matter and antimatter annihilated each other?
+What does it mean for a museum exhibit "not to have a Soviet anniversary"?
+How to use ≥ 16 usbip ports from one host controller on Debian?
+On the Subject of Switches
+Are there injections that combine 80 different vaccines?
+Time traveler named Tom/John forgets device, Penelope Weschler, machine harvests Earth's spin
+Find non-trivial improvement after submitting
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-py
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

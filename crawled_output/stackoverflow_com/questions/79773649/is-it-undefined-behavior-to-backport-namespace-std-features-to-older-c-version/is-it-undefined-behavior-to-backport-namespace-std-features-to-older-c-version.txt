@@ -1,0 +1,299 @@
+language lawyer - Is it Undefined Behavior to backport namespace std features to older C++ versions? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Is it Undefined Behavior to backport namespace std features to older C++ versions?
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+1k times
+12
+According to What are the reasons that extending the std namespace is considered undefined behavior?, adding anything to namespace std is Undefined Behavior, with some exceptions carved out, such as specializing std::hash. The primary reason for this is to allow the namespace to grow in future standards without risking collisions with user-written code.
+Therefore, is it allowed to backport a specific feature to older standards, provided there are no language restrictions forbidding it? It clearly cannot collide with something that would be defined later.
+As a concrete example, let's take:
+namespace backport {
+#if __cplusplus < 202002L
+template <typename T>
+struct type_identity { using type = T; };
+#else
+using ::std::type_identity<T>;
+#endif
+}
+static_assert(std::is_same<backport::type_identity<int>::type, int>::value, "");
+This safely works in all of C++11 up to C++26 (C++03 does not have <type_traits>). Could I also safely write it without the extra namespace?
+#if __cplusplus < 202002L
+namespace std {
+template <typename T>
+struct type_identity { using type = T; };
+}
+#endif
+static_assert(std::is_same<std::type_identity<int>::type, int>::value, "");
+c++language-lawyerstd
+Share
+Improve this question
+Follow
+edited yesterday
+Remy Lebeau
+608k3636 gold badges515515 silver badges870870 bronze badges
+asked yesterday
+Dominik KaszewskiDominik Kaszewski
+2,97511 gold badge1515 silver badges3131 bronze badges
+7
+7
+The rationale exlains why a certain rules was put in place, but once it's there it applies as specified (and not necessarily according to the original rationale). Since the rule is that adding to std (unless explicitly allowed) is UB - you have UB here.
+wohlstad
+–
+wohlstad
+2025-09-24 11:26:12 +00:00
+Commented
+yesterday
+Side note : I wouldn't even do the using statement in the first solution. Just use backport namespace everywhere until you can explicitly change to std::version later (find/replace). You will never be sure if your own version will be exactly the same (semantically too) to the version you are going to get. At least sometimes I backport simplified versions of future standards which are good enough for now, and then I want to do a line by line update I can test (instead of the big bang using you are doing)
+Pepijn Kramer
+–
+Pepijn Kramer
+2025-09-24 11:42:39 +00:00
+Commented
+yesterday
+1
+@wohlstad Could you please explain the reason for editing the question? It looks to me like both versions are rendered exactly the same.
+Dominik Kaszewski
+–
+Dominik Kaszewski
+2025-09-24 11:42:52 +00:00
+Commented
+yesterday
+1
+@DominikKaszewski I just thought it is nicer to have the links organized at the bottom and I wasn't sure if you are ware of this option. Feel free to rollback if you disagree.
+wohlstad
+–
+wohlstad
+2025-09-24 11:44:32 +00:00
+Commented
+yesterday
+2
+@DominikKaszewski Well the issues it that the interaction with for example algorithms can be very subtle and unexpected. So yes I think the standard committee errs on the side of caution here by declaring almost everything added to std namespace as UB. So I too rather type something explicit now that I can explictly replace later (step by step) and test again.
+And as far as Hyrum goes... he's always looking or acting through colleagues who are not as careful as you (or just by using your code in unexpected ways ;) )
+Pepijn Kramer
+–
+Pepijn Kramer
+2025-09-24 12:36:37 +00:00
+Commented
+yesterday
+|
+Show 2 more comments
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+18
+TL;DR:
+Your additions to namespace std invoke undefined behavior.
+More info:
+You might be right about the original rationale for introducing the rule disallowing to add stuff to namespace std.
+It's nice to know the background for it, and it can be important when a change of the rule is discussed in the C++ committee.
+But practically it does not really matter for determining whether you have UB or not in a given case:
+Once a rule is added to the standard it is valid regardless of whether a specific case it applies to fits the original rationale.
+Here the rule is very simple:
+From [namespace.std]:
+The behavior of a C++ program is undefined if it adds declarations or definitions to namespace std or to a namespace within namespace std unless otherwise specified ...
+Your case does not fall within the specified exceptions and therefore the behavior is undefined.
+Share
+Improve this answer
+Follow
+edited 23 hours ago
+answered yesterday
+wohlstadwohlstad
+34.4k1818 gold badges7272 silver badges107107 bronze badges
+2 Comments
+Add a comment
+user541686 user541686 23 hours ago
+Practically it very much does matter. If anything, it's only theoretically irrelevant. E.g., there have been cases where UB was unintentional and a subsequent defect report was filed to fix the issue in previous standards - and understanding the intent helps with understanding when that's the case, and thus with understanding when you can rely on the implementation's behavior before the DR is issued. Furthermore, understanding when UB is useless to the compiler gives you an idea of when you can practically rely on it with your particular compiler, despite the theoretical issues. 2025-09-25T05:19:59.02Z+00:00
+0
+Reply
+Copy link
+wohlstad wohlstad 22 hours ago
+I agree in general. I meant that in order to answer to question whether this is UB (which is what the OP asked), the background is interesting but what matters is that the rule is in place. Of course the rule might change, and the committee can definatly consider the rationale when discussing the change. Anyway - editted to clarify. 2025-09-25T06:02:25.583Z+00:00
+1
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++language-lawyerstd
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Linked
+30
+What are the reasons that extending the std namespace is considered undefined behavior?
+Related
+3453
+What's the problem with "using namespace std;"?
+1074
+What are sequence points, and how do they relate to undefined behavior?
+681
+Undefined, unspecified and implementation-defined behavior
+3
+Type error in C++ when instantiating a priority_queue of int pairs with a custom comparator (to implement a min heap)
+281
+Why is f(i = -1, i = -1) undefined behavior?
+6
+std::declval() firing assertion error with warnings in GCC
+353
+Error "undefined reference to 'std::cout'"
+125
+When using C headers in C++, should we use functions from std:: or the global namespace?
+Hot Network Questions
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+What does it mean for work to be done ON a system?
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+What happens when the jewels run out?
+If 3-D is too easy, go 4-D
+Plotting functions without sampling artefacts
+What does it mean for a museum exhibit "not to have a Soviet anniversary"?
+Does the Arostotelian species-genus concept apply to non-living things?
+Marking utensils for ownership
+How do I make the middle of the bill curve up?
+Data lost/Corrupted on iCloud
+Does clipping distortion affect the information contained within a frequency-modulated signal?
+Changing size of math environments
+What qualifies to be a "family of statistical tests" for Bonferroni corrections?
+In the U.S., what protections are in place to help (under)graduate students whose entire department is removed?
+Simplification of an analytically evaluated integral expressed in terms of elliptic integrals
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+How do trees drop their leaves?
+Identifying voltage regulator on induction hob (marked FF 04)
+Find non-trivial improvement after submitting
+Separating trefoil knot on torus
+What is the effectiveness of using a miniature (ground) plane to route vias through as opposed to using separate paths and vias?
+Best solution to prevent loop between tables for granular relations
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

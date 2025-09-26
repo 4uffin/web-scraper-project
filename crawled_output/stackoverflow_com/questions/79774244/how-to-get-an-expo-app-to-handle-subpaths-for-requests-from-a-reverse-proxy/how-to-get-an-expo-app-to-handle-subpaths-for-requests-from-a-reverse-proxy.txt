@@ -1,0 +1,266 @@
+react native - How to get an Expo app to handle subpaths for requests from a reverse proxy? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How to get an Expo app to handle subpaths for requests from a reverse proxy?
+Ask Question
+Asked
+yesterday
+Modified
+today
+Viewed
+38 times
+0
+Note: I'm focused on a Web build right now, so this question is focused on solving some very specific to web usage.
+I'm building a React Native application where the underlying infrastructure is reliant on cookie auth for normal users. I'm using Expo as the framework. To make the cookie stuff as smooth as possible I run all the relevant services locally, a self-signed cert that the system trusts, and use an nginx reverse proxy to keep the routes matching.
+Thus, all requests are made to routes like:
+https://portal.company.com
+https://api.company.com/billing
+and nginx is doing a proxy_pass to http://localhost:5000, http://localhost:5001, and so forth.
+I made a previous Vite app that had no issue responding to requests on subpaths with this configuration:
+server {
+listen 443 ssl;
+server_name portal.company.com;
+ssl_certificate "cert-path//portal-cert.pem";
+ssl_certificate_key "cert-path//portal-private.pem";
+ssl_session_cache
+shared:SSL:1m;
+ssl_protocols
+TLSv1.3;
+ssl_session_timeout
+5m;
+ssl_ciphers
+HIGH:!aNULL:!MD5;
+ssl_prefer_server_ciphers
+on;
+proxy_set_header Host $host; # MAGIC
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+location / {
+include includes/cors;
+proxy_pass https://localhost:5173;
+}
+}
+However, when I reused that for the Expo app, subpaths kept throwing up a "Not found" page with a 404, and it was pretty clear my code wasn't running. It was clearly the classic "running a SPA app" issue where it's only technically responding to requests at the app's root, but I didn't see a clear way of getting the request to the root.
+react-nativenginxexpoexpo-web
+Share
+Improve this question
+Follow
+asked yesterday
+Mike D.Mike D.
+39922 silver badges66 bronze badges
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+See comments, but this solution is a bit hacky - I still want to make it visible because it helped me with running locally on a defined URL instead of just localhost, but I don't want people to think this is the proper way to do things.
+At first I started to think the answer was to try something other than proxy_pass, becuase I needed Expo to 'see' the request where the code was actually executing. I think my instinct was right, but what I was wrong about was that proxy_pass is still the right tool for the job. Instead of messing with the subpaths via the location flag, you instead have it handle static files one way, and everything else with the $request_uri appended to the route:
+location ~* \.(?:ico|css|js|map|png|jpg|jpeg|gif|svg|woff2|mp3?)$ {
+proxy_pass http://localhost:8081;
+}
+location = / {
+proxy_pass http://localhost:8081/;
+}
+location / {
+# hack
+proxy_pass http://localhost:8081/$request_uri;
+}
+Source
+With that, Expo started reacting to subpaths as expected. To be clear, this is a bit of a hack - the source does not include the / before $request_uri and for good reason - that introduces a double-slash. However, I've found said double-slash is what makes Expo actually process the request instead of ignoring it and throwing a 404 at me.
+Hope this helps someone else. I did some furious searching and failed to get an answer until I started digging into nginx documentation.
+Share
+Improve this answer
+Follow
+edited 14 hours ago
+answered yesterday
+Mike D.Mike D.
+39922 silver badges66 bronze badges
+2 Comments
+Add a comment
+Ivan Shatsky Ivan Shatsky 19 hours ago
+There's no point in making the configuration that complicated, especially with regular expressions. It does make sense to serve requests for static files directly with nginx without involving the backend app, but that's not what you're doing here. The configuration you've provided is functionally equivalent to location / { proxy_pass http://localhost:8081; }. The only difference is that in the third location you end up doubling the leading slash in the request URI. 2025-09-25T09:22:02.837Z+00:00
+0
+Reply
+Copy link
+Mike D. Mike D. 15 hours ago
+So quick preface, this is only for local dev. That extra slash was what makes Expo process the request - without it, I'm back to getting 404s from Expo. Clearly this is related to the fix to get SPAs to work on GitHub pages, using hash routes. If there was a clear way to specify your URL that you're running on, I'd take it; I've only found things that are kind of close to it but not quite the fit, or entail altering @expo/cli code.
+I'll update my Q/A to explain that what I'm offering is a hack at least, now that I know the extra slash was what 'fixed' it. Thanks for catching th 2025-09-25T13:41:30.82Z+00:00
+0
+Reply
+Copy link
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+react-nativenginxexpoexpo-web
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+28
+Express - req.ip returns 127.0.0.1
+1
+nginx reverse proxy with two way SSL to weblogic
+3
+HLS over HTTPS in nginx for HTML5 video tag
+6
+AWS EB - Redirect all traffic to https
+22
+Docker registry login fails with "Certificate signed by unknown authority"
+0
+java 1.6 TLS1.2 support using proxy nginx/ squid solution issues
+3
+Ngnix Jsession changed redirection issue
+Hot Network Questions
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+How to convert square wave to sine wave
+What happens to academic grants if you leave for industry?
+General inquiries about the Ersatzinfinitiv
+Changing size of math environments
+Change the font for the dagger symbol in math mode
+What does "my left a** cheek" mean?
+Using Switch to return a value depending on the sign of a real number
+What is the exact method of calculating a number needed to treat (NNT) in a meta-analysis?
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+Can Monks use their Dex modifier to determine jump distance?
+Does the Arostotelian species-genus concept apply to non-living things?
+Why weren’t Prince Philip’s sisters invited to his wedding to Princess Elizabeth?
+Are there injections that combine 80 different vaccines?
+How does a telepathic bond work if the bondee lacks language?
+Can I salvage this drywall patch project?
+rkhunter Updates -- "no updates" for several months now
+What exactly makes something a "phased-out creature"
+What "real mistakes" exist in the Messier catalog?
+How can blood fuel space travel?
+Can a state execute an ICC arrest warrant in international waters?
+I'm having a hard time intuiting throttle position to engine rpm consistency between gears -- why do cars behave in this observed way?
+Verify a Chinese ID Number
+Comparing a combination of data from two columns to another combination from other two columns
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

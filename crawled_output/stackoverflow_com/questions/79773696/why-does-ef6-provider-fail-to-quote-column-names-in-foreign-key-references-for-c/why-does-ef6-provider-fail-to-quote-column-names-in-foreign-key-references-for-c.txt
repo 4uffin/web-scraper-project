@@ -1,0 +1,342 @@
+mysql - Why does EF6 provider fail to quote column names in foreign key references for composite keys with reserved keywords? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Why does EF6 provider fail to quote column names in foreign key references for composite keys with reserved keywords?
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+37 times
+-1
+This is my tech stack:
+.NET Framework: 4.8
+Entity Framework: 6.5.1
+MySql.Data: 8.4.0
+MySql.Data.EntityFramework: 8.4.0
+Target Database: MySQL 8.0+
+The MySql.Data.EntityFramework provider for Entity Framework 6 generates syntactically incorrect SQL when creating a database schema from a model (ObjectContext.CreateDatabaseScript()). The bug occurs when a FOREIGN KEY constraint references a composite PRIMARY KEY that contains a column name that is also a MySQL reserved keyword (e.g., KEY).
+The generated DDL script omits the necessary backticks around the column names in the REFERENCES clause, causing a MySqlException (syntax error) when the script is executed.
+Steps to reproduce
+Define entities with composite keys: create an EF6 DbContext with a model containing at least two pairs of entities where a composite key includes a reserved keyword.
+Case 1: an entity Properties with a composite primary key (BNr, BKey, IKS_PKey). The column BKey conflicts with the MySQL reserved keyword KEY
+Case 2: an entity ApiKeys with a composite primary key (Id, Key, IKS_PKey). The column Key is a reserved keyword.
+Define referencing entities: create corresponding entities (ActivationCodes, ApiKeyPermissions) that have foreign key relationships pointing to the composite keys defined above.
+// Example Entity Definitions
+public class Properties
+{
+[Key, Column(Order = 0)]
+public short BNr { get; set; }
+[Key, Column(Order = 1)]
+public int BKey { get; set; } // 'KEY' is a reserved word
+[Key, Column(Order = 2)]
+public string IKS_PKey { get; set; }
+}
+public class ActivationCodes
+{
+public int Id { get; set; }
+public virtual Properties Property { get; set; }
+}
+public class ApiKeys
+{
+[Key, Column(Order = 0)]
+public int Id { get; set; }
+[Key, Column(Order = 1)]
+public Guid Key { get; set; } // 'KEY' is a reserved word
+[Key, Column(Order = 2)]
+public string IKS_PKey { get; set; }
+}
+public class ApiKeyPermissions
+{
+public int Id { get; set; }
+public virtual ApiKeys ApiKey { get; set; }
+}
+Generate the DDL script: use the CreateDatabaseScript() method to generate the schema.
+using (var context = new MyDbContext())
+{
+string ddlScript = ((IObjectContextAdapter)context).ObjectContext.CreateDatabaseScript();
+// At this point, inspect the 'ddlScript' string.
+}
+Expected Behavior
+The generated FOREIGN KEY constraint in the DDL script should correctly quote all column names in the REFERENCES clause with backticks.
+Example for Properties:
+ALTER TABLE `ActivationCodes`
+ADD CONSTRAINT `ActivationCode_Property`
+FOREIGN KEY (`Property_BNr`, `Property_BKey`, `Property_IKS_PKey`)
+REFERENCES `Properties` (`BNr`, `BKey`, `IKS_PKey`)
+-- Correctly quoted
+ON DELETE Cascade ON UPDATE NO ACTION;
+Example for ApiKeys:
+ALTER TABLE `apikeypermissions`
+ADD CONSTRAINT `ApiKeyPermission_ApiKey`
+FOREIGN KEY (`ApiKeyId`, `ApiKeyKey`, `ApiKeyIksPKey`)
+REFERENCES `ApiKeys` (`Id`, `Key`, `IKS_PKey`)
+-- Correctly quoted
+ON DELETE Cascade ON UPDATE NO ACTION;
+Actual Behavior
+The provider generates a script where the column names in the REFERENCES clause are not quoted, leading to a SQL syntax error because BKey and Key are interpreted as keywords.
+Actual generated SQL (incorrect):
+-- For Properties
+REFERENCES `Properties` (BNr, BKey, IKS_PKey)
+-- For ApiKeys
+REFERENCES `ApiKeys` (Id, Key, IKS_PKey)
+When this script is executed against a MySQL server, it fails with an error:
+MySql.Data.MySqlClient.MySqlException: you have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'Key, IKS_PKey) ON DELETE Cascade ON UPDATE NO ACTION' at line 3
+Workaround
+The only viable workaround is to perform a string replacement on the generated script before execution, using regular expressions to find and fix the malformed REFERENCES clauses.
+// 1. Generate the buggy DDL script.
+var dbCreationScript = ((IObjectContextAdapter)context).ObjectContext.CreateDatabaseScript();
+// 2. Fix the reference to the `Properties` table.
+dbCreationScript = Regex.Replace(
+dbCreationScript,
+@"REFERENCES\s+`?Properties`?\s*\(\s*BNr\s*,\s*BKey\s*,\s*IKS_PKey\s*\)",
+"REFERENCES `Properties` (`BNr`, `BKey`, `IKS_PKey`)",
+RegexOptions.IgnoreCase);
+// 3. Fix the reference to the `ApiKeys` table.
+dbCreationScript = Regex.Replace(
+dbCreationScript,
+@"REFERENCES\s+`?ApiKeys`?\s*\(\s*Id\s*,\s*Key\s*,\s*IKS_PKey\s*\)",
+"REFERENCES `ApiKeys` (`Id`, `Key`, `IKS_PKey`)",
+RegexOptions.IgnoreCase);
+// 4. Execute the corrected script.
+var createScript = new MySql.Data.MySqlClient.MySqlScript(connection, dbCreationScript);
+createScript.Execute();
+Impact
+This bug prevents the use of any EF6-based automatic schema generation features (e.g., Database.Create(), CreateDatabaseIfNotExists, or CreateDatabaseScript()) for any data model that includes composite keys with reserved words. This significantly hinders development and is especially problematic for setting up automated testing environments where databases are created and torn down dynamically.
+mysqlentity-framework-6
+Share
+Improve this question
+Follow
+edited yesterday
+marc_s
+759k185185 gold badges1.4k1.4k silver badges1.5k1.5k bronze badges
+asked yesterday
+Corey WoodsCorey Woods
+1
+New contributor
+Corey Woods is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+4
+4
+Shouldn't this be submitted as a bug report to the developers instead of asking us for a why that most likely only developers can answer?
+Shadow
+–
+Shadow
+2025-09-24 12:38:08 +00:00
+Commented
+yesterday
+1
+Actual generated SQL (incorrect) I think that you use either too ancient or errorneous software which does not know that Key keyword is reserved keyword in MySQL, at least since version 5.7. The simplest workaround is do not use MySQL reserved keywords as object names.
+Akina
+–
+Akina
+2025-09-24 16:26:00 +00:00
+Commented
+yesterday
+Yeah, this is a bug report and there's not really a question here.
+Gert Arnold
+–
+Gert Arnold
+2025-09-25 11:31:30 +00:00
+Commented
+17 hours ago
+1
+Note that EF6 reached its end of life in Nov 2024 and is no longer being developed (reference: github.com/dotnet/ef6). Only security bugs will be fixed in that version. I expect that if you report this bug in EF6, their response will be to urge you to reproduce the bug in a currently supported version, otherwise you're on your own.
+Bill Karwin
+–
+Bill Karwin
+2025-09-25 17:26:55 +00:00
+Commented
+11 hours ago
+Add a comment
+|
+Related questions
+305
+ERROR 1452: Cannot add or update a child row: a foreign key constraint fails
+3
+Entity Framework 6 inverting column order for composite foreign keys
+117
+How to add a column and make it a foreign key in single MySQL statement?
+Related questions
+305
+ERROR 1452: Cannot add or update a child row: a foreign key constraint fails
+3
+Entity Framework 6 inverting column order for composite foreign keys
+117
+How to add a column and make it a foreign key in single MySQL statement?
+0
+Entity Framework On Delete Cascade when entity is loaded
+117
+Integrity constraint violation: 1452 Cannot add or update a child row:
+0
+How to insert a row with a foreign key that references a composite key
+1
+MySQL Error 1452 when inserting data
+0
+Hibernate @OneToOne cannot add or update a child row: a foreign key constraint
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+mysqlentity-framework-6
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Hot Network Questions
+Space Princess Space Tours: Black Holes merging - what would you visually see?
+Yet Another Python Weather Visualizer using Open-Meteo
+What exactly makes something a "phased-out creature"
+Where was the Kenya sequence in The Crown Episode 1 filmed?
+Could our telescopes detect a type I civilisation
+What is the effectiveness of using a miniature (ground) plane to route vias through as opposed to using separate paths and vias?
+Identifying a movie where a man relives the same day
+What happens when the jewels run out?
+How to crack ECC using halving
+Changing size of math environments
+How big of a hole can I drill in an exterior wall's bottom plate?
+What does "transform into the character pulled into the UFO" mean?
+What is this glass device I found next to drinking glasses in the south of France
+Traveling by car on train in Germany
+How to draw the following graph in latex?
+How do I make the middle of the bill curve up?
+How do trees drop their leaves?
+Data lost/Corrupted on iCloud
+Separating trefoil knot on torus
+How to convert square wave to sine wave
+General inquiries about the Ersatzinfinitiv
+"Dubito, ergo cognosco". Could we argue that the very fact of doubting, sets a limit to the epistemological notions we can actually doubt?
+How does a telepathic bond work if the bondee lacks language?
+Do academics mind if someone outside their field critiques their work?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-sql
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

@@ -1,0 +1,640 @@
+powershell - Running Jenkins agent through terraform userdata script, which makes the selenium tests to execute in headless mode - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+Running Jenkins agent through terraform userdata script, which makes the selenium tests to execute in headless mode
+Ask Question
+Asked
+yesterday
+Modified
+yesterday
+Viewed
+31 times
+Part of CI/CD Collective
+1
+I have a PowerShell script which is passed as user data script in terraform for Windows Server 2022 VM creation in AWS cloud. This PowerShell script uses Jenkins API to create the node and connect the agent with the Jenkins server. But when the VM used in pipeline at the time of executing selenium scripts, it executes the test cases in headless mode. I want to make sure the selenium scripts ran through Jenkins pipeline to be executed in non-headless mode.
+Below is the User data script I used to create and connect the agent with Jenkins server
+<powershell>
+#*******************************************************************************
+# (c) Copyright HCL Technologies Ltd. 2020-2025 All rights reserved.
+#*******************************************************************************
+# ================================
+# Jenkins credentials and URL
+# ================================
+New-Item -Path "C:\UserDataRan.txt" -ItemType File -Force
+Add-Content -Path "C:\UserDataRan.txt" -Value "Script executed at $(Get-Date)"
+# Start transcript to capture all output
+Start-Transcript -Path "C:\ProgramData\Amazon\EC2Launch\log\UserDataExecution.log" -Append
+# Enable verbose output to 'Continue' for debugging
+$VerbosePreference = "SilentlyContinue"
+$PSDefaultParameterValues['Import-Module:Verbose'] = $false
+Write-Verbose "Starting user data script..."
+$JENKINS_URL = "jenkins-server-url"
+$USER
+= "user-name"
+$API_TOKEN
+= "api-token"
+# ================================
+# Get IP and build node name
+# ================================
+$NODE_IP = (Get-NetIPAddress -AddressFamily IPv4 `
+| Where-Object { $_.IPAddress -notlike "169.*" -and $_.IPAddress -notlike "127.*" } `
+| Select-Object -First 1 -ExpandProperty IPAddress)
+$NODE_NAME = "plan-win-$NODE_IP"
+# ================================
+# Get CSRF crumb
+# ================================
+$pair
+= "$USER`:$API_TOKEN"
+$bytes
+= [System.Text.Encoding]::ASCII.GetBytes($pair)
+$base64 = [Convert]::ToBase64String($bytes)
+$headers = @{ Authorization = "Basic $base64" }
+$crumbJson = Invoke-RestMethod -Uri "$JENKINS_URL/crumbIssuer/api/json" -Headers $headers
+$CRUMB_FIELD = $crumbJson.crumbRequestField
+$CRUMB
+= $crumbJson.crumb
+# ================================
+# Create node
+# ================================
+try {
+Write-Host "[+] Creating new node $NODE_NAME"
+Invoke-RestMethod -Uri "$JENKINS_URL/computer/doCreateItem?name=$NODE_NAME&mode=hudson.slaves.DumbSlave&type=hudson.slaves.DumbSlave&json=%7B%7D" `
+-Method Post `
+-Headers ($headers + @{ $CRUMB_FIELD = $CRUMB }) `
+-ContentType "application/xml" | Out-Null
+} catch {
+Write-Host "[!] Warning: Node creation returned an error, but proceeding: $_"
+}
+# ================================
+# Node config XML
+# ================================
+$CONFIG_FILE = @"
+<?xml version="1.1" encoding="UTF-8"?>
+<slave>
+<name>$NODE_NAME</name>
+<description>Windows node $NODE_NAME for PR cucumber testcases.</description>
+<remoteFS>D:\jenkins</remoteFS>
+<numExecutors>1</numExecutors>
+<mode>EXCLUSIVE</mode>
+<retentionStrategy class="hudson.slaves.RetentionStrategy`$Always"/>
+<launcher class="hudson.slaves.JNLPLauncher">
+<workDirSettings>
+<disabled>false</disabled>
+<internalDir>remoting</internalDir>
+<failIfWorkDirIsMissing>false</failIfWorkDirIsMissing>
+</workDirSettings>
+<webSocket>false</webSocket>
+</launcher>
+<label>$NODE_NAME terraform</label>
+<nodeProperties>
+<hudson.slaves.EnvironmentVariablesNodeProperty>
+<envVars serialization="custom">
+<tree-map>
+<default>
+<comparator class="java.lang.String`$CaseInsensitiveComparator"/>
+</default>
+<int>2</int>
+<string>RATIONAL_COMMON</string>
+<string>C:\Program Files\DevOps\Plan</string>
+<string>WGET_HOME</string>
+<string>C:\ProgramData\chocolatey\bin\wget.exe</string>
+</tree-map>
+</envVars>
+</hudson.slaves.EnvironmentVariablesNodeProperty>
+<hudson.tools.ToolLocationNodeProperty>
+<locations>
+<hudson.tools.ToolLocationNodeProperty_-ToolLocation>
+<type>hudson.plugins.git.GitTool`$DescriptorImpl</type>
+<name>Default</name>
+<home>C:\Program Files\Git\cmd\git.exe</home>
+</hudson.tools.ToolLocationNodeProperty_-ToolLocation>
+</locations>
+</hudson.tools.ToolLocationNodeProperty>
+</nodeProperties>
+</slave>
+"@
+Write-Host "[+] Updating config for $NODE_NAME"
+Invoke-RestMethod -Uri "$JENKINS_URL/computer/$NODE_NAME/config.xml" `
+-Method Post `
+-Headers ($headers + @{ $CRUMB_FIELD = $CRUMB }) `
+-ContentType "application/xml" `
+-Body $CONFIG_FILE | Out-Null
+Write-Host "[+] Node created and config updated."
+# ================================
+# Fetch JNLP XML
+# ================================
+try {
+Write-Host "[+] Fetching JNLP XML for $NODE_NAME"
+$response = Invoke-WebRequest -Uri "$JENKINS_URL/computer/$NODE_NAME/slave-agent.jnlp" -Headers $headers -UseBasicParsing
+if ($response.StatusCode -ne 200) {
+Write-Host "[!] Error: Received HTTP $($response.StatusCode)"
+exit 1
+}
+$xmlString = [System.Text.Encoding]::UTF8.GetString($response.Content)
+[xml]$xmlDoc = $xmlString
+} catch {
+Write-Host "[!] Error fetching or parsing JNLP XML: $_"
+exit 1
+}
+# ================================
+# Extract the secret
+# ================================
+try {
+Write-Host "[+] Extracting secret from JNLP XML"
+$argumentNodes = $xmlDoc.SelectNodes("//jnlp/application-desc/argument")
+if ($argumentNodes.Count -ge 1) {
+$SECRET = $argumentNodes[0].InnerText
+Write-Host "[+] Secret extracted: $SECRET"
+} else {
+Write-Host "[!] Error: No <argument> nodes found."
+exit 1
+}
+} catch {
+Write-Host "[!] Error extracting secret: $_"
+exit 1
+}
+$RUN_CMD = "java -jar agent.jar -url $JENKINS_URL/ -secret $SECRET -name $NODE_NAME -webSocket -workDir D:\jenkins"
+Write-Host $RUN_CMD
+# ================================
+# Run the Jenkins agent
+# ================================
+$agentDir = "D:\jenkins"
+if (-Not (Test-Path $agentDir)) {
+Write-Host "[!] Error: Agent directory '$agentDir' does not exist."
+exit 1
+}
+Set-Location -Path $agentDir
+# Run the Java agent command
+Invoke-Expression $RUN_CMD
+#$process = Start-Process -FilePath "java" `
+#
+-ArgumentList "-jar agent.jar -url $JENKINS_URL/ -secret $SECRET -name $NODE_NAME -webSocket -workDir D:\jenkins" `
+#
+-WorkingDirectory "D:\jenkins" `
+#
+-NoNewWindow `
+#
+-PassThru
+Write-Host "[+] Jenkins agent started with PID $($process.Id)"
+Write-Verbose "Script completed."
+Stop-Transcript
+</powershell>
+This above script connects the agent in non-interactive mode.
+I tried setting AutoLogon and used Windows Service Wrapper for the selenium script to be executed in GUI (non-headless mode). But it didn't worked out.
+Below are the scripts I tried.
+Script 1: Windows Service Wrapper
+# Create WinSW configuration file (non-interactive)
+Write-Host "Creating WinSW configuration file..."
+$winswConfig = @"
+<service>
+<id>$serviceName</id>
+<name>Jenkins Agent</name>
+<description>Jenkins Agent Service for running CI/CD pipelines</description>
+<executable>java</executable>
+<arguments>-jar "$agentDir\agent.jar" -url $JENKINS_URL -secret $SECRET -name $NODE_NAME -webSocket -workDir "$agentDir"</arguments>
+<logmode>rotate</logmode>
+<workingdirectory>$agentDir</workingdirectory>
+<onfailure action="restart" delay="10 sec"/>
+</service>
+"@
+try {
+Set-Content -Path $winswConfigPath -Value $winswConfig -ErrorAction Stop
+Write-Host "WinSW configuration created at $winswConfigPath"
+} catch {
+Write-Host "[!] Error: Failed to create WinSW configuration file: $_"
+exit 1
+}
+# Install the WinSW service (non-interactive)
+Write-Host "Installing Jenkins Agent as a Windows service..."
+Set-Location -Path $agentDir
+try {
+& $winswPath install
+Write-Host "Service installation command executed."
+} catch {
+Write-Host "[!] Error: Failed to install service: $_"
+exit 1
+}
+# Verify service installation
+Write-Host "Verifying service installation..."
+$service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if (-not $service) {
+Write-Host "[!] Error: Service '$serviceName' not found. Installation failed."
+Write-Host "Check '$winswConfigPath' for errors and ensure '$winswPath' has execute permissions."
+exit 1
+}
+Write-Host "Service '$serviceName' installed successfully."
+# Modify service properties: Set user account (non-interactive)
+Write-Host "Configuring service to run under user account '$userAccount'..."
+$scResult = sc.exe config $serviceName obj= $userAccount password= $userPassword
+if ($LASTEXITCODE -ne 0) {
+Write-Host "[!] Error: Failed to configure service account: $scResult"
+exit 1
+}
+Write-Host "Service account configured."
+# Attempt to enable "Allow service to interact with desktop" (non-interactive)
+Write-Host "Enabling 'Allow service to interact with desktop' (if supported)..."
+$scResult = sc.exe config $serviceName type= own type= interact
+if ($LASTEXITCODE -ne 0) {
+Write-Host "[!] Warning: Failed to enable desktop interaction: $scResult"
+Write-Host "Setting up scheduled task for interactive user session to ensure GUI support..."
+# Create batch file for scheduled task
+$batchContent = @"
+@echo off
+cd /d $agentDir
+java -jar agent.jar -url $JENKINS_URL -secret $SECRET -name $NODE_NAME -webSocket -workDir $agentDir
+"@
+try {
+Set-Content -Path $batchFile -Value $batchContent -ErrorAction Stop
+Write-Host "Batch file created at $batchFile"
+# Create scheduled task
+$action = New-ScheduledTaskAction -Execute "$batchFile"
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userAccount
+$principal = New-ScheduledTaskPrincipal -UserId $userAccount -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Description "Run Jenkins Agent at logon" -Force -ErrorAction Stop
+Write-Host "Scheduled task '$taskName' created for interactive session."
+} catch {
+Write-Host "[!] Error: Failed to create scheduled task: $_"
+exit 1
+}
+} else {
+Write-Host "Desktop interaction enabled (if supported)."
+# Start the service (non-interactive)
+Write-Host "Starting Jenkins Agent service..."
+try {
+& $winswPath start
+Start-Sleep -Seconds 5 # Wait for service to start
+$service = Get-Service -Name $serviceName
+if ($service.Status -ne "Running") {
+Write-Host "[!] Error: Service failed to start. Status: $($service.Status)"
+Write-Host "Check WinSW logs at '$agentDir\JenkinsAgent.wrapper.log'."
+Write-Host "Setting up scheduled task as fallback..."
+Set-Content -Path $batchFile -Value $batchContent -ErrorAction Stop
+Write-Host "Batch file created at $batchFile"
+$action = New-ScheduledTaskAction -Execute "$batchFile"
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userAccount
+$principal = New-ScheduledTaskPrincipal -UserId $userAccount -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Description "Run Jenkins Agent at logon" -Force -ErrorAction Stop
+Write-Host "Scheduled task '$taskName' created for interactive session."
+} else {
+Write-Host "Service started successfully."
+}
+} catch {
+Write-Host "[!] Error: Failed to start service: $_"
+Write-Host "Check WinSW logs at '$agentDir\JenkinsAgent.wrapper.log'."
+exit 1
+}
+}
+# Verify service or task status
+Write-Host "Checking final status..."
+try {
+$service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($service -and $service.Status -eq "Running") {
+Write-Host "Service Status: $($service.Status)"
+Write-Host "Service StartType: $($service.StartType)"
+$serviceDetails = Get-WmiObject -Class Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, StartName, DesktopInteract
+Write-Host "Service Properties: Name=$($serviceDetails.Name), StartName=$($serviceDetails.StartName), DesktopInteract=$($serviceDetails.DesktopInteract)"
+} else {
+Write-Host "Service is not running. Checking scheduled task..."
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($task) {
+Write-Host "Scheduled task '$taskName' is configured. Ensure '$userAccount' is logged in for GUI support."
+} else {
+Write-Host "[!] Error: Neither service nor scheduled task is configured properly."
+exit 1
+}
+}
+} catch {
+Write-Host "[!] Error: Failed to verify status: $_"
+exit 1
+}
+# Output completion message
+Write-Host "Setup complete. Jenkins agent is configured."
+Write-Host "If using the scheduled task, ensure '$userAccount' is logged into an interactive session (e.g., via AutoLogon or Remote Desktop)."
+Write-Host "Test Selenium pipelines to verify GUI mode. Check WinSW logs at '$agentDir\JenkinsAgent.wrapper.log' if issues occur."
+& $winswPath stop
+& $winswPath start
+Script 2: AutoLogon
+# Set up AutoLogon for the Administrator user (registry method - not secure, use for test environments only)
+$regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1" -Type String
+Set-ItemProperty -Path $regPath -Name "DefaultUserName" -Value $userAccount -Type String
+Set-ItemProperty -Path $regPath -Name "DefaultPassword" -Value $userPassword -Type String
+# Create batch file to run the agent
+$batchContent = @"
+@echo off
+cd /d $agentDir
+java -jar agent.jar -url $jenkinsUrl/ -secret $secret -name "$nodeName" -webSocket -workDir "$agentDir"
+"@
+Set-Content -Path $batchFile -Value $batchContent -ErrorAction Stop
+# Create scheduled task to run the agent at logon in interactive session
+$action = New-ScheduledTaskAction -Execute "$batchFile"
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userAccount
+$principal = New-ScheduledTaskPrincipal -UserId $userAccount -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Description "Run Jenkins Agent at logon" -Force -ErrorAction Stop
+# Reboot the VM to apply AutoLogon and trigger the task
+Restart-Computer -Force
+Script 3: AutoLogon and Scheduled Task
+# Configure AutoLogon (registry method, use cautiously)
+Write-Log "Configuring AutoLogon for '$userAccount'..."
+$regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+try {
+Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1" -Type String
+Set-ItemProperty -Path $regPath -Name "DefaultUserName" -Value $userAccount -Type String
+Set-ItemProperty -Path $regPath -Name "DefaultPassword" -Value $userPassword -Type String
+Write-Log "AutoLogon configured."
+Write-Host "AutoLogon configured."
+} catch {
+Write-Log "[!] Error: Failed to configure AutoLogon: $_"
+Write-Host "[!] Error: Failed to configure AutoLogon: $_"
+exit 1
+}
+# Disable screen lock to ensure desktop availability
+Write-Log "Disabling screen lock..."
+try {
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "DisableLockWorkstation" -Value 1 -Type DWord -Force
+Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "ScreenSaveActive" -Value 0 -Type String -Force
+Write-Log "Screen lock disabled."
+Write-Host "Screen lock disabled."
+} catch {
+Write-Log "[!] Warning: Failed to disable screen lock: $_"
+Write-Host "[!] Warning: Failed to disable screen lock: $_"
+}
+# Ensure display is active (for cloud VMs)
+Write-Log "Configuring display settings..."
+try {
+# Set resolution to ensure GUI rendering
+Set-DisplayResolution -Width 1920 -Height 1080 -ErrorAction SilentlyContinue
+Write-Log "Display resolution set to 1920x1080."
+Write-Host "Display resolution set to 1920x1080."
+} catch {
+Write-Log "[!] Warning: Failed to set display resolution: $_"
+Write-Host "[!] Warning: Failed to set display resolution: $_"
+}
+# Create batch file to run the agent
+Write-Log "Creating batch file at $batchFile..."
+$batchContent = @"
+@echo off
+cd /d $agentDir
+java -jar agent.jar -url $jenkinsUrl/ -secret $secret -name "$nodeName" -webSocket -workDir "$agentDir" >> $agentDir\agent.log 2>&1
+"@
+try {
+Set-Content -Path $batchFile -Value $batchContent -ErrorAction Stop
+Write-Log "Batch file created at $batchFile"
+Write-Host "Batch file created at $batchFile"
+} catch {
+Write-Log "[!] Error: Failed to create batch file: $_"
+Write-Host "[!] Error: Failed to create batch file: $_"
+exit 1
+}
+# Create scheduled task to run the agent at logon
+Write-Log "Creating scheduled task '$taskName'..."
+try {
+$action = New-ScheduledTaskAction -Execute "$batchFile"
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userAccount
+$principal = New-ScheduledTaskPrincipal -UserId $userAccount -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Description "Run Jenkins Agent at logon for GUI support" -Force -ErrorAction Stop
+Write-Log "Scheduled task '$taskName' created."
+Write-Host "Scheduled task '$taskName' created."
+} catch {
+Write-Log "[!] Error: Failed to create scheduled task: $_"
+Write-Host "[!] Error: Failed to create scheduled task: $_"
+exit 1
+}
+# Verify user session after reboot (for logging)
+Write-Log "Checking for active user session (pre-reboot)..."
+$session = qwinsta | Select-String $userAccount | ForEach-Object { $_.Line -split '\s+' }
+if ($session -and $session[3] -eq "Active") {
+Write-Log "Active session found for '$userAccount'."
+Write-Host "Active session found for '$userAccount'."
+} else {
+Write-Log "[!] Warning: No active session found for '$userAccount'. GUI mode may not work until reboot."
+Write-Host "[!] Warning: No active session found for '$userAccount'."
+}
+# Reboot the VM to apply AutoLogon and trigger the task
+Write-Log "Rebooting VM to apply AutoLogon and start scheduled task..."
+Write-Host "Rebooting VM to apply AutoLogon and start scheduled task..."
+Restart-Computer -Force
+Investigation about the above scripts:
+All the above scripts worked partially, they were able to connect the agent with the jenkins server but when the pipeline triggered the selenium scripts they ran in headless mode.
+My Requirement:
+I will be running the script in userdata which means the jenkins agent will be connected in non-interactive way but that does not affect the selenium scripts to be executed in GUI (non-headless mode) when executed through Jenkins pipeline. I don't mind configuring the VM in manually way because I will create an AMI out of the VM that I configured to use in terraform.
+powershellselenium-webdriverjenkinsjenkins-pipelinenon-interactive
+Share
+Improve this question
+Follow
+asked yesterday
+Shyam Sundar VShyam Sundar V
+1133 bronze badges
+2
+If you don't want selenium to launch a browser in headless mode, don't use the --headless argument when starting the browser. That's the only possible way to enable headless browsers. If you don't want a headless browser, don't launch a headless browser. However, make sure the system running the browsers actually has a display attached (or a virtual display). Besides that, the rest of your question is totally unclear and I don't think any of the code or details your provided are relevant.
+Corey Goldberg
+–
+Corey Goldberg
+2025-09-24 13:21:37 +00:00
+Commented
+yesterday
+I want to run my jenkins agent in GUI mode without logging in manually so I was looking at alternative ways to do that.
+Shyam Sundar V
+–
+Shyam Sundar V
+2025-09-25 04:56:52 +00:00
+Commented
+23 hours ago
+Add a comment
+|
+Related questions
+144
+How to configure ChromeDriver to initiate Chrome browser in Headless mode through Selenium?
+1
+What does mean by "running selenium tests are in headless mode " in jenkins
+2
+Jenkins is running selenium script on headless firefox browser
+Related questions
+144
+How to configure ChromeDriver to initiate Chrome browser in Headless mode through Selenium?
+1
+What does mean by "running selenium tests are in headless mode " in jenkins
+2
+Jenkins is running selenium script on headless firefox browser
+0
+Error running selenium webdriver/testng tests headless on a jenkins CI server
+5
+Jenkins running selenium tests without opening browser
+12
+How to execute Selenium 2 tests in Jenkins
+0
+Browser is opening in mobile mode when running selenium tests via jenkins on linux server
+5
+Running headless firefox Xvfb with Jenkins to run selenium tests
+Load 5 more related questions
+Show fewer related questions
+0
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+Know someone who can answer? Share a link to this question via email, Twitter, or Facebook.
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+powershellselenium-webdriverjenkinsjenkins-pipelinenon-interactive
+See similar questions with these tags.
+CI/CD
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Linked
+2
+Jenkins is running selenium script on headless firefox browser
+Hot Network Questions
+From honeycombs to a cube
+Verify a Chinese ID Number
+Does the Arostotelian species-genus concept apply to non-living things?
+Are there any alternatives to electricity that work/behave in a similar way?
+How can blood fuel space travel?
+What is an aggravating factor and why is kinship considered one?
+What is the Occultist class in 5e?
+Is there a specific term to describe someone who is religious but does not necessarily believe everything that their religion teaches, and uses logic?
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+Identifying voltage regulator on induction hob (marked FF 04)
+How to use ≥ 16 usbip ports from one host controller on Debian?
+how would you formalise in first order logic the sentence "I am a liar"?
+How to delete a file with a very long (and very strange) filename in Windows?
+Are there any problems with mastering my own music?
+Regulator circuit outputs negative current
+Another Slitherlink Next Step
+If 3-D is too easy, go 4-D
+What is the effectiveness of using a miniature (ground) plane to route vias through as opposed to using separate paths and vias?
+Stretch an elastic band around three nails so that it relaxes when any nail is removed
+How to remove noise suppression from microphone on a laptop?
+How does a telepathic bond work if the bondee lacks language?
+What conditions on an Earthlike planet would allow for a massive, Pando-esque forest that’s a single organism?
+Does pseudo-vitae revenants produce replenish vitae in Kindred?
+Do academics mind if someone outside their field critiques their work?
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-bash
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

@@ -1,0 +1,288 @@
+c++ - File, one writer-process, lot of reader-process. GNU Linux - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+File, one writer-process, lot of reader-process. GNU Linux [closed]
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+80 times
+-6
+Closed. This question needs debugging details. It is not currently accepting answers.
+Edit the question to include desired behavior, a specific problem or error, and the shortest code necessary to reproduce the problem. This will help others answer the question.
+Closed 16 hours ago.
+Improve this question
+File, one writer-process, lot of reader-process
+Hello. Could you please clarify if I understand correctly that this code doesn't guarantee that TestValue will always be read from the file? The goal was to implement reading TestValue from another process, but the way it's implemented now terrifies me. It seems like at a minimum, file access should be synchronized with a named semaphore. GNU Linux.
+int wr2f(const std::string& f_name, const uint16_t TestValue)
+{
+int f = open(f_name.c_str(), O_CREAT | O_RDWR, 0x7770);
+if (f < 0) return false;
+char c[10];
+memset(c, 0, sizeof(c));
+write(f, c, sizeof(c));
+close(f);
+f = open(f_name.c_str(), O_CREAT | O_RDWR, 0x7770);
+sprintf(c, "%d", TestValue);
+write(f, c, strlen(c));
+close(f);
+return true;
+}
+c++linuxipc
+Share
+Improve this question
+Follow
+edited 15 hours ago
+ad absurdum
+22k55 gold badges4545 silver badges6767 bronze badges
+asked 16 hours ago
+Neanderthal289Neanderthal289
+733 bronze badges
+4
+3
+int f is a redefinition and not valid C++. std::string is not valid C. This code can't be compiled so it doesn't guarantee anything.
+jabaa
+–
+jabaa
+2025-09-25 12:15:09 +00:00
+Commented
+16 hours ago
+3
+"that this code doesn't guarantee that TestValue will always be read from the file?" The code shown doesn't attempt to read anythng from any file. So it's safe to say that it doesn't guarantee that anything is read from a file.
+Igor Tandetnik
+–
+Igor Tandetnik
+2025-09-25 12:17:50 +00:00
+Commented
+16 hours ago
+There was a typo in my code example, I admit. This is just a code example, reproducing the approach to writing data to a file; I can't show the actual code... I've fixed it; the file name is now f_name. But that's not the point of the question, and it remains unanswered. But the downvotes have already been off-topic. Thank you...
+Neanderthal289
+–
+Neanderthal289
+2025-09-25 13:26:45 +00:00
+Commented
+15 hours ago
+2
+"I can't show the actual code" Create and provide a minimal reproducible example. "it remains unanswered" Actually, there is an answer. What's wrong with it?
+jabaa
+–
+jabaa
+2025-09-25 13:59:10 +00:00
+Commented
+14 hours ago
+Add a comment
+|
+1 Answer
+1
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+1
+Potential Problems
+No synchronization between processes.
+If a reader opens the file between the first close and the second write, it will see ten zeroes instead of TestValue.
+No guarantee of atomicity.
+Even write is not necessarily fully atomic, especially if you write more than PIPE_BUF. In this case, the size is small, so it will usually be written at once, but there’s still a race window between the two open and write calls.
+Opening the file twice is unnecessary.
+You can open the file once with O_TRUNC and immediately write the final value. Right now, you "zero out" the file, but that does not protect against race conditions.
+File permissions (0x7770).
+This is a strange value. Normally you’d use 0666 or 0644.
+How to Do It Correctly
+On Linux, to synchronize access to a file across processes you should:
+Use file locks (flock or fcntl), or
+Use a semaphore (posix/semaphore.h) or shm_open + mmap for IPC if you need guaranteed consistency.
+For example, writing with a lock using flock:
+#include <sys/file.h>
+#include <unistd.h>
+#include <fcntl.h>
+bool wr2f(const std::string& path, uint16_t TestValue) {
+int fd = open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+if (fd < 0) return false;
+// lock the file
+if (flock(fd, LOCK_EX) < 0) {
+close(fd);
+return false;
+}
+char buf[16];
+int len = snprintf(buf, sizeof(buf), "%u", TestValue);
+if (write(fd, buf, len) != len) {
+flock(fd, LOCK_UN);
+close(fd);
+return false;
+}
+// unlock
+flock(fd, LOCK_UN);
+close(fd);
+return true;
+}
+Share
+Improve this answer
+Follow
+answered 16 hours ago
+Александр ПысларьАлександр Пысларь
+2633 bronze badges
+New contributor
+Александр Пысларь is a new contributor to this site. Take care in asking for clarification, commenting, and answering.
+Check out our Code of Conduct.
+2 Comments
+Add a comment
+John Bollinger John Bollinger 13 hours ago
+I don't think this example is safe, because opening with O_TRUNC will modify the file if it is initially nonempty, and this is done without holding a lock.
+If you want to use flock here then you would probably want to open without O_TRUNC, and instead use ftruncate() after obtaining the lock. 2025-09-25T15:15:32.97Z+00:00
+0
+Reply
+Copy link
+John Bollinger John Bollinger 13 hours ago
+According to POSIX, write() is in fact thread safe, which I think contradicts your claim that it is not "atomic".
+What actually it is not guaranteed to do is write the full number of bytes requested by any given successful call.
+It can instead (successfully) perform short writes.
+Bytes from one write() will not be mingled with bytes from a different write by any process, and if write() successfully writes a given number of bytes then no read() that observes any of them will perceive fewer than all of them to have been written. 2025-09-25T15:31:51.94Z+00:00
+0
+Reply
+Copy link
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+c++linuxipc
+See similar questions with these tags.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+530
+How to append one file to another in Linux from the shell?
+608
+Linux error while loading shared libraries: cannot open shared object file: No such file or directory
+3
+Named pipes - Problem with write() and read()
+362
+Execute combine multiple Linux commands in one line
+Hot Network Questions
+Separating trefoil knot on torus
+Identifying a movie where a man relives the same day
+Smoothing a triangulated surface without changing its quasi-isometry class
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+What is the song that plays in "Highlander," season 6, episode 13?
+How to draw the following graph in latex?
+What exactly makes something a "phased-out creature"
+Time traveler named Tom/John forgets device, Penelope Weschler, machine harvests Earth's spin
+Quantizing EM field by imposing canonical commutation relations
+What "real mistakes" exist in the Messier catalog?
+How to use ≥ 16 usbip ports from one host controller on Debian?
+How can an alien symbiote coexist with the immune system long-term?
+Regulator circuit outputs negative current
+In the U.S., what protections are in place to help (under)graduate students whose entire department is removed?
+Another Slitherlink Next Step
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+Why weren’t Prince Philip’s sisters invited to his wedding to Princess Elizabeth?
+Does the Arostotelian species-genus concept apply to non-living things?
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+Are there any alternatives to electricity that work/behave in a similar way?
+What is the Occultist class in 5e?
+How do I make the middle of the bill curve up?
+If 3-D is too easy, go 4-D
+How to crack ECC using halving
+more hot questions
+lang-cpp
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480

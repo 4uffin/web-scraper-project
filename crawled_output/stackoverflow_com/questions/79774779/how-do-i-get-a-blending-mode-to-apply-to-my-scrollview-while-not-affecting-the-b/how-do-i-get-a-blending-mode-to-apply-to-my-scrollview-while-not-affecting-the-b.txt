@@ -1,0 +1,546 @@
+ios - How do I get a blending mode to apply to my ScrollView while not affecting the background on latest SwiftUI? - Stack Overflow
+Skip to main content
+Stack Overflow
+About
+Products
+For Teams
+Stack Overflow for Teams
+Where developers & technologists share private knowledge with coworkers
+Advertising
+Reach devs & technologists worldwide about your product, service or employer brand
+Knowledge Solutions
+Data licensing offering for businesses to build and improve AI tools and models
+Labs
+The future of collective knowledge sharing
+About the company
+Visit the blog
+Loading…
+current community
+Stack Overflow
+help
+chat
+Meta Stack Overflow
+your communities
+Sign up or log in to customize your list.
+more stack exchange communities
+company blog
+Log in
+Sign up
+Home
+Questions
+AI Assist
+Labs
+Tags
+Challenges
+Chat
+Articles
+Users
+Jobs
+Companies
+Collectives
+Communities for your favorite technologies.
+Explore all Collectives
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Try Teams for free
+Explore Teams
+Teams
+Ask questions, find answers and collaborate at work with Stack Overflow for Teams.
+Explore Teams
+Collectives™ on Stack Overflow
+Find centralized, trusted content and collaborate around the technologies you use most.
+Learn more about Collectives
+Teams
+Q&A for work
+Connect and share knowledge within a single location that is structured and easy to search.
+Learn more about Teams
+How do I get a blending mode to apply to my ScrollView while not affecting the background on latest SwiftUI?
+Ask Question
+Asked
+today
+Modified
+today
+Viewed
+58 times
+Part of Mobile Development Collective
+2
+So I've got a ScrollView and a LinearGradient with a blendMode inside a ZStack, and I'm trying to figure out how to exclude the background, in my head this is a nice effect and it works fine if I don't care about the background.
+I've tried:
+Putting it in its own drawingGroup or compositingGroup, but that has really strange effects; everything goes completely the wrong colour, including the background.
+Creating a view that masks based on its content, this works for non ScrollView stuff but as soon as you scroll, it's not re-rendering properly.
+Example Code:
+import SwiftUI
+struct GradientTintScrollView: View {
+var body: some View {
+ZStack {
+// Background sits outside, untouched
+LinearGradient(
+colors: [.purple, .pink],
+startPoint: .top,
+endPoint: .bottom
+)
+.ignoresSafeArea()
+// Only this group gets the tint effect
+ZStack {
+ScrollView {
+VStack(spacing: 20) {
+ForEach(0..<10) { i in
+RoundedRectangle(cornerRadius: 16)
+.fill(.white)
+.frame(height: 120)
+.overlay(
+Text("Card \(i)")
+.font(.headline)
+.foregroundColor(.red)
+)
+.padding(.horizontal)
+}
+}
+.padding(.vertical, 50)
+}
+.background(Color.clear)
+LinearGradient(
+colors: [.blue, .orange],
+startPoint: .topLeading,
+endPoint: .bottomTrailing
+)
+.blendMode(.color)
+.allowsHitTesting(false)
+.ignoresSafeArea()
+}
+.background(Color.clear)
+}
+}
+}
+#Preview {
+GradientTintScrollView()
+}
+iosswiftswiftuiios26
+Share
+Improve this question
+Follow
+edited 9 hours ago
+shim
+10.3k1313 gold badges7878 silver badges121121 bronze badges
+asked 16 hours ago
+George McKibbinGeorge McKibbin
+1,30111 gold badge1111 silver badges1616 bronze badges
+Add a comment
+|
+2 Answers
+2
+Sorted by:
+Reset to default
+Highest score (default)
+Trending (recent votes count more)
+Date modified (newest first)
+Date created (oldest first)
+0
+The masking approach could work for scroll views too, if you track the frames of each subview of the scroll view. You could use a struct like this:
+struct ScrollContentFrame: Identifiable {
+let id: AnyHashable
+let frame: Anchor<CGRect>
+let shape: AnyShape
+}
+I'm keeping things very general here by using AnyHashable and AnyShape. If this is just a one-off effect you want to do, I would recommend using an appropriate ID type, and if the shape is known and constant, remove shape.
+Next, write a preference key that collects an array of these,
+struct ScrollContentFramesKey: PreferenceKey {
+static var defaultValue: [ScrollContentFrame] { [] }
+static func reduce(value: inout [ScrollContentFrame], nextValue: () -> [ScrollContentFrame]) {
+value.append(contentsOf: nextValue())
+}
+}
+Set the preference key using an anchorPreference,
+.anchorPreference(key: ScrollContentFramesKey.self, value: .bounds) { anchor in
+[
+ScrollContentFrame(
+id: i,
+frame: anchor,
+shape: AnyShape(RoundedRectangle(cornerRadius: 16))
+)
+]
+}
+The color-blended linear gradient can be added as an overlayPreferenceValue instead of ZStack.
+.overlayPreferenceValue(ScrollContentFramesKey.self) { scrollContentFrames in
+LinearGradient(
+colors: [.blue, .orange],
+startPoint: .topLeading,
+endPoint: .bottomTrailing
+)
+.allowsHitTesting(false)
+.mask {
+GeometryReader { proxy in
+ForEach(scrollContentFrames) { content in
+let frame = proxy[content.frame]
+content.shape
+.frame(width: frame.width, height: frame.height)
+.position(x: frame.midX, y: frame.midY)
+}
+}
+}
+.blendMode(.color)
+.ignoresSafeArea()
+}
+Full code for the view:
+struct ContentView: View {
+var body: some View {
+ZStack {
+LinearGradient(
+colors: [.purple, .pink],
+startPoint: .top,
+endPoint: .bottom
+)
+.ignoresSafeArea()
+ScrollView {
+LazyVStack(spacing: 20) {
+ForEach(0..<10) { i in
+RoundedRectangle(cornerRadius: 16)
+.fill(.white)
+.frame(height: 120)
+.overlay(
+Text("Card \(i)")
+.font(.headline)
+.foregroundColor(.red)
+)
+.anchorPreference(key: ScrollContentFramesKey.self, value: .bounds) { anchor in
+[
+ScrollContentFrame(
+id: i,
+frame: anchor,
+shape: AnyShape(RoundedRectangle(cornerRadius: 16))
+)
+]
+}
+.padding(.horizontal)
+}
+}
+.padding(.vertical, 50)
+}
+.background(Color.clear)
+.overlayPreferenceValue(ScrollContentFramesKey.self) { scrollContentFrames in
+LinearGradient(
+colors: [.blue, .orange],
+startPoint: .topLeading,
+endPoint: .bottomTrailing
+)
+.allowsHitTesting(false)
+.mask {
+GeometryReader { proxy in
+ForEach(scrollContentFrames) { content in
+let frame = proxy[content.frame]
+content.shape
+.frame(width: frame.width, height: frame.height)
+.position(x: frame.midX, y: frame.midY)
+}
+}
+}
+.blendMode(.color)
+.ignoresSafeArea()
+}
+}
+}
+}
+Share
+Improve this answer
+Follow
+answered 14 hours ago
+SweeperSweeper
+289k2323 gold badges257257 silver badges429429 bronze badges
+3 Comments
+Add a comment
+Tim Tim 13 hours ago
+I’ve tried a couple of times to find the definitive guide for “when to use prefrenceKey instead of ‘onChange’ mods” especially pertaining to performance. Do you have any advice/articles you could share? 2025-09-25T14:59:32.54Z+00:00
+0
+Reply
+Copy link
+Sweeper Sweeper 13 hours ago
+@Tim How is onChange comparable with preference keys? They are for very different purposes. I don't see how they are related. 2025-09-25T15:05:00.87Z+00:00
+0
+Reply
+Copy link
+Tim Tim 13 hours ago
+I’ll have to be in front of a computer when I answer that…@Sweeper 2025-09-25T15:19:50.783Z+00:00
+0
+Reply
+Copy link
+Add a comment
+0
+You mentioned in your point 2 that the mask was not re-rendering properly when scrolled.
+One way to get it working is to use .matchedGeometryEffect to track the position of the cards. Matching shapes can then be used as the mask, or for cutting out parts of the top layers using blend mode.
+Here are three examples of the technique being used:
+Move the background gradient (the one going from purple to pink) to the top layer of the ZStack. Then cut "holes" in it, to correspond to the cards that are being scrolled.
+Use blend mode .destinationOut to cut the holes out of the top layer.
+Apply .compositingGroup() to the top layer, to stop the blend effect from going any lower.
+The cards can be seen through the holes in the top layer.
+The shape of a visible card is now determined by the shape of the holes. So the cards themselves can be simplified to a square form.
+struct GradientTintScrollView: View {
+@Namespace private var ns
+var body: some View {
+ZStack {
+// The scrolled cards with gradient applied over them.
+// This is now the base layer of the outer ZStack
+ZStack {
+ScrollView {
+VStack(spacing: 20) {
+ForEach(0..<10) { i in
+Color.white
+.frame(height: 120)
+.matchedGeometryEffect(id: i, in: ns)
+.overlay(
+Text("Card \(i)")
+.font(.headline)
+.foregroundColor(.red)
+)
+.padding(.horizontal)
+}
+}
+.padding(.vertical, 50)
+}
+LinearGradient(
+colors: [.blue, .orange],
+startPoint: .topLeading,
+endPoint: .bottomTrailing
+)
+.blendMode(.color)
+.allowsHitTesting(false)
+.ignoresSafeArea()
+}
+// The top layer has holes in it that are matched in size and
+// position to the cards in the ScrollView
+LinearGradient(
+colors: [.purple, .pink],
+startPoint: .top,
+endPoint: .bottom
+)
+.ignoresSafeArea()
+.overlay {
+ZStack {
+ForEach(0..<10) { i in
+RoundedRectangle(cornerRadius: 16)
+.matchedGeometryEffect(id: i, in: ns, isSource: false)
+}
+}
+.blendMode(.destinationOut)
+}
+.compositingGroup()
+.allowsHitTesting(false)
+}
+}
+}
+Keep the layers how you had them in the first place and use .matchedGeometryEffect to implement a mask over the tinting gradient.
+With this approach, you need to make sure that the same Shape is used for the mask areas as for the cards:
+struct GradientTintScrollView: View {
+@Namespace private var ns // 👈 added
+var body: some View {
+ZStack {
+LinearGradient(
+colors: [.purple, .pink],
+startPoint: .top,
+endPoint: .bottom
+)
+.ignoresSafeArea()
+ZStack {
+ScrollView {
+VStack(spacing: 20) {
+ForEach(0..<10) { i in
+RoundedRectangle(cornerRadius: 16)
+.fill(.white)
+.frame(height: 120)
+.matchedGeometryEffect(id: i, in: ns) // 👈 added
+.overlay(
+Text("Card \(i)")
+.font(.headline)
+.foregroundColor(.red)
+)
+.padding(.horizontal)
+}
+}
+.padding(.vertical, 50)
+}
+LinearGradient(
+colors: [.blue, .orange],
+startPoint: .topLeading,
+endPoint: .bottomTrailing
+)
+.mask { // 👈 added
+ZStack {
+ForEach(0..<10) { i in
+RoundedRectangle(cornerRadius: 16)
+.matchedGeometryEffect(id: i, in: ns, isSource: false)
+}
+}
+}
+.blendMode(.color)
+.allowsHitTesting(false)
+.ignoresSafeArea()
+}
+}
+}
+}
+Instead of applying a .mask to the tinting gradient, it can also be done with blendMode.
+The shapes of the cards are used as a base layer.
+The tinting gradient is applied as an overlay, with blend mode of .sourceAtop.
+This gives blocks of gradient, corresponding to the underlying cards.
+.compositingGroup() is used to combine the layers together, before using a blend mode of .color over the ScrollView, as before.
+ZStack {
+LinearGradient(
+// purple to pink gradient, as above
+)
+.ignoresSafeArea()
+ZStack {
+ScrollView {
+// ... also as above
+}
+ZStack {
+ForEach(0..<10) { i in
+RoundedRectangle(cornerRadius: 16)
+.matchedGeometryEffect(id: i, in: ns, isSource: false)
+}
+}
+.overlay {
+LinearGradient(
+colors: [.blue, .orange],
+startPoint: .topLeading,
+endPoint: .bottomTrailing
+)
+.blendMode(.sourceAtop)
+}
+.compositingGroup()
+.blendMode(.color)
+.allowsHitTesting(false)
+.ignoresSafeArea()
+}
+}
+All three techniques work the same:
+Share
+Improve this answer
+Follow
+edited 6 hours ago
+answered 14 hours ago
+Benzy NeezBenzy Neez
+27.6k33 gold badges2020 silver badges5858 bronze badges
+Comments
+Add a comment
+Your Answer
+Thanks for contributing an answer to Stack Overflow!Please be sure to answer the question. Provide details and share your research!But avoid …Asking for help, clarification, or responding to other answers.Making statements based on opinion; back them up with references or personal experience.To learn more, see our tips on writing great answers.
+Draft saved
+Draft discarded
+Sign up or log in
+Sign up using Google
+Sign up using Email and Password
+Submit
+Post as a guest
+Name
+Email
+Required, but never shown
+Post as a guest
+Name
+Email
+Required, but never shown
+Post Your Answer
+Discard
+By clicking “Post Your Answer”, you agree to our terms of service and acknowledge you have read our privacy policy.
+Start asking to get answers
+Find the answer to your question by asking.
+Ask question
+Explore related questions
+iosswiftswiftuiios26
+See similar questions with these tags.
+Mobile Development
+Collective
+See more
+This question is in a collective: a subcommunity defined by tags with relevant content and experts.
+The Overflow Blog
+Democratizing your data access with AI agents
+The history and future of software development (part 1)
+Featured on Meta
+Spevacus has joined us as a Community Manager
+Introducing a new proactive anti-spam measure
+New and improved coding challenges
+New comment UI experiment graduation
+Policy: Generative AI (e.g., ChatGPT) is banned
+Related
+1334
+Xcode - How to fix 'NSUnknownKeyException', Reason: "… this class is not key value coding-compliant for the key X" error?
+340
+How do I change the background color of a SwiftUI View?
+584
+How do I get the App version and build number using Swift?
+203
+How can I pop to the Root view using SwiftUI?
+198
+How can I remove the line separators from a List in SwiftUI without using ForEach?
+226
+How to remove the default Navigation Bar space in SwiftUI NavigationView
+168
+SwiftUI. How to change the placeholder color of the TextField?
+482
+How do I get a reference to the AppDelegate in Swift?
+Hot Network Questions
+Why would disembarking a few passengers delay a flight by 3 hours?
+List of crowdsourced math projects actively seeking participants
+How to remove noise suppression from microphone on a laptop?
+Comparing a combination of data from two columns to another combination from other two columns
+General inquiries about the Ersatzinfinitiv
+Was King George VI’s lung surgery performed at Buckingham Palace as shown?
+Does clipping distortion affect the information contained within a frequency-modulated signal?
+Does pseudo-vitae revenants produce replenish vitae in Kindred?
+failed to resolve source metadata for docker.io/library/openjdk:21-slim-buster
+On the Subject of Switches
+Marking utensils for ownership
+Plotting functions without sampling artefacts
+SF short-story written perhaps 30 - 40 years ago about female-infected creatures who are called males
+Changing size of math environments
+Traveling by car on train in Germany
+Identifying voltage regulator on induction hob (marked FF 04)
+Short story about a metal-eating alien
+Yet Another Python Weather Visualizer using Open-Meteo
+What is an aggravating factor and why is kinship considered one?
+Does a distant observer see the light for a longer duration due to the effect of time dilation?
+What is this glass device I found next to drinking glasses in the south of France
+How to convert square wave to sine wave
+Simplification of an analytically evaluated integral expressed in terms of elliptic integrals
+Ian Stewart, Definition for Primitive Root of Unity
+more hot questions
+Question feed
+Subscribe to RSS
+Question feed
+To subscribe to this RSS feed, copy and paste this URL into your RSS reader.
+lang-swift
+Stack Overflow
+Questions
+Help
+Chat
+Products
+Teams
+Advertising
+Talent
+Company
+About
+Press
+Work Here
+Legal
+Privacy Policy
+Terms of Service
+Contact Us
+Your Privacy Choices
+Cookie Policy
+Stack Exchange Network
+Technology
+Culture & recreation
+Life & arts
+Science
+Professional
+Business
+API
+Data
+Blog
+Facebook
+Twitter
+LinkedIn
+Instagram
+Site design / logo © 2025 Stack Exchange Inc;
+user contributions licensed under
+CC BY-SA
+.
+rev 2025.9.25.34480
